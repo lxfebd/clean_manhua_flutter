@@ -7,7 +7,6 @@ import 'package:path_provider/path_provider.dart';
 import 'net/bookshelf_store.dart';
 import 'net/local_store.dart';
 import 'net/novel_shelf_store.dart';
-import 'sources/picacg_source.dart';
 import 'theme.dart';
 import 'ui/main_shell.dart';
 
@@ -21,7 +20,6 @@ void main() async {
   } catch (_) {}
   try {
     final dir = await getApplicationSupportDirectory();
-    PicacgSource.bindTokenFile(File('${dir.path}/pica_token'));
     BookshelfStore.bindFile(File('${dir.path}/bookshelf.json'));
     NovelShelfStore.bindFile(File('${dir.path}/novel_shelf.json'));
   } catch (_) {}

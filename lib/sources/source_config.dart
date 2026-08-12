@@ -117,14 +117,6 @@ class SourceConfigStore {
           tier: SourceTier.primary,
           hosts: ['https://comifg.yy-fun.cc'],
         ),
-        const SourceConfig(
-          engineId: 'picacg',
-          id: 'picacg',
-          name: '哔咔漫画',
-          requiresLogin: true,
-          tier: SourceTier.fallback,
-          hosts: ['https://picaapi.picacomic.com'],
-        ),
         SourceConfig(
           engineId: 'jm',
           id: 'jm',
@@ -171,9 +163,8 @@ class SourceConfigStore {
           name: '笔趣阁',
           tier: SourceTier.primary,
           hosts: [
-            'https://www.biquge.com.tw',
-            'https://www.xbiquge.la',
-            'https://www.biquge5200.com',
+            'https://www.tobiquge.com',
+            'https://www.xbiquge.com',
           ],
         ),
       ];

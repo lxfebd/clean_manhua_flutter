@@ -6,7 +6,6 @@ import 'doubao_source.dart';
 import 'jm_source.dart';
 import 'mangadex_source.dart';
 import 'novel_source.dart';
-import 'picacg_source.dart';
 import 'source_config.dart';
 import 'tvtfun_video_source.dart';
 import 'video_source.dart';
@@ -21,7 +20,6 @@ class SourceManager {
     DoubaoSource(), // 豆包：国内可用，章节图 AES 解密已验证
     BaoziMangaSource(), // 包子漫画：免登录直链，无反爬（替代需登录的花火漫画）
     YYFunSource(), // 樱漫：应用自有后端，中文内容
-    PicacgSource(), // 哔咔：需登录
     JmSource(), // 禁漫：反爬/验证码，可能暂不可用
     MangaDexSource(), // MangaDex：英文/非 R18，兜底
   ];
@@ -31,6 +29,13 @@ class SourceManager {
     TvTfunVideoSource(),
     XifanVideoSource(),
   ];
+
+  static VideoSource? videoById(String id) {
+    for (final s in videoSources) {
+      if (s.id == id) return s;
+    }
+    return null;
+  }
 
   /// 小说源：笔趣阁类聚合（经典模板，host 可配置）。
   static final List<NovelSource> novelSources = [

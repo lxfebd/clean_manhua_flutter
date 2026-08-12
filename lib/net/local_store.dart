@@ -73,6 +73,68 @@ class HistoryEntry {
   String get key => book.key;
 }
 
+/// 动画观看记录：记录看到哪部剧、哪一集、播到第几秒。
+class VideoRecord {
+  /// 播放源 id（VideoSource.id）。
+  final String sourceId;
+
+  /// 番剧 id，配合 [sourceId] 可重新解析播放链。
+  final String videoId;
+
+  final String title;
+  final String? cover;
+
+  /// 播放到的集/进度。
+  final int season;
+  final int episode;
+
+  /// 上次播放位置（秒）。
+  final int seconds;
+
+  /// 单集总时长（秒），0 表示未知（无 duration 时进度条按播放时间衰减）。
+  final int duration;
+  final int timestamp;
+
+  const VideoRecord({
+    required this.sourceId,
+    required this.videoId,
+    required this.title,
+    this.cover,
+    this.season = 1,
+    this.episode = 1,
+    this.seconds = 0,
+    this.duration = 0,
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toMap() => {
+        'sourceId': sourceId,
+        'videoId': videoId,
+        'title': title,
+        'cover': cover,
+        'season': season,
+        'episode': episode,
+        'seconds': seconds,
+        'duration': duration,
+        'timestamp': timestamp,
+      };
+
+  factory VideoRecord.fromMap(Map<String, dynamic> m) => VideoRecord(
+        sourceId: (m['sourceId'] as String?) ?? '',
+        videoId: (m['videoId'] as String?) ?? '',
+        title: (m['title'] as String?) ?? '',
+        cover: m['cover'] as String?,
+        season: (m['season'] as num?)?.toInt() ?? 1,
+        episode: (m['episode'] as num?)?.toInt() ?? 1,
+        seconds: (m['seconds'] as num?)?.toInt() ?? 0,
+        duration: (m['duration'] as num?)?.toInt() ?? 0,
+        timestamp: (m['timestamp'] as num?)?.toInt() ?? 0,
+      );
+
+  /// 同一剧集同一集的唯一 key，与历史 key 一致。
+  String get key => '$sourceId::$videoId::$season-$episode';
+}
+
 /// 下载任务记录。
 class DownloadRecord {
   final Bookmark book;
@@ -208,6 +270,30 @@ class LocalStore {
 
   static Future<void> clearHistory() async => _write('history', []);
 
+  // ---- 动画观看记录 ----
+  static Future<List<VideoRecord>> videoRecords() async {
+    final list = (await _read('video_records') as List?) ?? [];
+    final records = list
+        .map((e) => VideoRecord.fromMap(e as Map<String, dynamic>))
+        .toList();
+    records.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return records;
+  }
+
+  /// 保存/更新一条动画观看记录（同 key 覆盖）。
+  static Future<void> recordVideo(VideoRecord r) async {
+    final list = (await videoRecords()).where((e) => e.key != r.key).toList();
+    list.insert(0, r);
+    if (list.length > 300) list.removeRange(300, list.length);
+    await _write('video_records', list.map((e) => e.toMap()).toList());
+  }
+
+  /// 移除一条动画观看记录。
+  static Future<void> removeVideoRecord(String key) async {
+    final list = (await videoRecords()).where((e) => e.key != key).toList();
+    await _write('video_records', list.map((e) => e.toMap()).toList());
+  }
+
   // ---- 设置 ----
   static Future<bool> darkMode() async =>
       ((await _read('settings')) as Map?)?['dark'] as bool? ?? false;
@@ -275,5 +361,25 @@ class LocalStore {
       if (d.existsSync()) d.deleteSync(recursive: true);
     } catch (_) {}
     await _write('downloads', []);
+  }
+
+  /// 仅清理已完成的下载（文件 + 记录），保留进行中的任务。
+  static Future<int> clearFinishedDownloads() async {
+    final list = await downloads();
+    final finished = list.where((d) => d.finished).toList();
+    for (final d in finished) {
+      await removeDownloadFiles(d);
+    }
+    await _saveDownloads(list.where((d) => !d.finished).toList());
+    return finished.length;
+  }
+
+  /// 删除单条下载记录对应的本地文件目录（章节目录），不删记录本身。
+  static Future<void> removeDownloadFiles(DownloadRecord d) async {
+    try {
+      final base = await downloadDir();
+      final cd = Directory('${base.path}/${d.localKey}');
+      if (cd.existsSync()) cd.deleteSync(recursive: true);
+    } catch (_) {}
   }
 }

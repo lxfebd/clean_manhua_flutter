@@ -20,11 +20,16 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
   int _index = 0;
   final GlobalKey<BookshelfPageState> _shelfKey =
       GlobalKey<BookshelfPageState>();
+  final GlobalKey<ProfilePageState> _profileKey =
+      GlobalKey<ProfilePageState>();
 
   void _onTab(int i) {
     setState(() => _index = i);
     if (i == 1) {
       _shelfKey.currentState?.reload();
+    }
+    if (i == 3) {
+      _profileKey.currentState?.refresh();
     }
   }
 
@@ -55,7 +60,7 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
             const MangaAnimeTabs(),
             BookshelfPage(key: _shelfKey),
             const ToolboxPage(),
-            const ProfilePage(),
+            ProfilePage(key: _profileKey, onSwitchTab: _onTab),
           ]),
         ),
       ),

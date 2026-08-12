@@ -3,42 +3,42 @@ import 'novel_source.dart';
 import 'source_config.dart';
 import 'source_http.dart';
 
-/// 笔趣阁类聚合小说源。
+/// 笔趣阁类聚合小说源（xbiquge.com / tobiquge.com 模板）。
 ///
-/// 采用经典「笔趣阁(YanMo/KindlePHP 模板)」结构解析：
-/// - 搜索：/modules/article/search.php?searchkey={q}
-/// - 详情：/book/{id}/
-/// - 章节：/book/{id}/{cid}.html  →  <div id="content">
-///
-/// 该模板被数百个镜像共用，结构十年稳定。具体站点通过 [SourceConfig.hosts] 配置
-/// （首个 host 生效），在「源管理」页即可切换域名，无需改代码重发版。
+/// 站点结构（2026-08 实测可用）：
+/// - 排行：/rank.html（无分页，整页书单）
+/// - 分类：/list-{catId}-{page}/   （catId: 4都市, 6游戏, 8异界, 9科幻, 10历史…）
+/// - 详情：/bqg/{novelId}/         章节列表在详情页内
+/// - 章节：/bqg/{novelId}/{cid}.html → <div id="content"> 内 <p> 段落
+/// - 封面：og:image（tobiquge.com 图床）
+/// - 搜索：该模板搜索跳转第三方聚合站，本站无搜索接口，返回空列表。
+/// - 注意：主站 xbiquge.com 会 301 到 tobiquge.com，而重定向链在部分 UA/
+///   header（如 Accept: */*）下连接会被关闭，因此首选直连 tobiquge.com。
 class BiqugeNovelSource extends NovelSource {
   static const List<String> _defaultHosts = [
-    'https://www.biquge.com.tw',
-    'https://www.xbiquge.la',
-    'https://www.biquge5200.com',
+    'https://www.tobiquge.com',
+    'https://www.xbiquge.com',
   ];
 
-  // 搜索结果：<a href="/book/12345/" ...>书名</a>（位于 tbody 结果区）
-  static final RegExp _searchRe =
-      RegExp(r'<a\s+href="/book/(\d+)/"[^>]*>([^<]+)</a>');
-  // 详情页章节：<a href="/book/12345/6789.html">章节名</a>
+  // 详情页章节：<a href="/bqg/{novelId}/{cid}.html">章节名</a>
   static final RegExp _chapterRe =
-      RegExp(r'<a\s+href="/book/\d+/(\d+)\.html"[^>]*>([^<]+)</a>');
+      RegExp(r'<a\s+href="/bqg/(\d+)/(\d+)\.html"[^>]*>([^<]+)</a>');
   static final RegExp _h1Re = RegExp(r'<h1[^>]*>([^<]+)</h1>');
+  static final RegExp _ogTitleRe =
+      RegExp(r'<meta[^>]+property="og:title"[^>]+content="([^"]+)"');
   static final RegExp _ogImgRe =
       RegExp(r'<meta[^>]+property="og:image"[^>]+content="([^"]+)"');
-  static final RegExp _fmImgRe =
-      RegExp(r'id="fmimg"[^>]*>[\s\S]*?<img[^>]+src="([^"]+)"');
   static final RegExp _descRe =
-      RegExp(r'<meta[^>]+name="description"[^>]+content="([^"]+)"');
+      RegExp(r'<meta[^>]+property="og:description"[^>]+content="([^"]+)"');
   static final RegExp _contentRe =
       RegExp(r'<div[^>]+id="content"[^>]*>([\s\S]*?)</div>',
           caseSensitive: false);
-  static final RegExp _prevRe =
-      RegExp(r'<a\s+href="(\d+)\.html"[^>]*>上一章</a>', caseSensitive: false);
+  // 下一章：<a href="/bqg/{id}/{cid}.html" class="pageDown">下一章</a>
   static final RegExp _nextRe =
-      RegExp(r'<a\s+href="(\d+)\.html"[^>]*>下一章</a>', caseSensitive: false);
+      RegExp(r'<a\s+href="[^"]*/bqg/(\d+)/(\d+)\.html"[^>]*class="pageDown"[^>]*>[^<]*下一章</a>');
+  // 上一章：<a href="/bqg/{id}/{cid}.html" class="pageUp">上一章</a>
+  static final RegExp _prevRe =
+      RegExp(r'<a\s+href="[^"]*/bqg/(\d+)/(\d+)\.html"[^>]*class="pageUp"[^>]*>[^<]*上一章</a>');
   static final RegExp _tagRe = RegExp(r'<[^>]+>');
   static final RegExp _brRe = RegExp(r'(<br\s*/?>|</p>|&nbsp;)',
       caseSensitive: false);
@@ -50,55 +50,66 @@ class BiqugeNovelSource extends NovelSource {
   @override
   SourceTier get tier => SourceTier.primary;
 
+  // 站内分类 id → 名称
+  static const Map<String, String> _catNames = {
+    '4': '都市小说',
+    '5': '游戏小说',
+    '6': '网游小说',
+    '8': '异界小说',
+    '9': '科幻小说',
+    '10': '历史小说',
+    '11': '武侠小说',
+    '12': '军事小说',
+    '16': '古代言情',
+    '18': '现代言情',
+  };
+
   @override
   Future<List<Category>> categories() async => [
-        Category('all', '全部'),
-        Category('xuanhuan', '玄幻'),
-        Category('xiuzhen', '修真'),
-        Category('dushi', '都市'),
-        Category('yanqing', '言情'),
-        Category('kehuan', '科幻'),
-        Category('lingyi', '灵异'),
-        Category('wangyou', '网游'),
+        for (final e in _catNames.entries) Category(e.key, e.value),
       ];
 
   @override
   Future<List<ComicItem>> listByCategory(String categoryId, int page) async {
-    // 分类页多数镜像为 /sort/{id}_{page}/ 或 /category/，兜底走排行首页。
-    final path = categoryId == 'all'
-        ? '/modules/article/toplist.php?page=$page'
-        : '/sort/$categoryId\_$page/';
+    final id = categoryId == 'all' ? '4' : categoryId;
     return _parseList(
-        await SourceHttp.get('biquge', path, fallbackHosts: _defaultHosts));
+        await SourceHttp.get('biquge', '/list-$id-$page/',
+            fallbackHosts: _defaultHosts));
   }
 
   @override
-  Future<List<ComicItem>> rank(int page) async => _parseList(await SourceHttp.get(
-      'biquge', '/modules/article/toplist.php?page=$page',
-      fallbackHosts: _defaultHosts));
+  Future<List<ComicItem>> rank(int page) async {
+    // /rank.html 为整页书单（无分页），page>1 时仍返回首页排行。
+    final body = await SourceHttp.get('biquge', '/rank.html',
+        fallbackHosts: _defaultHosts);
+    return _parseList(body);
+  }
 
   @override
-  Future<List<ComicItem>> search(String keyword, int page) async => _parseList(
-      await SourceHttp.get(
-          'biquge',
-          '/modules/article/search.php?searchkey=${Uri.encodeQueryComponent(keyword)}',
-          fallbackHosts: _defaultHosts));
+  Future<List<ComicItem>> search(String keyword, int page) async {
+    // 该模板无站内搜索（搜索框跳第三方聚合站），返回空列表由 UI 兜底。
+    return const [];
+  }
 
   @override
   Future<NovelDetail> detail(String novelId) async {
-    final body = await SourceHttp.get('biquge', '/book/$novelId/',
+    final body = await SourceHttp.get('biquge', '/bqg/$novelId/',
         fallbackHosts: _defaultHosts);
-    final name = _first(_h1Re, body);
-    final cover = _first(_ogImgRe, body) ?? _first(_fmImgRe, body);
+    final name = _first(_ogTitleRe, body);
+    final cover = _first(_ogImgRe, body);
     final desc = _first(_descRe, body);
     final chapters = <NovelChapter>[];
+    final seen = <String>{};
     var idx = 0;
     for (final m in _chapterRe.allMatches(body)) {
-      chapters.add(NovelChapter(m.group(1)!, _clean(m.group(2)!),
-          index: idx++));
+      final nid = m.group(1)!;
+      final cid = m.group(2)!;
+      if (nid != novelId || !seen.add(cid)) continue;
+      chapters.add(
+          NovelChapter(cid, _clean(m.group(3)!), index: idx++));
     }
     return NovelDetail(
-      ComicItem(novelId, name.isEmpty ? novelId : name, cover ?? ''),
+      ComicItem(novelId, name, cover),
       chapters,
       description: desc,
     );
@@ -113,7 +124,7 @@ class BiqugeNovelSource extends NovelSource {
     }
     final novelId = chapterId.substring(0, sep);
     final cid = chapterId.substring(sep + 1);
-    final body = await SourceHttp.get('biquge', '/book/$novelId/$cid.html',
+    final body = await SourceHttp.get('biquge', '/bqg/$novelId/$cid.html',
         fallbackHosts: _defaultHosts);
     final title = _first(_h1Re, body);
     final paragraphs = _parseContent(body);
@@ -148,8 +159,11 @@ class BiqugeNovelSource extends NovelSource {
 
   Future<List<ComicItem>> _parseList(String html) async {
     final items = <ComicItem>[];
-    for (final m in _searchRe.allMatches(html)) {
-      items.add(ComicItem(m.group(1)!, _clean(m.group(2)!), ''));
+    final bookRe = RegExp(r'<a\s+href="/bqg/(\d+)/"[^>]*>([^<]+)</a>');
+    for (final m in bookRe.allMatches(html)) {
+      final id = m.group(1)!;
+      if (items.any((e) => e.id == id)) continue;
+      items.add(ComicItem(id, _clean(m.group(2)!), ''));
     }
     return items;
   }
@@ -167,8 +181,6 @@ class BiqugeNovelSource extends NovelSource {
     return m == null ? '' : _clean(m.group(1) ?? '');
   }
 
-  static String? _firstGroup(RegExp re, String s) {
-    final m = re.firstMatch(s);
-    return m?.group(1);
-  }
+  static String? _firstGroup(RegExp re, String s) =>
+      re.firstMatch(s)?.group(2);
 }

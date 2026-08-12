@@ -98,11 +98,14 @@ class MangaDexSource extends ComicSource {
     final api = await _apiHost();
     final body = await _get('$api/at-home/server/$chapterId');
     final root = jsonDecode(body) as Map<String, dynamic>;
-    final base = root['baseUrl'] as String;
     final ch = root['chapter'] as Map<String, dynamic>;
     final hash = ch['hash'] as String;
     final data = (ch['data'] as List? ?? []);
-    return [for (final f in data) '$base/data/$hash/$f'];
+    // at-home CDN 节点（*.mangadex.network）时有不稳定/404，
+    // 统一改用 uploads 官方静态宿主：uploads.mangadex.org/data/{hash}/{file}。
+    return [
+      for (final f in data) 'https://uploads.mangadex.org/data/$hash/$f'
+    ];
   }
 
   /// 配置优先的 API host（可在源管理页覆盖，免发版）。

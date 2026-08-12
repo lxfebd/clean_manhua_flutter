@@ -45,6 +45,9 @@ dependencies:
   media_kit_libs_video: ^1.0.7
   screen_brightness: ^2.1.11
   volume_controller: ^3.4.4
+  file_picker: ^11.0.3
+  device_info_plus: ^11.2.0
+  qr_flutter: ^4.1.0
 
 dev_dependencies:
   flutter_test:

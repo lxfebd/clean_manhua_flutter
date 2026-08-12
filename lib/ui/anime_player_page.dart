@@ -23,6 +23,12 @@ class AnimePlayerPage extends StatefulWidget {
   final Future<String> Function(int season, int episode)? resolveUrl;
   /// 播放源（线路）名称映射：season -> 源名，用于选集按源分组。
   final Map<int, String>? sourceNames;
+
+  /// 所属数据源 id 与番剧 id：WebView 捕获直链切原生播放器时透传，
+  /// 用于书架「动画记录」记录与续播。
+  final String? sourceId;
+  final String? videoId;
+
   const AnimePlayerPage({
     super.key,
     required this.url,
@@ -35,6 +41,8 @@ class AnimePlayerPage extends StatefulWidget {
     this.onEpisodeChanged,
     this.resolveUrl,
     this.sourceNames,
+    this.sourceId,
+    this.videoId,
   });
 
   @override
@@ -100,7 +108,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     if (src == _hookedVideoUrl) return;
     _hookedVideoUrl = src;
     if (!mounted) return;
-    Navigator.of(context).push(MaterialPageRoute(
+    // 用 pushReplacement 替换当前网页播放器，避免栈里叠两层播放器：
+    // 选集页 → 网页播放器 → 原生播放器。返回时直接回到选集页。
+    Navigator.of(context).pushReplacement(MaterialPageRoute(
       builder: (_) => NativePlayerPage(
         url: src,
         title: widget.title,
@@ -110,7 +120,11 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
         episode: _curEpisode,
         resolveUrl: widget.resolveUrl,
         sourceNames: widget.sourceNames,
-        historyKey: '${widget.title}::${_curSeason}_$_curEpisode',
+        sourceId: widget.sourceId,
+        videoId: widget.videoId,
+        historyKey: widget.sourceId != null && widget.videoId != null
+            ? '${widget.sourceId}::$widget.videoId::$_curSeason-$_curEpisode'
+            : '${widget.title}::${_curSeason}_$_curEpisode',
       ),
     ));
   }
@@ -131,8 +145,31 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       try {
         final r = await _controller.runJavaScriptReturningResult('''
           (function(){
-            // 优先检查 API 拦截到的视频直链
-            if (window._resolvedVideoUrl) return window._resolvedVideoUrl;
+            // ---- AGE 类（WASM 解密）拦截：覆写 Hls.prototype.loadSource ----
+            // jx 播放器在 WASM 解密出真实 m3u8 后调用 new Hls().loadSource(url)，
+            // 这里把解密后的真实直链截获到 window._resolvedVideoUrl（幂等注册）。
+            if (window.Hls && !window._hlsHooked) {
+              var _proto = window.Hls.prototype;
+              if (_proto && _proto.loadSource) {
+                window._hlsHooked = true;
+                var _ls = _proto.loadSource;
+                _proto.loadSource = function(url){
+                  try {
+                    if (url && url.indexOf('http') === 0 &&
+                        url.indexOf('blob:') !== 0) {
+                      window._resolvedVideoUrl = url;
+                    }
+                  } catch(e){}
+                  return _ls.apply(this, arguments);
+                };
+              }
+            }
+
+            // 优先检查 API / Hls 拦截到的视频直链
+            var _hooked = window._resolvedVideoUrl || '';
+            if (_hooked.indexOf('blob:') !== 0 && _hooked.indexOf('http') === 0) {
+              return _hooked;
+            }
 
             var find = function(doc){
               var v = doc.querySelector('video');
@@ -1249,11 +1286,17 @@ bool isDirectMediaUrl(String url) {
   if (u.contains('/hls/') || u.contains('.ts')) {
     return true;
   }
-  // 已知视频 CDN 域名（头条/抖音等）
+  // 字节跳动 TOS 对象存储视频路径（AGE 等源换域名但路径固定）
+  if (u.contains('/video/tos/')) {
+    return true;
+  }
+  // 已知视频 CDN 域名（头条/抖音/topbuzz/capcut/剪映等字节系）
   if (u.contains('toutiao50.com') || u.contains('toutiao') ||
       u.contains('pstatp.com') || u.contains('bytedance') ||
       u.contains('douyin') || u.contains('ixigua.com') ||
-      u.contains('snssdk.com')) {
+      u.contains('snssdk.com') || u.contains('topbuzzcdn.com') ||
+      u.contains('topbuzz.com') || u.contains('capcutvod.com') ||
+      u.contains('capcut.com')) {
     return true;
   }
   // blob URL（WASM 解密的 MSE 流）
@@ -1308,8 +1351,10 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                   episode: episode,
                   resolveUrl: _resolveEpisodeUrl,
                   sourceNames: widget.detail.sourceNames,
+                  sourceId: widget.source.id,
+                  videoId: widget.detail.video.id,
                   historyKey:
-                      '${widget.detail.video.id}::${season}_$episode',
+                      '${widget.source.id}::${widget.detail.video.id}::$season-$episode',
                 )
               : AnimePlayerPage(
                   url: url,
@@ -1321,6 +1366,8 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                   initialEpisode: episode,
                   resolveUrl: _resolveEpisodeUrl,
                   sourceNames: widget.detail.sourceNames,
+                  sourceId: widget.source.id,
+                  videoId: widget.detail.video.id,
                 ),
         ),
       );

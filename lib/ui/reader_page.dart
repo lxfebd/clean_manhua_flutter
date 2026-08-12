@@ -1,7 +1,8 @@
+import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../net/download_manager.dart';
 import '../net/image_cache.dart';
@@ -9,6 +10,8 @@ import '../net/local_store.dart';
 import '../sources/source_manager.dart';
 import 'widgets/jm_scramble_image.dart';
 
+/// 阅读器（对齐 UI_v2 S5/S6）：沉浸式黑底 + 顶部返回/标题/菜单 +
+/// 底部悬浮玻璃工具栏（亮度/目录/翻页模式/下载）+ 底部居中页码。
 class ReaderPage extends StatefulWidget {
   final String sourceId;
   final String comicId;
@@ -41,6 +44,9 @@ class _ReaderPageState extends State<ReaderPage> {
   bool _downloading = false;
   int _curPage = 0;
   int _resLevel = 0; // 0=无, 1=性能, 2=质量
+  bool _overlay = true; // 顶部/底部工具栏是否显示
+  bool _dim = false; // 亮度（暗化模拟）
+  Timer? _hideTimer;
 
   Bookmark get _book => Bookmark(
         sourceId: widget.sourceId,
@@ -74,7 +80,8 @@ class _ReaderPageState extends State<ReaderPage> {
 
   Future<void> _load() async {
     try {
-      final urls = await SourceManager.current.chapterPics(widget.chapterId);
+      final urls = await SourceManager.byId(widget.sourceId)
+          .chapterPics(widget.chapterId);
       if (_downloaded) {
         final local = <String>[];
         for (var i = 0; i < urls.length; i++) {
@@ -134,48 +141,146 @@ class _ReaderPageState extends State<ReaderPage> {
 
   @override
   Widget build(BuildContext context) {
-    final _ = Theme.of(context);
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-        title: Text(widget.title,
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-        actions: [
-          if (_horizontal)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Center(
-                child: Text('${_curPage + 1} / ${_urls.length}',
-                    style: const TextStyle(fontSize: 13, color: Colors.white70)),
-              ),
-            ),
-          IconButton(
-            icon: Icon(_downloaded ? Icons.download_done : Icons.download),
-            tooltip: _downloaded ? '已下载' : '下载本话',
-            onPressed: _downloading ? null : _download,
+      body: Stack(
+        children: [
+          Positioned.fill(child: _buildBody()),
+          // 亮度（暗化）层
+          AnimatedOpacity(
+            duration: const Duration(milliseconds: 220),
+            opacity: _dim ? 0.45 : 0.0,
+            child: const ColoredBox(color: Colors.black),
           ),
-          IconButton(
-            icon: Icon(
-                _horizontal ? Icons.view_column_rounded : Icons.view_stream_rounded),
-            tooltip: _horizontal ? '切到纵向滚动' : '切到横向翻页',
-            onPressed: () {
+          // 顶部工具栏（返回/标题/菜单）
+          _ReaderTopBar(
+            visible: _overlay,
+            title: widget.title,
+            onBack: () {
+              HapticFeedback.selectionClick();
+              Navigator.maybePop(context);
+            },
+            onMenu: () => _showReaderSettings(),
+          ),
+          // 底部页码（横向翻页时显示 x / N，纵向整体显示 N 页）
+          _ReaderPageIndicator(
+            visible: _overlay && _horizontal,
+            label: '${_curPage + 1} / ${_urls.length}',
+          ),
+          // 底部悬浮玻璃工具栏
+          _ReaderToolbar(
+            visible: _overlay,
+            downloaded: _downloaded,
+            horizontal: _horizontal,
+            onBrightness: () => _showReaderSettings(),
+            onCatalog: () => _showCatalog(),
+            onLayout: () {
               setState(() => _horizontal = !_horizontal);
               LocalStore.setHorizontalReader(_horizontal);
             },
+            onDownload: _downloading ? null : _download,
           ),
-          IconButton(
-            icon: Icon(
-                _resLevel == 2 ? Icons.hd_rounded : _resLevel == 1 ? Icons.hd_outlined : Icons.auto_awesome),
-            tooltip: _resLevel == 2 ? '超清·质量（可能卡）' : _resLevel == 1 ? '超清·性能' : '关',
-            color: _resLevel > 0 ? Theme.of(context).colorScheme.primary : null,
-            onPressed: () => setState(() => _resLevel = (_resLevel + 1) % 3),
+          // 点击空白处切换工具栏显隐
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: _toggleOverlay,
+            ),
           ),
         ],
       ),
-      body: _buildBody(),
     );
+  }
+
+  /// 点击页面切换工具栏显隐，显示后 3s 自动隐藏。
+  void _toggleOverlay() {
+    _hideTimer?.cancel();
+    if (_overlay) {
+      setState(() => _overlay = false);
+      return;
+    }
+    setState(() => _overlay = true);
+    _hideTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _overlay = false);
+    });
+  }
+
+  /// 阅读设置底部抽屉：亮度、夜间模式、翻页模式（对齐 S6）。
+  void _showReaderSettings() {
+    _hideTimer?.cancel();
+    setState(() => _overlay = true);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.black.withValues(alpha: 0.6),
+      barrierColor: Colors.transparent,
+      builder: (_) => _ReaderSettingsSheet(
+        horizontal: _horizontal,
+        dim: _dim,
+        onDimChanged: (v) {
+          setState(() => _dim = v);
+        },
+        onLayoutChanged: (h) {
+          setState(() => _horizontal = h);
+          LocalStore.setHorizontalReader(h);
+        },
+        onCatalog: () {
+          Navigator.pop(context);
+          _showCatalog();
+        },
+        onDownload: _downloading
+            ? null
+            : () {
+                Navigator.pop(context);
+                _download();
+              },
+      ),
+    ).whenComplete(() {
+      if (mounted) _toggleOverlay();
+    });
+  }
+
+  /// 目录：章节内页目录（横向翻页时切换页面）。
+  void _showCatalog() {
+    _hideTimer?.cancel();
+    setState(() => _overlay = true);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _CatalogSheet(
+        urls: _urls,
+        current: _curPage,
+        horizontal: _horizontal,
+        onSelect: (i) {
+          Navigator.pop(context);
+          setState(() => _curPage = i);
+          if (_horizontal && _pageCtrl != null) {
+            _pageCtrl!.jumpToPage(i);
+          } else {
+            _scrollToIndex(i);
+          }
+          _toggleOverlay();
+        },
+      ),
+    );
+  }
+
+  PageController? _pageCtrl;
+  ScrollController? _scrollCtrl;
+
+  void _scrollToIndex(int i) {
+    _scrollCtrl?.animateTo(
+      i * 560.0,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    _pageCtrl?.dispose();
+    _scrollCtrl?.dispose();
+    super.dispose();
   }
 
   Widget _buildBody() {
@@ -188,7 +293,11 @@ class _ReaderPageState extends State<ReaderPage> {
               style: TextStyle(color: Colors.white54)));
     }
     if (_horizontal) {
+      _pageCtrl?.dispose();
+      final ctrl = PageController();
+      _pageCtrl = ctrl;
       return PageView.builder(
+        controller: ctrl,
         itemCount: _urls.length,
         onPageChanged: (idx) {
           setState(() => _curPage = idx);
@@ -199,7 +308,11 @@ class _ReaderPageState extends State<ReaderPage> {
             horizontal: true, sourceId: widget.sourceId),
       );
     }
+    _scrollCtrl?.dispose();
+    final sctrl = ScrollController();
+    _scrollCtrl = sctrl;
     return ListView.builder(
+      controller: sctrl,
       padding: EdgeInsets.zero,
       itemCount: _urls.length,
       itemBuilder: (c, i) => _ImageView(_urls[i],
@@ -406,6 +519,512 @@ class _CachedReaderImageState extends State<_CachedReaderImage> {
       fit: widget.fit,
       filterQuality: widget.filterQuality,
       gaplessPlayback: true,
+    );
+  }
+}
+
+/// 顶部工具栏：返回 / 章节名 / 菜单（对齐 S5）。
+class _ReaderTopBar extends StatelessWidget {
+  final bool visible;
+  final String title;
+  final VoidCallback onBack;
+  final VoidCallback onMenu;
+  const _ReaderTopBar({
+    required this.visible,
+    required this.title,
+    required this.onBack,
+    required this.onMenu,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      bottom: false,
+      child: AnimatedSlide(
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+        offset: visible ? Offset.zero : const Offset(0, -0.4),
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 200),
+          opacity: visible ? 1 : 0,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+            child: Row(
+              children: [
+                _GlassCircle(icon: Icons.arrow_back_rounded, onTap: onBack),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                _GlassCircle(icon: Icons.more_vert_rounded, onTap: onMenu),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 底部居中页码（S5：`3 / 128`）。
+class _ReaderPageIndicator extends StatelessWidget {
+  final bool visible;
+  final String label;
+  const _ReaderPageIndicator({required this.visible, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 102,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 200),
+        opacity: visible ? 1 : 0,
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.35),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: Colors.white),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 底部悬浮玻璃工具栏（S5：亮度 / 目录 / 翻页模式 / 下载）。
+class _ReaderToolbar extends StatelessWidget {
+  final bool visible;
+  final bool downloaded;
+  final bool horizontal;
+  final VoidCallback? onBrightness;
+  final VoidCallback onCatalog;
+  final VoidCallback onLayout;
+  final VoidCallback? onDownload;
+  const _ReaderToolbar({
+    required this.visible,
+    required this.downloaded,
+    required this.horizontal,
+    this.onBrightness,
+    required this.onCatalog,
+    required this.onLayout,
+    this.onDownload,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: SafeArea(
+        top: false,
+        child: AnimatedSlide(
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeOutCubic,
+          offset: visible ? Offset.zero : const Offset(0, 0.5),
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 200),
+            opacity: visible ? 1 : 0,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 26),
+              child: Center(
+                child: Container(
+                  height: 50,
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(25),
+                    border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.08)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.35),
+                        blurRadius: 20,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _ToolBtn(
+                        icon: Icons.brightness_6_outlined,
+                        onTap: onBrightness,
+                      ),
+                      _sep(),
+                      _ToolBtn(
+                        icon: Icons.list_alt_rounded,
+                        onTap: onCatalog,
+                      ),
+                      _sep(),
+                      _ToolBtn(
+                        icon: horizontal
+                            ? Icons.view_carousel_outlined
+                            : Icons.view_stream_outlined,
+                        onTap: onLayout,
+                      ),
+                      _sep(),
+                      _ToolBtn(
+                        icon: downloaded
+                            ? Icons.download_done_rounded
+                            : Icons.download_outlined,
+                        active: downloaded,
+                        onTap: onDownload,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sep() => Container(
+        width: 0.5,
+        height: 22,
+        margin: const EdgeInsets.symmetric(horizontal: 14),
+        color: Colors.white.withValues(alpha: 0.18),
+      );
+}
+
+class _ToolBtn extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+  final bool active;
+  const _ToolBtn({required this.icon, this.onTap, this.active = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Padding(
+        padding: const EdgeInsets.all(6),
+        child: Icon(
+          icon,
+          size: 20,
+          color: active ? Colors.amber : Colors.white.withValues(alpha: 0.85),
+        ),
+      ),
+    );
+  }
+}
+
+/// 阅读设置抽屉（S6）：亮度滑块 + 翻页模式 + 目录/下载。
+class _ReaderSettingsSheet extends StatefulWidget {
+  final bool horizontal;
+  final bool dim;
+  final ValueChanged<bool> onDimChanged;
+  final ValueChanged<bool> onLayoutChanged;
+  final VoidCallback onCatalog;
+  final VoidCallback? onDownload;
+  const _ReaderSettingsSheet({
+    required this.horizontal,
+    required this.dim,
+    required this.onDimChanged,
+    required this.onLayoutChanged,
+    required this.onCatalog,
+    this.onDownload,
+  });
+
+  @override
+  State<_ReaderSettingsSheet> createState() => _ReaderSettingsSheetState();
+}
+
+class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
+  late double _dim = widget.dim ? 1.0 : 0.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(22, 16, 22, 28),
+      decoration: const BoxDecoration(
+        color: Color(0xFF0F1013),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        border: Border(top: BorderSide(color: Color(0x1FFFFFFF))),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text('阅读设置',
+              style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white)),
+          const SizedBox(height: 18),
+          // 亮度
+          Row(
+            children: [
+              const Icon(Icons.light_mode_rounded,
+                  size: 16, color: Colors.white70),
+              const SizedBox(width: 10),
+              Expanded(
+                child: SliderTheme(
+                  data: SliderThemeData(
+                    activeTrackColor: const Color(0xFF3A6EA5),
+                    inactiveTrackColor: Colors.white.withValues(alpha: 0.15),
+                    thumbColor: Colors.white,
+                    trackHeight: 3,
+                    overlayShape: const RoundSliderOverlayShape(
+                        overlayRadius: 8),
+                  ),
+                  child: Slider(
+                    value: _dim,
+                    onChanged: (v) {
+                      setState(() => _dim = v);
+                      widget.onDimChanged(v > 0.1);
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text('${(_dim * 100).round()}%',
+                  style: const TextStyle(
+                      fontSize: 11, color: Colors.white70)),
+            ],
+          ),
+          const SizedBox(height: 14),
+          // 翻页模式
+          Text('翻页模式',
+              style: const TextStyle(
+                  fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _layoutOption('横向翻页', widget.horizontal, () {
+                setState(() {});
+                widget.onLayoutChanged(true);
+              }),
+              const SizedBox(width: 8),
+              _layoutOption('纵向滚动', !widget.horizontal, () {
+                setState(() {});
+                widget.onLayoutChanged(false);
+              }),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: _ghostBtn('目录', Icons.list_alt_rounded,
+                    () => widget.onCatalog()),
+              ),
+              const SizedBox(width: 8),
+              if (widget.onDownload != null)
+                Expanded(
+                  child: _ghostBtn('下载本话', Icons.download_outlined,
+                      () => widget.onDownload!()),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _layoutOption(String label, bool active, VoidCallback onTap) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 11),
+          decoration: BoxDecoration(
+            color: active
+                ? const Color(0xFF3A6EA5)
+                : Colors.white.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: active
+                  ? const Color(0xFF3A6EA5)
+                  : Colors.white.withValues(alpha: 0.1),
+            ),
+          ),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+              color: active ? Colors.white : Colors.white70,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _ghostBtn(String label, IconData icon, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(10),
+          border:
+              Border.all(color: Colors.white.withValues(alpha: 0.14)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 15, color: Colors.white),
+            const SizedBox(width: 6),
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 13, color: Colors.white)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 页目录底部弹窗（点击跳页）。
+class _CatalogSheet extends StatelessWidget {
+  final List<String> urls;
+  final int current;
+  final bool horizontal;
+  final ValueChanged<int> onSelect;
+  const _CatalogSheet({
+    required this.urls,
+    required this.current,
+    required this.horizontal,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Container(
+        margin: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
+        decoration: const BoxDecoration(
+          color: Color(0xFF14161B),
+          borderRadius: BorderRadius.all(Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text('本话目录 · 共 ${urls.length} 页',
+                style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white)),
+            const SizedBox(height: 12),
+            Flexible(
+              child: GridView.builder(
+                shrinkWrap: true,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 6,
+                  mainAxisSpacing: 8,
+                  crossAxisSpacing: 8,
+                  childAspectRatio: 1.1,
+                ),
+                itemCount: urls.length,
+                itemBuilder: (_, i) {
+                  final active = i == current;
+                  return InkWell(
+                    onTap: () => onSelect(i),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: active
+                            ? const Color(0xFF3A6EA5)
+                            : Colors.white.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        '${i + 1}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight:
+                              active ? FontWeight.w700 : FontWeight.w500,
+                          color: active
+                              ? Colors.white
+                              : Colors.white.withValues(alpha: 0.7),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 玻璃态圆形按钮。
+class _GlassCircle extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+  const _GlassCircle({required this.icon, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      customBorder: const CircleBorder(),
+      child: Container(
+        width: 38,
+        height: 38,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.12),
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+        ),
+        child: Icon(icon, size: 20, color: Colors.white),
+      ),
     );
   }
 }

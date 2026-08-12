@@ -67,6 +67,14 @@ class BookshelfStore {
   static bool contains(String sourceId, String comicId) =>
       _cache.containsKey(_key(sourceId, comicId));
 
+  /// 根据 comicId 反查所属 sourceId（书架统一视图中使用）。
+  static String? sourceIdOf(String comicId) {
+    for (final m in _all()) {
+      if (m['id'] == comicId) return m['sourceId'] as String?;
+    }
+    return null;
+  }
+
   /// 列出某个源的书架。
   static List<ComicDetail> listBySource(String sourceId) {
     return _all()

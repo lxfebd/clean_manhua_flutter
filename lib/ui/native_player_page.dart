@@ -44,6 +44,12 @@ class NativePlayerPage extends StatefulWidget {
   /// 播放进度记忆用的唯一 key，默认用 url。
   final String? historyKey;
 
+  /// 所属数据源 id（VideoSource.id）。有值时观看记录写进书架「动画记录」。
+  final String? sourceId;
+
+  /// 番剧 id。与 [sourceId] 一起用于书架续播重新解析播放链。
+  final String? videoId;
+
   const NativePlayerPage({
     super.key,
     required this.url,
@@ -55,6 +61,8 @@ class NativePlayerPage extends StatefulWidget {
     this.resolveUrl,
     this.sourceNames,
     this.historyKey,
+    this.sourceId,
+    this.videoId,
   });
 
   @override
@@ -82,6 +90,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   String _srId = 'off';
   bool _enhance = true;
   bool _srApplying = false;
+
+  /// 最近一次 mpv 报告的着色器错误（无则 null）。
+  String? _srFault;
 
   // ── 播放参数 ────────────────────────────────
   double _speed = 1.0;
@@ -257,7 +268,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     await _loadPrefs();
     if (!mounted) return;
     try {
-      final p = Player();
+      final p = Player(configuration: const PlayerConfiguration(
+        // 需要收到 shader 编译的 warn 级日志用于失败诊断
+        logLevel: MPVLogLevel.warn,
+      ));
       _player = p;
       _controller = VideoController(p);
       if (_volumeNative) {
@@ -301,6 +315,31 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           });
         }
       }));
+      // 捕获 mpv 的着色器错误（编译失败会在 error 级日志里出现）
+      _subs.add(p.stream.log.listen((log) {
+        if (!mounted) return;
+        final t = log.text;
+        if (t.contains('shader') ||
+            t.contains('glsl') ||
+            t.contains('Failed to') ||
+            t.contains('hwdec') ||
+            t.contains('vo=') ||
+            t.contains('gpu-context') ||
+            t.contains('Using hardware') ||
+            t.contains('No hardware') ||
+            t.contains('fp32') ||
+            t.contains('Texture') ||
+            t.contains('scale')) {
+          // ignore: avoid_print
+          print('MPVLOG[${log.level}] ${t.trim()}');
+        }
+        if (log.level == 'error' &&
+            (t.contains('shader') ||
+                t.contains('glsl') ||
+                t.contains('Failed to'))) {
+          _srFault = t.trim();
+        }
+      }));
 
       await _open(widget.url);
     } catch (e) {
@@ -313,10 +352,20 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     if (p == null) return;
     try {
       await Anime4KManager.ensureShaders();
+      _srFault = null;
       await _applyEnhance();
       await _applySr(silent: true);
       await p.setRate(_speed);
       await p.open(Media(url), play: true);
+      // Android 上 VideoController 会在拿到 wid 后把 vo=null→gpu 重建，
+      // 提前塞的 glsl-shaders 可能被清掉。等首帧真正渲染完再补挂一次最稳。
+      if (_sr.enabled) {
+        try {
+          await _controller?.waitUntilFirstFrameRendered
+              .timeout(const Duration(seconds: 10));
+        } catch (_) {}
+        await _applySr(silent: true);
+      }
       if (mounted) {
         setState(() {
           _ready = true;
@@ -389,8 +438,25 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     final sec = v.inSeconds;
     if (sec == _lastSavedSec || sec % 5 != 0 || sec < 5) return;
     _lastSavedSec = sec;
-    // 快看完了就清掉记录，避免下次进来提示"续播 最后 3 秒"
+    // 快看完了就清掉续播记录，避免下次进来提示"续播 最后 3 秒"
     final done = _dur > Duration.zero && v >= _dur - const Duration(seconds: 15);
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    // 结构化观看记录（书架「动画记录」用），看完也保留并标记到结尾。
+    final sourceId = widget.sourceId;
+    final videoId = widget.videoId;
+    if (sourceId != null && videoId != null && sourceId.isNotEmpty) {
+      LocalStore.recordVideo(VideoRecord(
+        sourceId: sourceId,
+        videoId: videoId,
+        title: widget.title,
+        cover: widget.cover,
+        season: _curSeason,
+        episode: _curEpisode,
+        seconds: done ? _dur.inSeconds : sec,
+        duration: _dur.inSeconds,
+        timestamp: ts,
+      ));
+    }
     () async {
       try {
         final raw = await LocalStore.readJson('video_progress');
@@ -426,16 +492,38 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     if (native is! NativePlayer) return;
     if (!silent) setState(() => _srApplying = true);
     try {
+      _srFault = null;
       final list = await Anime4KManager.shaderListFor(_srId);
-      await native.setProperty('glsl-shaders', list);
+      // libmpv 对 path-list 选项用 mpv_set_property_string 设置时不会按
+      // 逗号/换行拆分（会把整个串当单个文件名）。改用 change-list 命令，
+      // 其 value 按平台路径列表分隔符解析：POSIX(Android)=冒号。
+      if (list.isEmpty) {
+        await native.command(const ['change-list', 'glsl-shaders', 'set', '']);
+      } else {
+        await native.command([
+          'change-list',
+          'glsl-shaders',
+          'set',
+          list.replaceAll(',', ':'),
+        ]);
+      }
+      // 读回属性，确认 mpv 真的接受了这份 shader 列表（对路径回规范化）。
+      final back = await native.getProperty('glsl-shaders');
+      final applied = (!_sr.enabled && (back.isEmpty)) ||
+          (_sr.enabled &&
+              back.split(RegExp('[,\\n:]')).where((s) => s.trim().isNotEmpty).isNotEmpty);
       if (!silent && mounted) {
-        final ok = !_sr.enabled || list.isNotEmpty;
-        _toast(ok
-            ? '超分：${_sr.name}${_sr.enabled ? ' 已启用' : ''}'
-            : '超分着色器缺失，已保持原画');
+        final fault = _srFault;
+        if (!_sr.enabled) {
+          _toast('超分已关闭');
+        } else if (applied && fault == null) {
+          _toast('超分：${_sr.name} 已启用');
+        } else {
+          _toast('超分未生效：${fault ?? 'mpv 未接受着色器（可能软渲染/vo 不支持）'}');
+        }
       }
     } catch (e) {
-      if (!silent && mounted) _toast('超分应用失败');
+      if (!silent && mounted) _toast('超分应用失败：$e');
     } finally {
       if (!silent && mounted) setState(() => _srApplying = false);
     }
