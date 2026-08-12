@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../main.dart';
 import '../net/local_store.dart';
+import '../net/update_checker.dart';
 import 'source_manage_page.dart';
 import 'widgets/motion.dart';
 
@@ -18,6 +21,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _dark = false;
   bool _horizontal = false;
   bool _loaded = false;
+  bool _checking = false;
 
   @override
   void initState() {
@@ -140,7 +144,33 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const SizedBox(height: 16),
             FadeSlideIn(
-              delay: const Duration(milliseconds: 360),
+              delay: const Duration(milliseconds: 220),
+              child: _SectionLabel(label: '更新'),
+            ),
+            const SizedBox(height: 6),
+            FadeSlideIn(
+              delay: const Duration(milliseconds: 280),
+              child: _SettingsCard(
+                children: [
+                  _SettingTile(
+                    icon: Icons.system_update_alt_rounded,
+                    title: '检查更新',
+                    subtitle: '从 GitHub Releases 获取最新版本',
+                    trailing: _checking
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : null,
+                    onTap: _checkUpdate,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            FadeSlideIn(
+              delay: const Duration(milliseconds: 220),
               child: _SectionLabel(label: '数据'),
             ),
             const SizedBox(height: 6),
@@ -237,7 +267,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
-                        '星漫匣 · 0.4',
+                        '星漫匣 · ${UpdateChecker.currentVersion()}',
                         style: TextStyle(
                           fontSize: 10.5,
                           fontWeight: FontWeight.w700,
@@ -253,6 +283,115 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _checkUpdate() async {
+    if (_checking) return;
+    setState(() => _checking = true);
+    try {
+      final info = await UpdateChecker.checkLatest();
+      if (!mounted) return;
+      if (info == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已是最新版本')),
+        );
+        return;
+      }
+      _showUpdateDialog(info);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('检查更新失败：$e')),
+      );
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  void _showUpdateDialog(UpdateInfo info) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: Text('发现新版本 v${info.version}'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (info.notes != null && info.notes!.isNotEmpty) ...[
+                Text(
+                  info.notes!,
+                  style: const TextStyle(fontSize: 12.5),
+                ),
+                const SizedBox(height: 12),
+              ],
+              Text(
+                '当前版本：v${UpdateChecker.currentVersion()}',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: Theme.of(ctx)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.6),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('以后再说'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _downloadAndInstall(info.apkUrl);
+            },
+            child: const Text('下载并安装'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _downloadAndInstall(String url) async {
+    if (!mounted) return;
+    final msg = ScaffoldMessenger.of(context)
+      ..showSnackBar(const SnackBar(content: Text('正在下载更新…')));
+    try {
+      final path = await UpdateChecker.downloadApk(url);
+      if (!mounted) return;
+      msg.hideCurrentSnackBar();
+      final ok = await _installApk(path);
+      if (!ok && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('下载完成，APK 在 $path')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      msg.hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('下载失败：$e')),
+      );
+    }
+  }
+
+  /// 通过系统安装器安装 APK（Android 需要 FileProvider + 未知来源授权）。
+  Future<bool> _installApk(String path) async {
+    if (Platform.isAndroid) {
+      try {
+        await MethodChannel('xingmanxia/install')
+            .invokeMethod('installApk', {'path': path});
+        return true;
+      } catch (e) {
+        debugPrint('install failed: $e');
+        return false;
+      }
+    }
+    return false;
   }
 
   Future<void> _confirm({
