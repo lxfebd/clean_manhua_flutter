@@ -2,6 +2,7 @@ name: Build APK & Release
 
 on:
   push:
+    branches: [master]
     tags:
       - 'v*'
   workflow_dispatch:
@@ -46,6 +47,9 @@ jobs:
       - name: Analyze
         run: flutter analyze
 
+      - name: Test
+        run: flutter test
+
       - name: Set app version
         id: version
         run: |
@@ -56,14 +60,23 @@ jobs:
             echo "version=${V}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build release APK
-        run: flutter build apk --release --dart-define=APP_VERSION=${{ steps.version.outputs.version }}
+      - name: Determine build type
+        id: buildtype
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "type=release" >> "$GITHUB_OUTPUT"
+          else
+            echo "type=debug" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build APK
+        run: flutter build apk --${{ steps.buildtype.outputs.type }} --dart-define=APP_VERSION=${{ steps.version.outputs.version }}
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: app-${{ steps.buildtype.outputs.type }}
+          path: build/app/outputs/flutter-apk/app-${{ steps.buildtype.outputs.type }}.apk
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
