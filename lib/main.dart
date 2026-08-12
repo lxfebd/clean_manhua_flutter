@@ -30,14 +30,14 @@ class YingManHeApp extends StatefulWidget {
   const YingManHeApp({super.key});
 
   /// 供设置页调用以立即生效主题。
-  static _YingManHeAppState? of(BuildContext context) =>
-      context.findAncestorStateOfType<_YingManHeAppState>();
+  static YingManHeAppState? of(BuildContext context) =>
+      context.findAncestorStateOfType<YingManHeAppState>();
 
   @override
-  State<YingManHeApp> createState() => _YingManHeAppState();
+  State<YingManHeApp> createState() => YingManHeAppState();
 }
 
-class _YingManHeAppState extends State<YingManHeApp> {
+class YingManHeAppState extends State<YingManHeApp> {
   ThemeMode _themeMode = ThemeMode.light;
   bool _loaded = false;
 

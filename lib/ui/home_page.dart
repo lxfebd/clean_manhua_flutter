@@ -342,7 +342,6 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildChips(ThemeData theme) {
-    final scheme = theme.colorScheme;
     return Stack(
       children: [
         SizedBox(
@@ -423,35 +422,6 @@ class _HomePageState extends State<HomePage> {
 // ─────────────────────────────────────────────────────────────────────────────
 // 头部组件
 // ─────────────────────────────────────────────────────────────────────────────
-
-class _IconAction extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-  const _IconAction({required this.icon, required this.tooltip, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return PressableScale(
-      onTap: onTap,
-      scale: 0.9,
-      child: Tooltip(
-        message: tooltip,
-        child: Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: scheme.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: scheme.onSurface.withValues(alpha: 0.06)),
-          ),
-          child: Icon(icon, size: 20, color: scheme.primary),
-        ),
-      ),
-    );
-  }
-}
 
 class _SourceSwitchButton extends StatelessWidget {
   final String sourceName;

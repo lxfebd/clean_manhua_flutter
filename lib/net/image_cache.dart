@@ -7,7 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'http_client.dart';
 
-/// 轻量图片缓存：内存（上限 [memoryLimit] 张，FIFO 淘汰）+ 磁盘（data/images/<md5>.img）。
+/// 轻量图片缓存：内存（上限 [memoryLimit] 张，FIFO 淘汰）+ 磁盘（`data/images/<md5>.img`）。
 ///
 /// 同一 URL 并发去重：同时只发一次网络请求，其余等待同一 Future。
 /// 借鉴 JHenTai / extended_image 的缓存思想，零额外依赖实现；

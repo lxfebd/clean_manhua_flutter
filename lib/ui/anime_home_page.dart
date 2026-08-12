@@ -393,7 +393,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
                   child: _animeSearch(theme),
                 ),
                 const SizedBox(width: 10),
-                _TypeSegment(
+                _typeSegment(
                   type: widget.type,
                   onChanged: widget.onTypeChanged,
                 ),
@@ -447,7 +447,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
   }
 
   /// 漫画 / 动漫 分段切换（黑底胶囊）。
-  Widget _TypeSegment({
+  Widget _typeSegment({
     required int type,
     ValueChanged<int>? onChanged,
   }) {
@@ -455,7 +455,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
     Widget seg(String label, int v) {
       final active = type == v;
       return GestureDetector(
-        onTap: onChanged == null ? null : () => onChanged!(v),
+        onTap: onChanged == null ? null : () => onChanged(v),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOutCubic,

@@ -86,7 +86,7 @@ class MangaDexSource extends ComicSource {
       final title = (a['title'] as String?) ?? '';
       final lang = (a['translatedLanguage'] as String?) ?? '';
       final label = num.isNotEmpty
-          ? '第${num}话${title.isNotEmpty ? ' $title' : ''}（$lang）'
+          ? '第$num话${title.isNotEmpty ? ' $title' : ''}（$lang）'
           : '番外 ${title.isNotEmpty ? title : ''}（$lang）'.trim();
       chapters.add(Chapter(c['id'] as String, label));
     }

@@ -43,7 +43,7 @@ class _ReaderPageState extends State<ReaderPage> {
   bool _downloaded = false;
   bool _downloading = false;
   int _curPage = 0;
-  int _resLevel = 0; // 0=无, 1=性能, 2=质量
+  final int _resLevel = 0; // 0=无, 1=性能, 2=质量
   bool _overlay = true; // 顶部/底部工具栏是否显示
   bool _dim = false; // 亮度（暗化模拟）
   Timer? _hideTimer;

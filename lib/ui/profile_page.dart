@@ -130,9 +130,9 @@ class ProfilePageState extends State<ProfilePage> {
               child: _MenuCard(
                 dark: _dark,
                 onDarkChanged: (v) async {
+                  YingManHeApp.of(context)?.setDark(v);
                   await LocalStore.setDarkMode(v);
                   if (mounted) setState(() => _dark = v);
-                  YingManHeApp.of(context)?.setDark(v);
                 },
                 onFavorites: () => widget.onSwitchTab?.call(1),
                 onHistory: _showHistory,
@@ -251,11 +251,11 @@ class _StatsCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          _Stat(scheme, favorites, '收藏'),
+          _stat(scheme, favorites, '收藏'),
           _divider(scheme),
-          _Stat(scheme, history, '阅读记录'),
+          _stat(scheme, history, '阅读记录'),
           _divider(scheme),
-          _Stat(scheme, downloads, '已下载'),
+          _stat(scheme, downloads, '已下载'),
         ],
       ),
     );
@@ -267,7 +267,7 @@ class _StatsCard extends StatelessWidget {
         color: scheme.onSurface.withValues(alpha: 0.08),
       );
 
-  Widget _Stat(ColorScheme scheme, int value, String label) {
+  Widget _stat(ColorScheme scheme, int value, String label) {
     return Expanded(
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 16),

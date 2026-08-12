@@ -9,7 +9,7 @@ class RouteDiagnostic {
   static Future<String?> fastest(List<String> candidates,
       {String? testPath, Duration timeout = const Duration(seconds: 4)}) async {
     if (candidates.isEmpty) return null;
-    final completer = Completer<String>();
+    final completer = Completer<String?>();
     var pending = candidates.length;
 
     for (final url in candidates) {

@@ -201,7 +201,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           if (decoded.isNotEmpty) src = decoded;
         }
       } catch (_) {}
-      if (src != null) await _onVideoSrcCaptured(src!);
+      if (src != null) await _onVideoSrcCaptured(src);
     });
   }
 
@@ -481,14 +481,6 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     setState(() => _fullscreen = false);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-  }
-
-  Widget _episodeList() {
-    final scheme = Theme.of(context).colorScheme;
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
-      children: [_episodeGrid(scheme)],
-    );
   }
 
   // ══ 竖屏下方面板（与原生播放器 _belowPanel 对齐） ══════════════
@@ -1242,32 +1234,6 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     );
   }
 
-  Widget _description() {
-    return ListView(padding: const EdgeInsets.all(16), children: [
-      if (widget.cover != null && widget.cover!.isNotEmpty)
-        ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: AspectRatio(
-            aspectRatio: 16 / 9,
-            child: Image.network(widget.cover!, fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) =>
-                    Container(color: Colors.grey)),
-          ),
-        ),
-      const SizedBox(height: 14),
-      Text(widget.title,
-          style: const TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-              color: Colors.white)),
-      const SizedBox(height: 8),
-      Text(
-        widget.description ?? '暂无简介',
-        style: const TextStyle(
-            fontSize: 13, color: Colors.white70, height: 1.6),
-      ),
-    ]);
-  }
 }
 
 /// 判断 URL 是否为可以直接播放的视频媒体直链。

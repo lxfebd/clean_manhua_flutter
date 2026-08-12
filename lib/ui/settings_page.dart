@@ -82,9 +82,9 @@ class _SettingsPageState extends State<SettingsPage> {
                     trailing: Switch(
                       value: _dark,
                       onChanged: (v) async {
+                        YingManHeApp.of(context)?.setDark(v);
                         await LocalStore.setDarkMode(v);
                         if (mounted) setState(() => _dark = v);
-                        YingManHeApp.of(context)?.setDark(v);
                       },
                     ),
                   ),

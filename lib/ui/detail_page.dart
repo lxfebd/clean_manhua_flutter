@@ -388,7 +388,6 @@ class _Hero extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final mq = MediaQuery.of(context);
     return Stack(
       fit: StackFit.expand,
       children: [

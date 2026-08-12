@@ -246,5 +246,5 @@ class JmSource extends ComicSource {
   static Map<String, dynamic>? _asMap(dynamic v) =>
       v is Map<String, dynamic> ? v : (v is Map ? Map<String, dynamic>.from(v) : null);
 
-  static String? _str(dynamic v) => v == null ? null : v.toString();
+  static String? _str(dynamic v) => v?.toString();
 }

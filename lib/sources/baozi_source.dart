@@ -82,7 +82,7 @@ class BaoziMangaSource extends ComicSource {
       final ch = m.group(3)!;
       final rawTitle = _stripTags(m.group(4) ?? '');
       // chapterId 编码 slug 与 section_chapter，便于 chapterPics 还原。
-      return Chapter('$slug|$sec' + '_' + '$ch',
+      return Chapter('$slug|${sec}_$ch',
           rawTitle.isEmpty ? '第$ch话' : _unescape(rawTitle));
     }).toList();
     return ComicDetail(
