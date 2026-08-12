@@ -1,4 +1,4 @@
-package com.yingmanhe.yingmanhe_clean
+package com.xingmanxia.app
 
 import io.flutter.embedding.android.FlutterActivity
 

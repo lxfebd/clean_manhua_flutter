@@ -1,8 +1,8 @@
 // 端到端验证：直接调用真实 XifanVideoSource 代码（走 Net 真实网络）。
 // 运行：flutter test test/xifan_source_test.dart
 import 'package:flutter_test/flutter_test.dart';
-import 'package:yingmanhe_clean/sources/xifan_video_source.dart' as xifan;
-import 'package:yingmanhe_clean/net/http_client.dart';
+import 'package:xingmanxia/sources/xifan_video_source.dart' as xifan;
+import 'package:xingmanxia/net/http_client.dart';
 
 void main() {
   // 让每个用例真实联网，并打印关键结果供人工核对。

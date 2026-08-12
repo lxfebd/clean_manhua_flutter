@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.yingmanhe" "\0"
-            VALUE "FileDescription", "yingmanhe_clean" "\0"
+            VALUE "CompanyName", "com.xingmanxia" "\0"
+            VALUE "FileDescription", "xingmanxia" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "yingmanhe_clean" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.yingmanhe. All rights reserved." "\0"
-            VALUE "OriginalFilename", "yingmanhe_clean.exe" "\0"
-            VALUE "ProductName", "yingmanhe_clean" "\0"
+            VALUE "InternalName", "xingmanxia" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 com.xingmanxia. All rights reserved." "\0"
+            VALUE "OriginalFilename", "xingmanxia.exe" "\0"
+            VALUE "ProductName", "xingmanxia" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

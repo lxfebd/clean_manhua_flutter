@@ -1,4 +1,4 @@
-import 'package:yingmanhe_clean/sources/mangadex_source.dart';
+import 'package:xingmanxia/sources/mangadex_source.dart';
 
 Future<void> main() async {
   final src = MangaDexSource();
