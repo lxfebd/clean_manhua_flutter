@@ -85,12 +85,9 @@ class Net {
     try {
       final req = await _request(client, 'GET', Uri.parse(urlStr), headers);
       final res = await req.close().timeout(t);
-      final body = await res.transform(utf8.decoder).join().timeout(t);
+      final bytes = await _readBytes(res, t);
       _onDone(res, urlStr);
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        throw Exception('HTTP ${res.statusCode}: $body');
-      }
-      return body;
+      return utf8.decode(bytes);
     } finally {
       client.close(force: true);
     }
@@ -103,17 +100,29 @@ class Net {
     try {
       final req = await _request(client, 'GET', Uri.parse(urlStr), headers);
       final res = await req.close().timeout(_timeout);
-      final bytes = await res
-          .fold<List<int>>(<int>[], (a, b) => a..addAll(b))
-          .timeout(_timeout);
+      final bytes = await _readBytes(res, _timeout);
       _onDone(res, urlStr);
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        throw Exception('HTTP ${res.statusCode}');
-      }
       return bytes;
     } finally {
       client.close(force: true);
     }
+  }
+
+  /// 读取响应字节，自动处理 gzip/deflate 压缩。
+  static Future<List<int>> _readBytes(HttpClientResponse res, Duration t) async {
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      // 读取错误体用于抛出
+      final errBytes = await res.fold<List<int>>(<int>[], (a, b) => a..addAll(b)).timeout(t);
+      throw Exception('HTTP ${res.statusCode}: ${utf8.decode(errBytes, allowMalformed: true)}');
+    }
+    final enc = res.headers.value('Content-Encoding') ?? '';
+    if (enc.contains('gzip')) {
+      return await res.transform(gzip.decoder).fold<List<int>>(<int>[], (a, b) => a..addAll(b)).timeout(t);
+    }
+    if (enc.contains('deflate')) {
+      return await res.transform(zlib.decoder).fold<List<int>>(<int>[], (a, b) => a..addAll(b)).timeout(t);
+    }
+    return await res.fold<List<int>>(<int>[], (a, b) => a..addAll(b)).timeout(t);
   }
 
   /// POST 请求，body 为表单/JSON 字符串，返回响应体字符串（UTF-8）。
@@ -126,13 +135,9 @@ class Net {
         req.write(body);
       }
       final res = await req.close().timeout(_timeout);
-      final text =
-          await res.transform(utf8.decoder).join().timeout(_timeout);
+      final bytes = await _readBytes(res, _timeout);
       _onDone(res, urlStr);
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        throw Exception('HTTP ${res.statusCode}: $text');
-      }
-      return text;
+      return utf8.decode(bytes);
     } finally {
       client.close(force: true);
     }

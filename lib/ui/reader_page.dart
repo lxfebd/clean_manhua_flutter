@@ -394,16 +394,12 @@ class _ImageViewState extends State<_ImageView> {
           },
         );
     } else if (widget.url.contains('@') || _isJm) {
-      // 禁漫图片：部分带 @scramble 标记；且 aid ≥ 220980 的图做过分块倒序混淆，
-      // 需下载后按 JMComic 算法还原（JmScramble.descramble 内部从 URL 解析 aid，
-      // 无 aid 时原样显示，安全回退）。
       img = JmScrambleImageWidget(
         url: widget.url,
         fit: fit,
         filterQuality: _filterLevel(),
       );
     } else {
-      // 普通网络图：走内存+磁盘缓存，首次加载后秒开/离线可看
       img = _CachedReaderImage(
         url: widget.url,
         fit: fit,
@@ -416,11 +412,41 @@ class _ImageViewState extends State<_ImageView> {
       );
     }
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (widget.totalPages > 1 && widget.pageIndex == 0)
+    // 横向翻页：用 Expanded 让图片填满整个页面
+    if (widget.horizontal) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (widget.totalPages > 1 && widget.pageIndex == 0)
+            SizedBox(
+              width: double.infinity,
+              height: 40,
+              child: Center(
+                child: Text(
+                  '共 ${widget.totalPages} 页',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.white.withValues(alpha: 0.4),
+                  ),
+                ),
+              ),
+            ),
+          Expanded(child: img),
+        ],
+      );
+    }
+
+    // 纵向滚动：页码提示 + 图片
+    // 注意：不能用 Column 包裹 img（Column 会把 img 约束到 intrinsic 尺寸，
+    // 导致 图片在高 DPR 屏上显示极小）。页码提示单独渲染后，
+    // img 作为 ListView item 直接展开，BoxFit.fitWidth 让宽度撑满、
+    // 高度按图片比例自适应。
+    if (widget.totalPages > 1 && widget.pageIndex == 0) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           SizedBox(
             width: double.infinity,
             height: 40,
@@ -434,11 +460,11 @@ class _ImageViewState extends State<_ImageView> {
               ),
             ),
           ),
-        widget.horizontal
-            ? Expanded(child: img)
-            : img,
-      ],
-    );
+          img,
+        ],
+      );
+    }
+    return img;
   }
 }
 
