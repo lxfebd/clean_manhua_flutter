@@ -17,7 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      issues: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -87,27 +86,36 @@ jobs:
           name: app-${{ steps.buildtype.outputs.type }}
           path: build/app/outputs/flutter-apk/app-${{ steps.buildtype.outputs.type }}.apk
 
-      # 临时：把 debug APK 推到 ci-apk 分支，便于经 raw.githubusercontent.com 取回安装测试
-      - name: Share debug APK to ci-apk branch
+      # 临时：把 debug APK 分块推到 ci-apk 分支（GitHub 单文件推送上限 100MB，APK 约 145MB 需分块），
+      # 之后经 raw.githubusercontent.com 取回各块本地合并，用于模拟器安装测试
+      - name: Share debug APK to ci-apk branch (chunked)
         if: steps.buildtype.outputs.type == 'debug'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cp build/app/outputs/flutter-apk/app-debug.apk app-debug.apk
+          set -e
+          APK=build/app/outputs/flutter-apk/app-debug.apk
+          SHA=$(sha256sum "$APK" | cut -d' ' -f1)
+          echo "APK size: $(stat -c%s "$APK") bytes, sha256=$SHA"
+          # 每块 60MB（< 100MB 单文件推送上限）
+          split -b 60000000 "$APK" apk.part.
+          PARTS=($(ls apk.part.*))
+          echo "chunks: ${#PARTS[@]}"
+          {
+            echo "$SHA"
+            echo "${#PARTS[@]}"
+            for p in "${PARTS[@]}"; do echo "$p"; done
+          } > manifest.txt
           git config user.email "ci@local"
           git config user.name "ci"
           git config http.postBuffer 524288000
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/lxfebd/clean_manhua_flutter.git"
-          {
-            git checkout --orphan ci-apk 2>&1
-            git rm -rf --cached . 2>&1
-            git add -f app-debug.apk 2>&1
-            git commit -m "apk ${{ github.sha }}" 2>&1
-            git push -f origin ci-apk 2>&1
-          } > /tmp/share.log 2>&1
-          echo "===== share.log ====="; cat /tmp/share.log
-          # 把结果上报到 issue（gh 自动处理转义，便于沙箱定位失败原因）
-          gh issue create --title "ci-apk share diag $(date +%s)" --body-file /tmp/share.log || true
+          git branch -D ci-apk 2>/dev/null || true
+          git checkout --orphan ci-apk
+          git rm -rf --cached . >/dev/null 2>&1 || true
+          git add -f apk.part.* manifest.txt
+          git commit -m "apk ${{ github.sha }} chunks=${#PARTS[@]} sha=$SHA"
+          git push -f origin ci-apk
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
