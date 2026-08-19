@@ -86,6 +86,19 @@ jobs:
           name: app-${{ steps.buildtype.outputs.type }}
           path: build/app/outputs/flutter-apk/app-${{ steps.buildtype.outputs.type }}.apk
 
+      # 临时：把 debug APK 推到 ci-apk 分支，便于经 raw.githubusercontent.com 取回安装测试
+      - name: Share debug APK to ci-apk branch
+        if: steps.buildtype.outputs.type == 'debug'
+        run: |
+          cp build/app/outputs/flutter-apk/app-debug.apk app-debug.apk
+          git config user.email "ci@local"
+          git config user.name "ci"
+          git checkout --orphan ci-apk
+          git rm -rf --cached . >/dev/null 2>&1 || true
+          git add -f app-debug.apk
+          git commit -m "apk ${{ github.sha }}" || echo "no-change"
+          git push -f origin ci-apk
+
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
