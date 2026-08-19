@@ -87,35 +87,40 @@ jobs:
           path: build/app/outputs/flutter-apk/app-${{ steps.buildtype.outputs.type }}.apk
 
       # 临时：把 debug APK 分块推到 ci-apk 分支（GitHub 单文件推送上限 100MB，APK 约 145MB 需分块），
-      # 之后经 raw.githubusercontent.com 取回各块本地合并，用于模拟器安装测试
+      # 之后经 raw.githubusercontent.com 取回各块本地合并，用于模拟器安装测试。
+      # 同时把诊断信息写入 diag.txt 一并推送，便于沙箱经 raw 通道核查分块是否非空、推送是否成功。
       - name: Share debug APK to ci-apk branch (chunked)
         if: steps.buildtype.outputs.type == 'debug'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -e
           APK=build/app/outputs/flutter-apk/app-debug.apk
-          SHA=$(sha256sum "$APK" | cut -d' ' -f1)
-          echo "APK size: $(stat -c%s "$APK") bytes, sha256=$SHA"
-          # 每块 60MB（< 100MB 单文件推送上限）
-          split -b 60000000 "$APK" apk.part.
-          PARTS=($(ls apk.part.*))
-          echo "chunks: ${#PARTS[@]}"
           {
-            echo "$SHA"
-            echo "${#PARTS[@]}"
-            for p in "${PARTS[@]}"; do echo "$p"; done
-          } > manifest.txt
+            echo "PWD=$(pwd)"
+            echo "APK exists: $([ -f "$APK" ] && echo yes || echo no)"
+            echo "APK bytes: $(stat -c%s "$APK" 2>/dev/null || echo NA)"
+            echo "--- split (50MB/块) ---"
+            split -b 50000000 -d "$APK" apk.part. ; echo "split rc=$?"
+            echo "--- ls chunks ---"
+            ls -la apk.part.* 2>&1
+            echo "--- wc chunks ---"
+            wc -c apk.part.* 2>&1
+          } > diag.txt 2>&1
+          PARTS=($(ls apk.part.* 2>/dev/null))
+          SHA=$(sha256sum "$APK" 2>/dev/null | cut -d' ' -f1)
+          { echo "$SHA"; echo "${#PARTS[@]}"; for p in "${PARTS[@]}"; do echo "$p"; done; } > manifest.txt
           git config user.email "ci@local"
           git config user.name "ci"
           git config http.postBuffer 524288000
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/lxfebd/clean_manhua_flutter.git"
           git branch -D ci-apk 2>/dev/null || true
-          git checkout --orphan ci-apk
+          git checkout --orphan ci-apk 2>&1 | tee -a diag.txt
           git rm -rf --cached . >/dev/null 2>&1 || true
-          git add -f apk.part.* manifest.txt
-          git commit -m "apk ${{ github.sha }} chunks=${#PARTS[@]} sha=$SHA"
-          git push -f origin ci-apk
+          git add -f apk.part.* manifest.txt diag.txt 2>&1 | tee -a diag.txt
+          git ls-files --stage apk.part.* >> diag.txt 2>&1
+          git commit -m "apk ${{ github.sha }} chunks=${#PARTS[@]} sha=$SHA" >> diag.txt 2>&1
+          git push -f origin ci-apk >> diag.txt 2>&1
+          echo "push rc=$?" >> diag.txt
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
