@@ -37,6 +37,7 @@ class Net {
   static HttpClient _client(String host) {
     final client = HttpClient()
       ..connectionTimeout = _timeout
+      ..autoUncompress = false
       ..badCertificateCallback = (cert, h, port) => true; // 允许自签证书，兼容部分源
     final ips = preferredHostIps[host];
     if (ips != null && ips.isNotEmpty) {
