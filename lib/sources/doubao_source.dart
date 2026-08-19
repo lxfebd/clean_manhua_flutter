@@ -21,6 +21,9 @@ class DoubaoSource extends ComicSource {
       r'ewave-playlist-item">\s*<a class="text-overflow" href="/detail/([A-Za-z0-9]+)/(\d+)\.html">([^<]*)</a>');
 
   static final RegExp _h1Re = RegExp(r'<h1[^>]*>([^<]*)</h1>');
+  // 详情页没有 <h1>，标题在 <title>（形如「XX - XX漫画免费阅读 - 豆包漫画」）
+  static final RegExp _titleRe =
+      RegExp(r'<title>\s*([^<]*?)\s*-\s*(?:[^-<]*?)\s*</title>');
   static final RegExp _coverRe =
       RegExp(r'data-original="(https://img\.doubaomanhua\.com[^"]*)"');
   static final RegExp _paramsRe =
@@ -60,10 +63,17 @@ class DoubaoSource extends ComicSource {
   Future<ComicDetail> detail(String comicId) async {
     final body = await SourceHttp.get('doubao', '/detail/$comicId',
         fallbackHosts: _fallbackHosts);
-    final title = _first(_h1Re, body);
+    // 详情页通常有 <h1>，缺失时回退到 <title>（形如「XX - XX漫画免费阅读 - 豆包漫画」）
+    var title = _first(_h1Re, body);
+    if (title.isEmpty) title = _first(_titleRe, body);
     final cover = _first(_coverRe, body);
     final chapters = _chapterRe.allMatches(body).map((m) => Chapter(
         '${m.group(1)}/${m.group(2)}', _unescape(m.group(3) ?? ''))).toList();
+    // ignore: avoid_print
+    print('[DOUBAO-DEBUG] id=$comicId bodyLen=${body.length} '
+        'hasChapterRe=${_chapterRe.hasMatch(body)} '
+        'chapterCount=${chapters.length} titleRe=${title.isNotEmpty} '
+        'sample=${body.length > 200 ? body.substring(0, 200) : body}');
     return ComicDetail(ComicItem(comicId, title, cover), chapters);
   }
 
@@ -88,7 +98,22 @@ class DoubaoSource extends ComicSource {
     final Map<String, dynamic> obj = jsonDecode(text) as Map<String, dynamic>;
     final list = obj['chapter_images'];
     if (list is! List) return const <String>[];
-    return list.whereType<String>().where((s) => s.isNotEmpty).toList();
+    // 章节图片是相对路径（如 /scomic/...），需按 cms.js 的 getImageUrl 逻辑
+    // 补上 images_hosts 里的图床域名，否则无法加载。
+    final hosts = obj['images_hosts'];
+    final host =
+        hosts is List && hosts.isNotEmpty ? hosts.first.toString() : null;
+    if (host == null || host.isEmpty) {
+      return list.whereType<String>().where((s) => s.isNotEmpty).toList();
+    }
+    return list.whereType<String>().where((s) => s.isNotEmpty).map((s) {
+      if (s.startsWith('http://') ||
+          s.startsWith('https://') ||
+          s.startsWith('//')) {
+        return s;
+      }
+      return '$host${s.startsWith('/') ? s : '/$s'}';
+    }).toList();
   }
 
   Future<List<ComicItem>> _parseList(String html) async {

@@ -123,16 +123,16 @@ class SourceConfigStore {
           name: '禁漫天堂',
           tier: SourceTier.fallback,
           hosts: const [
-            'https://www.18comic.vg',
-            'https://www.18comic.org',
-            'https://www.cdnxxx-proxy.xyz',
-            'https://jmcomic.xyz',
-            'https://18comic.vg',
+            'https://www.cdnhjk.net',
+            'https://www.cdngwc.cc',
+            'https://www.cdngwc.net',
+            'https://www.cdngwc.club',
+            'https://www.cdnutc.me',
           ],
-          imageHosts: const [
-            'https://cdn-msp.comic18j-jobi.me',
-            'https://cdn-msp2.comic18j-jobi.me',
-            'https://cdn-msp3.comic18j-jobi.me',
+          imageHosts: [
+            'https://cdn-msp2.jmapiproxy2.cc',
+            'https://cdn-msp.jmapinodeudzn.net',
+            'https://cdn-msp.jmapiproxy1.cc',
           ],
         ),
         const SourceConfig(

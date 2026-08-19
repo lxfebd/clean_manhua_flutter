@@ -27,6 +27,7 @@ class _HomePageState extends State<HomePage> {
   String _categoryId = '';
   String _keyword = '';
   String? _error;
+  bool _done = false; // 首屏请求是否已结束（区分加载中与空结果）
   final _searchCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   List<Category> _cats = [];
@@ -57,6 +58,7 @@ class _HomePageState extends State<HomePage> {
     _page = 1;
     _items.clear();
     _error = null;
+    _done = false;
     setState(() {});
     _loadCategories();
     _loadMore();
@@ -104,6 +106,7 @@ class _HomePageState extends State<HomePage> {
       }
     } finally {
       _loading = false;
+      _done = true;
     }
   }
 
@@ -133,7 +136,8 @@ class _HomePageState extends State<HomePage> {
       return _ErrorState(message: _error!, onRetry: _refresh);
     }
     if (_items.isEmpty) {
-      return _LoadingDots();
+      // 首屏请求已结束仍无内容 → 空态；否则显示加载动画
+      return _done ? _EmptyState(mode: _mode) : _LoadingDots();
     }
     final theme = Theme.of(context);
     return CustomScrollView(
@@ -1197,6 +1201,42 @@ class _ErrorState extends StatelessWidget {
             onPressed: onRetry,
             icon: const Icon(Icons.refresh_rounded, size: 18),
             label: const Text('重试'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 无结果空态（搜索/分类无内容时展示，避免一直转圈）。
+class _EmptyState extends StatelessWidget {
+  final String mode;
+  const _EmptyState({required this.mode});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = mode == 'search' ? '没有找到相关结果' : '该分类暂时没有内容';
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 84,
+            height: 84,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: scheme.primary.withValues(alpha: 0.08),
+            ),
+            child: Icon(Icons.search_off_rounded, size: 44, color: scheme.primary),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 14,
+              color: scheme.onSurface.withValues(alpha: 0.6),
+            ),
           ),
         ],
       ),

@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cronet_http/cronet_http.dart' as cronet;
+import 'package:http/http.dart' as http;
+
 /// 零第三方依赖 HTTP 客户端（基于 dart:io HttpClient）。
 /// 注意：类名用 Net，避免与 dart:io 的 HttpClient 冲突。
 class Net {
@@ -92,6 +95,99 @@ class Net {
     } finally {
       client.close(force: true);
     }
+  }
+
+  /// 基于 Cronet 的 GET 请求（Android 上使用 Chromium 网络栈，TLS/HTTP2 指纹类浏览器，
+  /// 可规避部分站点对 dart:io HttpClient 指纹的 Cloudflare 质询拦截）。
+  /// 返回响应体字符串（UTF-8）。Cronet 内部自动解压 gzip，故不重复解压。
+  /// 非 Android 或 Cronet 不可用（无 GMS/初始化失败）时自动回退到 [get]（dart:io）。
+  ///
+  /// 探测策略：只在第一次请求时真正走 Cronet（[probeTimeout] 限时），一旦失败/超时
+  /// 就把 [_cronetUsable] 置为 false，后续请求直接走 dart:io，不再反复消耗超时预算。
+  static Future<String> getCronet(String urlStr,
+      {Map<String, String>? headers, Duration? timeout}) async {
+    if (_cronetUsable == false) {
+      return get(urlStr, headers: headers, timeout: timeout);
+    }
+    final t = timeout ?? _timeout;
+    final probe = t < const Duration(seconds: 8)
+        ? t
+        : const Duration(seconds: 6);
+    try {
+      final s = await _attemptCronet(
+          urlStr, headers, t, probe,
+          accept: '*/*', asBytes: false);
+      return s as String;
+    } catch (_) {
+      _cronetUsable = false;
+      return get(urlStr, headers: headers, timeout: timeout);
+    }
+  }
+
+  /// 基于 Cronet 的 GET 请求，返回原始响应字节（Android 上使用 Chromium 网络栈，
+  /// 规避对 dart:io HttpClient 指纹的 Cloudflare 质询拦截）。Cronet 自动解压 gzip。
+  /// 非 Android 或 Cronet 初始化失败时自动回退到 [getBytes]。
+  static Future<List<int>> getBytesCronet(String urlStr,
+      {Map<String, String>? headers, Duration? timeout}) async {
+    if (_cronetUsable == false) {
+      return getBytes(urlStr, headers: headers);
+    }
+    final t = timeout ?? _timeout;
+    final probe = t < const Duration(seconds: 8)
+        ? t
+        : const Duration(seconds: 6);
+    try {
+      final b = await _attemptCronet(
+          urlStr, headers, t, probe,
+          accept: 'image/webp,image/*,*/*', asBytes: true);
+      if (b is List<int>) return b;
+      return getBytes(urlStr, headers: headers);
+    } catch (_) {
+      _cronetUsable = false;
+      return getBytes(urlStr, headers: headers);
+    }
+  }
+
+  /// Cronet 是否已确认可用；null=未探测，false=已确认不可用（跳过 Cronet）。
+  static bool? _cronetUsable;
+
+  /// 真正走一次 Cronet 的完整请求（探测 + 响应），整体受 [probe] 限时。
+  /// 成功返回 String 或 List<int>（按 [asBytes]），失败抛异常由调用方回退 dart:io。
+  static Future<Object> _attemptCronet(
+      String urlStr, Map<String, String>? headers, Duration t, Duration probe,
+      {required String accept, required bool asBytes}) async {
+    return Future<Object>(() async {
+      final client = cronet.CronetClient.defaultCronetEngine();
+      try {
+        final req = http.Request('GET', Uri.parse(urlStr));
+        req.headers['User-Agent'] = defaultUA;
+        req.headers['Accept'] = accept;
+        headers?.forEach((k, v) => req.headers[k] = v);
+        final streamed = await client.send(req).timeout(t);
+        if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
+          final body = await streamed.stream.toBytes().timeout(t);
+          throw Exception(
+              'HTTP ${streamed.statusCode}: ${utf8.decode(body, allowMalformed: true)}');
+        }
+        final bytes = await streamed.stream.toBytes().timeout(t);
+        if (asBytes) return bytes;
+        return utf8.decode(bytes, allowMalformed: true);
+      } finally {
+        client.close();
+      }
+    }).timeout(probe);
+  }
+
+  /// 智能字节请求：优先 Cronet（类浏览器 TLS/HTTP2 指纹，规避 Cloudflare 质询）；
+  /// 仅对配置了优选 IP 直连的 host（如 TvTFun）保留 dart:io 的 connectionFactory 优化。
+  /// 供图片缓存等通用图片加载使用。
+  static Future<List<int>> getBytesAuto(String urlStr,
+      {Map<String, String>? headers, Duration? timeout}) {
+    final host = Uri.parse(urlStr).host;
+    if (preferredHostIps.containsKey(host)) {
+      return getBytes(urlStr, headers: headers);
+    }
+    return getBytesCronet(urlStr, headers: headers, timeout: timeout);
   }
 
   /// GET 请求，返回原始响应字节。

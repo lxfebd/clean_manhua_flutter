@@ -64,7 +64,7 @@ class ImageCacheManager {
     // 2) 网络
     final bytes = fetch != null
         ? await fetch()
-        : Uint8List.fromList(await Net.getBytes(url, headers: headers));
+        : Uint8List.fromList(await Net.getBytesAuto(url, headers: headers));
     _putMem(url, bytes);
     try {
       await f.writeAsBytes(bytes, flush: true);

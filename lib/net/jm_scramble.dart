@@ -71,6 +71,14 @@ class JmScramble {
 
   /// 还原被打乱的图片字节。从 [url] 解析 aid 与文件名；无需还原时原样返回。
   /// 还原失败时回退原图，绝不抛异常。
+  ///
+  /// 真实算法（与禁漫前端 JS `onImageLoaded` 一致）：
+  ///   1. 算出 num 段数（由 aid + filename 决定）；
+  ///   2. 加扰图高度与原图相同，无黑边空隙；它是把原图纵向切成 num 块后
+  ///      「块顺序倒转」拼回的结果（最底下的块在最上，最顶上的块在最下）；
+  ///   3. 基础块高 c = h ~/ num，余数 l = h % num 归入 m == 0 的块（即底部块）；
+  ///   4. 还原 = 从加扰图底部往顶部逐块取（源 y = h - c*(m+1) - l），
+  ///      贴到目标画布顶部往下（目标 y 累加块高），得到与原图同高的图片。
   static Uint8List descramble(Uint8List bytes, String url) {
     final aid = parseAid(url);
     if (aid == null) return bytes;
@@ -82,27 +90,18 @@ class JmScramble {
       final w = image.width;
       final h = image.height;
       if (h <= 1) return bytes;
-      final move = h ~/ num;
-      final over = h % num;
+      final c = h ~/ num; // 基础块高
+      final l = h % num; // 余数
+      if (c <= 0) return bytes;
       final out = img.Image(width: w, height: h);
-      for (int i = 0; i < num; i++) {
-        // 源位置：从底部往上取（倒序），第一条带携带余数
-        final ySrc = h - (move * (i + 1)) - over;
-        var yDst = move * i;
-        var stripH = move;
-        if (i == 0) {
-          stripH += over;
-        } else {
-          yDst += over;
-        }
-        final strip = img.copyCrop(
-          image,
-          x: 0,
-          y: ySrc,
-          width: w,
-          height: stripH,
-        );
-        img.compositeImage(out, strip, dstX: 0, dstY: yDst);
+      var g = 0; // 目标 y（从上往下）
+      for (var m = 0; m < num; m++) {
+        final srcY = h - c * (m + 1) - l; // 源 y（从加扰图底部往上取）
+        final blockH = m == 0 ? c + l : c; // 底部块多含余数
+        final strip =
+            img.copyCrop(image, x: 0, y: srcY, width: w, height: blockH);
+        img.compositeImage(out, strip, dstX: 0, dstY: g);
+        g += blockH;
       }
       return Uint8List.fromList(img.encodeJpg(out, quality: 92));
     } catch (_) {

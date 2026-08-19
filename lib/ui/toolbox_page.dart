@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../net/image_cache.dart';
@@ -22,10 +22,10 @@ class ToolboxPage extends StatefulWidget {
   const ToolboxPage({super.key});
 
   @override
-  State<ToolboxPage> createState() => _ToolboxPageState();
+  State<ToolboxPage> createState() => ToolboxPageState();
 }
 
-class _ToolboxPageState extends State<ToolboxPage> {
+class ToolboxPageState extends State<ToolboxPage> {
   // 下载
   List<DownloadRecord> _downloads = [];
   bool _busyDownloads = false;
@@ -40,6 +40,12 @@ class _ToolboxPageState extends State<ToolboxPage> {
   @override
   void initState() {
     super.initState();
+    _refreshDownloads();
+    _refreshCacheSize();
+  }
+
+  /// 外部刷新入口（切到本 Tab 时调用），刷新下载列表与缓存占用。
+  void refresh() {
     _refreshDownloads();
     _refreshCacheSize();
   }

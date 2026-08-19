@@ -57,7 +57,7 @@ class _JmScrambleImageWidgetState extends State<JmScrambleImageWidget> {
       final bytes = await ImageCacheManager.load(
         widget.url,
         fetch: () async {
-          var raw = Uint8List.fromList(await Net.getBytes(
+          var raw = Uint8List.fromList(await Net.getBytesCronet(
             split.url,
             headers: {
               'User-Agent': Net.defaultUA,

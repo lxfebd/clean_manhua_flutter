@@ -28,7 +28,7 @@ class JmCrypto {
     final keyStr = md5.convert(utf8.encode('$ts$secret')).toString();
     final keyBytes = Uint8List.fromList(utf8.encode(keyStr));
     final cipher = PaddedBlockCipher('AES/ECB/PKCS7')
-      ..init(false, KeyParameter(keyBytes));
+      ..init(false, PaddedBlockCipherParameters(KeyParameter(keyBytes), null));
     final raw = base64Decode(base64Data);
     final plain = cipher.process(Uint8List.fromList(raw));
     return utf8.decode(plain);

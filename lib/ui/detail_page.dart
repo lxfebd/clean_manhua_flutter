@@ -68,7 +68,7 @@ class _DetailPageState extends State<DetailPage> {
     try {
       final d = await SourceManager.byId(widget.sourceId)
           .detail(widget.comicId)
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 30));
       if (mounted) {
         setState(() {
           _detail = d;

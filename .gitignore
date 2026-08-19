@@ -47,6 +47,7 @@ app.*.map.json
 # ===== 本地调试残留（非产品代码，勿入库）=====
 /tool/
 /screenshots/
+/screens/
 tool_*.py
 tmp_*
 emu_*
@@ -54,3 +55,18 @@ ui*.xml
 UI*.html
 dt*.dart
 /*.png
+
+# ===== 测试/调试产物（勿入库）=====
+*.apk
+ci_parts/
+*.zip
+ch1.html
+ch1b.html
+cms.js
+disable_*.json
+doubao.js
+fetch_*.py
+download_*.py
+t5_*.ps1
+payload.bin
+plain.txt

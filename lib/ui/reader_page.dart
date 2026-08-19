@@ -143,8 +143,12 @@ class _ReaderPageState extends State<ReaderPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Stack(
-        children: [
+      // 注意：Scaffold body 给的是宽松约束，Stack 会按非 positioned 子节点
+      // （顶部栏）收缩到极矮，导致 ListView 只有顶部一条、底部工具栏跑到顶部。
+      // 用 SizedBox.expand 强制 Stack 铺满全屏。
+      body: SizedBox.expand(
+        child: Stack(
+          children: [
           Positioned.fill(child: _buildBody()),
           // 亮度（暗化）层
           AnimatedOpacity(
@@ -180,14 +184,8 @@ class _ReaderPageState extends State<ReaderPage> {
             },
             onDownload: _downloading ? null : _download,
           ),
-          // 点击空白处切换工具栏显隐
-          Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onTap: _toggleOverlay,
-            ),
-          ),
         ],
+        ),
       ),
     );
   }
@@ -296,28 +294,38 @@ class _ReaderPageState extends State<ReaderPage> {
       _pageCtrl?.dispose();
       final ctrl = PageController();
       _pageCtrl = ctrl;
-      return PageView.builder(
-        controller: ctrl,
-        itemCount: _urls.length,
-        onPageChanged: (idx) {
-          setState(() => _curPage = idx);
-          _prefetch(idx + 1);
-        },
-        itemBuilder: (c, i) => _ImageView(_urls[i],
-            pageIndex: i, totalPages: _urls.length, resLevel: _resLevel,
-            horizontal: true, sourceId: widget.sourceId),
+      return GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: _toggleOverlay,
+        child: PageView.builder(
+          controller: ctrl,
+          itemCount: _urls.length,
+          onPageChanged: (idx) {
+            setState(() => _curPage = idx);
+            _prefetch(idx + 1);
+          },
+          itemBuilder: (c, i) => _ImageView(_urls[i],
+              pageIndex: i, totalPages: _urls.length, resLevel: _resLevel,
+              horizontal: true, sourceId: widget.sourceId),
+        ),
       );
     }
     _scrollCtrl?.dispose();
     final sctrl = ScrollController();
     _scrollCtrl = sctrl;
-    return ListView.builder(
-      controller: sctrl,
-      padding: EdgeInsets.zero,
-      itemCount: _urls.length,
-      itemBuilder: (c, i) => _ImageView(_urls[i],
-          pageIndex: i, totalPages: _urls.length, resLevel: _resLevel,
-          sourceId: widget.sourceId),
+    // 点击空白切换工具栏显隐。GestureDetector 放在 body 内层而非 Stack 顶层，
+    // 否则会遮蔽顶部返回/底部工具栏按钮（hit test 自顶向下、命中即止）。
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: _toggleOverlay,
+      child: ListView.builder(
+        controller: sctrl,
+        padding: EdgeInsets.zero,
+        itemCount: _urls.length,
+        itemBuilder: (c, i) => _ImageView(_urls[i],
+            pageIndex: i, totalPages: _urls.length, resLevel: _resLevel,
+            sourceId: widget.sourceId),
+      ),
     );
   }
 }

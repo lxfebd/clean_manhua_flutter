@@ -101,12 +101,20 @@ class BiqugeNovelSource extends NovelSource {
     final chapters = <NovelChapter>[];
     final seen = <String>{};
     var idx = 0;
+    final chLinks = _chapterRe.allMatches(body).take(6).map((m) =>
+        '${m.group(1)}/${m.group(2)}:${m.group(3)}').join(' | ');
+    // ignore: avoid_print
+    print('[BIQUGE-DETAIL] id=$novelId bodyLen=${body.length} '
+        'chapterReCount=${_chapterRe.allMatches(body).length} '
+        'chLinks=$chLinks');
     for (final m in _chapterRe.allMatches(body)) {
       final nid = m.group(1)!;
       final cid = m.group(2)!;
+      // 站点在章节列表头部放 cid=0 的无效占位链接（如「/bqg/{id}/0.html」），需跳过
+      if (cid == '0') continue;
       if (nid != novelId || !seen.add(cid)) continue;
       chapters.add(
-          NovelChapter(cid, _clean(m.group(3)!), index: idx++));
+          NovelChapter('$novelId|$cid', _clean(m.group(3)!), index: idx++));
     }
     return NovelDetail(
       ComicItem(novelId, name, cover),
@@ -130,6 +138,11 @@ class BiqugeNovelSource extends NovelSource {
     final paragraphs = _parseContent(body);
     final prev = _firstGroup(_prevRe, body);
     final next = _firstGroup(_nextRe, body);
+    // ignore: avoid_print
+    print('[BIQUGE-DEBUG] cid=$cid bodyLen=${body.length} '
+        'hasContent=${_contentRe.hasMatch(body)} paras=${paragraphs.length} '
+        'hasPrev=$prev hasNext=$next '
+        'sample=${body.length > 300 ? body.substring(0, 300) : body}');
     return NovelContent(
       chapterId,
       _clean(title),
@@ -165,6 +178,10 @@ class BiqugeNovelSource extends NovelSource {
       if (items.any((e) => e.id == id)) continue;
       items.add(ComicItem(id, _clean(m.group(2)!), ''));
     }
+    // ignore: avoid_print
+    print('[BIQUGE-LIST] bodyLen=${html.length} books=${items.length} '
+        'imgs=${RegExp(r'<img[^>]+src="([^"]+)"').allMatches(html).length} '
+        'imgSample=${RegExp(r'<img[^>]+src="([^"]+)"').allMatches(html).take(2).map((m)=>m.group(1)).join(' | ')}');
     return items;
   }
 

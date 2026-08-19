@@ -49,7 +49,7 @@ class DownloadManager {
         final path = await LocalStore.localImagePath(key, i);
         if (!File(path).existsSync()) {
           final bytes =
-              await Net.getBytes(urls[i]).timeout(_imageTimeout);
+              await Net.getBytesAuto(urls[i]).timeout(_imageTimeout);
           File(path).writeAsBytesSync(bytes);
         }
         okCount++;

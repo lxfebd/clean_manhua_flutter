@@ -35,6 +35,8 @@ class JmSource extends ComicSource {
     'https://cdn-msp2.jmapiproxy2.cc',
     'https://cdn-msp.jmapinodeudzn.net',
     'https://cdn-msp.jmapiproxy1.cc',
+    'https://cdn-msp3.jmapiproxy2.cc',
+    'https://cdn-msp3.jmapinodeudzn.net',
   ];
 
   /// 封面默认 URL 模板：`https://{cdn}/media/albums/{id}.jpg`。
@@ -111,16 +113,17 @@ class JmSource extends ComicSource {
       final cid = _str(s['id']) ?? '';
       if (cid.isEmpty) continue;
       final cname = _str(s['name']) ?? '第${i + 1}话';
-      chapters.add(Chapter(cid, cname));
+      // 把 album_id 编进 chapterId（photoId|albumId 形式），便于 chapterPics 还原时拿到正确的 aid
+      chapters.add(Chapter('$cid|$comicId', cname));
     }
     // 单章节本：series 为空但有 series_id 指向唯一的 photo id
     if (chapters.isEmpty) {
       final sid = _str(album['series_id']);
       if (sid != null && sid.isNotEmpty) {
-        chapters.add(Chapter(sid, _str(album['name']) ?? '开始阅读'));
+        chapters.add(Chapter('$sid|$comicId', _str(album['name']) ?? '开始阅读'));
       } else {
         // 完全无章节：尝试用 album id 当 chapter id（仍会触底错误）
-        chapters.add(Chapter(comicId, '开始阅读'));
+        chapters.add(Chapter('$comicId|$comicId', '开始阅读'));
       }
     }
 
@@ -134,7 +137,13 @@ class JmSource extends ComicSource {
 
   @override
   Future<List<String>> chapterPics(String chapterId) async {
-    final json = await _getJson('/chapter?id=$chapterId');
+    // chapterId 形如 "photoId|albumId"，chapter API 用 photoId。
+    final pipeIdx = chapterId.indexOf('|');
+    final photoId =
+        pipeIdx < 0 ? chapterId : chapterId.substring(0, pipeIdx);
+    final albumId =
+        pipeIdx < 0 ? chapterId : chapterId.substring(pipeIdx + 1);
+    final json = await _getJson('/chapter?id=$photoId');
     final chapter = json;
     final imagesRaw = chapter['images'] ?? [];
     final List<dynamic> images =
@@ -142,15 +151,46 @@ class JmSource extends ComicSource {
     if (images.isEmpty) {
       throw Exception('禁漫章节图片为空（可能需登录或域名失效）。');
     }
-    // 用 imageHosts 拼图 URL（每个文件名 + 第一个可用 CDN）
-    final imgHosts =
-        await SourceConfigStore.imageHostsFor('jm', _builtinImageHosts);
-    final baseCdn = imgHosts.first;
+    // 优先用 API 返回的 CDN 域名（imageHost / imageHosts 字段），动态且最新；
+    // 兜底再用内置列表的第一个。
+    final dynamicHosts = <String>[];
+    final ih = chapter['imageHost'];
+    if (ih is String && ih.isNotEmpty) {
+      dynamicHosts.add(ih.startsWith('http') ? ih : 'https://$ih');
+    }
+    final ihs = chapter['imageHosts'];
+    if (ihs is Map) {
+      ihs.forEach((k, v) {
+        final val = v.toString().trim();
+        if (val.isNotEmpty && !dynamicHosts.contains(val)) {
+          dynamicHosts.add(val.startsWith('http') ? val : 'https://$val');
+        }
+      });
+    } else if (ihs is List) {
+      for (final v in ihs) {
+        final val = v.toString().trim();
+        if (val.isNotEmpty && !dynamicHosts.contains(val)) {
+          dynamicHosts.add(val.startsWith('http') ? val : 'https://$val');
+        }
+      }
+    }
+    // 字段里可能没有 http 前缀，直接补上
+    if (dynamicHosts.isEmpty) {
+      final cached = await SourceConfigStore.imageHostsFor(
+          'jm', _builtinImageHosts);
+      dynamicHosts.addAll(cached);
+    }
+    final hosts = dynamicHosts.isNotEmpty ? dynamicHosts : _builtinImageHosts;
     final result = <String>[];
     for (final raw in images) {
       final name = _str(raw);
       if (name == null || name.isEmpty) continue;
-      result.add('$baseCdn$_photoPathTemplate$chapterId/$name');
+      for (final h in hosts) {
+        // 末尾加 @jm:<albumId> 标记，JmScramble.parseAid 会优先取这个值
+        result.add(
+            '$h$_photoPathTemplate$photoId/$name@jm:$albumId');
+        break; // 只取第一个可用 CDN
+      }
     }
     return result;
   }
@@ -200,7 +240,7 @@ class JmSource extends ComicSource {
       try {
         final ts = DateTime.now().millisecondsSinceEpoch ~/ 1000;
         final auth = JmCrypto.makeHeaders(ts);
-        final text = await Net.get('$host$path', headers: {
+        final text = await Net.getCronet('$host$path', headers: {
           'User-Agent': _ua,
           'Accept': 'application/json, text/plain, */*',
           'Accept-Encoding': 'gzip, deflate',

@@ -22,11 +22,17 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
       GlobalKey<BookshelfPageState>();
   final GlobalKey<ProfilePageState> _profileKey =
       GlobalKey<ProfilePageState>();
+  final GlobalKey<ToolboxPageState> _toolboxKey =
+      GlobalKey<ToolboxPageState>();
 
   void _onTab(int i) {
     setState(() => _index = i);
     if (i == 1) {
       _shelfKey.currentState?.reload();
+    }
+    if (i == 2) {
+      // 切到工具页时刷新下载列表/缓存占用，避免下载完成后列表停留在旧进度
+      _toolboxKey.currentState?.refresh();
     }
     if (i == 3) {
       _profileKey.currentState?.refresh();
@@ -59,7 +65,7 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
           child: IndexedStack(index: _index, children: [
             const MangaAnimeTabs(),
             BookshelfPage(key: _shelfKey),
-            const ToolboxPage(),
+            ToolboxPage(key: _toolboxKey),
             ProfilePage(key: _profileKey, onSwitchTab: _onTab),
           ]),
         ),
