@@ -1,5 +1,10 @@
-import 'package:flutter/material.dart';
+import 'dart:io';
 
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../net/local_store.dart';
+import '../net/update_checker.dart';
 import 'anime_home_page.dart';
 import 'bookshelf_page.dart';
 import 'home_page.dart';
@@ -24,6 +29,111 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
       GlobalKey<ProfilePageState>();
   final GlobalKey<ToolboxPageState> _toolboxKey =
       GlobalKey<ToolboxPageState>();
+
+  @override
+  void initState() {
+    super.initState();
+    _autoCheckUpdate();
+  }
+
+  /// 启动时自动检查更新：每天最多一次，有新版本弹提示。失败静默忽略。
+  Future<void> _autoCheckUpdate() async {
+    try {
+      final last = await LocalStore.lastUpdateCheckTs();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - last < const Duration(hours: 24).inMilliseconds) return;
+      await LocalStore.setLastUpdateCheckTs(now);
+      final info = await UpdateChecker.checkLatest(
+          timeout: const Duration(seconds: 10));
+      if (info == null || !mounted) return;
+      if (mounted) _showUpdateDialog(info);
+    } catch (_) {
+      // 检查失败静默，用户仍可在设置页手动检查
+    }
+  }
+
+  void _showUpdateDialog(UpdateInfo info) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: Text('发现新版本 v${info.version}'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (info.notes != null && info.notes!.isNotEmpty) ...[
+                Text(info.notes!, style: const TextStyle(fontSize: 12.5)),
+                const SizedBox(height: 12),
+              ],
+              Text(
+                '当前版本：v${UpdateChecker.currentVersion()}',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: Theme.of(ctx)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.6),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('以后再说'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _downloadAndInstall(info.apkUrl);
+            },
+            child: const Text('更新'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _downloadAndInstall(String url) async {
+    if (!mounted) return;
+    final msg = ScaffoldMessenger.of(context)
+      ..showSnackBar(const SnackBar(content: Text('正在下载更新…')));
+    try {
+      final path = await UpdateChecker.downloadApk(url);
+      if (!mounted) return;
+      msg.hideCurrentSnackBar();
+      final ok = await _installApk(path);
+      if (!ok && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('下载完成，APK 在 $path')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      msg.hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('下载失败：$e')),
+      );
+    }
+  }
+
+  /// 通过系统安装器安装 APK（Android 需要 FileProvider + 未知来源授权）。
+  Future<bool> _installApk(String path) async {
+    if (Platform.isAndroid) {
+      try {
+        await MethodChannel('xingmanxia/install')
+            .invokeMethod('installApk', {'path': path});
+        return true;
+      } catch (e) {
+        debugPrint('install failed: $e');
+        return false;
+      }
+    }
+    return false;
+  }
 
   void _onTab(int i) {
     setState(() => _index = i);

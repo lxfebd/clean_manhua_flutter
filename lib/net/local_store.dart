@@ -308,6 +308,15 @@ class LocalStore {
   static Future<void> setHorizontalReader(bool v) async =>
       _write('settings', {'dark': await darkMode(), 'horizontal': v});
 
+  // ---- 更新检查 ----
+  /// 上次自动检查更新的时间戳（ms）。用于限制每天最多自动检查一次。
+  static Future<int> lastUpdateCheckTs() async =>
+      ((await _read('update_check')) as Map?)?['ts'] as int? ?? 0;
+
+  /// 记录本次自动检查更新时间。
+  static Future<void> setLastUpdateCheckTs(int ts) async =>
+      _write('update_check', {'ts': ts});
+
   // ---- 下载记录 ----
   static Future<List<DownloadRecord>> downloads() async {
     final list = (await _read('downloads') as List?) ?? [];
