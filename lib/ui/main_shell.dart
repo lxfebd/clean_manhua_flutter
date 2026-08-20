@@ -1,10 +1,8 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../net/local_store.dart';
 import '../net/update_checker.dart';
+import 'widgets/update_download_dialog.dart';
 import 'anime_home_page.dart';
 import 'bookshelf_page.dart';
 import 'home_page.dart';
@@ -88,51 +86,13 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
           FilledButton(
             onPressed: () {
               Navigator.pop(ctx);
-              _downloadAndInstall(info.apkUrl);
+              showUpdateDownloadDialog(context, info.apkUrl);
             },
             child: const Text('更新'),
           ),
         ],
       ),
     );
-  }
-
-  Future<void> _downloadAndInstall(String url) async {
-    if (!mounted) return;
-    final msg = ScaffoldMessenger.of(context)
-      ..showSnackBar(const SnackBar(content: Text('正在下载更新…')));
-    try {
-      final path = await UpdateChecker.downloadApk(url);
-      if (!mounted) return;
-      msg.hideCurrentSnackBar();
-      final ok = await _installApk(path);
-      if (!ok && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('下载完成，APK 在 $path')),
-        );
-      }
-    } catch (e) {
-      if (!mounted) return;
-      msg.hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('下载失败：$e')),
-      );
-    }
-  }
-
-  /// 通过系统安装器安装 APK（Android 需要 FileProvider + 未知来源授权）。
-  Future<bool> _installApk(String path) async {
-    if (Platform.isAndroid) {
-      try {
-        await MethodChannel('xingmanxia/install')
-            .invokeMethod('installApk', {'path': path});
-        return true;
-      } catch (e) {
-        debugPrint('install failed: $e');
-        return false;
-      }
-    }
-    return false;
   }
 
   void _onTab(int i) {
