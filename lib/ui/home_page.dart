@@ -199,16 +199,17 @@ class _HomePageState extends State<HomePage> {
               childAspectRatio: 0.6,
             ),
             delegate: SliverChildBuilderDelegate(
-              (c, i) => FadeSlideIn(
-                delay: Duration(milliseconds: 50 * (i % 12)),
-                offset: 16,
-                child: _ComicCard(
-                  item: _items[i],
-                  onTap: () => _openDetail(_items[i]),
-                ),
+            (c, i) => FadeSlideIn(
+              delay: Duration(milliseconds: 50 * (i % 12)),
+              offset: 16,
+              child: _ComicCard(
+                item: _items[i],
+                sourceId: SourceManager.current.id,
+                onTap: () => _openDetail(_items[i]),
               ),
-              childCount: _items.length,
             ),
+            childCount: _items.length,
+          ),
           ),
         ),
         if (_loading)
@@ -699,6 +700,7 @@ class _FeaturedBannerState extends State<_FeaturedBanner> {
                 },
                 child: _FeaturedCard(
                   item: it,
+                  sourceId: SourceManager.current.id,
                   onTap: () {
                     HapticFeedback.selectionClick();
                     Navigator.push(
@@ -734,8 +736,9 @@ class _FeaturedBannerState extends State<_FeaturedBanner> {
 
 class _FeaturedCard extends StatelessWidget {
   final ComicItem item;
+  final String sourceId;
   final VoidCallback onTap;
-  const _FeaturedCard({required this.item, required this.onTap});
+  const _FeaturedCard({required this.item, required this.sourceId, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -751,7 +754,7 @@ class _FeaturedCard extends StatelessWidget {
             fit: StackFit.expand,
             children: [
               Hero(
-                tag: 'cover_${item.id}',
+                tag: 'cover_${sourceId}_${item.id}',
                 child: CachedImage(
                   item.pic,
                   fit: BoxFit.cover,
@@ -879,8 +882,9 @@ class AnimatedSmoothIndicator extends StatelessWidget {
 
 class _ComicCard extends StatefulWidget {
   final ComicItem item;
+  final String sourceId;
   final VoidCallback onTap;
-  const _ComicCard({required this.item, required this.onTap});
+  const _ComicCard({required this.item, required this.sourceId, required this.onTap});
 
   @override
   State<_ComicCard> createState() => _ComicCardState();
@@ -933,7 +937,7 @@ class _ComicCardState extends State<_ComicCard> {
                       children: [
                         Positioned.fill(
                           child: Hero(
-                            tag: 'cover_${widget.item.id}',
+                            tag: 'cover_${widget.sourceId}_${widget.item.id}',
                             child: CachedImage(
                               widget.item.pic,
                               fit: BoxFit.cover,

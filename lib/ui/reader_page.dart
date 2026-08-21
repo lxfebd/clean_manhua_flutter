@@ -43,9 +43,9 @@ class _ReaderPageState extends State<ReaderPage> {
   bool _downloaded = false;
   bool _downloading = false;
   int _curPage = 0;
-  final int _resLevel = 0; // 0=无, 1=性能, 2=质量
+  int _resLevel = 0; // 0=无, 1=性能, 2=质量
   bool _overlay = true; // 顶部/底部工具栏是否显示
-  bool _dim = false; // 亮度（暗化模拟）
+  double _dim = 0.0; // 亮度（暗化模拟），0.0~1.0
   Timer? _hideTimer;
 
   Bookmark get _book => Bookmark(
@@ -64,6 +64,7 @@ class _ReaderPageState extends State<ReaderPage> {
 
   Future<void> _init() async {
     _horizontal = await LocalStore.horizontalReader();
+    _resLevel = await LocalStore.resLevel();
     _downloaded = await DownloadManager.isDownloaded(_book.key, widget.chapterId);
     _recordHistory();
     _load();
@@ -106,12 +107,33 @@ class _ReaderPageState extends State<ReaderPage> {
   }
 
   /// 预取后续 3 页字节到缓存（本地已下载 / JM 解扰图跳过）。
+  /// 注意：headers 必须与 _ImageView 一致（部分 CDN 无 Referer 返回 404，
+  /// 若 preload 用无头请求启动 in-flight，后续正式加载会复用该失败 future）。
   void _prefetch(int from) {
     for (var k = from; k < from + 3 && k < _urls.length; k++) {
       final u = _urls[k];
       if (u.startsWith('/') || u.contains('@')) continue;
-      ImageCacheManager.preload(u);
+      ImageCacheManager.preload(u, headers: _headersForUrl(u));
     }
+  }
+
+  /// 部分图源 CDN 需要 Referer 头才返回图片（如 dm5 的 cdndm5.com），
+  /// 否则返回 403/404 导致「图片加载失败」。
+  static Map<String, String>? _headersForUrl(String url) {
+    final host = Uri.tryParse(url)?.host ?? '';
+    if (host.contains('cdndm5.com')) {
+      // 从 URL 的 cid 参数还原章节页作为 Referer（CDN 校验 Referer 路径）
+      final cid = Uri.tryParse(url)?.queryParameters['cid'] ?? '';
+      return {
+        'Referer': cid.isNotEmpty
+            ? 'https://m.dm5.com/m$cid/'
+            : 'https://m.dm5.com/'
+      };
+    }
+    if (host.contains('doubaomanhua.com') || host.contains('bzcdn')) {
+      return {'Referer': 'https://www.doubaomanhua.com/'};
+    }
+    return null;
   }
 
   Future<void> _download() async {
@@ -153,7 +175,7 @@ class _ReaderPageState extends State<ReaderPage> {
           // 亮度（暗化）层
           AnimatedOpacity(
             duration: const Duration(milliseconds: 220),
-            opacity: _dim ? 0.45 : 0.0,
+            opacity: _dim * 0.45,
             child: const ColoredBox(color: Colors.black),
           ),
           // 顶部工具栏（返回/标题/菜单）
@@ -214,12 +236,17 @@ class _ReaderPageState extends State<ReaderPage> {
       builder: (_) => _ReaderSettingsSheet(
         horizontal: _horizontal,
         dim: _dim,
+        resLevel: _resLevel,
         onDimChanged: (v) {
           setState(() => _dim = v);
         },
         onLayoutChanged: (h) {
           setState(() => _horizontal = h);
           LocalStore.setHorizontalReader(h);
+        },
+        onResLevelChanged: (v) {
+          setState(() => _resLevel = v);
+          LocalStore.setResLevel(v);
         },
         onCatalog: () {
           Navigator.pop(context);
@@ -286,9 +313,16 @@ class _ReaderPageState extends State<ReaderPage> {
       return const Center(child: CircularProgressIndicator(color: Colors.white));
     }
     if (_urls.isEmpty) {
-      return const Center(
-          child: Text('暂不支持该源阅读（图片解析接入中），请切换源或换章节',
-              style: TextStyle(color: Colors.white54)));
+      final msg = widget.sourceId == 'mangadex'
+          ? '该章节暂时无法获取（外部/已下架章节），可换其它话或换源试试'
+          : '暂不支持该源阅读（图片解析接入中），请切换源或换章节';
+      return Center(
+          child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 28),
+        child: Text(msg,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white54)),
+      ));
     }
     if (_horizontal) {
       _pageCtrl?.dispose();
@@ -412,6 +446,7 @@ class _ImageViewState extends State<_ImageView> {
         url: widget.url,
         fit: fit,
         filterQuality: _filterLevel(),
+        sourceId: widget.sourceId,
         onError: () {
           Future.microtask(() {
             if (mounted) setState(() => _error = true);
@@ -481,11 +516,13 @@ class _CachedReaderImage extends StatefulWidget {
   final String url;
   final BoxFit fit;
   final FilterQuality filterQuality;
+  final String sourceId;
   final VoidCallback onError;
   const _CachedReaderImage({
     required this.url,
     required this.fit,
     required this.filterQuality,
+    required this.sourceId,
     required this.onError,
   });
 
@@ -503,13 +540,18 @@ class _CachedReaderImageState extends State<_CachedReaderImage> {
     _load();
   }
 
+  /// 部分图源 CDN 需要 Referer 头才返回图片（如 dm5 的 cdndm5.com），
+  /// 否则返回 403/404 导致「图片加载失败」。与 _prefetch 保持一致的 headers。
+  Map<String, String>? _headers() => _ReaderPageState._headersForUrl(widget.url);
+
   Future<void> _load() async {
     setState(() {
       _bytes = null;
       _failed = false;
     });
     try {
-      final b = await ImageCacheManager.load(widget.url);
+      final b =
+          await ImageCacheManager.load(widget.url, headers: _headers());
       if (mounted) setState(() => _bytes = b);
     } catch (_) {
       if (mounted) {
@@ -769,16 +811,20 @@ class _ToolBtn extends StatelessWidget {
 /// 阅读设置抽屉（S6）：亮度滑块 + 翻页模式 + 目录/下载。
 class _ReaderSettingsSheet extends StatefulWidget {
   final bool horizontal;
-  final bool dim;
-  final ValueChanged<bool> onDimChanged;
+  final double dim;
+  final int resLevel;
+  final ValueChanged<double> onDimChanged;
   final ValueChanged<bool> onLayoutChanged;
+  final ValueChanged<int> onResLevelChanged;
   final VoidCallback onCatalog;
   final VoidCallback? onDownload;
   const _ReaderSettingsSheet({
     required this.horizontal,
     required this.dim,
+    required this.resLevel,
     required this.onDimChanged,
     required this.onLayoutChanged,
+    required this.onResLevelChanged,
     required this.onCatalog,
     this.onDownload,
   });
@@ -788,7 +834,25 @@ class _ReaderSettingsSheet extends StatefulWidget {
 }
 
 class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
-  late double _dim = widget.dim ? 1.0 : 0.0;
+  late double _localDim;
+  late int _localResLevel;
+  late bool _localHorizontal;
+
+  @override
+  void initState() {
+    super.initState();
+    _localDim = widget.dim;
+    _localResLevel = widget.resLevel;
+    _localHorizontal = widget.horizontal;
+  }
+
+  @override
+  void didUpdateWidget(covariant _ReaderSettingsSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _localDim = widget.dim;
+    _localResLevel = widget.resLevel;
+    _localHorizontal = widget.horizontal;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -837,16 +901,16 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
                         overlayRadius: 8),
                   ),
                   child: Slider(
-                    value: _dim,
+                    value: _localDim,
                     onChanged: (v) {
-                      setState(() => _dim = v);
-                      widget.onDimChanged(v > 0.1);
+                      setState(() => _localDim = v);
+                      widget.onDimChanged(v);
                     },
                   ),
                 ),
               ),
               const SizedBox(width: 10),
-              Text('${(_dim * 100).round()}%',
+              Text('${(_localDim * 100).round()}%',
                   style: const TextStyle(
                       fontSize: 11, color: Colors.white70)),
             ],
@@ -859,16 +923,50 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
           const SizedBox(height: 8),
           Row(
             children: [
-              _layoutOption('横向翻页', widget.horizontal, () {
-                setState(() {});
+              _layoutOption('横向翻页', _localHorizontal, () {
+                setState(() => _localHorizontal = true);
                 widget.onLayoutChanged(true);
               }),
               const SizedBox(width: 8),
-              _layoutOption('纵向滚动', !widget.horizontal, () {
-                setState(() {});
+              _layoutOption('纵向滚动', !_localHorizontal, () {
+                setState(() => _localHorizontal = false);
                 widget.onLayoutChanged(false);
               }),
             ],
+          ),
+          const SizedBox(height: 16),
+          // 画质（超分辨率）
+          Text('画质增强',
+              style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _resOption('原图', 0, _localResLevel, () {
+                setState(() => _localResLevel = 0);
+                widget.onResLevelChanged(0);
+              }),
+              const SizedBox(width: 6),
+              _resOption('平滑', 1, _localResLevel, () {
+                setState(() => _localResLevel = 1);
+                widget.onResLevelChanged(1);
+              }),
+              const SizedBox(width: 6),
+              _resOption('高清', 2, _localResLevel, () {
+                setState(() => _localResLevel = 2);
+                widget.onResLevelChanged(2);
+              }),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '提升放大后的线条锐度，可在线/离线切换',
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.white.withValues(alpha: 0.4),
+            ),
           ),
           const SizedBox(height: 16),
           Row(
@@ -912,6 +1010,38 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 13,
+              fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+              color: active ? Colors.white : Colors.white70,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _resOption(String label, int value, int current, VoidCallback onTap) {
+    final active = value == current;
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: active
+                ? const Color(0xFF3A6EA5)
+                : Colors.white.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: active
+                  ? const Color(0xFF3A6EA5)
+                  : Colors.white.withValues(alpha: 0.1),
+            ),
+          ),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
               fontWeight: active ? FontWeight.w700 : FontWeight.w500,
               color: active ? Colors.white : Colors.white70,
             ),

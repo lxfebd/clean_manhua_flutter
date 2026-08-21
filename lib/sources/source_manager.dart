@@ -1,7 +1,7 @@
 import 'agedm_video_source.dart';
-import 'baozi_source.dart';
 import 'biquge_novel_source.dart';
 import 'comic_source.dart';
+import 'dm5_source.dart';
 import 'doubao_source.dart';
 import 'jm_source.dart';
 import 'mangadex_source.dart';
@@ -10,16 +10,15 @@ import 'source_config.dart';
 import 'tvtfun_video_source.dart';
 import 'video_source.dart';
 import 'xifan_video_source.dart';
-import 'yyfun_source.dart';
 
 /// 多源聚合管理器：注册所有可用源，支持切换当前源。
 /// 源列表按推荐度排列（第一个是默认源）。
 class SourceManager {
-  // 默认源（下标 0）放在最前：优先国内可用、已验证的源，MangaDex(英文/非R18) 放最后。
+  // 默认源（下标 0）放在最前：优先国内可用、已验证的源，MangaDex(英文/非 R18) 放最后。
+  // 注：包子漫画(baozimh)因国内访问时命中"下载APP"落地页已移除；樱漫(YYFun)实为写真APP内容需登录已移除。
   static final List<ComicSource> sources = [
-    DoubaoSource(), // 豆包：国内可用，章节图 AES 解密已验证
-    BaoziMangaSource(), // 包子漫画：免登录直链，无反爬（替代需登录的花火漫画）
-    YYFunSource(), // 樱漫：应用自有后端，中文内容
+    Dm5Source(), // 动漫屋：国内可用，免登录，移动端图片直链（默认源）
+    DoubaoSource(), // 豆包：国内可用，免登录，章节图 AES 解密已验证
     JmSource(), // 禁漫：反爬/验证码，可能暂不可用
     MangaDexSource(), // MangaDex：英文/非 R18，兜底
   ];

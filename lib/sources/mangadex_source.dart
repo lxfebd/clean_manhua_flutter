@@ -98,13 +98,21 @@ class MangaDexSource extends ComicSource {
     final api = await _apiHost();
     final body = await _get('$api/at-home/server/$chapterId');
     final root = jsonDecode(body) as Map<String, dynamic>;
-    final ch = root['chapter'] as Map<String, dynamic>;
-    final hash = ch['hash'] as String;
-    final data = (ch['data'] as List? ?? []);
-    // at-home CDN 节点（*.mangadex.network）时有不稳定/404，
+    // at-home 返回 result != 'ok' 或外层 chapter 缺失时直接返回空，
+    // 不要让后续 as String 抛类型错误。
+    if ((root['result'] as String?) != 'ok') return const <String>[];
+    final ch = root['chapter'];
+    if (ch is! Map) return const <String>[];
+    final hash = (ch['hash'] as String?) ?? '';
+    final data = (ch['data'] as List?) ?? const [];
+    // 外部章节 / 已下架章节会返回空 hash + 空 data：
+    // 直接返回空列表，让阅读器显示"暂无图片"而不是崩溃。
+    if (hash.isEmpty || data.isEmpty) return const <String>[];
+    // at-home CDN 节点（*.mangadex.network）时不稳定/404，
     // 统一改用 uploads 官方静态宿主：uploads.mangadex.org/data/{hash}/{file}。
     return [
-      for (final f in data) 'https://uploads.mangadex.org/data/$hash/$f'
+      for (final f in data)
+        if (f is String && f.isNotEmpty) 'https://uploads.mangadex.org/data/$hash/$f'
     ];
   }
 

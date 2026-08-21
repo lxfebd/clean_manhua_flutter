@@ -240,7 +240,7 @@ class JmSource extends ComicSource {
       try {
         final ts = DateTime.now().millisecondsSinceEpoch ~/ 1000;
         final auth = JmCrypto.makeHeaders(ts);
-        final text = await Net.getCronet('$host$path', headers: {
+        final text = await Net.get('$host$path', headers: {
           'User-Agent': _ua,
           'Accept': 'application/json, text/plain, */*',
           'Accept-Encoding': 'gzip, deflate',

@@ -95,27 +95,12 @@ class SourceConfigStore {
           imageHosts: ['https://img.doubaomanhua.com'],
         ),
         const SourceConfig(
-          engineId: 'baozi',
-          id: 'baozi',
-          name: '包子漫画',
+          engineId: 'dm5',
+          id: 'dm5',
+          name: '动漫屋',
           tier: SourceTier.primary,
-          hosts: [
-            'https://www.baozimh.com',
-            'https://cn.bzmgcn.com',
-            'https://www.bzmgcn.com',
-          ],
-          imageHosts: [
-            'https://s1.bzcdn.net',
-            'https://s2.bzcdn.net',
-            'https://static-tw.bzmgcn.com',
-          ],
-        ),
-        const SourceConfig(
-          engineId: 'yyfun',
-          id: 'yyfun',
-          name: '樱漫(YYFun)',
-          tier: SourceTier.primary,
-          hosts: ['https://comifg.yy-fun.cc'],
+          hosts: ['https://m.dm5.com'],
+          imageHosts: ['https://cdndm5.com'],
         ),
         SourceConfig(
           engineId: 'jm',

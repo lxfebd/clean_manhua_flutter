@@ -240,6 +240,8 @@ class _DetailPageState extends State<DetailPage> {
             child: Opacity(
               opacity: 1.0 - collapseProgress,
               child: _Hero(
+                sourceId: widget.sourceId,
+                comicId: widget.comicId,
                 name: name,
                 pic: pic,
                 status: _detail?.status,
@@ -379,10 +381,12 @@ class _DetailPageState extends State<DetailPage> {
 // ─── 沉浸式 Hero ────────────────────────────────────────────────────────────
 
 class _Hero extends StatelessWidget {
+  final String sourceId;
+  final String comicId;
   final String name;
   final String? pic;
   final String? status;
-  const _Hero({required this.name, required this.pic, this.status});
+  const _Hero({required this.sourceId, required this.comicId, required this.name, required this.pic, this.status});
 
   @override
   Widget build(BuildContext context) {
@@ -393,7 +397,7 @@ class _Hero extends StatelessWidget {
       children: [
         if (pic != null && pic!.isNotEmpty)
           Hero(
-            tag: 'cover_$name',
+            tag: 'cover_${sourceId}_$comicId',
             child: CachedImage(
               pic!,
               fit: BoxFit.cover,

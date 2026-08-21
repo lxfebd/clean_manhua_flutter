@@ -16,7 +16,7 @@ class DoubaoSource extends ComicSource {
       '5V&RoR%Jf@pJPydF'.codeUnits);
 
   static final RegExp _itemRe = RegExp(
-      r'<a\s+href="/detail/([A-Za-z0-9]+)"\s+title="([^"]*)">[\s\S]*?data-original="([^"]*)"');
+      r'pic">[\s\S]*?<a\s+href="/detail/([A-Za-z0-9]+)"\s+title="([^"]*)">[\s\S]*?data-original="([^"]*)"');
   static final RegExp _chapterRe = RegExp(
       r'ewave-playlist-item">\s*<a class="text-overflow" href="/detail/([A-Za-z0-9]+)/(\d+)\.html">([^<]*)</a>');
 

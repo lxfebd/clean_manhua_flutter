@@ -301,12 +301,26 @@ class LocalStore {
   static Future<bool> horizontalReader() async =>
       ((await _read('settings')) as Map?)?['horizontal'] as bool? ?? false;
 
-  static Future<void> setDarkMode(bool v) async =>
-      _write('settings',
-          {'dark': v, 'horizontal': await horizontalReader()});
+  static Future<int> resLevel() async =>
+      ((await _read('settings')) as Map?)?['resLevel'] as int? ?? 0;
 
-  static Future<void> setHorizontalReader(bool v) async =>
-      _write('settings', {'dark': await darkMode(), 'horizontal': v});
+  static Future<void> setDarkMode(bool v) async => _write('settings', {
+        'dark': v,
+        'horizontal': await horizontalReader(),
+        'resLevel': await resLevel(),
+      });
+
+  static Future<void> setHorizontalReader(bool v) async => _write('settings', {
+        'dark': await darkMode(),
+        'horizontal': v,
+        'resLevel': await resLevel(),
+      });
+
+  static Future<void> setResLevel(int v) async => _write('settings', {
+        'dark': await darkMode(),
+        'horizontal': await horizontalReader(),
+        'resLevel': v,
+      });
 
   // ---- 更新检查 ----
   /// 上次自动检查更新的时间戳（ms）。用于限制每天最多自动检查一次。

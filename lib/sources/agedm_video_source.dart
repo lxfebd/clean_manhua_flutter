@@ -11,7 +11,13 @@ class AgedMVideoSource implements VideoSource {
   static const String _base = 'https://www.agedm.io';
 
   static final RegExp _cardRe = RegExp(
-      r'<a href="(https?://(?:www\.)?agedm\.io/detail/(\d+))"[^>]*>([^<]+)</a>',
+      r'<div class="video_item">.*?'
+      r'data-original="([^"]+)"[^>]*class="video_thumbs.*?'
+      r'href="(?:https?://(?:www\.)?agedm\.io)?/detail/(\d+)"[^>]*>([^<]+)</a>',
+      dotAll: true);
+  static final RegExp _searchCardRe = RegExp(
+      r'<a href="(?:https?://(?:www\.)?agedm\.io)?/detail/(\d+)"[^>]*title="([^"]*)"[^>]*>'
+      r'[\s\S]*?data-original="([^"]+)"',
       dotAll: true);
   static final RegExp _coverRe = RegExp(
       r'<img[^>]*data-original="([^"]+)"[^>]*class="video_thumbs',
@@ -105,42 +111,45 @@ class AgedMVideoSource implements VideoSource {
   }
 
   List<ComicItem> _parseCards(String html) {
-    final covers = <String, String>{};
-    final cardPositions = <int>[];
-    for (final m in _cardRe.allMatches(html)) {
-      cardPositions.add(m.start);
-    }
-    final coverMatches = _coverRe.allMatches(html).toList();
-    for (var i = 0; i < coverMatches.length; i++) {
-      final raw = _unescape(coverMatches[i].group(1)!);
-      // 解析百度图片代理 URL 中的真实 src（URL 形如 /gimg/app=...&n=...&src=<实际图片>）
-      String src = raw;
-      if (raw.contains('src=')) {
-        final fixed = raw.contains('?') ? raw : raw.replaceFirst('&', '?');
-        final u = Uri.tryParse(fixed);
-        src = u?.queryParameters['src'] ?? raw;
-      }
-      // 关联最近一张卡片
-      if (i < cardPositions.length) {
-        // 找到离这个 coverMatch 最近的 cardRe
-        var bestCard = cardPositions[0];
-        for (final pos in cardPositions) {
-          if (pos <= coverMatches[i].start) bestCard = pos;
-        }
-        final m = _cardRe.firstMatch(html.substring(bestCard))!;
-        covers[m.group(2)!] = src;
-      }
-    }
     final out = <ComicItem>[];
     final seen = <String>{};
+
+    // 首页：整卡片块（img 与标题链接一一对应）
     for (final m in _cardRe.allMatches(html)) {
       final id = m.group(2)!;
-      final title = _unescape(m.group(3) ?? '').trim();
-      if (seen.add(id)) {
-        out.add(ComicItem(id, title, covers[id] ?? ''));
-      }
+      if (!seen.add(id)) continue;
+      out.add(ComicItem(
+          id,
+          _unescape(m.group(3) ?? '').trim(),
+          _resolveCover(m.group(1)!)));
+    }
+    if (out.isNotEmpty) return out;
+
+    // 搜索页：<a title="标题"><img data-original="封面"></a>
+    for (final m in _searchCardRe.allMatches(html)) {
+      final id = m.group(1)!;
+      if (!seen.add(id)) continue;
+      out.add(ComicItem(
+          id,
+          _unescape(m.group(2) ?? '').trim(),
+          _resolveCover(m.group(3)!)));
     }
     return out;
+  }
+
+  /// 解析封面图 URL：百度图片代理 URL（/gimg/app=...&src=<实际图片>）取真实 src。
+  /// 注意：原始 URL 含 &amp; HTML 实体，需先 _unescape 才能被 Uri 正确解析。
+  static String _resolveCover(String raw) {
+    final unescaped = raw
+        .replaceAll('&amp;', '&')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#39;', "'")
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>');
+    if (!unescaped.contains('src=')) return unescaped;
+    final fixed = unescaped.contains('?') ? unescaped : unescaped.replaceFirst('&', '?');
+    final u = Uri.tryParse(fixed);
+    return u?.queryParameters['src'] ?? unescaped;
   }
 
   String _extractDescription(String html) {
