@@ -25,6 +25,9 @@ class ProfilePageState extends State<ProfilePage> {
   int _favorites = 0;
   bool _loaded = false;
   bool _dark = false;
+  int _todaySec = 0;
+  int _weekSec = 0;
+  int _totalSec = 0;
 
   @override
   void initState() {
@@ -37,12 +40,18 @@ class ProfilePageState extends State<ProfilePage> {
     final d = await LocalStore.downloads();
     final fav = BookshelfStore.listAll().length;
     final dark = await LocalStore.darkMode();
+    final today = await LocalStore.todayReadingSeconds();
+    final week = await LocalStore.weekReadingSeconds();
+    final total = await LocalStore.totalReadingSeconds();
     if (mounted) {
       setState(() {
         _history = h;
         _downloads = d;
         _favorites = fav;
         _dark = dark;
+        _todaySec = today;
+        _weekSec = week;
+        _totalSec = total;
         _loaded = true;
       });
     }
@@ -114,6 +123,17 @@ class ProfilePageState extends State<ProfilePage> {
               child: const _UserCard(),
             ),
             const SizedBox(height: 14),
+            // ── 阅读统计 ───────────────────────────────────────
+            FadeSlideIn(
+              delay: const Duration(milliseconds: 120),
+              child: _ReadingStatsCard(
+                today: _todaySec,
+                week: _weekSec,
+                total: _totalSec,
+                onTap: _showReadingReport,
+              ),
+            ),
+            const SizedBox(height: 14),
             // ── 三格统计：收藏 / 阅读记录 / 已下载 ──────────────
             FadeSlideIn(
               delay: const Duration(milliseconds: 160),
@@ -167,6 +187,20 @@ class ProfilePageState extends State<ProfilePage> {
       backgroundColor: Colors.transparent,
       builder: (_) => _HelpSheet(),
     );
+  }
+
+  /// 阅读周报弹窗：最近 7 天每天的阅读时长柱状图 + 汇总。
+  Future<void> _showReadingReport() async {
+    final days = await LocalStore.recentReadingDays(7);
+    if (!mounted) return;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _ReadingReportSheet(days: days),
+    ).then((_) {
+      if (mounted) _load();
+    });
   }
 }
 
@@ -223,6 +257,109 @@ class _UserCard extends StatelessWidget {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 阅读统计卡：今日/本周/累计 + 点击进入周报。
+class _ReadingStatsCard extends StatelessWidget {
+  final int today;
+  final int week;
+  final int total;
+  final VoidCallback onTap;
+  const _ReadingStatsCard({
+    required this.today,
+    required this.week,
+    required this.total,
+    required this.onTap,
+  });
+
+  String _fmt(int sec) {
+    if (sec < 60) return '${sec}秒';
+    if (sec < 3600) return '${sec ~/ 60}分钟';
+    final h = sec ~/ 3600;
+    final m = (sec % 3600) ~/ 60;
+    return m > 0 ? '$h小时$m分钟' : '$h小时';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return PressableScale(
+      onTap: onTap,
+      scale: 0.98,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: scheme.onSurface.withValues(alpha: 0.06)),
+        ),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.bar_chart_rounded,
+                      size: 18, color: scheme.primary),
+                ),
+                const SizedBox(width: 10),
+                Text('阅读统计',
+                    style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: scheme.onSurface)),
+                const Spacer(),
+                Icon(Icons.chevron_right_rounded,
+                    size: 18, color: scheme.onSurface.withValues(alpha: 0.3)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                _stat(scheme, _fmt(today), '今日'),
+                Container(
+                  width: 0.5,
+                  height: 30,
+                  color: scheme.onSurface.withValues(alpha: 0.08),
+                ),
+                _stat(scheme, _fmt(week), '本周'),
+                Container(
+                  width: 0.5,
+                  height: 30,
+                  color: scheme.onSurface.withValues(alpha: 0.08),
+                ),
+                _stat(scheme, _fmt(total), '累计'),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _stat(ColorScheme scheme, String value, String label) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(value,
+              style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: scheme.primary)),
+          const SizedBox(height: 2),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 11,
+                  color: scheme.onSurface.withValues(alpha: 0.5))),
         ],
       ),
     );
@@ -563,4 +700,177 @@ class _HelpSheet extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 阅读周报弹窗：最近 7 天柱状图 + 汇总数据。
+class _ReadingReportSheet extends StatelessWidget {
+  final List<Map<String, dynamic>> days;
+  const _ReadingReportSheet({required this.days});
+
+  String _fmt(int sec) {
+    if (sec < 60) return '${sec}秒';
+    if (sec < 3600) return '${sec ~/ 60}分钟';
+    final h = sec ~/ 3600;
+    final m = (sec % 3600) ~/ 60;
+    return m > 0 ? '$h小时$m分' : '$h小时';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final maxSec = [
+      ...days.map((d) => (d['seconds'] as int?) ?? 0),
+      60
+    ].reduce((a, b) => a > b ? a : b);
+    final total = days.fold<int>(
+        0, (s, d) => s + ((d['seconds'] as int?) ?? 0));
+    final activeDays =
+        days.where((d) => ((d['seconds'] as int?) ?? 0) > 0).length;
+    return SafeArea(
+      child: Container(
+        margin: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: scheme.onSurface.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(Icons.insights_rounded, size: 18, color: scheme.primary),
+                const SizedBox(width: 8),
+                Text('阅读周报',
+                    style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: scheme.onSurface)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text('最近 7 天阅读时长统计',
+                style: TextStyle(
+                    fontSize: 11.5,
+                    color: scheme.onSurface.withValues(alpha: 0.5))),
+            const SizedBox(height: 18),
+            SizedBox(
+              height: 130,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  for (var i = 0; i < days.length; i++) ...[
+                    Expanded(
+                      child: _Bar(
+                        seconds: (days[i]['seconds'] as int?) ?? 0,
+                        maxSeconds: maxSec,
+                        dayLabel: _shortDay(days[i]['day'] as String),
+                        color: scheme.primary,
+                      ),
+                    ),
+                    if (i < days.length - 1) const SizedBox(width: 6),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: scheme.primary.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _sumCell('${activeDays}天', '本周阅读'),
+                  ),
+                  Container(
+                      width: 0.5,
+                      height: 26,
+                      color: scheme.onSurface.withValues(alpha: 0.1)),
+                  Expanded(child: _sumCell(_fmt(total), '本周时长')),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sumCell(String value, String label) {
+    return Column(
+      children: [
+        Text(value,
+            style: const TextStyle(
+                fontSize: 16, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 2),
+        Text(label,
+            style: TextStyle(fontSize: 11, color: Colors.black.withValues(alpha: 0.5))),
+      ],
+    );
+  }
+
+  /// "2026-08-23" -> "08-23"。
+  String _shortDay(String day) =>
+      day.length >= 10 ? day.substring(5) : day;
+}
+
+/// 单根柱子：高度按 seconds/maxSeconds 比例，下方显示日期。
+class _Bar extends StatelessWidget {
+  final int seconds;
+  final int maxSeconds;
+  final String dayLabel;
+  final Color color;
+  const _Bar({
+    required this.seconds,
+    required this.maxSeconds,
+    required this.dayLabel,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final ratio = maxSeconds <= 0 ? 0.0 : (seconds / maxSeconds).clamp(0.0, 1.0);
+    final barH = (ratio * 90).clamp(2.0, 90.0);
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        Text(
+          seconds > 0 ? _shortFmt(seconds) : '',
+          style: TextStyle(
+              fontSize: 9, fontWeight: FontWeight.w600, color: color),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          width: double.infinity,
+          height: barH,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: seconds > 0 ? 1.0 : 0.15),
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(dayLabel,
+            style: TextStyle(
+                fontSize: 9.5, color: Colors.black.withValues(alpha: 0.45))),
+      ],
+    );
+  }
+
+  String _shortFmt(int sec) =>
+      sec >= 3600 ? '${sec ~/ 3600}h' : '${sec ~/ 60}m';
 }

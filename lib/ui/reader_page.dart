@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../net/download_manager.dart';
 import '../net/image_cache.dart';
 import '../net/local_store.dart';
+import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
 import 'widgets/jm_scramble_image.dart';
 
@@ -21,6 +22,12 @@ class ReaderPage extends StatefulWidget {
   final String comicPic;
   final String comicAuthor;
 
+  /// 全作品章节列表（用于章内切换/沉浸式连读下一话）。空则不启用连读。
+  final List<Chapter> chapters;
+
+  /// 上次读到的页码（-1 表示从第一页开始）。
+  final int initialPage;
+
   const ReaderPage({
     super.key,
     required this.sourceId,
@@ -30,6 +37,8 @@ class ReaderPage extends StatefulWidget {
     required this.comicName,
     required this.comicPic,
     this.comicAuthor = '',
+    this.chapters = const [],
+    this.initialPage = -1,
   });
 
   @override
@@ -48,6 +57,20 @@ class _ReaderPageState extends State<ReaderPage> {
   double _dim = 0.0; // 亮度（暗化模拟），0.0~1.0
   Timer? _hideTimer;
 
+  /// 阅读时长统计：累计本次阅读秒数，每 5s flush 一次。
+  final Stopwatch _readWatch = Stopwatch();
+  Timer? _statsTimer;
+
+  /// 手势配置：left/center/right → 动作字符串。
+  Map<String, String> _gesture = const {};
+
+  /// 当前章节索引（-1 表示不在章节列表中，不启用连读）。
+  late int _chapterIndex;
+
+  /// 当前加载的章节 id 与页数（记录历史用）。
+  String _activeChapterId = '';
+  String _activeChapterTitle = '';
+  int _activeTotalPages = 0;
   Bookmark get _book => Bookmark(
         sourceId: widget.sourceId,
         comicId: widget.comicId,
@@ -59,6 +82,15 @@ class _ReaderPageState extends State<ReaderPage> {
   @override
   void initState() {
     super.initState();
+    _chapterIndex =
+        widget.chapters.indexWhere((c) => c.id == widget.chapterId);
+    _activeChapterId = widget.chapterId;
+    _activeChapterTitle = widget.title;
+    _readWatch.start();
+    _statsTimer = Timer.periodic(const Duration(seconds: 5), (_) => _flushStats());
+    LocalStore.gestureConfig().then((g) {
+      if (mounted) setState(() => _gesture = g);
+    });
     _init();
   }
 
@@ -66,16 +98,67 @@ class _ReaderPageState extends State<ReaderPage> {
     _horizontal = await LocalStore.horizontalReader();
     _resLevel = await LocalStore.resLevel();
     _downloaded = await DownloadManager.isDownloaded(_book.key, widget.chapterId);
-    _recordHistory();
     _load();
   }
 
-  Future<void> _recordHistory() async {
-    await LocalStore.recordHistory(HistoryEntry(
+  /// 读取/切换到一个章节（用于章内切章节 / 沉浸式连读）。
+  Future<void> _openChapter(String chapterId, String chapterTitle,
+      {int startPage = 0}) async {
+    _hideTimer?.cancel();
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _activeChapterId = chapterId;
+        _activeChapterTitle = chapterTitle;
+      });
+    }
+    try {
+      final urls = await SourceManager.byId(widget.sourceId)
+          .chapterPics(chapterId);
+      final downloaded = await DownloadManager.isDownloaded(_book.key, chapterId);
+      if (downloaded) {
+        final local = <String>[];
+        for (var i = 0; i < urls.length; i++) {
+          final p = await DownloadManager.localUrlIfExists(
+              _book.key, chapterId, i);
+          local.add(p ?? urls[i]);
+        }
+        urls
+          ..clear()
+          ..addAll(local);
+      }
+      if (!mounted) return;
+      final target = startPage.clamp(0, urls.length - 1);
+      setState(() {
+        _urls = urls;
+        _activeTotalPages = urls.length;
+        _downloaded = downloaded;
+        _loading = false;
+        if (_horizontal) {
+          if (_pageCtrl != null) _pageCtrl!.jumpToPage(target);
+        } else if (_scrollCtrl != null && _scrollCtrl!.hasClients) {
+          final offset = _indexOffsetCache[target] ?? 0.0;
+          _scrollCtrl!.jumpTo(offset);
+        }
+        _curPage = target;
+      });
+      // 切章节后重新记录历史（页码以 target 为准）
+      _recordHistory(chapterTitle: chapterTitle);
+      _prefetch(target);
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// 记录历史（含页码）。翻页时也会调用以持续更新进度。
+  void _recordHistory({String? chapterTitle}) {
+    LocalStore.recordHistory(HistoryEntry(
       book: _book,
-      chapterId: widget.chapterId,
-      chapterTitle: widget.title,
+      chapterId: _activeChapterId,
+      chapterTitle: chapterTitle ?? widget.title,
       timestamp: DateTime.now().millisecondsSinceEpoch,
+      pageIndex: _curPage,
+      chapterTotalPages: _activeTotalPages,
     ));
   }
 
@@ -97,10 +180,18 @@ class _ReaderPageState extends State<ReaderPage> {
       if (mounted) {
         setState(() {
           _urls = urls;
+          _activeTotalPages = urls.length;
+          _activeChapterId = widget.chapterId;
           _loading = false;
         });
       }
-      _prefetch(0);
+      // 若续读指定了页码，跳到该页
+      if (widget.initialPage >= 0 && widget.initialPage < _urls.length) {
+        setState(() => _curPage = widget.initialPage);
+        _prefetch(widget.initialPage);
+      } else {
+        _prefetch(0);
+      }
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
@@ -142,8 +233,8 @@ class _ReaderPageState extends State<ReaderPage> {
     try {
       final ok = await DownloadManager.downloadChapter(
         book: _book,
-        chapterId: widget.chapterId,
-        chapterTitle: widget.title,
+        chapterId: _activeChapterId,
+        chapterTitle: _activeChapterTitle,
         urls: _urls,
         onProgress: (d, t) {
           if (!mounted) return;
@@ -181,7 +272,7 @@ class _ReaderPageState extends State<ReaderPage> {
           // 顶部工具栏（返回/标题/菜单）
           _ReaderTopBar(
             visible: _overlay,
-            title: widget.title,
+            title: _activeChapterTitle,
             onBack: () {
               HapticFeedback.selectionClick();
               Navigator.maybePop(context);
@@ -252,6 +343,12 @@ class _ReaderPageState extends State<ReaderPage> {
           Navigator.pop(context);
           _showCatalog();
         },
+        onSelectChapter: widget.chapters.isEmpty
+            ? null
+            : () {
+                Navigator.pop(context);
+                _showChapterList();
+              },
         onDownload: _downloading
             ? null
             : () {
@@ -262,6 +359,28 @@ class _ReaderPageState extends State<ReaderPage> {
     ).whenComplete(() {
       if (mounted) _toggleOverlay();
     });
+  }
+
+  /// 种内章节切换：展示全作品章节列表底部弹窗。
+  void _showChapterList() {
+    _hideTimer?.cancel();
+    setState(() => _overlay = true);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ChapterListSheet(
+        chapters: widget.chapters,
+        currentIndex: _chapterIndex,
+        onSelect: (i) {
+          Navigator.pop(context);
+          final ch = widget.chapters[i];
+          _chapterIndex = i;
+          _indexOffsetCache.clear();
+          _layoutHeights.clear();
+          _openChapter(ch.id, ch.title);
+        },
+      ),
+    );
   }
 
   /// 目录：章节内页目录（横向翻页时切换页面）。
@@ -292,17 +411,105 @@ class _ReaderPageState extends State<ReaderPage> {
   PageController? _pageCtrl;
   ScrollController? _scrollCtrl;
 
+  /// 纵向模式下记录每页累积偏移（用于精确跳页，替代固定 560 魔数）。
+  final Map<int, double> _indexOffsetCache = {};
+  final Map<int, double> _layoutHeights = {};
+
   void _scrollToIndex(int i) {
+    final offset = _indexOffsetCache[i] ?? i * 640.0;
     _scrollCtrl?.animateTo(
-      i * 560.0,
+      offset,
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeOutCubic,
     );
   }
 
+  /// 把本次累计的阅读时长 flush 到本地存储（每 5s 一次，退出时再 flush 一次）。
+  Future<void> _flushStats() async {
+    final elapsed = _readWatch.elapsed.inSeconds;
+    if (elapsed <= 0) return;
+    _readWatch.reset();
+    _readWatch.start();
+    await LocalStore.addReadingSeconds(elapsed);
+  }
+
+  /// 点击阅读区：按 x 位置判断 left/center/right，按手势配置执行动作。
+  void _onReaderTap(Offset pos) {
+    final w = MediaQuery.of(context).size.width;
+    String region;
+    if (pos.dx < w / 3) {
+      region = 'left';
+    } else if (pos.dx < w * 2 / 3) {
+      region = 'center';
+    } else {
+      region = 'right';
+    }
+    final action = _gesture[region] ?? (region == 'center' ? 'toggleMenu' : (region == 'left' ? 'prevPage' : 'nextPage'));
+    switch (action) {
+      case 'prevPage':
+        _prevPage();
+        break;
+      case 'nextPage':
+        _nextPage();
+        break;
+      case 'toggleMenu':
+        _toggleOverlay();
+        break;
+      case 'toggleBrightness':
+        setState(() => _dim = _dim > 0 ? 0.0 : 0.4);
+        break;
+      default:
+        _toggleOverlay();
+    }
+  }
+
+  void _prevPage() {
+    if (_horizontal) {
+      final c = _pageCtrl;
+      if (c != null && c.hasClients) {
+        final i = c.page?.round() ?? 0;
+        if (i > 0) c.animateToPage(i - 1, duration: const Duration(milliseconds: 240), curve: Curves.easeOut);
+      }
+    } else {
+      final c = _scrollCtrl;
+      if (c != null && c.hasClients) {
+        c.animateTo((c.offset - 400).clamp(0, c.position.maxScrollExtent),
+            duration: const Duration(milliseconds: 240), curve: Curves.easeOut);
+      }
+    }
+  }
+
+  void _nextPage() {
+    if (_horizontal) {
+      final c = _pageCtrl;
+      if (c != null && c.hasClients) {
+        final i = c.page?.round() ?? 0;
+        if (i < (_urls.length + (_canContinue ? 1 : 0)) - 1) {
+          c.nextPage(duration: const Duration(milliseconds: 240), curve: Curves.easeOut);
+        } else if (_canContinue) {
+          _continueToNextChapter();
+        }
+      }
+    } else {
+      final c = _scrollCtrl;
+      if (c != null && c.hasClients) {
+        if ((_curPage >= _urls.length - 1) && _canContinue) {
+          _continueToNextChapter();
+          return;
+        }
+        c.animateTo((c.offset + 400).clamp(0, c.position.maxScrollExtent),
+            duration: const Duration(milliseconds: 240), curve: Curves.easeOut);
+      }
+    }
+  }
+
   @override
   void dispose() {
+    _statsTimer?.cancel();
     _hideTimer?.cancel();
+    _readWatch.stop();
+    final elapsed = _readWatch.elapsed.inSeconds;
+    if (elapsed > 0) LocalStore.addReadingSeconds(elapsed);
     _pageCtrl?.dispose();
     _scrollCtrl?.dispose();
     super.dispose();
@@ -328,19 +535,42 @@ class _ReaderPageState extends State<ReaderPage> {
       _pageCtrl?.dispose();
       final ctrl = PageController();
       _pageCtrl = ctrl;
+      // 若续读页码 >0，先跳到对应页
+      if (widget.initialPage > 0 && _urls.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_pageCtrl!.hasClients) {
+            _pageCtrl!.jumpToPage(
+                widget.initialPage.clamp(0, _urls.length - 1));
+          }
+        });
+      }
       return GestureDetector(
         behavior: HitTestBehavior.translucent,
-        onTap: _toggleOverlay,
+        onTapDown: (d) => _onReaderTap(d.globalPosition),
         child: PageView.builder(
           controller: ctrl,
-          itemCount: _urls.length,
+          itemCount: _urls.length + (_canContinue ? 1 : 0),
           onPageChanged: (idx) {
             setState(() => _curPage = idx);
+            _recordHistory();
+            if (idx >= _urls.length && _canContinue) {
+              // 读到"下一话"尾页 → 触发连读
+              _continueToNextChapter();
+              return;
+            }
             _prefetch(idx + 1);
           },
-          itemBuilder: (c, i) => _ImageView(_urls[i],
-              pageIndex: i, totalPages: _urls.length, resLevel: _resLevel,
-              horizontal: true, sourceId: widget.sourceId),
+          itemBuilder: (c, i) {
+            if (i >= _urls.length && _canContinue) {
+              return _NextChapterFooter(
+                title: _nextChapter()?.title ?? '',
+                onTap: _continueToNextChapter,
+              );
+            }
+            return _ImageView(_urls[i],
+                pageIndex: i, totalPages: _urls.length, resLevel: _resLevel,
+                horizontal: true, sourceId: widget.sourceId);
+          },
         ),
       );
     }
@@ -351,16 +581,55 @@ class _ReaderPageState extends State<ReaderPage> {
     // 否则会遮蔽顶部返回/底部工具栏按钮（hit test 自顶向下、命中即止）。
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onTap: _toggleOverlay,
+      onTapDown: (d) => _onReaderTap(d.globalPosition),
       child: ListView.builder(
         controller: sctrl,
         padding: EdgeInsets.zero,
-        itemCount: _urls.length,
-        itemBuilder: (c, i) => _ImageView(_urls[i],
-            pageIndex: i, totalPages: _urls.length, resLevel: _resLevel,
-            sourceId: widget.sourceId),
+        itemCount: _urls.length + (_canContinue ? 1 : 0),
+        itemBuilder: (c, i) {
+          if (i >= _urls.length && _canContinue) {
+            return _NextChapterFooter(
+              title: _nextChapter()?.title ?? '',
+              onTap: _continueToNextChapter,
+            );
+          }
+          return _ImageView(_urls[i],
+              pageIndex: i, totalPages: _urls.length, resLevel: _resLevel,
+              onLayout: (h) => _observeLayout(i, h),
+              sourceId: widget.sourceId);
+        },
       ),
     );
+  }
+
+  /// 是否可连读：当前章节在章节列表中且不是最后一话。
+  bool get _canContinue => _chapterIndex >= 0 && _chapterIndex < widget.chapters.length - 1;
+
+  Chapter? _nextChapter() =>
+      _canContinue ? widget.chapters[_chapterIndex + 1] : null;
+
+  /// 沉浸式连读：加载下一话并跳到第一页。
+  Future<void> _continueToNextChapter() async {
+    final next = _nextChapter();
+    if (next == null) return;
+    _chapterIndex++;
+    _indexOffsetCache.clear();
+    await _openChapter(next.id, next.title, startPage: 0);
+  }
+
+  /// 纵向模式：记录每页实际高度累计偏移，供精确跳页。
+  /// 由 _ImageView 通过 onLayout 回调图片加载完成后的高度。
+  void _observeLayout(int index, double? height) {
+    if (height == null || index < 0) return;
+    _layoutHeights[index] = height;
+    // 重算到最新一段连续已知高度，更新偏移缓存
+    var sum = 0.0;
+    for (var k = 0; k < _layoutHeights.length; k++) {
+      final h = _layoutHeights[k];
+      if (h == null) break;
+      _indexOffsetCache[k] = sum;
+      sum += h;
+    }
   }
 }
 
@@ -371,9 +640,12 @@ class _ImageView extends StatefulWidget {
   final int resLevel;
   final bool horizontal;
   final String sourceId;
+
+  /// 图片加载完成后回调实际高度（纵向模式用于精确跳页）。
+  final ValueChanged<double?>? onLayout;
   const _ImageView(this.url,
       {required this.pageIndex, required this.totalPages, required this.resLevel,
-      this.horizontal = false, this.sourceId = ''});
+      this.horizontal = false, this.sourceId = '', this.onLayout});
 
   @override
   State<_ImageView> createState() => _ImageViewState();
@@ -381,6 +653,7 @@ class _ImageView extends StatefulWidget {
 
 class _ImageViewState extends State<_ImageView> {
   bool _error = false;
+  final GlobalKey _imgKey = GlobalKey();
 
   bool get _isJm => widget.sourceId == 'jm';
 
@@ -394,6 +667,30 @@ class _ImageViewState extends State<_ImageView> {
         return FilterQuality.high;
       default:
         return FilterQuality.none;
+    }
+  }
+
+  void _reportLayout() {
+    if (widget.horizontal || widget.onLayout == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final box = _imgKey.currentContext?.findRenderObject() as RenderBox?;
+      if (box != null && box.hasSize) {
+        widget.onLayout!(box.size.height);
+      }
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _reportLayout();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ImageView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.url != oldWidget.url) {
+      _reportLayout();
     }
   }
 
@@ -425,6 +722,7 @@ class _ImageViewState extends State<_ImageView> {
     if (widget.url.startsWith('/')) {
       img = Image.file(
           File(widget.url),
+          key: _imgKey,
           width: double.infinity,
           fit: fit,
           filterQuality: _filterLevel(),
@@ -436,22 +734,28 @@ class _ImageViewState extends State<_ImageView> {
           },
         );
     } else if (widget.url.contains('@') || _isJm) {
-      img = JmScrambleImageWidget(
-        url: widget.url,
-        fit: fit,
-        filterQuality: _filterLevel(),
+      img = KeyedSubtree(
+        key: _imgKey,
+        child: JmScrambleImageWidget(
+          url: widget.url,
+          fit: fit,
+          filterQuality: _filterLevel(),
+        ),
       );
     } else {
-      img = _CachedReaderImage(
-        url: widget.url,
-        fit: fit,
-        filterQuality: _filterLevel(),
-        sourceId: widget.sourceId,
-        onError: () {
-          Future.microtask(() {
-            if (mounted) setState(() => _error = true);
-          });
-        },
+      img = KeyedSubtree(
+        key: _imgKey,
+        child: _CachedReaderImage(
+          url: widget.url,
+          fit: fit,
+          filterQuality: _filterLevel(),
+          sourceId: widget.sourceId,
+          onError: () {
+            Future.microtask(() {
+              if (mounted) setState(() => _error = true);
+            });
+          },
+        ),
       );
     }
 
@@ -475,7 +779,13 @@ class _ImageViewState extends State<_ImageView> {
                 ),
               ),
             ),
-          Expanded(child: img),
+          Expanded(
+              child: InteractiveViewer(
+                minScale: 0.5,
+                maxScale: 4.0,
+                child: img,
+              ),
+            ),
         ],
       );
     }
@@ -808,7 +1118,7 @@ class _ToolBtn extends StatelessWidget {
   }
 }
 
-/// 阅读设置抽屉（S6）：亮度滑块 + 翻页模式 + 目录/下载。
+/// 阅读设置抽屉（S6）：亮度滑块 + 翻页模式 + 目录/章节/下载。
 class _ReaderSettingsSheet extends StatefulWidget {
   final bool horizontal;
   final double dim;
@@ -817,6 +1127,9 @@ class _ReaderSettingsSheet extends StatefulWidget {
   final ValueChanged<bool> onLayoutChanged;
   final ValueChanged<int> onResLevelChanged;
   final VoidCallback onCatalog;
+
+  /// 章内切换章节（章节列表非空时才可用）。
+  final VoidCallback? onSelectChapter;
   final VoidCallback? onDownload;
   const _ReaderSettingsSheet({
     required this.horizontal,
@@ -826,6 +1139,7 @@ class _ReaderSettingsSheet extends StatefulWidget {
     required this.onLayoutChanged,
     required this.onResLevelChanged,
     required this.onCatalog,
+    this.onSelectChapter,
     this.onDownload,
   });
 
@@ -976,6 +1290,13 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
                     () => widget.onCatalog()),
               ),
               const SizedBox(width: 8),
+              if (widget.onSelectChapter != null) ...[
+                Expanded(
+                  child: _ghostBtn('章节', Icons.menu_book_rounded,
+                      () => _showChapterPicker()),
+                ),
+                const SizedBox(width: 8),
+              ],
               if (widget.onDownload != null)
                 Expanded(
                   child: _ghostBtn('下载本话', Icons.download_outlined,
@@ -986,6 +1307,14 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
         ],
       ),
     );
+  }
+
+  /// 章内切换：展示章节列表底部弹窗。
+  void _showChapterPicker() {
+    final cb = widget.onSelectChapter;
+    if (cb == null) return;
+    Navigator.of(context).pop(); // 关闭设置抽屉
+    cb();
   }
 
   Widget _layoutOption(String label, bool active, VoidCallback onTap) {
@@ -1188,6 +1517,157 @@ class _GlassCircle extends StatelessWidget {
           border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
         ),
         child: Icon(icon, size: 20, color: Colors.white),
+      ),
+    );
+  }
+}
+
+/// 章末连读尾页：提示"下一话"并点击跳转。
+class _NextChapterFooter extends StatelessWidget {
+  final String title;
+  final VoidCallback onTap;
+  const _NextChapterFooter({required this.title, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 200,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.arrow_downward_rounded,
+                size: 28, color: Colors.white.withValues(alpha: 0.4)),
+            const SizedBox(height: 12),
+            Text(
+              '已到底部',
+              style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.white.withValues(alpha: 0.5)),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: onTap,
+              icon: const Icon(Icons.skip_next_rounded, size: 18),
+              label: Text('下一话：$title'),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF3A6EA5),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 全作品章节列表底部弹窗（章内切换章节）。
+class _ChapterListSheet extends StatelessWidget {
+  final List<Chapter> chapters;
+  final int currentIndex;
+  final ValueChanged<int> onSelect;
+  const _ChapterListSheet({
+    required this.chapters,
+    required this.currentIndex,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Container(
+        margin: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
+        decoration: const BoxDecoration(
+          color: Color(0xFF14161B),
+          borderRadius: BorderRadius.all(Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text('章节列表 · 共 ${chapters.length} 话',
+                style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white)),
+            const SizedBox(height: 12),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: chapters.length,
+                itemBuilder: (_, i) {
+                  final active = i == currentIndex;
+                  return InkWell(
+                    onTap: () => onSelect(i),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 11),
+                      margin: const EdgeInsets.only(bottom: 2),
+                      decoration: BoxDecoration(
+                        color: active
+                            ? const Color(0xFF3A6EA5)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Text(
+                            '${i + 1}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: active
+                                  ? Colors.white
+                                  : Colors.white.withValues(alpha: 0.45),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              chapters[i].title.isEmpty
+                                  ? '第${i + 1}话'
+                                  : chapters[i].title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: active
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                                color: active
+                                    ? Colors.white
+                                    : Colors.white.withValues(alpha: 0.75),
+                              ),
+                            ),
+                          ),
+                          if (active)
+                            Icon(Icons.check_rounded,
+                                size: 16, color: Colors.white),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

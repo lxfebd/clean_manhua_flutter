@@ -109,6 +109,80 @@ class BookshelfStore {
     return (v as int?) ?? 0;
   }
 
+  /// 导出原始数据（用于备份）。
+  static Map<String, dynamic> exportData() => Map.from(_cache);
+
+  /// 覆盖导入（用于恢复备份）。
+  static void importData(Map<String, dynamic> data) {
+    _cache = Map.from(data);
+    _save();
+  }
+
+  /// 预设标签。
+  static const presetTags = ['日漫', '国漫', '韩漫', '热血', '恋爱', '奇幻', '悬疑', '完结'];
+
+  /// 读取某本书的书架标签。
+  static List<String> tagsOf(String sourceId, String comicId) {
+    final v = _cache[_key(sourceId, comicId)]?['tags'];
+    if (v is List) return v.cast<String>().toList();
+    return const [];
+  }
+
+  /// 写入某本书的书架标签（去重保序）。
+  static void setTags(String sourceId, String comicId, List<String> tags) {
+    final k = _key(sourceId, comicId);
+    final m = _cache[k];
+    if (m == null) return;
+    m['tags'] = tags.toSet().toList();
+    _save();
+  }
+
+  /// 当前书架使用过的全部标签（含预设，按使用频率降序）。
+  static List<String> allTags() {
+    final count = <String, int>{};
+    for (final m in _all()) {
+      final tags = (m['tags'] as List?)?.cast<String>() ?? const <String>[];
+      for (final t in tags) {
+        count[t] = (count[t] ?? 0) + 1;
+      }
+    }
+    final sorted = count.keys.toList()
+      ..sort((a, b) => (count[b] ?? 0).compareTo(count[a] ?? 0));
+    final used = sorted.toSet();
+    return [...presetTags.where((t) => !used.contains(t)), ...sorted];
+  }
+
+  /// 上次检查更新时记录的章节数（用于判断是否有新章节）。
+  /// 存储结构：shelf_update -> { "src|cid": 173, ... }。
+  static int lastSeenChapters(String sourceId, String comicId) =>
+      (_cache[_key(sourceId, comicId)]?['lastChapters'] as int?) ?? -1;
+
+  /// 写入上次检查到的章节数。
+  static void setLastSeenChapters(
+      String sourceId, String comicId, int count) {
+    final k = _key(sourceId, comicId);
+    final m = _cache[k];
+    if (m == null) return;
+    m['lastChapters'] = count;
+    _save();
+  }
+
+  /// 判断某本书是否有更新：当前章节数 > 上次记录。
+  static bool hasUpdate(String sourceId, String comicId, int currentChapters) {
+    final last = lastSeenChapters(sourceId, comicId);
+    if (last < 0) return false;
+    return currentChapters > last;
+  }
+
+  /// 新增章节数（current - last）。
+  static int newChapterCount(
+      String sourceId, String comicId, int currentChapters) {
+    final last = lastSeenChapters(sourceId, comicId);
+    if (last < 0) return 0;
+    final diff = currentChapters - last;
+    return diff > 0 ? diff : 0;
+  }
+
   static ComicDetail _fromMap(Map<String, dynamic> m) {
     final comic = ComicItem(m['id'] as String, m['name'] as String,
             (m['pic'] as String?) ?? '')

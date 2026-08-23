@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
+import '../net/download_manager.dart';
+import '../net/local_store.dart';
 import 'reader_page.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
@@ -32,6 +34,7 @@ class _DetailPageState extends State<DetailPage> {
   final _scrollCtrl = ScrollController();
   bool _saved = false;
   double _scrollOffset = 0;
+  bool _descending = false; // 章节倒序（最新在顶部）
 
   static const double _heroHeight = 260;
 
@@ -151,7 +154,13 @@ class _DetailPageState extends State<DetailPage> {
                 SliverToBoxAdapter(
                   child: FadeSlideIn(
                     delay: const Duration(milliseconds: 260),
-                    child: _ChapterHeader(count: _detail!.chapters.length),
+                    child: _ChapterHeader(
+                    count: _detail!.chapters.length,
+                    descending: _descending,
+                    onToggleDescending: () =>
+                        setState(() => _descending = !_descending),
+                    onTapAll: _showAllChapters,
+                  ),
                   ),
                 ),
                 // 章节列表（卡片行）
@@ -181,9 +190,10 @@ class _DetailPageState extends State<DetailPage> {
                                       .withValues(alpha: 0.06)),
                             _ChapterTile(
                               index: i,
-                              chapter: _detail!.chapters[i],
+                              chapter:
+                                  _sortedChapters()[i],
                               onTap: () =>
-                                  _openChapter(_detail!.chapters[i]),
+                                  _openChapter(_sortedChapters()[i]),
                             ),
                           ],
                           Divider(
@@ -193,7 +203,7 @@ class _DetailPageState extends State<DetailPage> {
                               color:
                                   scheme.onSurface.withValues(alpha: 0.06)),
                           InkWell(
-                            onTap: () => _openChapter(_detail!.chapters.first),
+                            onTap: _showAllChapters,
                             child: Padding(
                               padding: const EdgeInsets.symmetric(vertical: 13),
                               child: Row(
@@ -347,7 +357,137 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  void _openChapter(Chapter ch) {
+  /// 按当前排序返回章节列表。
+  List<Chapter> _sortedChapters() {
+    final list = _detail!.chapters;
+    if (_descending) return list.reversed.toList();
+    return list;
+  }
+
+  /// 完整章节列表底部弹窗。
+  void _showAllChapters() {
+    _loadCachedChapters().then((_) {
+      if (!mounted) return;
+      _showAllChaptersSheet();
+    });
+  }
+
+  /// 预加载所有章节的缓存状态（用于章节列表显示 ✓）。
+  Future<void> _loadCachedChapters() async {
+    final bookKey = DownloadManager.bookKeyOf(widget.sourceId, _detail!.id);
+    final set = <String>{};
+    for (final ch in _detail!.chapters) {
+      final ok = await DownloadManager.isDownloaded(bookKey, ch.id);
+      if (ok) set.add(ch.id);
+    }
+    if (mounted) setState(() => _cachedChapters = set);
+  }
+
+  Set<String> _cachedChapters = {};
+
+  void _showAllChaptersSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: SizedBox(
+          height: MediaQuery.of(context).size.height * 0.6,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    Text(
+                      '全部章节 · ${_detail!.chapters.length} 话',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                        color: Theme.of(ctx).colorScheme.onSurface,
+                      ),
+                    ),
+                    if (_cachedChapters.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: Text(
+                          '已缓存 ${_cachedChapters.length} 话',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Theme.of(ctx).colorScheme.primary,
+                          ),
+                        ),
+                      ),
+                    const Spacer(),
+                    TextButton.icon(
+                      onPressed: () {
+                        setState(() => _descending = !_descending);
+                      },
+                      icon: Icon(
+                        _descending
+                            ? Icons.arrow_upward_rounded
+                            : Icons.arrow_downward_rounded,
+                        size: 16,
+                      ),
+                      label: Text(_descending ? '倒序' : '正序'),
+                    ),
+                  ],
+                ),
+              ),
+              Divider(height: 0.5),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: _sortedChapters().length,
+                  itemBuilder: (_, i) {
+                    final ch = _sortedChapters()[i];
+                    final cached = _cachedChapters.contains(ch.id);
+                    return ListTile(
+                      title: Row(
+                        children: [
+                          if (cached)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: Icon(Icons.download_done_rounded,
+                                  size: 14,
+                                  color: Theme.of(ctx).colorScheme.primary),
+                            ),
+                          Flexible(
+                            child: Text(
+                              ch.title.isEmpty ? '第${i + 1}话' : ch.title,
+                              style: const TextStyle(fontSize: 13.5),
+                            ),
+                          ),
+                        ],
+                      ),
+                      trailing: Icon(
+                        Icons.chevron_right_rounded,
+                        size: 18,
+                        color: Theme.of(ctx)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.3),
+                      ),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _openChapter(ch);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openChapter(Chapter ch) async {
+    final historyMatch = await _historyForChapter(ch);
+    if (!mounted) return;
     Navigator.push(
       context,
       PageRouteBuilder(
@@ -359,6 +499,8 @@ class _DetailPageState extends State<DetailPage> {
           comicName: _detail!.name,
           comicPic: _detail!.pic ?? '',
           comicAuthor: _detail!.author ?? '',
+          chapters: _detail!.chapters,
+          initialPage: historyMatch,
         ),
         transitionDuration: const Duration(milliseconds: 320),
         transitionsBuilder: (_, anim, __, child) {
@@ -375,6 +517,19 @@ class _DetailPageState extends State<DetailPage> {
         },
       ),
     );
+  }
+
+  /// 从历史记录里查当前章节最后读到的页码（无则 -1 从第一页开始）。
+  Future<int> _historyForChapter(Chapter ch) async {
+    final hist = await LocalStore.history();
+    final key = Bookmark(sourceId: widget.sourceId, comicId: _detail!.id,
+        name: '', pic: '').key;
+    for (final h in hist) {
+      if (h.book.key == key && h.chapterId == ch.id && h.hasPage) {
+        return h.pageIndex;
+      }
+    }
+    return -1;
   }
 }
 
@@ -735,7 +890,15 @@ class _DescCard extends StatelessWidget {
 
 class _ChapterHeader extends StatelessWidget {
   final int count;
-  const _ChapterHeader({required this.count});
+  final bool descending;
+  final VoidCallback onToggleDescending;
+  final VoidCallback onTapAll;
+  const _ChapterHeader({
+    required this.count,
+    this.descending = false,
+    required this.onToggleDescending,
+    required this.onTapAll,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -763,32 +926,48 @@ class _ChapterHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-            decoration: BoxDecoration(
-              color: scheme.primary.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              '$count',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: scheme.primary,
+          GestureDetector(
+            onTap: onTapAll,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                color: scheme.primary.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                '$count',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: scheme.primary,
+                ),
               ),
             ),
           ),
           const Spacer(),
-          Text(
-            '正序',
-            style: TextStyle(
-              fontSize: 11,
-              color: scheme.onSurface.withValues(alpha: 0.5),
+          GestureDetector(
+            onTap: onToggleDescending,
+            behavior: HitTestBehavior.opaque,
+            child: Row(
+              children: [
+                Text(
+                  descending ? '倒序' : '正序',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: scheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  descending
+                      ? Icons.arrow_upward_rounded
+                      : Icons.arrow_downward_rounded,
+                  size: 14,
+                  color: scheme.primary,
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: 4),
-          Icon(Icons.sort_rounded,
-              size: 14, color: scheme.onSurface.withValues(alpha: 0.5)),
         ],
       ),
     );

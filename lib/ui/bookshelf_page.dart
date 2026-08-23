@@ -22,12 +22,17 @@ class BookshelfPage extends StatefulWidget {
 class BookshelfPageState extends State<BookshelfPage>
     with AutomaticKeepAliveClientMixin {
   List<ComicDetail> _items = [];
+  List<ComicDetail> _filtered = [];
   List<HistoryEntry> _recent = [];
   List<VideoRecord> _videos = [];
-  int _tab = 0; // 0=最近在读 1=全部收藏 2=动画记录
+  int _tab = 0;
   bool _loading = true;
   bool _refreshing = false;
-  bool _editing = false; // 收藏网格的编辑（删除）模式
+  bool _editing = false;
+  String? _tagFilter;
+  List<String> _allTags = [];
+  int _updateCount = 0;
+  bool _checkingUpdate = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -50,6 +55,13 @@ class BookshelfPageState extends State<BookshelfPage>
       if (mounted) {
         setState(() {
           _items = list;
+          _filtered = _tagFilter == null
+              ? list
+              : list.where((d) {
+                  final sid = BookshelfStore.sourceIdOf(d.id) ?? '';
+                  return BookshelfStore.tagsOf(sid, d.id).contains(_tagFilter);
+                }).toList();
+          _allTags = BookshelfStore.allTags();
           _recent = hist;
           _videos = videos;
           _loading = false;
@@ -97,6 +109,26 @@ class BookshelfPageState extends State<BookshelfPage>
                       color: scheme.onSurface.withValues(alpha: 0.45),
                     ),
                   ),
+                  if (_updateCount > 0)
+                    GestureDetector(
+                      onTap: _checkUpdates,
+                      child: Container(
+                        margin: const EdgeInsets.only(left: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: scheme.error.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '$_updateCount 更新',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: scheme.error,
+                          ),
+                        ),
+                      ),
+                    ),
                   const Spacer(),
                   if (_items.isNotEmpty)
                     TextButton(
@@ -171,34 +203,60 @@ class BookshelfPageState extends State<BookshelfPage>
                 ),
               ),
             )
-        else if (_tab == 1)
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 110),
-            sliver: SliverGrid(
-              gridDelegate:
-                  const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 112,
-                mainAxisSpacing: 14,
-                crossAxisSpacing: 10,
-                childAspectRatio: 0.6,
+        else if (_tab == 1) ...[
+          if (_items.isNotEmpty && _allTags.isNotEmpty)
+            SliverToBoxAdapter(child: _tagChips()),
+          if (_items.isEmpty)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.only(top: 80),
+                child: _TabEmpty(
+                  icon: Icons.bookmark_outline_rounded,
+                  text: '书架还是空的，去首页收藏几部吧',
+                ),
               ),
-              delegate: SliverChildBuilderDelegate(
-                (c, i) {
-                  final item = _items[i];
-                  return FadeSlideIn(
-                    delay: Duration(milliseconds: 50 * (i % 12)),
-                    offset: 16,
-                    child: _ShelfCard(
-                      item: item,
-                      editing: _editing,
-                      onTap: () => _editing ? _remove(item) : _open(item),
-                    ),
-                  );
-                },
-                childCount: _items.length,
+            )
+          else if (_filtered.isEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 80),
+                child: _TabEmpty(
+                  icon: Icons.filter_alt_off_rounded,
+                  text: '没有匹配「$_tagFilter」标签的作品',
+                ),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 110),
+              sliver: SliverGrid(
+                gridDelegate:
+                    const SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: 112,
+                  mainAxisSpacing: 14,
+                  crossAxisSpacing: 10,
+                  childAspectRatio: 0.6,
+                ),
+                delegate: SliverChildBuilderDelegate(
+                  (c, i) {
+                    final item = _filtered[i];
+                    return FadeSlideIn(
+                      delay: Duration(milliseconds: 50 * (i % 12)),
+                      offset: 16,
+                      child: _ShelfCard(
+                        item: item,
+                        editing: _editing,
+                        onTap: () => _editing
+                            ? _showCardAction(item)
+                            : _open(item),
+                      ),
+                    );
+                  },
+                  childCount: _filtered.length,
+                ),
               ),
             ),
-          )
+        ]
         else if (_videos.isEmpty)
           const SliverToBoxAdapter(
             child: Padding(
@@ -226,8 +284,12 @@ class BookshelfPageState extends State<BookshelfPage>
     );
   }
 
-  /// 由书架 chapters 计算最近在读进度（读到第?/共?话 → 百分比）。
+  /// 由书架 chapters + 历史页码计算阅读进度：优先精确页码比例。
   double _progressOf(HistoryEntry h) {
+    // 有精确页码：pageIndex / chapterTotalPages
+    if (h.hasPage && h.chapterTotalPages > 0 && h.pageIndex >= 0) {
+      return ((h.pageIndex + 1) / h.chapterTotalPages).clamp(0.0, 1.0);
+    }
     for (final d in _items) {
       if (d.id != h.book.comicId) continue;
       if (d.chapters.isEmpty) return 0;
@@ -268,6 +330,134 @@ class BookshelfPageState extends State<BookshelfPage>
     }
     BookshelfStore.remove(sid, d.id);
     await reload();
+  }
+
+  Widget _tagChips() {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 40,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(18, 6, 18, 0),
+        children: [
+          _tagChip('全部', _tagFilter == null, () {
+            setState(() => _tagFilter = null);
+            _refilter();
+          }, scheme),
+          const SizedBox(width: 8),
+          for (final t in _allTags) ...[
+            _tagChip(t, _tagFilter == t, () {
+              setState(() => _tagFilter = t);
+              _refilter();
+            }, scheme),
+            const SizedBox(width: 8),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _tagChip(String label, bool active, VoidCallback onTap, ColorScheme scheme) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        decoration: BoxDecoration(
+          color: active
+              ? scheme.primary
+              : scheme.onSurface.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+            color: active ? Colors.white : scheme.onSurface.withValues(alpha: 0.6),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _refilter() {
+    setState(() {
+      _filtered = _tagFilter == null
+          ? _items
+          : _items.where((d) {
+              final sid = BookshelfStore.sourceIdOf(d.id) ?? '';
+              return BookshelfStore.tagsOf(sid, d.id).contains(_tagFilter);
+            }).toList();
+    });
+  }
+
+  /// 检查所有收藏漫画是否有新章节更新。
+  Future<void> _checkUpdates() async {
+    if (_checkingUpdate) return;
+    setState(() => _checkingUpdate = true);
+    var newCount = 0;
+    for (final d in _items) {
+      final sid = BookshelfStore.sourceIdOf(d.id) ?? SourceManager.current.id;
+      final source = SourceManager.byId(sid);
+      try {
+        final detail = await source.detail(d.id).timeout(const Duration(seconds: 10));
+        final cur = detail.chapters.length;
+        final hadNew = BookshelfStore.hasUpdate(sid, d.id, cur);
+        BookshelfStore.setLastSeenChapters(sid, d.id, cur);
+        if (hadNew) newCount++;
+      } catch (_) {}
+    }
+    if (mounted) {
+      setState(() {
+        _updateCount = newCount;
+        _checkingUpdate = false;
+      });
+      if (newCount == 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('所有收藏已是最新')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('发现 $newCount 部作品有更新')),
+        );
+      }
+    }
+  }
+
+  /// 编辑模式下点卡片：弹「设置标签 / 移出书架」操作。
+  Future<void> _showCardAction(ComicDetail d) async {
+    final sid = BookshelfStore.sourceIdOf(d.id) ?? '';
+    final current = List<String>.from(BookshelfStore.tagsOf(sid, d.id));
+    final updated = await showModalBottomSheet<List<String>>(
+      context: context,
+      backgroundColor: const Color(0xFF0F1013),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _TagEditorSheet(
+        title: d.name,
+        current: current,
+        allTags: BookshelfStore.allTags(),
+      ),
+    );
+    if (updated == null) return;
+    if (!mounted) return;
+    if (updated.length == 1 && updated.first == '__delete__') {
+      _remove(d);
+      return;
+    }
+    BookshelfStore.setTags(sid, d.id, updated);
+    setState(() => _allTags = BookshelfStore.allTags());
+    _refilter();
+    if (current.isEmpty && updated.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已为「${d.name}」添加标签：${updated.join('、')}'),
+          duration: const Duration(milliseconds: 1500),
+        ),
+      );
+    }
   }
 
   Widget _tabBar() {
@@ -444,6 +634,39 @@ class _ShelfCard extends StatefulWidget {
 class _ShelfCardState extends State<_ShelfCard> {
   bool _hover = false;
 
+  /// 是否有更新角标。
+  bool get _hasUpdate {
+    // 需要 sourceId 和 comicId，但 widget.item 只有 id。
+    // 通过 BookshelfStore 反向查找。
+    final sid = BookshelfStore.sourceIdOf(widget.item.id);
+    if (sid == null) return false;
+    final cur = widget.item.chapters.length;
+    return BookshelfStore.hasUpdate(sid, widget.item.id, cur);
+  }
+
+  Widget _updateBadge() {
+    if (!_hasUpdate) return const Positioned(left: 0, top: 0, child: SizedBox.shrink());
+    final scheme = Theme.of(context).colorScheme;
+    return Positioned(
+      top: 6,
+      right: 6,
+      child: Container(
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(
+          color: scheme.error,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: scheme.error.withValues(alpha: 0.5),
+              blurRadius: 4,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -535,6 +758,7 @@ class _ShelfCardState extends State<_ShelfCard> {
                                   ),
                                 ),
                               ),
+                              _updateBadge(),
                             ],
                           ),
                         ),
@@ -930,6 +1154,148 @@ class _AnimatedRotationState extends State<AnimatedRotation>
         CurvedAnimation(parent: _c, curve: Curves.linear),
       ),
       child: widget.child,
+    );
+  }
+}
+
+/// 标签编辑底部抽屉：多选标签，底部固定「移出书架」。
+class _TagEditorSheet extends StatefulWidget {
+  final String title;
+  final List<String> current;
+  final List<String> allTags;
+  const _TagEditorSheet({
+    required this.title,
+    required this.current,
+    required this.allTags,
+  });
+
+  @override
+  State<_TagEditorSheet> createState() => _TagEditorSheetState();
+}
+
+class _TagEditorSheetState extends State<_TagEditorSheet> {
+  late List<String> _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = List.from(widget.current);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(22, 16, 22, 28),
+        decoration: const BoxDecoration(
+          color: Color(0xFF0F1013),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border(top: BorderSide(color: Color(0x1FFFFFFF))),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    widget.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, _selected),
+                  child: const Text('完成'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 10,
+              children: List.generate(widget.allTags.length, (i) {
+                final t = widget.allTags[i];
+                final active = _selected.contains(t);
+                return GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      if (active) {
+                        _selected.remove(t);
+                      } else {
+                        _selected.add(t);
+                      }
+                    });
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: active
+                          ? const Color(0xFF3A6EA5)
+                          : Colors.white.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: active
+                            ? const Color(0xFF3A6EA5)
+                            : Colors.white.withValues(alpha: 0.1),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          t,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: active ? Colors.white : Colors.white70,
+                          ),
+                        ),
+                        if (active) ...[
+                          const SizedBox(width: 4),
+                          Icon(Icons.check_rounded,
+                              size: 14, color: Colors.white.withValues(alpha: 0.8)),
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: scheme.error,
+                  side: BorderSide(color: scheme.error.withValues(alpha: 0.3)),
+                ),
+                icon: const Icon(Icons.delete_outline_rounded, size: 16),
+                label: const Text('移出书架'),
+                onPressed: () => Navigator.pop(context, ['__delete__']),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

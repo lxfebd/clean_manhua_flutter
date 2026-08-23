@@ -5,6 +5,7 @@ import '../models/comic_item.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
 import 'detail_page.dart';
+import 'unified_search_page.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
 
@@ -310,6 +311,15 @@ class _HomePageState extends State<HomePage> {
                       _keyword = v;
                       _switchMode('search');
                     },
+                    onSearchAll: (kw) {
+                      HapticFeedback.selectionClick();
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => UnifiedSearchPage(keyword: kw),
+                        ),
+                      );
+                    },
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -476,7 +486,10 @@ class _SourceSwitchButton extends StatelessWidget {
 class _SearchBar extends StatefulWidget {
   final TextEditingController controller;
   final ValueChanged<String> onSubmit;
-  const _SearchBar({required this.controller, required this.onSubmit});
+
+  /// 跨源全量搜索（suffixIcon 入口）。
+  final ValueChanged<String>? onSearchAll;
+  const _SearchBar({required this.controller, required this.onSubmit, this.onSearchAll});
 
   @override
   State<_SearchBar> createState() => _SearchBarState();
@@ -529,12 +542,26 @@ class _SearchBarState extends State<_SearchBar> {
               color: _focused ? scheme.primary : scheme.onSurface.withValues(alpha: 0.55),
             ),
             suffixIcon: widget.controller.text.isNotEmpty
-                ? IconButton(
-                    icon: Icon(Icons.close_rounded, size: 18, color: scheme.onSurface.withValues(alpha: 0.5)),
-                    onPressed: () {
-                      widget.controller.clear();
-                      setState(() {});
-                    },
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (widget.onSearchAll != null)
+                        IconButton(
+                          tooltip: '全源搜索',
+                          icon: Icon(Icons.public_rounded, size: 17, color: scheme.primary),
+                          onPressed: () {
+                            final kw = widget.controller.text.trim();
+                            if (kw.isNotEmpty) widget.onSearchAll!(kw);
+                          },
+                        ),
+                      IconButton(
+                        icon: Icon(Icons.close_rounded, size: 18, color: scheme.onSurface.withValues(alpha: 0.5)),
+                        onPressed: () {
+                          widget.controller.clear();
+                          setState(() {});
+                        },
+                      ),
+                    ],
                   )
                 : null,
             isDense: true,

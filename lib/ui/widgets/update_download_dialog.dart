@@ -1,14 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
-import '../../net/update_checker.dart';
+import '../../net/update_download_manager.dart';
 
 /// 弹出更新下载进度对话框，带进度条 + 字节数 + 百分比 + 取消按钮。
 ///
-/// 下载完成自动关闭对话框、触发安装。
-/// 返回 true 表示安装流程已启动，false 表示用户取消，抛异常表示下载失败。
+/// 下载由全局 [UpdateDownloadManager] 管理，用户关闭对话框或离开页面
+/// 下载仍会在后台继续，并在通知栏显示实时进度。
 Future<bool> showUpdateDownloadDialog(
   BuildContext context,
   String apkUrl,
@@ -16,11 +15,17 @@ Future<bool> showUpdateDownloadDialog(
   final navigator = Navigator.of(context, rootNavigator: true);
   final completer = Completer<bool>();
 
+  // 已在下载就直接打开进度窗口
+  if (UpdateDownloadManager.instance.state.received == 0 &&
+      UpdateDownloadManager.instance.state.total == 0 &&
+      !UpdateDownloadManager.instance.state.done) {
+    UpdateDownloadManager.instance.start(apkUrl);
+  }
+
   showDialog<void>(
     context: navigator.context,
     barrierDismissible: false,
     builder: (_) => _DownloadProgressDialog(
-      apkUrl: apkUrl,
       onResult: (ok) {
         navigator.pop();
         completer.complete(ok);
@@ -32,12 +37,8 @@ Future<bool> showUpdateDownloadDialog(
 }
 
 class _DownloadProgressDialog extends StatefulWidget {
-  final String apkUrl;
   final void Function(bool ok) onResult;
-  const _DownloadProgressDialog({
-    required this.apkUrl,
-    required this.onResult,
-  });
+  const _DownloadProgressDialog({required this.onResult});
 
   @override
   State<_DownloadProgressDialog> createState() =>
@@ -45,69 +46,44 @@ class _DownloadProgressDialog extends StatefulWidget {
 }
 
 class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
-  int _received = 0;
-  int _total = 0;
-  bool _cancelled = false;
-  bool _done = false;
+  UpdateDownloadState _state = const UpdateDownloadState();
+  StreamSubscription? _sub;
 
   @override
   void initState() {
     super.initState();
-    _startDownload();
-  }
-
-  Future<void> _startDownload() async {
-    try {
-      final path = await UpdateChecker.downloadApk(
-        widget.apkUrl,
-        onProgress: (cur, all) {
-          if (_cancelled || !mounted) return;
-          setState(() {
-            _received = cur;
-            _total = all;
-          });
-        },
-        isCancelled: () => _cancelled,
-      );
-      if (_cancelled || !mounted) return;
-      setState(() => _done = true);
-      final ok = await _installApk(path);
-      if (mounted) widget.onResult(ok);
-    } catch (e) {
-      if (!mounted) return;
-      widget.onResult(false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('下载失败：$e')),
-        );
+    _state = UpdateDownloadManager.instance.state;
+    _sub = UpdateDownloadManager.instance.stateStream.listen((s) {
+      if (mounted) setState(() => _state = s);
+      if (s.done || s.error != null) {
+        Future.delayed(const Duration(milliseconds: 600), () {
+          if (mounted) widget.onResult(s.done);
+        });
       }
-    }
+    });
   }
 
-  Future<bool> _installApk(String path) async {
-    if (!mounted) return false;
-    try {
-      await MethodChannel('xingmanxia/install')
-          .invokeMethod('installApk', {'path': path});
-      return true;
-    } catch (e) {
-      debugPrint('install failed: $e');
-      return false;
-    }
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final done = _state.done;
+    final failed = _state.error != null;
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop && !_done) {
-          setState(() => _cancelled = true);
+        if (!didPop && !done && failed == false) {
+          // 返回不取消下载，仅关闭弹窗提示
+          widget.onResult(false);
         }
       },
       child: AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: Text(_done ? '下载完成' : '正在下载更新'),
+        title: Text(done ? '下载完成' : failed ? '下载失败' : '正在下载更新'),
         content: SizedBox(
           width: 300,
           child: Column(
@@ -115,38 +91,56 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                _done ? 'APK 已下载，正在安装…' : '新版 APK 下载中，请稍候…',
+                done
+                    ? '安装包已就绪，请稍候…'
+                    : failed
+                        ? '${_state.error}\n\n可稍后从「设置 → 检查更新」重试，或到 GitHub Releases 手动下载。'
+                        : '后台下载中，关闭本窗口不会中断\n返回界面或退出 App 均继续下载',
                 style: const TextStyle(fontSize: 12.5),
               ),
               const SizedBox(height: 16),
               ClipRRect(
                 borderRadius: BorderRadius.circular(3),
                 child: LinearProgressIndicator(
-                  value: _total > 0
-                      ? (_received / _total).clamp(0.0, 1.0)
-                      : null,
+                  value: failed || done ? null : _state.progress,
                   minHeight: 6,
                 ),
               ),
               const SizedBox(height: 10),
-              Text(
-                _total > 0
-                    ? '${_fmt(_received)} / ${_fmt(_total)}'
-                        '（${((_received / _total) * 100).toStringAsFixed(1)}%）'
-                    : '已下载 ${_fmt(_received)}',
-                style: const TextStyle(fontSize: 11.5),
+              Row(
+                children: [
+                  Text(
+                    _state.total > 0
+                        ? '${_fmt(_state.received)} / ${_fmt(_state.total)}'
+                            '（${(_state.progress * 100).toStringAsFixed(0)}%）'
+                        : '已下载 ${_fmt(_state.received)}',
+                    style: const TextStyle(fontSize: 11.5),
+                  ),
+                  const Spacer(),
+                  if (_state.speed.isNotEmpty)
+                    Text(
+                      _state.speed,
+                      style: const TextStyle(
+                          fontSize: 11.5, color: Colors.grey),
+                    ),
+                ],
               ),
             ],
           ),
         ),
         actions: [
-          if (!_done)
+          if (!done && !failed)
             TextButton(
               onPressed: () {
-                setState(() => _cancelled = true);
+                UpdateDownloadManager.instance.cancel();
                 widget.onResult(false);
               },
               child: const Text('取消'),
+            )
+          else
+            TextButton(
+              onPressed: () => widget.onResult(done),
+              child: const Text('关闭'),
             ),
         ],
       ),

@@ -101,6 +101,15 @@ class NovelShelfStore {
     return (v as int?) ?? 0;
   }
 
+  /// 导出原始数据（用于备份）。
+  static Map<String, dynamic> exportData() => Map.from(_cache);
+
+  /// 覆盖导入（用于恢复备份）。
+  static void importData(Map<String, dynamic> data) {
+    _cache = Map.from(data);
+    _save();
+  }
+
   static NovelDetail _fromMap(Map<String, dynamic> m) {
     final comic = ComicItem(m['id'] as String, m['name'] as String,
             (m['pic'] as String?) ?? '')

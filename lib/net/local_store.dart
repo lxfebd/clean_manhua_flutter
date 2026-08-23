@@ -42,25 +42,37 @@ class Bookmark {
   ComicItem toComic() => ComicItem(comicId, name, pic)..author = author;
 }
 
-/// 历史记录：记录看过的漫画 + 上次读到哪一话。
+/// 历史记录：记录看过的漫画 + 上次读到哪一话（+ 读到第几页）。
 class HistoryEntry {
   final Bookmark book;
   final String chapterId;
   final String chapterTitle;
   final int timestamp;
 
+  /// 上次读到的页码（0 基），-1 表示未知（旧数据）。
+  final int pageIndex;
+
+  /// 该章节总页数（0 表示未知），用于书架进度条精确计算。
+  final int chapterTotalPages;
+
   const HistoryEntry({
     required this.book,
     required this.chapterId,
     required this.chapterTitle,
     required this.timestamp,
+    this.pageIndex = -1,
+    this.chapterTotalPages = 0,
   });
+
+  bool get hasPage => pageIndex >= 0;
 
   Map<String, dynamic> toMap() => {
         ...book.toMap(),
         'chapterId': chapterId,
         'chapterTitle': chapterTitle,
         'timestamp': timestamp,
+        'pageIndex': pageIndex,
+        'chapterTotalPages': chapterTotalPages,
       };
 
   factory HistoryEntry.fromMap(Map<String, dynamic> m) => HistoryEntry(
@@ -68,6 +80,8 @@ class HistoryEntry {
         chapterId: (m['chapterId'] as String?) ?? '',
         chapterTitle: (m['chapterTitle'] as String?) ?? '',
         timestamp: (m['timestamp'] as int?) ?? 0,
+        pageIndex: (m['pageIndex'] as num?)?.toInt() ?? -1,
+        chapterTotalPages: (m['chapterTotalPages'] as num?)?.toInt() ?? 0,
       );
 
   String get key => book.key;
@@ -322,6 +336,121 @@ class LocalStore {
         'resLevel': v,
       });
 
+  // ---- 小说阅读设置 ----
+  /// 小说字号（默认 17）。
+  static Future<int> novelFontSize() async =>
+      ((await _read('novel_read_settings')) as Map?)?['fontSize'] as int? ?? 17;
+
+  /// 小说行距倍数*100（默认 180）。
+  static Future<int> novelLineHeight() async {
+    final v = ((await _read('novel_read_settings')) as Map?)?['lineHeight'];
+    if (v is num) return v.round();
+    return 180;
+  }
+
+  /// 小说背景纸色：0=跟随主题 1=米白 2=浅绿 3=暗黑。
+  static Future<int> novelTheme() async =>
+      ((await _read('novel_read_settings')) as Map?)?['theme'] as int? ?? 0;
+
+  static Future<void> setNovelReadSettings({
+    int? fontSize,
+    int? lineHeight,
+    int? theme,
+  }) async {
+    final cur = (await _read('novel_read_settings')) as Map? ?? {};
+    await _write('novel_read_settings', {
+      'fontSize': fontSize ?? cur['fontSize'] ?? 17,
+      'lineHeight': lineHeight ?? cur['lineHeight'] ?? 180,
+      'theme': theme ?? cur['theme'] ?? 0,
+    });
+  }
+
+  // ---- 阅读统计 ----
+  /// 累计一段阅读时长（秒）到当天。
+  /// 存储结构：reading_stats -> { "2026-08-23": 3600, ... }（按天，秒）。
+  static Future<void> addReadingSeconds(int seconds) async {
+    if (seconds <= 0) return;
+    final day = _todayKey();
+    final m = (await _read('reading_stats')) as Map? ?? {};
+    m[day] = ((m[day] as num?) ?? 0).toInt() + seconds;
+    await _write('reading_stats', m);
+  }
+
+  /// 读取某天的阅读秒数。
+  static Future<int> readingSecondsOfDay(String dayKey) async =>
+      ((await _read('reading_stats')) as Map?)?[dayKey] as int? ?? 0;
+
+  /// 今日阅读秒数。
+  static Future<int> todayReadingSeconds() => readingSecondsOfDay(_todayKey());
+
+  /// 本周（最近 7 天）阅读秒数总和。
+  static Future<int> weekReadingSeconds() async {
+    final m = (await _read('reading_stats')) as Map? ?? {};
+    var sum = 0;
+    for (var i = 0; i < 7; i++) {
+      final d = DateTime.now().subtract(Duration(days: i));
+      sum += (m[_dayKeyOf(d)] as int?) ?? 0;
+    }
+    return sum;
+  }
+
+  /// 累计阅读秒数（所有记录）。
+  static Future<int> totalReadingSeconds() async {
+    final m = (await _read('reading_stats')) as Map? ?? {};
+    var sum = 0;
+    for (final v in m.values) {
+      sum += (v as num?)?.toInt() ?? 0;
+    }
+    return sum;
+  }
+
+  /// 最近 N 天每天的阅读秒数（按日期升序返回 [{day, seconds}]）。
+  static Future<List<Map<String, dynamic>>> recentReadingDays(int n) async {
+    final m = (await _read('reading_stats')) as Map? ?? {};
+    final out = <Map<String, dynamic>>[];
+    for (var i = n - 1; i >= 0; i--) {
+      final d = DateTime.now().subtract(Duration(days: i));
+      final key = _dayKeyOf(d);
+      out.add({'day': key, 'seconds': (m[key] as int?) ?? 0});
+    }
+    return out;
+  }
+
+  static String _todayKey() => _dayKeyOf(DateTime.now());
+
+  static String _dayKeyOf(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  // ---- 阅读器手势配置 ----
+  /// 阅读器手势模式：left/center/right 分别映射到哪个动作。
+  /// 可选值：prevPage, nextPage, toggleMenu, toggleBrightness, scrollDown, scrollUp。
+  static const List<String> gestureActions = [
+    'prevPage', 'nextPage', 'toggleMenu', 'toggleBrightness', 'scrollDown', 'scrollUp',
+  ];
+
+  /// 默认手势：左=上一页，中=菜单，右=下一页。
+  static const Map<String, String> _defaultGesture = {
+    'left': 'prevPage',
+    'center': 'toggleMenu',
+    'right': 'nextPage',
+  };
+
+  /// 读取手势配置。
+  static Future<Map<String, String>> gestureConfig() async {
+    final m = (await _read('gesture_config')) as Map?;
+    if (m == null) return Map.from(_defaultGesture);
+    return {
+      'left': (m['left'] as String?) ?? _defaultGesture['left']!,
+      'center': (m['center'] as String?) ?? _defaultGesture['center']!,
+      'right': (m['right'] as String?) ?? _defaultGesture['right']!,
+    };
+  }
+
+  /// 写入手势配置。
+  static Future<void> setGestureConfig(Map<String, String> cfg) async {
+    await _write('gesture_config', cfg);
+  }
+
   // ---- 更新检查 ----
   /// 上次自动检查更新的时间戳（ms）。用于限制每天最多自动检查一次。
   static Future<int> lastUpdateCheckTs() async =>
@@ -404,5 +533,45 @@ class LocalStore {
       final cd = Directory('${base.path}/${d.localKey}');
       if (cd.existsSync()) cd.deleteSync(recursive: true);
     } catch (_) {}
+  }
+
+  // ---- 备份/恢复 ----
+
+  /// 收集所有用户数据（书架/小说书架/历史/动画记录/收藏/下载清单/设置/源配置），
+  /// 返回可直接 JSON 序列化的结构。下载图片文件不包含在内。
+  static Future<Map<String, dynamic>> collectBackup({
+    required dynamic bookshelfData,
+    required dynamic novelShelfData,
+  }) async {
+    return {
+      'version': 1,
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+      'favorites': await _read('favorites'),
+      'history': await _read('history'),
+      'video_records': await _read('video_records'),
+      'downloads': await _read('downloads'),
+      'settings': await _read('settings'),
+      'sources_config': await _read('sources_config'),
+      'bookshelf': bookshelfData,
+      'novel_shelf': novelShelfData,
+    };
+  }
+
+  /// 从备份数据恢复。返回恢复的数据文件个数字符串，便于提示。
+  static Future<int> restoreBackup(Map<String, dynamic> data) async {
+    var count = 0;
+    Future<void> put(String name, Object? v) async {
+      if (v == null) return;
+      await _write(name, v);
+      count++;
+    }
+
+    await put('favorites', data['favorites']);
+    await put('history', data['history']);
+    await put('video_records', data['video_records']);
+    await put('downloads', data['downloads']);
+    await put('settings', data['settings']);
+    await put('sources_config', data['sources_config']);
+    return count;
   }
 }

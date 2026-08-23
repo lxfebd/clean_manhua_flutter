@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
+
 import 'http_client.dart';
 
 /// GitHub Releases 上的最新版本信息。
@@ -139,5 +141,11 @@ class UpdateChecker {
     } finally {
       client.close(force: true);
     }
+  }
+
+  /// 触发系统安装器安装 APK。
+  static Future<void> installApk(String path) async {
+    await const MethodChannel('xingmanxia/install')
+        .invokeMethod('installApk', {'path': path});
   }
 }

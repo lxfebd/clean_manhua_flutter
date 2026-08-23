@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:convert';
+import 'dart:io';
 
 import '../main.dart';
+import '../net/bookshelf_store.dart';
 import '../net/local_store.dart';
+import '../net/novel_shelf_store.dart';
 import '../net/update_checker.dart';
 import 'source_manage_page.dart';
 import 'widgets/update_download_dialog.dart';
@@ -138,6 +143,16 @@ class _SettingsPageState extends State<SettingsPage> {
                       },
                     ),
                   ),
+                  Container(
+                    height: 0.5,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  ),
+                  _SettingTile(
+                    icon: Icons.touch_app_rounded,
+                    title: '手势配置',
+                    subtitle: '自定义点击区域操作',
+                    onTap: _showGestureSettings,
+                  ),
                 ],
               ),
             ),
@@ -174,9 +189,29 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const SizedBox(height: 6),
             FadeSlideIn(
-              delay: const Duration(milliseconds: 420),
+              delay: const Duration(milliseconds: 280),
               child: _SettingsCard(
                 children: [
+                  _SettingTile(
+                    icon: Icons.backup_rounded,
+                    title: '导出备份',
+                    subtitle: '书架、历史、设置 → JSON 文件',
+                    onTap: _exportBackup,
+                  ),
+                  Container(
+                    height: 0.5,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  ),
+                  _SettingTile(
+                    icon: Icons.restore_rounded,
+                    title: '导入备份',
+                    subtitle: '从 JSON 文件恢复数据',
+                    onTap: _importBackup,
+                  ),
+                  Container(
+                    height: 0.5,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  ),
                   _SettingTile(
                     icon: Icons.download_outlined,
                     title: '清空全部下载',
@@ -282,6 +317,92 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ),
     );
+  }
+
+  /// 导出备份：收集所有数据并保存为 JSON 文件。
+  /// 手势配置弹窗：左侧/中间/右侧点击区域各自的三选一。
+  Future<void> _showGestureSettings() async {
+    final cfg = await LocalStore.gestureConfig();
+    if (!mounted) return;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF0F1013),
+      barrierColor: Colors.black.withValues(alpha: 0.3),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _GestureSettingsSheet(initial: cfg),
+    );
+  }
+
+  Future<void> _exportBackup() async {
+    try {
+      final data = await LocalStore.collectBackup(
+        bookshelfData: BookshelfStore.exportData(),
+        novelShelfData: NovelShelfStore.exportData(),
+      );
+      final json = const JsonEncoder.withIndent('  ').convert(data);
+      final result = await FilePicker.saveFile(
+        dialogTitle: '导出备份',
+        fileName: '星漫匣_备份_${DateTime.now().millisecondsSinceEpoch}.json',
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+      );
+      if (result == null) return;
+      File(result).writeAsStringSync(json);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已导出到 ${result.split('\\').last.split('/').last}')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('导出失败：$e')),
+        );
+      }
+    }
+  }
+
+  /// 导入备份：从 JSON 文件恢复数据。
+  Future<void> _importBackup() async {
+    final result = await FilePicker.pickFiles(
+      dialogTitle: '选择备份文件',
+      type: FileType.custom,
+      allowedExtensions: ['json'],
+    );
+    if (result == null || result.files.single.path == null) return;
+    try {
+      final json = File(result.files.single.path!).readAsStringSync();
+      final data = jsonDecode(json) as Map<String, dynamic>;
+      if (data['version'] == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('无效的备份文件')),
+          );
+        }
+        return;
+      }
+      // 恢复书架
+      if (data['bookshelf'] is Map) {
+        BookshelfStore.importData(data['bookshelf'] as Map<String, dynamic>);
+      }
+      if (data['novel_shelf'] is Map) {
+        NovelShelfStore.importData(data['novel_shelf'] as Map<String, dynamic>);
+      }
+      final count = await LocalStore.restoreBackup(data);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已恢复 $count 项数据（书架${data['bookshelf'] is Map ? ' +' : ''}${data['novel_shelf'] is Map ? '小说书架' : ''}）')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('恢复失败：$e')),
+        );
+      }
+    }
   }
 
   Future<void> _checkUpdate() async {
@@ -506,6 +627,150 @@ class _SettingTile extends StatelessWidget {
                 Icon(Icons.chevron_right_rounded,
                     color: scheme.onSurface.withValues(alpha: 0.4), size: 22),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 手势配置底部抽屉：左侧 / 中间 / 右侧各选一个动作。
+class _GestureSettingsSheet extends StatefulWidget {
+  final Map<String, String> initial;
+  const _GestureSettingsSheet({required this.initial});
+
+  @override
+  State<_GestureSettingsSheet> createState() => _GestureSettingsSheetState();
+}
+
+class _GestureSettingsSheetState extends State<_GestureSettingsSheet> {
+  late Map<String, String> _cfg;
+
+  static const _regions = ['left', 'center', 'right'];
+  static const _regionLabels = {'left': '左侧', 'center': '中间', 'right': '右侧'};
+  static const _actionLabels = {
+    'prevPage': '上一页',
+    'nextPage': '下一页',
+    'toggleMenu': '切换工具栏',
+    'toggleBrightness': '切换亮度',
+    'scrollDown': '向下滚动',
+    'scrollUp': '向上滚动',
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _cfg = Map.from(widget.initial);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(22, 16, 22, 28),
+        decoration: const BoxDecoration(
+          color: Color(0xFF0F1013),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border(top: BorderSide(color: Color(0x1FFFFFFF))),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('手势配置',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white)),
+            const SizedBox(height: 4),
+            const Text('点击阅读器三等分区域触发的操作',
+                style: TextStyle(
+                    fontSize: 12, color: Colors.white54)),
+            const SizedBox(height: 18),
+            for (final r in _regions) ...[
+              _regionRow(r, scheme),
+              const SizedBox(height: 12),
+            ],
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF3A6EA5),
+                ),
+                onPressed: () async {
+                  await LocalStore.setGestureConfig(_cfg);
+                  if (context.mounted) Navigator.pop(context);
+                },
+                child: const Text('保存'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _regionRow(String region, ColorScheme scheme) {
+    final current = _cfg[region] ?? 'toggleMenu';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(_regionLabels[region] ?? region,
+            style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.white)),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final a in LocalStore.gestureActions)
+              _optBtn(a, current == a, () {
+                setState(() => _cfg[region] = a);
+              }),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _optBtn(String action, bool active, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: active
+              ? const Color(0xFF3A6EA5)
+              : Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: active
+                ? const Color(0xFF3A6EA5)
+                : Colors.white.withValues(alpha: 0.1),
+          ),
+        ),
+        child: Text(
+          _actionLabels[action] ?? action,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+            color: active ? Colors.white : Colors.white70,
           ),
         ),
       ),
