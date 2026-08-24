@@ -212,6 +212,7 @@ class UpdateDownloadManager {
       await _channel.invokeMethod('showDone', {
         'title': '更新下载完成',
         'text': '点击安装新版本',
+        'path': _downloadedPath ?? '',
       });
     } catch (_) {}
   }
@@ -236,6 +237,19 @@ class UpdateDownloadManager {
     if (path == null) return;
     try {
       await UpdateChecker.installApk(path);
+    } catch (e) {
+      _state = UpdateDownloadState(
+          error: '安装失败：$e（可到文件管理器手动安装）');
+      _stateCtrl.add(_state);
+      _notifyInstall(path);
+      _running = false;
+    }
+  }
+
+  /// 发送可点击安装的通知（自动安装失败时备用）。
+  Future<void> _notifyInstall(String path) async {
+    try {
+      await _channel.invokeMethod('showInstall', {'path': path});
     } catch (_) {}
   }
 

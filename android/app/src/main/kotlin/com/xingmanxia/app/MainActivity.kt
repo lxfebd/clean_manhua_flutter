@@ -49,13 +49,19 @@ class MainActivity : FlutterActivity() {
                     "showDone" -> {
                         val title = call.argument<String>("title") ?: ""
                         val text = call.argument<String>("text") ?: ""
-                        showDoneNotif(title, text)
+                        val path = call.argument<String>("path") ?: ""
+                        showDoneNotif(title, text, path)
                         result.success(true)
                     }
                     "showError" -> {
                         val title = call.argument<String>("title") ?: ""
                         val text = call.argument<String>("text") ?: ""
                         showErrorNotif(title, text)
+                        result.success(true)
+                    }
+                    "showInstall" -> {
+                        val path = call.argument<String>("path")
+                        if (path != null) showInstallNotif(path)
                         result.success(true)
                     }
                     "cancel" -> {
@@ -109,22 +115,40 @@ class MainActivity : FlutterActivity() {
         nm.notify(notifId, builder.build())
     }
 
-    private fun showDoneNotif(title: String, text: String) {
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        val pi = PendingIntent.getActivity(
-            this, 0, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+    private fun showDoneNotif(title: String, text: String, path: String) {
         val builder = NotificationCompat.Builder(this, notifChannelId)
             .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setAutoCancel(true)
             .setOngoing(false)
-            .setContentIntent(pi)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+
+        if (path.isNotEmpty()) {
+            val file = File(path)
+            if (file.exists()) {
+                val uri: Uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                val pi = PendingIntent.getActivity(
+                    this, 0, intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                builder.setContentIntent(pi)
+            }
+        } else {
+            val intent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val pi = PendingIntent.getActivity(
+                this, 0, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.setContentIntent(pi)
+        }
 
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(notifId, builder.build())
@@ -139,6 +163,31 @@ class MainActivity : FlutterActivity() {
             .setOngoing(false)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
 
+        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(notifId, builder.build())
+    }
+
+    private fun showInstallNotif(path: String) {
+        val file = File(path)
+        if (!file.exists()) return
+        val uri: Uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val pi = PendingIntent.getActivity(
+            this, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val builder = NotificationCompat.Builder(this, notifChannelId)
+            .setContentTitle("点击安装更新")
+            .setContentText("下载完成，点击安装")
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setAutoCancel(true)
+            .setOngoing(false)
+            .setContentIntent(pi)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(notifId, builder.build())
     }
