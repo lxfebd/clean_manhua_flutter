@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -9,6 +10,7 @@ import '../sources/novel_source.dart';
 class NovelShelfStore {
   static File? _file;
   static Map<String, dynamic> _cache = {};
+  static Timer? _saveTimer;
 
   static void bindFile(File file) {
     _file = file;
@@ -28,11 +30,20 @@ class NovelShelfStore {
     }
   }
 
+  /// 防抖异步写盘：300ms 内多次调用合并为一次写入。
   static void _save() {
-    final f = _file;
-    if (f == null) return;
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 300), () {
+      final f = _file;
+      if (f == null) return;
+      final snapshot = jsonEncode(_cache);
+      _writeAsync(f, snapshot);
+    });
+  }
+
+  static Future<void> _writeAsync(File f, String data) async {
     try {
-      f.writeAsStringSync(jsonEncode(_cache));
+      await f.writeAsString(data, flush: true);
     } catch (_) {}
   }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../net/download_manager.dart';
 import '../net/image_cache.dart';
 import '../net/local_store.dart';
 import 'settings_page.dart';
@@ -101,6 +102,27 @@ class ToolboxPageState extends State<ToolboxPage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('已删除该下载记录')));
+  }
+
+  /// 重试失败的下载任务。
+  Future<void> _retryDownload(DownloadRecord d) async {
+    setState(() => _busyDownloads = true);
+    try {
+      await DownloadManager.retry(
+        '${d.book.sourceId}::${d.book.comicId}',
+        d.chapterId,
+        d.chapterTitle,
+        [],
+      );
+      await _refreshDownloads();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('重试失败：$e')));
+      }
+    } finally {
+      if (mounted) setState(() => _busyDownloads = false);
+    }
   }
 
   Future<void> _clearCache() async {
@@ -578,6 +600,15 @@ class ToolboxPageState extends State<ToolboxPage> {
                       Text('${d.done}/${d.total}',
                           style: const TextStyle(
                               fontSize: 12, color: Colors.grey)),
+                    if (!d.finished)
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        iconSize: 17,
+                        icon: Icon(Icons.refresh_rounded,
+                            color: scheme.primary.withValues(alpha: 0.8)),
+                        tooltip: '重试',
+                        onPressed: () => _retryDownload(d),
+                      ),
                     IconButton(
                       visualDensity: VisualDensity.compact,
                       iconSize: 17,

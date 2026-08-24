@@ -3,12 +3,17 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:screen_brightness/screen_brightness.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../net/download_manager.dart';
+import '../net/http_client.dart';
 import '../net/image_cache.dart';
+import '../net/jm_scramble.dart';
 import '../net/local_store.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
+import '../utils/image_super_res.dart';
 import 'widgets/jm_scramble_image.dart';
 
 /// 阅读器（对齐 UI_v2 S5/S6）：沉浸式黑底 + 顶部返回/标题/菜单 +
@@ -49,12 +54,14 @@ class _ReaderPageState extends State<ReaderPage> {
   List<String> _urls = [];
   bool _loading = true;
   bool _horizontal = false;
+  bool _rtl = false; // 日漫 RTL 反向翻页（手势左右交换）
   bool _downloaded = false;
   bool _downloading = false;
   int _curPage = 0;
   int _resLevel = 0; // 0=无, 1=性能, 2=质量
   bool _overlay = true; // 顶部/底部工具栏是否显示
-  double _dim = 0.0; // 亮度（暗化模拟），0.0~1.0
+  double _dim = 1.0; // 亮度（1.0=最亮），真实接管系统亮度
+  bool _brightnessNative = false; // 是否已接管系统亮度（false 时降级为遮罩）
   Timer? _hideTimer;
 
   /// 阅读时长统计：累计本次阅读秒数，每 5s flush 一次。
@@ -66,6 +73,14 @@ class _ReaderPageState extends State<ReaderPage> {
 
   /// 当前章节索引（-1 表示不在章节列表中，不启用连读）。
   late int _chapterIndex;
+
+  /// 防误触：触摸锁、动画锁、二次返回退出
+  bool _touchLocked = false; // 用户主动锁定触控（躺卧阅读）
+  bool _pageAnimating = false; // 翻页动画进行中
+  DateTime _lastBackTime = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastTouchTime = DateTime.fromMillisecondsSinceEpoch(0);
+  Offset? _lastTouchPos;
+  Timer? _historyDebounce;
 
   /// 当前加载的章节 id 与页数（记录历史用）。
   String _activeChapterId = '';
@@ -82,6 +97,8 @@ class _ReaderPageState extends State<ReaderPage> {
   @override
   void initState() {
     super.initState();
+    WakelockPlus.enable(); // 阅读时保持屏幕常亮
+    _initBrightness(); // 接管系统亮度
     _chapterIndex =
         widget.chapters.indexWhere((c) => c.id == widget.chapterId);
     _activeChapterId = widget.chapterId;
@@ -96,6 +113,7 @@ class _ReaderPageState extends State<ReaderPage> {
 
   Future<void> _init() async {
     _horizontal = await LocalStore.horizontalReader();
+    _rtl = await LocalStore.rtlReader();
     _resLevel = await LocalStore.resLevel();
     _downloaded = await DownloadManager.isDownloaded(_book.key, widget.chapterId);
     _load();
@@ -151,15 +169,19 @@ class _ReaderPageState extends State<ReaderPage> {
   }
 
   /// 记录历史（含页码）。翻页时也会调用以持续更新进度。
+  /// 防抖 500ms：快速翻页时合并多次写入为一次磁盘 IO。
   void _recordHistory({String? chapterTitle}) {
-    LocalStore.recordHistory(HistoryEntry(
-      book: _book,
-      chapterId: _activeChapterId,
-      chapterTitle: chapterTitle ?? widget.title,
-      timestamp: DateTime.now().millisecondsSinceEpoch,
-      pageIndex: _curPage,
-      chapterTotalPages: _activeTotalPages,
-    ));
+    _historyDebounce?.cancel();
+    _historyDebounce = Timer(const Duration(milliseconds: 500), () {
+      LocalStore.recordHistory(HistoryEntry(
+        book: _book,
+        chapterId: _activeChapterId,
+        chapterTitle: chapterTitle ?? widget.title,
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+        pageIndex: _curPage,
+        chapterTotalPages: _activeTotalPages,
+      ));
+    });
   }
 
   Future<void> _load() async {
@@ -203,8 +225,36 @@ class _ReaderPageState extends State<ReaderPage> {
   void _prefetch(int from) {
     for (var k = from; k < from + 3 && k < _urls.length; k++) {
       final u = _urls[k];
-      if (u.startsWith('/') || u.contains('@')) continue;
-      ImageCacheManager.preload(u, headers: _headersForUrl(u));
+      if (u.startsWith('/')) continue;
+      if (u.contains('@') || widget.sourceId == 'jm') {
+        ImageCacheManager.load(u, fetch: () async {
+          final split = JmScramble.splitUrl(u);
+          final referer = _jmReferer(split.url);
+          var raw = Uint8List.fromList(await Net.getBytesCronet(
+            split.url,
+            headers: {
+              'User-Agent': Net.defaultUA,
+              'Referer': referer,
+              'Accept': 'image/webp,image/*,*/*',
+            },
+          ));
+          if (JmScramble.parseAid(u) != null) {
+            raw = await JmScramble.descrambleAsync(raw, u);
+          }
+          return raw;
+        });
+      } else {
+        ImageCacheManager.preload(u, headers: _headersForUrl(u));
+      }
+    }
+  }
+
+  String _jmReferer(String url) {
+    try {
+      final uri = Uri.parse(url);
+      return '${uri.scheme}://${uri.host}/';
+    } catch (_) {
+      return 'https://www.18comic.vg/';
     }
   }
 
@@ -227,6 +277,9 @@ class _ReaderPageState extends State<ReaderPage> {
     return null;
   }
 
+  int _downloadDone = 0;
+  int _downloadTotal = 0;
+
   Future<void> _download() async {
     if (_downloading || _urls.isEmpty) return;
     setState(() => _downloading = true);
@@ -238,7 +291,8 @@ class _ReaderPageState extends State<ReaderPage> {
         urls: _urls,
         onProgress: (d, t) {
           if (!mounted) return;
-          setState(() {});
+          _downloadDone = d;
+          _downloadTotal = t;
         },
       );
       if (mounted) {
@@ -254,7 +308,21 @@ class _ReaderPageState extends State<ReaderPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      // 防误触：二次返回确认。第一次按返回显示提示，1.5s 内再按才退出。
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        final now = DateTime.now();
+        final dt = now.difference(_lastBackTime).inMilliseconds;
+        if (dt < 1500) {
+          Navigator.maybePop(context);
+        } else {
+          _lastBackTime = now;
+          _toast('再按一次返回退出阅读');
+        }
+      },
+      child: Scaffold(
       backgroundColor: Colors.black,
       // 注意：Scaffold body 给的是宽松约束，Stack 会按非 positioned 子节点
       // （顶部栏）收缩到极矮，导致 ListView 只有顶部一条、底部工具栏跑到顶部。
@@ -263,12 +331,13 @@ class _ReaderPageState extends State<ReaderPage> {
         child: Stack(
           children: [
           Positioned.fill(child: _buildBody()),
-          // 亮度（暗化）层
-          AnimatedOpacity(
-            duration: const Duration(milliseconds: 220),
-            opacity: _dim * 0.45,
-            child: const ColoredBox(color: Colors.black),
-          ),
+          // 亮度遮罩层（仅降级模式：桌面端/无权限时，用黑纱模拟亮度）
+          if (!_brightnessNative)
+            AnimatedOpacity(
+              duration: const Duration(milliseconds: 220),
+              opacity: (1.0 - _dim) * 0.75,
+              child: const ColoredBox(color: Colors.black),
+            ),
           // 顶部工具栏（返回/标题/菜单）
           _ReaderTopBar(
             visible: _overlay,
@@ -282,7 +351,9 @@ class _ReaderPageState extends State<ReaderPage> {
           // 底部页码（横向翻页时显示 x / N，纵向整体显示 N 页）
           _ReaderPageIndicator(
             visible: _overlay && _horizontal,
-            label: '${_curPage + 1} / ${_urls.length}',
+            label: _downloading && _downloadTotal > 0
+                ? '下载 $_downloadDone/$_downloadTotal'
+                : '${_curPage + 1} / ${_urls.length}',
           ),
           // 底部悬浮玻璃工具栏
           _ReaderToolbar(
@@ -300,6 +371,7 @@ class _ReaderPageState extends State<ReaderPage> {
         ],
         ),
       ),
+    ),
     );
   }
 
@@ -329,7 +401,7 @@ class _ReaderPageState extends State<ReaderPage> {
         dim: _dim,
         resLevel: _resLevel,
         onDimChanged: (v) {
-          setState(() => _dim = v);
+          _setBrightness(v);
         },
         onLayoutChanged: (h) {
           setState(() => _horizontal = h);
@@ -411,6 +483,33 @@ class _ReaderPageState extends State<ReaderPage> {
   PageController? _pageCtrl;
   ScrollController? _scrollCtrl;
 
+  /// 接管系统亮度：读取当前值，进入阅读器后亮度条真实控制系统亮度。
+  /// 桌面端/无权限时降级为遮罩（与播放器一致）。
+  Future<void> _initBrightness() async {
+    try {
+      final v = await ScreenBrightness.instance.application;
+      if (v >= 0 && v <= 1.0) {
+        _brightnessNative = true;
+        _dim = v;
+      }
+    } catch (_) {
+      _brightnessNative = false;
+    }
+    if (mounted) setState(() {});
+  }
+
+  /// 设置亮度：真实调系统 API，失败则降级为遮罩。
+  void _setBrightness(double v) {
+    final nv = v.clamp(0.05, 1.0);
+    setState(() => _dim = nv);
+    if (!_brightnessNative) return; // 遮罩降级
+    try {
+      ScreenBrightness.instance.setApplicationScreenBrightness(nv);
+    } catch (_) {
+      _brightnessNative = false;
+    }
+  }
+
   /// 纵向模式下记录每页累积偏移（用于精确跳页，替代固定 560 魔数）。
   final Map<int, double> _indexOffsetCache = {};
   final Map<int, double> _layoutHeights = {};
@@ -424,6 +523,32 @@ class _ReaderPageState extends State<ReaderPage> {
     );
   }
 
+  void _scrollBy(double dx) {
+    _scrollCtrl?.animateTo(
+      (_scrollCtrl?.offset ?? 0.0) + dx,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  /// 防误触提示 toast。
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        duration: const Duration(seconds: 2),
+        backgroundColor: Colors.black.withValues(alpha: 0.7),
+      ),
+    );
+  }
+
+  /// 双击解锁/锁定触控（防躺卧误触）。
+  void _toggleTouchLock() {
+    setState(() => _touchLocked = !_touchLocked);
+    _toast(_touchLocked ? '触摸已锁定' : '触摸已解锁');
+  }
+
   /// 把本次累计的阅读时长 flush 到本地存储（每 5s 一次，退出时再 flush 一次）。
   Future<void> _flushStats() async {
     final elapsed = _readWatch.elapsed.inSeconds;
@@ -435,6 +560,23 @@ class _ReaderPageState extends State<ReaderPage> {
 
   /// 点击阅读区：按 x 位置判断 left/center/right，按手势配置执行动作。
   void _onReaderTap(Offset pos) {
+    // 防误触：动画中禁止操作
+    if (_pageAnimating) return;
+    // 防误触：触摸锁定（躺卧阅读时用户主动锁屏）
+    if (_touchLocked) {
+      _toast('触摸已锁定，双击解锁');
+      return;
+    }
+    // 防掌按：连续两次触摸间隔 < 100ms 且位置相近 → 判定为掌按手势
+    final now = DateTime.now();
+    final dt = now.difference(_lastTouchTime).inMilliseconds;
+    if (dt < 200 && _lastTouchPos != null &&
+        (pos - _lastTouchPos!).distance < 80) {
+      return;
+    }
+    _lastTouchTime = now;
+    _lastTouchPos = pos;
+
     final w = MediaQuery.of(context).size.width;
     String region;
     if (pos.dx < w / 3) {
@@ -444,26 +586,42 @@ class _ReaderPageState extends State<ReaderPage> {
     } else {
       region = 'right';
     }
-    final action = _gesture[region] ?? (region == 'center' ? 'toggleMenu' : (region == 'left' ? 'prevPage' : 'nextPage'));
+    // RTL：日漫从右往左读，左右区域对调（左→下一页，右→上一页）
+    if (_rtl && region != 'center') {
+      region = region == 'left' ? 'right' : 'left';
+    }
+    final action = _gesture[region] ??
+        (region == 'center'
+            ? 'toggleMenu'
+            : (region == 'left' ? 'prevPage' : 'nextPage'));
     switch (action) {
       case 'prevPage':
         _prevPage();
-        break;
       case 'nextPage':
         _nextPage();
-        break;
       case 'toggleMenu':
         _toggleOverlay();
-        break;
       case 'toggleBrightness':
-        setState(() => _dim = _dim > 0 ? 0.0 : 0.4);
-        break;
+        _setBrightness(_dim > 0.5 ? 0.3 : 1.0);
+      case 'scrollDown':
+        if (_horizontal) {
+          _nextPage();
+        } else {
+          _scrollBy(300);
+        }
+      case 'scrollUp':
+        if (_horizontal) {
+          _prevPage();
+        } else {
+          _scrollBy(-300);
+        }
       default:
         _toggleOverlay();
     }
   }
 
   void _prevPage() {
+    _pageAnimating = true;
     if (_horizontal) {
       final c = _pageCtrl;
       if (c != null && c.hasClients) {
@@ -477,9 +635,13 @@ class _ReaderPageState extends State<ReaderPage> {
             duration: const Duration(milliseconds: 240), curve: Curves.easeOut);
       }
     }
+    Future.delayed(const Duration(milliseconds: 280), () {
+      if (mounted) _pageAnimating = false;
+    });
   }
 
   void _nextPage() {
+    _pageAnimating = true;
     if (_horizontal) {
       final c = _pageCtrl;
       if (c != null && c.hasClients) {
@@ -501,12 +663,23 @@ class _ReaderPageState extends State<ReaderPage> {
             duration: const Duration(milliseconds: 240), curve: Curves.easeOut);
       }
     }
+    Future.delayed(const Duration(milliseconds: 280), () {
+      if (mounted) _pageAnimating = false;
+    });
   }
 
   @override
   void dispose() {
+    WakelockPlus.disable(); // 退出阅读时恢复系统默认熄屏
+    // 还原系统亮度
+    if (_brightnessNative) {
+      try {
+        ScreenBrightness.instance.resetApplicationScreenBrightness();
+      } catch (_) {}
+    }
     _statsTimer?.cancel();
     _hideTimer?.cancel();
+    _historyDebounce?.cancel();
     _readWatch.stop();
     final elapsed = _readWatch.elapsed.inSeconds;
     if (elapsed > 0) LocalStore.addReadingSeconds(elapsed);
@@ -547,6 +720,7 @@ class _ReaderPageState extends State<ReaderPage> {
       return GestureDetector(
         behavior: HitTestBehavior.translucent,
         onTapDown: (d) => _onReaderTap(d.globalPosition),
+        onDoubleTap: _toggleTouchLock,
         child: PageView.builder(
           controller: ctrl,
           itemCount: _urls.length + (_canContinue ? 1 : 0),
@@ -582,6 +756,7 @@ class _ReaderPageState extends State<ReaderPage> {
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onTapDown: (d) => _onReaderTap(d.globalPosition),
+      onDoubleTap: _toggleTouchLock,
       child: ListView.builder(
         controller: sctrl,
         padding: EdgeInsets.zero,
@@ -657,6 +832,8 @@ class _ImageViewState extends State<_ImageView> {
 
   bool get _isJm => widget.sourceId == 'jm';
 
+  bool get _superResEnabled => widget.resLevel >= 2;
+
   FilterQuality _filterLevel() {
     switch (widget.resLevel) {
       case 0:
@@ -664,7 +841,7 @@ class _ImageViewState extends State<_ImageView> {
       case 1:
         return FilterQuality.low;
       case 2:
-        return FilterQuality.high;
+        return FilterQuality.medium;
       default:
         return FilterQuality.none;
     }
@@ -720,12 +897,15 @@ class _ImageViewState extends State<_ImageView> {
     final fit = widget.horizontal ? BoxFit.contain : BoxFit.fitWidth;
     Widget img;
     if (widget.url.startsWith('/')) {
+      final dpr = MediaQuery.of(context).devicePixelRatio;
+      final cw = (MediaQuery.sizeOf(context).width * dpr).toInt();
       img = Image.file(
           File(widget.url),
           key: _imgKey,
           width: double.infinity,
           fit: fit,
           filterQuality: _filterLevel(),
+          cacheWidth: cw,
           errorBuilder: (c, e, s) {
             Future.microtask(() {
               if (mounted) setState(() => _error = true);
@@ -750,6 +930,7 @@ class _ImageViewState extends State<_ImageView> {
           fit: fit,
           filterQuality: _filterLevel(),
           sourceId: widget.sourceId,
+          superRes: _superResEnabled,
           onError: () {
             Future.microtask(() {
               if (mounted) setState(() => _error = true);
@@ -827,12 +1008,14 @@ class _CachedReaderImage extends StatefulWidget {
   final BoxFit fit;
   final FilterQuality filterQuality;
   final String sourceId;
+  final bool superRes;
   final VoidCallback onError;
   const _CachedReaderImage({
     required this.url,
     required this.fit,
     required this.filterQuality,
     required this.sourceId,
+    required this.superRes,
     required this.onError,
   });
 
@@ -850,9 +1033,19 @@ class _CachedReaderImageState extends State<_CachedReaderImage> {
     _load();
   }
 
+  @override
+  void didUpdateWidget(covariant _CachedReaderImage old) {
+    super.didUpdateWidget(old);
+    if (old.url != widget.url || old.superRes != widget.superRes) {
+      _load();
+    }
+  }
+
   /// 部分图源 CDN 需要 Referer 头才返回图片（如 dm5 的 cdndm5.com），
   /// 否则返回 403/404 导致「图片加载失败」。与 _prefetch 保持一致的 headers。
   Map<String, String>? _headers() => _ReaderPageState._headersForUrl(widget.url);
+
+  String _srKey() => '${widget.url}|sr2x';
 
   Future<void> _load() async {
     setState(() {
@@ -860,8 +1053,18 @@ class _CachedReaderImageState extends State<_CachedReaderImage> {
       _failed = false;
     });
     try {
-      final b =
-          await ImageCacheManager.load(widget.url, headers: _headers());
+      final Uint8List b;
+      if (widget.superRes) {
+        b = await ImageCacheManager.load(_srKey(),
+            headers: _headers(),
+            fetch: () async {
+              final raw = await ImageCacheManager.load(widget.url,
+                  headers: _headers());
+              return await ImageSuperRes.upscale2x(raw);
+            });
+      } else {
+        b = await ImageCacheManager.load(widget.url, headers: _headers());
+      }
       if (mounted) setState(() => _bytes = b);
     } catch (_) {
       if (mounted) {
@@ -899,11 +1102,14 @@ class _CachedReaderImageState extends State<_CachedReaderImage> {
         ),
       );
     }
+    final dpr = MediaQuery.of(context).devicePixelRatio;
+    final cw = (MediaQuery.sizeOf(context).width * dpr).toInt();
     return Image.memory(
       bytes,
       width: double.infinity,
       fit: widget.fit,
       filterQuality: widget.filterQuality,
+      cacheWidth: cw,
       gaplessPlayback: true,
     );
   }
@@ -1249,7 +1455,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
             ],
           ),
           const SizedBox(height: 16),
-          // 画质（超分辨率）
+          // 画质（真超分 = Lanczos-3 2x 上采样）
           Text('画质增强',
               style: const TextStyle(
                   fontSize: 13,
@@ -1268,7 +1474,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
                 widget.onResLevelChanged(1);
               }),
               const SizedBox(width: 6),
-              _resOption('高清', 2, _localResLevel, () {
+              _resOption('高清(2x)', 2, _localResLevel, () {
                 setState(() => _localResLevel = 2);
                 widget.onResLevelChanged(2);
               }),
@@ -1276,7 +1482,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
           ),
           const SizedBox(height: 4),
           Text(
-            '提升放大后的线条锐度，可在线/离线切换',
+            '「高清(2x)」= 真实 Lanczos-3 超分（Isolate 内 2x 上采样），首张慢、之后秒开',
             style: TextStyle(
               fontSize: 10,
               color: Colors.white.withValues(alpha: 0.4),
@@ -1453,7 +1659,6 @@ class _CatalogSheet extends StatelessWidget {
             const SizedBox(height: 12),
             Flexible(
               child: GridView.builder(
-                shrinkWrap: true,
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 6,
                   mainAxisSpacing: 8,
@@ -1608,7 +1813,6 @@ class _ChapterListSheet extends StatelessWidget {
             const SizedBox(height: 12),
             Flexible(
               child: ListView.builder(
-                shrinkWrap: true,
                 itemCount: chapters.length,
                 itemBuilder: (_, i) {
                   final active = i == currentIndex;

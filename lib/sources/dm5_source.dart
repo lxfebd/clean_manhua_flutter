@@ -83,6 +83,9 @@ class Dm5Source extends ComicSource {
     );
   }
 
+  static final RegExp _imgUrlRe = RegExp(r"'(https?://[^']+)'");
+  static final RegExp _trimSlashRe = RegExp(r'^/|/$');
+
   @override
   Future<List<String>> chapterPics(String chapterId) async {
     final body = await SourceHttp.getUrl('dm5', '$_base/m$chapterId/');
@@ -91,8 +94,7 @@ class Dm5Source extends ComicSource {
     final decoded = _decodePacker(packer.$1, packer.$2, packer.$3, packer.$4);
     if (decoded.isEmpty) return const <String>[];
     final urls = <String>[];
-    final imgRe = RegExp(r"'(https?://[^']+)'");
-    for (final m in imgRe.allMatches(decoded)) {
+    for (final m in _imgUrlRe.allMatches(decoded)) {
       urls.add(m.group(1)!);
     }
     return urls;
@@ -109,7 +111,7 @@ class Dm5Source extends ComicSource {
   List<ComicItem> _parseSearchList(String html) {
     final items = <ComicItem>[];
     for (final m in _searchRe.allMatches(html)) {
-      final slug = m.group(1)!.replaceAll(RegExp(r'^/|/$'), '').replaceAll('manhua-', '');
+      final slug = m.group(1)!.replaceAll(_trimSlashRe, '').replaceAll('manhua-', '');
       items.add(ComicItem(slug, _unescape(m.group(3)!), m.group(2)!));
     }
     return items;
@@ -126,7 +128,7 @@ class Dm5Source extends ComicSource {
   List<ComicItem> _parseRankList(String html) {
     final items = <ComicItem>[];
     for (final m in _rankRe.allMatches(html)) {
-      final slug = m.group(1)!.replaceAll(RegExp(r'^/|/$'), '').replaceAll('manhua-', '');
+      final slug = m.group(1)!.replaceAll(_trimSlashRe, '').replaceAll('manhua-', '');
       items.add(ComicItem(slug, _unescape(m.group(3)!), m.group(2)!));
     }
     return items;

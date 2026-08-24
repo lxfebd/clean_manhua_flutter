@@ -6,11 +6,6 @@ import '../../net/http_client.dart';
 import '../../net/image_cache.dart';
 import '../../net/jm_scramble.dart';
 
-/// 禁漫图片渲染组件。
-///
-/// 禁漫对部分专辑（aid ≥ 220980）的图片做「纵向分块倒序」混淆（参考 JMComic 算法），
-/// 本组件下载字节后用 [JmScramble.descramble] 还原，结果写入 [ImageCacheManager]
-/// （缓存还原后的字节，避免重复解码）。无需还原的图片原样缓存。
 class JmScrambleImageWidget extends StatefulWidget {
   final String url;
   final BoxFit fit;
@@ -65,9 +60,8 @@ class _JmScrambleImageWidgetState extends State<JmScrambleImageWidget> {
               'Accept': 'image/webp,image/*,*/*',
             },
           ));
-          // 若 URL 含 aid（禁漫加扰图），按真实算法还原
           if (JmScramble.parseAid(widget.url) != null) {
-            raw = JmScramble.descramble(raw, widget.url);
+            raw = await JmScramble.descrambleAsync(raw, widget.url);
           }
           return raw;
         },
@@ -100,7 +94,6 @@ class _JmScrambleImageWidgetState extends State<JmScrambleImageWidget> {
 
   @override
   Widget build(BuildContext context) {
-    // 错误态：可点击重试，不白屏
     if (_error != null) {
       return GestureDetector(
         onTap: _load,
@@ -111,7 +104,8 @@ class _JmScrambleImageWidgetState extends State<JmScrambleImageWidget> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: const [
-              Icon(Icons.broken_image_outlined, color: Colors.white54, size: 34),
+              Icon(Icons.broken_image_outlined,
+                  color: Colors.white54, size: 34),
               SizedBox(height: 8),
               Text('加载失败，点击重试',
                   style: TextStyle(color: Colors.white54, fontSize: 12)),
@@ -135,11 +129,14 @@ class _JmScrambleImageWidgetState extends State<JmScrambleImageWidget> {
         ),
       );
     }
+    final dpr = MediaQuery.of(context).devicePixelRatio;
+    final cw = (MediaQuery.sizeOf(context).width * dpr).toInt();
     return Image.memory(
       _bytes!,
       width: double.infinity,
       fit: widget.fit,
       filterQuality: widget.filterQuality,
+      cacheWidth: cw,
       errorBuilder: (_, __, ___) => GestureDetector(
         onTap: _load,
         behavior: HitTestBehavior.opaque,

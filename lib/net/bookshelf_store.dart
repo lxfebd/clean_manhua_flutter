@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -9,10 +10,13 @@ import '../sources/comic_source.dart';
 class BookshelfStore {
   static File? _file;
   static Map<String, dynamic> _cache = {};
+  static Timer? _saveTimer;
+  static Map<String, String> _idIndex = {};
 
   static void bindFile(File file) {
     _file = file;
     _load();
+    _rebuildIndex();
   }
 
   static void _load() {
@@ -28,11 +32,31 @@ class BookshelfStore {
     }
   }
 
+  static void _rebuildIndex() {
+    _idIndex = {};
+    for (final m in _cache.values) {
+      if (m is Map<String, dynamic>) {
+        final id = m['id'];
+        final sid = m['sourceId'];
+        if (id is String && sid is String) _idIndex[id] = sid;
+      }
+    }
+  }
+
+  /// 防抖异步写盘：300ms 内多次调用合并为一次写入。
   static void _save() {
-    final f = _file;
-    if (f == null) return;
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 300), () {
+      final f = _file;
+      if (f == null) return;
+      final snapshot = jsonEncode(_cache);
+      _writeAsync(f, snapshot);
+    });
+  }
+
+  static Future<void> _writeAsync(File f, String data) async {
     try {
-      f.writeAsStringSync(jsonEncode(_cache));
+      await f.writeAsString(data, flush: true);
     } catch (_) {}
   }
 
@@ -56,11 +80,13 @@ class BookshelfStore {
           .toList(),
       'addedAt': DateTime.now().millisecondsSinceEpoch,
     };
+    _idIndex[d.id] = sourceId;
     _save();
   }
 
   static void remove(String sourceId, String comicId) {
     _cache.remove(_key(sourceId, comicId));
+    _idIndex.remove(comicId);
     _save();
   }
 
@@ -68,12 +94,7 @@ class BookshelfStore {
       _cache.containsKey(_key(sourceId, comicId));
 
   /// 根据 comicId 反查所属 sourceId（书架统一视图中使用）。
-  static String? sourceIdOf(String comicId) {
-    for (final m in _all()) {
-      if (m['id'] == comicId) return m['sourceId'] as String?;
-    }
-    return null;
-  }
+  static String? sourceIdOf(String comicId) => _idIndex[comicId];
 
   /// 列出某个源的书架。
   static List<ComicDetail> listBySource(String sourceId) {

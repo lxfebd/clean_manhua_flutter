@@ -42,6 +42,10 @@ class BiqugeNovelSource extends NovelSource {
   static final RegExp _tagRe = RegExp(r'<[^>]+>');
   static final RegExp _brRe = RegExp(r'(<br\s*/?>|</p>|&nbsp;)',
       caseSensitive: false);
+  static final RegExp _htmlCommentRe = RegExp(r'<!--[\s\S]*?-->');
+  static final RegExp _bookLinkRe =
+      RegExp(r'<a\s+href="/bqg/(\d+)/"[^>]*>([^<]+)</a>');
+  static final RegExp _imgRe = RegExp(r'<img[^>]+src="([^"]+)"');
 
   @override
   String get id => 'biquge';
@@ -156,7 +160,7 @@ class BiqugeNovelSource extends NovelSource {
     final m = _contentRe.firstMatch(html);
     if (m == null) return const [];
     final raw = m.group(1)!
-        .replaceAll(RegExp(r'<!--[\s\S]*?-->'), '')
+        .replaceAll(_htmlCommentRe, '')
         .replaceAll(_brRe, '\n')
         .replaceAll(_tagRe, '')
         .replaceAll('&nbsp;', ' ')
@@ -172,16 +176,15 @@ class BiqugeNovelSource extends NovelSource {
 
   Future<List<ComicItem>> _parseList(String html) async {
     final items = <ComicItem>[];
-    final bookRe = RegExp(r'<a\s+href="/bqg/(\d+)/"[^>]*>([^<]+)</a>');
-    for (final m in bookRe.allMatches(html)) {
+    for (final m in _bookLinkRe.allMatches(html)) {
       final id = m.group(1)!;
       if (items.any((e) => e.id == id)) continue;
       items.add(ComicItem(id, _clean(m.group(2)!), ''));
     }
     // ignore: avoid_print
     print('[BIQUGE-LIST] bodyLen=${html.length} books=${items.length} '
-        'imgs=${RegExp(r'<img[^>]+src="([^"]+)"').allMatches(html).length} '
-        'imgSample=${RegExp(r'<img[^>]+src="([^"]+)"').allMatches(html).take(2).map((m)=>m.group(1)).join(' | ')}');
+        'imgs=${_imgRe.allMatches(html).length} '
+        'imgSample=${_imgRe.allMatches(html).take(2).map((m)=>m.group(1)).join(' | ')}');
     return items;
   }
 

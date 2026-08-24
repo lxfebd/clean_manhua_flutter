@@ -1,9 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/comic_item.dart';
+
+/// 在独立 Isolate 中解析 JSON（用于大文件，避免阻塞 UI）。
+dynamic _jsonDecodeCompute(String raw) => jsonDecode(raw);
 
 /// 收藏/历史记录条目。
 class Bookmark {
@@ -220,7 +224,8 @@ class LocalStore {
   static Future<void> _write(String name, Object data) async {
     try {
       final f = await _fileAsync(name);
-      f.writeAsStringSync(jsonEncode(data));
+      final json = jsonEncode(data);
+      await f.writeAsString(json, flush: true);
     } catch (_) {}
   }
 
@@ -228,7 +233,11 @@ class LocalStore {
     try {
       final f = await _fileAsync(name);
       if (!f.existsSync()) return null;
-      return jsonDecode(f.readAsStringSync());
+      final raw = await f.readAsString();
+      if (raw.length > 64 * 1024) {
+        return await compute(_jsonDecodeCompute, raw);
+      }
+      return jsonDecode(raw);
     } catch (_) {
       return null;
     }
@@ -312,8 +321,24 @@ class LocalStore {
   static Future<bool> darkMode() async =>
       ((await _read('settings')) as Map?)?['dark'] as bool? ?? false;
 
+  /// 当前主题色 ID（0=墨蓝(默认), 1=东京夜, 2=翡翠绿, 3=暖橙, 4=薰衣草）。
+  static Future<int> themeId() async =>
+      ((await _read('settings')) as Map?)?['themeId'] as int? ?? 0;
+
+  static Future<void> setThemeId(int v) async => _write('settings', {
+        'dark': await darkMode(),
+        'horizontal': await horizontalReader(),
+        'rtl': await rtlReader(),
+        'themeId': v,
+        'resLevel': await resLevel(),
+      });
+
   static Future<bool> horizontalReader() async =>
       ((await _read('settings')) as Map?)?['horizontal'] as bool? ?? false;
+
+  /// 日漫 RTL 反向翻页（true = 从右往左，翻页方向取反）。
+  static Future<bool> rtlReader() async =>
+      ((await _read('settings')) as Map?)?['rtl'] as bool? ?? false;
 
   static Future<int> resLevel() async =>
       ((await _read('settings')) as Map?)?['resLevel'] as int? ?? 0;
@@ -321,18 +346,28 @@ class LocalStore {
   static Future<void> setDarkMode(bool v) async => _write('settings', {
         'dark': v,
         'horizontal': await horizontalReader(),
+        'rtl': await rtlReader(),
         'resLevel': await resLevel(),
       });
 
   static Future<void> setHorizontalReader(bool v) async => _write('settings', {
         'dark': await darkMode(),
         'horizontal': v,
+        'rtl': await rtlReader(),
+        'resLevel': await resLevel(),
+      });
+
+  static Future<void> setRtlReader(bool v) async => _write('settings', {
+        'dark': await darkMode(),
+        'horizontal': await horizontalReader(),
+        'rtl': v,
         'resLevel': await resLevel(),
       });
 
   static Future<void> setResLevel(int v) async => _write('settings', {
         'dark': await darkMode(),
         'horizontal': await horizontalReader(),
+        'rtl': await rtlReader(),
         'resLevel': v,
       });
 

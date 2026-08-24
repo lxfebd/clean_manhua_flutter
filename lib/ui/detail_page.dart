@@ -35,6 +35,7 @@ class _DetailPageState extends State<DetailPage> {
   bool _saved = false;
   double _scrollOffset = 0;
   bool _descending = false; // 章节倒序（最新在顶部）
+  List<Chapter>? _sortedCache; // 按 _descending 缓存的章节列表
 
   static const double _heroHeight = 260;
 
@@ -76,6 +77,7 @@ class _DetailPageState extends State<DetailPage> {
         setState(() {
           _detail = d;
           _loading = false;
+          _sortedCache = null;
         });
       }
     } catch (e) {
@@ -157,8 +159,12 @@ class _DetailPageState extends State<DetailPage> {
                     child: _ChapterHeader(
                     count: _detail!.chapters.length,
                     descending: _descending,
-                    onToggleDescending: () =>
-                        setState(() => _descending = !_descending),
+                    onToggleDescending: () {
+                      setState(() {
+                        _descending = !_descending;
+                        _sortedCache = null;
+                      });
+                    },
                     onTapAll: _showAllChapters,
                   ),
                   ),
@@ -188,13 +194,14 @@ class _DetailPageState extends State<DetailPage> {
                                   endIndent: 16,
                                   color: scheme.onSurface
                                       .withValues(alpha: 0.06)),
-                            _ChapterTile(
-                              index: i,
-                              chapter:
-                                  _sortedChapters()[i],
-                              onTap: () =>
-                                  _openChapter(_sortedChapters()[i]),
-                            ),
+                            Builder(builder: (ctx) {
+                              final ch = _sortedChapters()[i];
+                              return _ChapterTile(
+                                index: i,
+                                chapter: ch,
+                                onTap: () => _openChapter(ch),
+                              );
+                            }),
                           ],
                           Divider(
                               height: 0.5,
@@ -202,31 +209,76 @@ class _DetailPageState extends State<DetailPage> {
                               endIndent: 16,
                               color:
                                   scheme.onSurface.withValues(alpha: 0.06)),
-                          InkWell(
-                            onTap: _showAllChapters,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 13),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    '查看全部 ${_detail!.chapters.length} 话',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                      color: scheme.onSurface
-                                          .withValues(alpha: 0.6),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: InkWell(
+                                  onTap: _showAllChapters,
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 13),
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          '查看全部 ${_detail!.chapters.length} 话',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                            color: scheme.onSurface
+                                                .withValues(alpha: 0.6),
+                                          ),
+                                        ),
+                                        Icon(
+                                          Icons.keyboard_arrow_down_rounded,
+                                          size: 16,
+                                          color: scheme.onSurface
+                                              .withValues(alpha: 0.4),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  Icon(
-                                    Icons.keyboard_arrow_down_rounded,
-                                    size: 16,
-                                    color: scheme.onSurface
-                                        .withValues(alpha: 0.4),
-                                  ),
-                                ],
+                                ),
                               ),
-                            ),
+                              Container(
+                                width: 0.5,
+                                height: 18,
+                                color: scheme.onSurface.withValues(alpha: 0.08),
+                              ),
+                              Expanded(
+                                child: InkWell(
+                                  onTap: _showBatchDownload,
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 13),
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.download_outlined,
+                                          size: 15,
+                                          color: scheme.primary
+                                              .withValues(alpha: 0.9),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          '批量下载',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            color: scheme.primary,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -357,11 +409,14 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  /// 按当前排序返回章节列表。
+  /// 按当前排序返回章节列表（带缓存）。
   List<Chapter> _sortedChapters() {
+    final cache = _sortedCache;
+    if (cache != null) return cache;
     final list = _detail!.chapters;
-    if (_descending) return list.reversed.toList();
-    return list;
+    final out = _descending ? list.reversed.toList(growable: false) : list;
+    _sortedCache = out;
+    return out;
   }
 
   /// 完整章节列表底部弹窗。
@@ -370,6 +425,174 @@ class _DetailPageState extends State<DetailPage> {
       if (!mounted) return;
       _showAllChaptersSheet();
     });
+  }
+
+  /// 批量下载选章弹窗：多选章节 → 批量下载。
+  void _showBatchDownload() {
+    final chapters = _sortedChapters();
+    if (chapters.isEmpty) return;
+    final selected = <int>{};
+    var downloading = false;
+    var currentIdx = -1;
+    var currentDone = 0;
+    var currentTotal = 0;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) {
+          final scheme = Theme.of(ctx).colorScheme;
+          return SafeArea(
+            child: SizedBox(
+              height: MediaQuery.of(ctx).size.height * 0.65,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      children: [
+                        Text('批量下载',
+                            style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                                color: scheme.onSurface)),
+                        const Spacer(),
+                        if (downloading)
+                          TextButton(
+                            onPressed: () {
+                              DownloadManager.cancelAll();
+                              setS(() => downloading = false);
+                            },
+                            child: const Text('取消'),
+                          )
+                        else
+                          TextButton(
+                            onPressed: () => setS(
+                                () => selected.length == chapters.length
+                                    ? selected.clear()
+                                    : selected.addAll(List.generate(
+                                        chapters.length, (i) => i))),
+                            child: Text(selected.length == chapters.length
+                                ? '取消全选'
+                                : '全选'),
+                          ),
+                      ],
+                    ),
+                  ),
+                  if (downloading)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: scheme.primary)),
+                          const SizedBox(width: 8),
+                          Text(
+                            currentIdx >= 0
+                                ? '下载中: 第${currentIdx + 1}话 ($currentDone/$currentTotal)'
+                                : '准备中…',
+                            style: TextStyle(
+                                fontSize: 12, color: scheme.onSurface),
+                          ),
+                        ],
+                      ),
+                    ),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: chapters.length,
+                      itemBuilder: (_, i) {
+                        final ch = chapters[i];
+                        final sel = selected.contains(i);
+                        return CheckboxListTile(
+                          value: sel,
+                          enabled: !downloading,
+                          onChanged: (v) => setS(() =>
+                              v == true ? selected.add(i) : selected.remove(i)),
+                          title: Text(ch.title,
+                              style: TextStyle(fontSize: 13)),
+                          dense: true,
+                        );
+                      },
+                    ),
+                  ),
+                  if (!downloading)
+                    Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: selected.isEmpty
+                              ? null
+                              : () async {
+                                  final picks = selected
+                                      .toList()
+                                    ..sort();
+                                  setS(() => downloading = true);
+                                  final book = Bookmark(
+                                    sourceId: widget.sourceId,
+                                    comicId: _detail!.id,
+                                    name: _detail!.name,
+                                    pic: _detail!.pic ?? '',
+                                  );
+                                  for (final idx in picks) {
+                                    final ch = chapters[idx];
+                                    setS(() {
+                                      currentIdx = idx;
+                                      currentDone = 0;
+                                      currentTotal = 0;
+                                    });
+                                    try {
+                                      final urls =
+                                          await SourceManager.byId(
+                                                  widget.sourceId)
+                                              .chapterPics(ch.id);
+                                      setS(() => currentTotal = urls.length);
+                                      await DownloadManager.downloadChapter(
+                                        book: book,
+                                        chapterId: ch.id,
+                                        chapterTitle: ch.title,
+                                        urls: urls,
+                                        onProgress: (d, t) => setS(() {
+                                          currentDone = d;
+                                          currentTotal = t;
+                                        }),
+                                      );
+                                    } catch (_) {}
+                                  }
+                                  if (ctx.mounted) {
+                                    Navigator.pop(ctx);
+                                  }
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context)
+                                        .showSnackBar(SnackBar(
+                                      content: Text(
+                                          '已下载 ${picks.length} 话'),
+                                    ));
+                                  }
+                                },
+                          icon: const Icon(Icons.download_rounded, size: 18),
+                          label: Text(selected.isEmpty
+                              ? '请选择章节'
+                              : '下载 ${selected.length} 话'),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   /// 预加载所有章节的缓存状态（用于章节列表显示 ✓）。
@@ -424,7 +647,10 @@ class _DetailPageState extends State<DetailPage> {
                     const Spacer(),
                     TextButton.icon(
                       onPressed: () {
-                        setState(() => _descending = !_descending);
+                        setState(() {
+                          _descending = !_descending;
+                          _sortedCache = null;
+                        });
                       },
                       icon: Icon(
                         _descending

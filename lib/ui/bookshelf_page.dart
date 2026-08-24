@@ -240,15 +240,17 @@ class BookshelfPageState extends State<BookshelfPage>
                 delegate: SliverChildBuilderDelegate(
                   (c, i) {
                     final item = _filtered[i];
-                    return FadeSlideIn(
-                      delay: Duration(milliseconds: 50 * (i % 12)),
-                      offset: 16,
-                      child: _ShelfCard(
-                        item: item,
-                        editing: _editing,
-                        onTap: () => _editing
-                            ? _showCardAction(item)
-                            : _open(item),
+                    return RepaintBoundary(
+                      child: FadeSlideIn(
+                        delay: Duration(milliseconds: 50 * (i % 12)),
+                        offset: 16,
+                        child: _ShelfCard(
+                          item: item,
+                          editing: _editing,
+                          onTap: () => _editing
+                              ? _showCardAction(item)
+                              : _open(item),
+                        ),
                       ),
                     );
                   },

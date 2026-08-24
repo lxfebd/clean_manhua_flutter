@@ -12,6 +12,8 @@ import 'ui/main_shell.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  PaintingBinding.instance.imageCache.maximumSize = 20;
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 30 * 1024 * 1024;
   try {
     MediaKit.ensureInitialized();
   } catch (_) {}
@@ -39,6 +41,7 @@ class YingManHeApp extends StatefulWidget {
 
 class YingManHeAppState extends State<YingManHeApp> {
   ThemeMode _themeMode = ThemeMode.light;
+  int _themeId = 0;
   bool _loaded = false;
 
   @override
@@ -49,9 +52,11 @@ class YingManHeAppState extends State<YingManHeApp> {
 
   Future<void> _loadTheme() async {
     final d = await LocalStore.darkMode();
+    final tid = await LocalStore.themeId();
     if (mounted) {
       setState(() {
         _themeMode = d ? ThemeMode.dark : ThemeMode.light;
+        _themeId = tid;
         _loaded = true;
       });
     }
@@ -61,13 +66,17 @@ class YingManHeAppState extends State<YingManHeApp> {
     setState(() => _themeMode = v ? ThemeMode.dark : ThemeMode.light);
   }
 
+  void setThemeId(int id) {
+    setState(() => _themeId = id);
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: '星漫匣',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light(),
-      darkTheme: AppTheme.dark(),
+      theme: AppTheme.light(_themeId),
+      darkTheme: AppTheme.dark(_themeId),
       themeMode: _loaded ? _themeMode : ThemeMode.light,
       home: const MainShell(),
     );

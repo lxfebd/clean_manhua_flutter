@@ -200,13 +200,15 @@ class _HomePageState extends State<HomePage> {
               childAspectRatio: 0.6,
             ),
             delegate: SliverChildBuilderDelegate(
-            (c, i) => FadeSlideIn(
-              delay: Duration(milliseconds: 50 * (i % 12)),
-              offset: 16,
-              child: _ComicCard(
-                item: _items[i],
-                sourceId: SourceManager.current.id,
-                onTap: () => _openDetail(_items[i]),
+            (c, i) => RepaintBoundary(
+              child: FadeSlideIn(
+                delay: Duration(milliseconds: 50 * (i % 12)),
+                offset: 16,
+                child: _ComicCard(
+                  item: _items[i],
+                  sourceId: SourceManager.current.id,
+                  onTap: () => _openDetail(_items[i]),
+                ),
               ),
             ),
             childCount: _items.length,

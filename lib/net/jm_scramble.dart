@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 
 /// JM 图片解扰（按 JMComic 开源库真实算法还原）。
@@ -34,15 +34,20 @@ class JmScramble {
     return (url: url.substring(0, idx), scramble: url.substring(idx + 1));
   }
 
+  /// 常用正则（编译一次）。
+  static final RegExp _rePhoto = RegExp(r'(photos?|albums?)/(\d+)');
+  static final RegExp _reId = RegExp(r'id=(\d+)');
+  static final RegExp _reJmTag = RegExp(r'@jm:(\d+)');
+
   /// 从图片 URL 解析专辑 ID（aid）。
   /// 支持 /albums/{id}/、/photos/{id}/、/media/photos/{id}/、id={id}，
   /// 以及阅读器附加的 `@jm:{aid}` 标记。
   static int? parseAid(String url) {
-    final m = RegExp(r'(photos?|albums?)/(\d+)').firstMatch(url);
+    final m = _rePhoto.firstMatch(url);
     if (m != null) return int.tryParse(m.group(2)!);
-    final m2 = RegExp(r'id=(\d+)').firstMatch(url);
+    final m2 = _reId.firstMatch(url);
     if (m2 != null) return int.tryParse(m2.group(1)!);
-    final m3 = RegExp(r'@jm:(\d+)').firstMatch(url);
+    final m3 = _reJmTag.firstMatch(url);
     if (m3 != null) return int.tryParse(m3.group(1)!);
     return null;
   }
@@ -107,5 +112,20 @@ class JmScramble {
     } catch (_) {
       return bytes;
     }
+  }
+
+  /// compute() 入口（必须为顶层/静态函数，以便跨 Isolate 序列化）。
+  static Uint8List _descrambleEntry(List<dynamic> args) {
+    return descramble(args[0] as Uint8List, args[1] as String);
+  }
+
+  /// 在独立 Isolate 中执行解扰，避免 200-800ms 的 CPU 密集操作阻塞 UI 线程。
+  /// 若 [bytes] 无需还原（aid < 220980 或解析失败），原样返回。
+  static Future<Uint8List> descrambleAsync(Uint8List bytes, String url) {
+    final aid = parseAid(url);
+    if (aid == null) return Future.value(bytes);
+    final num = getNum(aid, fileName(url));
+    if (num <= 1) return Future.value(bytes);
+    return compute(_descrambleEntry, <dynamic>[bytes, url]);
   }
 }

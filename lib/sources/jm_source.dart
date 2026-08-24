@@ -111,18 +111,15 @@ class JmSource extends ComicSource {
       final s = _asMap(series[i]);
       if (s == null) continue;
       final cid = _str(s['id']) ?? '';
-      if (cid.isEmpty) continue;
+      if (cid.isEmpty || cid == '0') continue;
       final cname = _str(s['name']) ?? '第${i + 1}话';
-      // 把 album_id 编进 chapterId（photoId|albumId 形式），便于 chapterPics 还原时拿到正确的 aid
       chapters.add(Chapter('$cid|$comicId', cname));
     }
-    // 单章节本：series 为空但有 series_id 指向唯一的 photo id
     if (chapters.isEmpty) {
       final sid = _str(album['series_id']);
-      if (sid != null && sid.isNotEmpty) {
+      if (sid != null && sid.isNotEmpty && sid != '0' && sid != comicId) {
         chapters.add(Chapter('$sid|$comicId', _str(album['name']) ?? '开始阅读'));
       } else {
-        // 完全无章节：尝试用 album id 当 chapter id（仍会触底错误）
         chapters.add(Chapter('$comicId|$comicId', '开始阅读'));
       }
     }
@@ -146,9 +143,15 @@ class JmSource extends ComicSource {
     final json = await _getJson('/chapter?id=$photoId');
     final chapter = json;
     final imagesRaw = chapter['images'] ?? [];
-    final List<dynamic> images =
-        imagesRaw is List ? imagesRaw : const <dynamic>[];
-    if (images.isEmpty) {
+    final dynamic imagesList;
+    if (imagesRaw is List) {
+      imagesList = imagesRaw;
+    } else if (imagesRaw is String && imagesRaw.isNotEmpty) {
+      imagesList = imagesRaw.split(RegExp(r'[,;]'));
+    } else {
+      imagesList = const <dynamic>[];
+    }
+    if (imagesList.isEmpty) {
       throw Exception('禁漫章节图片为空（可能需登录或域名失效）。');
     }
     // 优先用 API 返回的 CDN 域名（imageHost / imageHosts 字段），动态且最新；
@@ -182,7 +185,7 @@ class JmSource extends ComicSource {
     }
     final hosts = dynamicHosts.isNotEmpty ? dynamicHosts : _builtinImageHosts;
     final result = <String>[];
-    for (final raw in images) {
+    for (final raw in imagesList) {
       final name = _str(raw);
       if (name == null || name.isEmpty) continue;
       for (final h in hosts) {
@@ -259,7 +262,7 @@ class JmSource extends ComicSource {
         final data = outer['data'];
         if (code == 200) {
           if (data is String && data.isNotEmpty) {
-            final plain = JmCrypto.decryptResponseData(data, ts);
+            final plain = await JmCrypto.decryptResponseDataAsync(data, ts);
             final inner = jsonDecode(plain);
             if (inner is Map<String, dynamic>) return inner;
           }

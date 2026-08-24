@@ -90,7 +90,7 @@ class DoubaoSource extends ComicSource {
     final cipher = Uint8List.sublistView(cipherBytes, 16);
     Uint8List plain;
     try {
-      plain = AesCbc.decryptCbc(cipher, _key, iv);
+      plain = await AesCbc.decryptCbcAsync(cipher, _key, iv);
     } catch (_) {
       return const <String>[];
     }

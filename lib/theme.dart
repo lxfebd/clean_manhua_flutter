@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 /// 简洁克制的单色主题：墨蓝强调色 + 中性灰阶，
 /// 避免高饱和撞色，保持阅读类应用的低干扰感。
 class AppTheme {
-  // 品牌色 — 沉稳墨蓝
+  // 品牌色 — 沉稳墨蓝（默认种子色）
   static const Color accent = Color(0xFF3A6EA5);
   // 暗色调色板
   static const Color darkBg = Color(0xFF111215);
@@ -23,11 +23,24 @@ class AppTheme {
   static const Color lightText = Color(0xFF1A1D26);
   static const Color lightTextSoft = Color(0xFF6B7280);
 
-  static ThemeData light() {
+  /// 多主题种子色：0=墨蓝(默认), 1=东京夜(紫蓝), 2=翡翠绿, 3=暖橙, 4=薰衣草紫。
+  static const List<Color> seeds = [
+    Color(0xFF3A6EA5),
+    Color(0xFF7A6FE0),
+    Color(0xFF2E9A6B),
+    Color(0xFFE0823C),
+    Color(0xFF9B5DE5),
+  ];
+
+  static Color seedOf(int id) =>
+      (id >= 0 && id < seeds.length) ? seeds[id] : accent;
+
+  static ThemeData light([int themeId = 0]) {
+    final seed = seedOf(themeId);
     final scheme = ColorScheme.fromSeed(
-      seedColor: accent,
+      seedColor: seed,
       brightness: Brightness.light,
-      primary: accent,
+      primary: seed,
       onPrimary: Colors.white,
       surface: lightSurface,
       onSurface: lightText,
@@ -84,7 +97,7 @@ class AppTheme {
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          backgroundColor: accent,
+          backgroundColor: seed,
           foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
@@ -113,7 +126,7 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: accent, width: 1.2),
+          borderSide: BorderSide(color: seed, width: 1.2),
         ),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -124,7 +137,7 @@ class AppTheme {
           return Colors.white;
         }),
         trackColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected)) return accent;
+          if (states.contains(WidgetState.selected)) return seed;
           return lightBorder;
         }),
         trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
@@ -136,7 +149,7 @@ class AppTheme {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: accent,
+          foregroundColor: seed,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
@@ -156,11 +169,12 @@ class AppTheme {
     );
   }
 
-  static ThemeData dark() {
+  static ThemeData dark([int themeId = 0]) {
+    final seed = seedOf(themeId);
     final scheme = ColorScheme.fromSeed(
-      seedColor: accent,
+      seedColor: seed,
       brightness: Brightness.dark,
-      primary: accent,
+      primary: seed,
       onPrimary: Colors.white,
       surface: darkSurface,
       onSurface: darkText,
@@ -217,7 +231,7 @@ class AppTheme {
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          backgroundColor: accent,
+          backgroundColor: seed,
           foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
@@ -246,7 +260,7 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: accent, width: 1.2),
+          borderSide: BorderSide(color: seed, width: 1.2),
         ),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -254,7 +268,7 @@ class AppTheme {
       switchTheme: SwitchThemeData(
         thumbColor: const WidgetStatePropertyAll(Colors.white),
         trackColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected)) return accent;
+          if (states.contains(WidgetState.selected)) return seed;
           return darkBorder;
         }),
         trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
@@ -266,7 +280,7 @@ class AppTheme {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: accent,
+          foregroundColor: seed,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),

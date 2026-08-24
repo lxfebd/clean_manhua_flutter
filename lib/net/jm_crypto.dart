@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:pointycastle/export.dart';
 
 /// 禁漫天堂（JM）App API 鉴权与响应解密。
@@ -32,5 +32,18 @@ class JmCrypto {
     final raw = base64Decode(base64Data);
     final plain = cipher.process(Uint8List.fromList(raw));
     return utf8.decode(plain);
+  }
+
+  /// compute() 入口。
+  static String _decryptEntry(List<dynamic> args) {
+    return decryptResponseData(
+        args[0] as String, args[1] as int, secret: args[2] as String?);
+  }
+
+  /// 在独立 Isolate 中执行 AES-256-ECB 解密，避免阻塞 UI 线程。
+  static Future<String> decryptResponseDataAsync(String base64Data, int ts,
+      {String? secret}) {
+    return compute(
+        _decryptEntry, <dynamic>[base64Data, ts, secret ?? kDataSecret]);
   }
 }

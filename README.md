@@ -35,6 +35,39 @@ flutter build apk --debug          # 产物：build/app/outputs/flutter-apk/app-
 
 ## 更新日志
 
+### v1.3.0（2026-08-24）
+- 🚀 **JM 源性能优化**：图片解扰移入 Isolate（`compute()`），内存缓存 LRU + 40MB 上限，`Image.memory` 全部加 `cacheWidth`，Flutter ImageCache 收紧到 30MB
+- 🚀 **全面性能审计修复**（低端机流畅运行）：
+  - `CachedImage` / `Image.file` / `Image.network` 全部加 `cacheWidth`（封面内存降 60-80%）
+  - `LocalStore` / `BookshelfStore` / `NovelShelfStore` 同步文件 IO 改异步 + 防抖写盘
+  - `JmCrypto` AES-256-ECB / `AesCbc` AES-128-CBC 解密卸载到 `compute()` Isolate
+  - `LocalStore` 大 JSON(>64KB) 解析走 Isolate
+  - `BookshelfStore.sourceIdOf` 从 O(n) 线性扫描改为 O(1) 索引
+  - 所有热点路径 RegExp 提取为 `static final`（`jm_scramble` / `dm5` / `biquge`）
+  - 阅读器章节列表/页码网格移除 `shrinkWrap`（懒加载）
+  - 网格卡片加 `RepaintBoundary`（滚动不重绘）
+  - 播放器 `position`/`buffer` 流 setState 节流到 5Hz
+  - `detail_page._sortedChapters` 加缓存避免 build 内重复调用
+- 🔥 **超分辨率真实化**：
+  - 图片超分：`CachedImage.superRes` 从假遮罩改为**真实 Lanczos-3 2x 上采样**（Isolate 执行，磁盘缓存）
+  - 阅读器"高清(2x)"档接入真实 Lanczos-3 超分
+  - 视频 Anime4K：确认是真实 bloc97 CNN 着色器（libmpv `glsl-shaders`）
+  - WebView"超分"诚实改名"Web 调色"（CSS 滤镜，非真超分）
+  - 删除孤儿资产 `assets/shaders/anime4k/`
+- 🛡️ **阅读器防误触**：
+  - `PopScope` 二次返回确认（再按一次退出）
+  - 翻页动画进行中禁止手势（`_pageAnimating` 锁）
+  - 防掌按：时间+距离双重判定
+  - 双击锁定/解锁触摸（躺卧阅读）
+- ✨ **屏幕常亮**：阅读时 `WakelockPlus` 保持屏幕不熄灭
+- ✨ **亮度条真实化**：阅读器亮度条从假遮罩改为 `screen_brightness` 真实控制系统亮度，退出还原
+- ✨ **RTL 反向翻页**：日漫从右往左阅读习惯，设置页开关
+- ✨ **多主题色彩**：5 种种子色（墨蓝/东京夜/翡翠绿/暖橙/薰衣草），设置页圆点选择器即时切换
+- ✨ **详情页批量下载**：多选章节弹窗 → 逐章下载带实时进度 → 可取消
+- ✨ **下载队列管理**：`DownloadManager` 加全局取消 + 重试，工具箱下载列表加重试按钮
+- 🐛 修复 `scrollDown`/`scrollUp` 手势定义但未实现的 Bug
+- 🐛 修复 NDK 版本不兼容（27→26.3.11579264）
+
 ### v1.2.1（2026-08-23）
 - ✨ 阅读统计：今日/本周/累计阅读时长 + 7 天柱状图周报弹窗（「我的」页）
 - ✨ 阅读器手势自定义：左/中/右三等分区域可自定义点击操作（上一页/下一页/菜单/亮度/滚动）

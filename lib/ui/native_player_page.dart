@@ -138,6 +138,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   double _speedBeforeBoost = 1.0;
   bool _draggingBar = false;
 
+  // 节流：position 流每秒约 10 次，节流到 5Hz 即可减少重建压力。
+  DateTime _lastUiFlush = DateTime.fromMillisecondsSinceEpoch(0);
+  bool _pendingFlush = false;
+
   // ── 选集 ────────────────────────────────────
   late int _curSeason;
   late int _curEpisode;
@@ -264,6 +268,25 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     if (mounted && s != _clock) setState(() => _clock = s);
   }
 
+  /// 把高频 position/buffer 流的 UI 刷新节流到 5Hz（200ms），
+  /// 避免每秒数十次 rebuild 拖垮低端机。
+  void _scheduleFlush() {
+    if (_pendingFlush) return;
+    final now = DateTime.now();
+    final delta = now.difference(_lastUiFlush).inMilliseconds;
+    if (delta >= 200) {
+      _lastUiFlush = now;
+      if (mounted) setState(() {});
+      return;
+    }
+    _pendingFlush = true;
+    Timer(Duration(milliseconds: 200 - delta), () {
+      _pendingFlush = false;
+      _lastUiFlush = DateTime.now();
+      if (mounted) setState(() {});
+    });
+  }
+
   Future<void> _boot() async {
     await _loadPrefs();
     if (!mounted) return;
@@ -286,14 +309,17 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       }));
       _subs.add(p.stream.position.listen((v) {
         if (!mounted) return;
-        setState(() => _pos = v);
+        _pos = v;
         _maybeSaveProgress(v);
+        _scheduleFlush();
       }));
       _subs.add(p.stream.duration.listen((v) {
         if (mounted) setState(() => _dur = v);
       }));
       _subs.add(p.stream.buffer.listen((v) {
-        if (mounted) setState(() => _buffer = v);
+        if (!mounted) return;
+        _buffer = v;
+        _scheduleFlush();
       }));
       _subs.add(p.stream.buffering.listen((v) {
         if (mounted) setState(() => _buffering = v);
@@ -936,6 +962,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                 child: Image.network(
                   widget.cover!,
                   fit: BoxFit.cover,
+                  cacheWidth: (MediaQuery.sizeOf(context).width * MediaQuery.devicePixelRatioOf(context)).toInt(),
                   errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                 ),
               ),

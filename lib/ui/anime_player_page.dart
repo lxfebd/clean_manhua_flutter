@@ -389,7 +389,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     }
   }
 
-  /// 超分按钮切换时重新应用 CSS。
+  /// 「Web 调色」按钮切换时重新应用 CSS（不是真超分）。
   void _cycleSr() {
     setState(() => _srLevel = (_srLevel + 1) % 3);
     _applyWebViewSR();
@@ -1367,7 +1367,10 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
           flexibleSpace: FlexibleSpaceBar(
             background: Stack(fit: StackFit.expand, children: [
               if (d.cover != null && d.cover!.isNotEmpty)
-                Image.network(d.cover!, fit: BoxFit.cover,
+                Image.network(d.cover!,
+                    fit: BoxFit.cover,
+                    cacheWidth:
+                        (MediaQuery.sizeOf(context).width * MediaQuery.devicePixelRatioOf(context)).toInt(),
                     errorBuilder: (_, __, ___) =>
                         Container(color: theme.colorScheme.primary)),
               Container(

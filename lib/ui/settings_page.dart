@@ -9,6 +9,7 @@ import '../net/bookshelf_store.dart';
 import '../net/local_store.dart';
 import '../net/novel_shelf_store.dart';
 import '../net/update_checker.dart';
+import '../theme.dart';
 import 'source_manage_page.dart';
 import 'widgets/update_download_dialog.dart';
 import 'widgets/motion.dart';
@@ -24,6 +25,8 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   bool _dark = false;
   bool _horizontal = false;
+  bool _rtl = false;
+  int _themeId = 0;
   bool _loaded = false;
   bool _checking = false;
 
@@ -36,10 +39,14 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _load() async {
     final d = await LocalStore.darkMode();
     final h = await LocalStore.horizontalReader();
+    final rtl = await LocalStore.rtlReader();
+    final tid = await LocalStore.themeId();
     if (mounted) {
       setState(() {
         _dark = d;
         _horizontal = h;
+        _rtl = rtl;
+        _themeId = tid;
         _loaded = true;
       });
     }
@@ -92,6 +99,18 @@ class _SettingsPageState extends State<SettingsPage> {
                       },
                     ),
                   ),
+                  Container(
+                    height: 0.5,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  ),
+                  _ThemeSelector(
+                    current: _themeId,
+                    onChanged: (v) async {
+                      YingManHeApp.of(context)?.setThemeId(v);
+                      await LocalStore.setThemeId(v);
+                      if (mounted) setState(() => _themeId = v);
+                    },
+                  ),
                 ],
               ),
             ),
@@ -140,6 +159,22 @@ class _SettingsPageState extends State<SettingsPage> {
                       onChanged: (v) async {
                         await LocalStore.setHorizontalReader(v);
                         if (mounted) setState(() => _horizontal = v);
+                      },
+                    ),
+                  ),
+                  Container(
+                    height: 0.5,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  ),
+                  _SettingTile(
+                    icon: Icons.arrow_back_ios_new_rounded,
+                    title: 'RTL 反向翻页（日漫）',
+                    subtitle: _rtl ? '从右往左' : '从左往右',
+                    trailing: Switch(
+                      value: _rtl,
+                      onChanged: (v) async {
+                        await LocalStore.setRtlReader(v);
+                        if (mounted) setState(() => _rtl = v);
                       },
                     ),
                   ),
@@ -511,6 +546,89 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 }
 
+/// 主题色选择器：5 个种子色圆点，点击立即切换全局主题。
+class _ThemeSelector extends StatelessWidget {
+  final int current;
+  final ValueChanged<int> onChanged;
+  const _ThemeSelector({required this.current, required this.onChanged});
+
+  static const _names = ['墨蓝', '东京夜', '翡翠绿', '暖橙', '薰衣草'];
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.palette_outlined,
+                  size: 20, color: scheme.onSurface.withValues(alpha: 0.85)),
+              const SizedBox(width: 12),
+              Text('主题色',
+                  style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurface)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              for (var i = 0; i < AppTheme.seeds.length; i++)
+                GestureDetector(
+                  onTap: () => onChanged(i),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          color: AppTheme.seedOf(i),
+                          shape: BoxShape.circle,
+                          border: current == i
+                              ? Border.all(
+                                  color: scheme.onSurface,
+                                  width: 2.5,
+                                )
+                              : null,
+                          boxShadow: current == i
+                              ? [
+                                  BoxShadow(
+                                      color: AppTheme.seedOf(i)
+                                          .withValues(alpha: 0.4),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 2)),
+                                ]
+                              : null,
+                        ),
+                        child: current == i
+                            ? const Icon(Icons.check_rounded,
+                                color: Colors.white, size: 20)
+                            : null,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(_names[i],
+                          style: TextStyle(
+                              fontSize: 10,
+                              color: scheme.onSurface
+                                  .withValues(alpha: 0.6))),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 分区标题
 class _SectionLabel extends StatelessWidget {
   final String label;
   const _SectionLabel({required this.label});
