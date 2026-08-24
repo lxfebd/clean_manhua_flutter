@@ -44,15 +44,20 @@ class UpdateDownloadManager {
   Directory? _tmpDir;
   String get _apkPath => '${_tmpDir?.path ?? '/tmp'}/xingmanxia.apk';
 
-  /// GitHub 加速镜像：按顺序尝试，第一个可用就用。
-  /// 空字符串表示直连 GitHub。
+  /// GitHub 加速镜像：按速度优先级排序，直连放最后。
+  /// 空字符串表示直连 GitHub（对国内用户最慢）。
   static const _mirrors = <String>[
-    '',
     'https://gh-proxy.com/',
-    'https://mirror.ghproxy.com/',
     'https://ghproxy.net/',
+    'https://mirror.ghproxy.com/',
     'https://github.moeyy.xyz/',
+    'https://ghps.cc/',
+    '',
   ];
+
+  /// 慢速阈值：10 秒内平均速度低于此值则放弃当前镜像换下一个。
+  static const int _minSpeedBytesPerSec = 50 * 1024; // 50 KB/s
+  static const Duration _speedCheckDuration = Duration(seconds: 10);
 
   /// 启动后台下载（去重，已在跑就直接返回）。
   Future<void> start(String apkUrl) async {
@@ -146,6 +151,8 @@ class UpdateDownloadManager {
       final sink = file.openWrite(mode: FileMode.append);
       var lastTick = DateTime.now();
       var lastBytes = received;
+      final startTime = DateTime.now();
+      var speedCheckPassed = false;
       await for (final chunk in res) {
         if (_cancelled) {
           await sink.close();
@@ -159,6 +166,19 @@ class UpdateDownloadManager {
           final speedBytes = (received - lastBytes) / (dt / 1000);
           lastBytes = received;
           lastTick = now;
+          // 慢速检测：前 10 秒内平均速度 < 50KB/s 则放弃
+          if (!speedCheckPassed &&
+              now.difference(startTime).inMilliseconds >=
+                  _speedCheckDuration.inMilliseconds) {
+            final avgSpeed = received / now.difference(startTime).inMilliseconds * 1000;
+            if (avgSpeed < _minSpeedBytesPerSec) {
+              await sink.close();
+              if (file.existsSync()) await file.delete();
+              received = 0;
+              throw Exception('速度太慢 ${_fmtSpeed(avgSpeed)} ($label)');
+            }
+            speedCheckPassed = true;
+          }
           final speedStr = _fmtSpeed(speedBytes);
           _state = UpdateDownloadState(
               received: received, total: total, speed: speedStr);
