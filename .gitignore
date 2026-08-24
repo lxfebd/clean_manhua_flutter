@@ -44,6 +44,11 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# ===== 签名密钥（勿入库）=====
+/android/key.properties
+/android/app/*.jks
+/android/app/*.keystore
+
 # ===== 本地调试残留（非产品代码，勿入库）=====
 /tool/
 /screenshots/

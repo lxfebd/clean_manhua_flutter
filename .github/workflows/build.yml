@@ -39,7 +39,26 @@ jobs:
       - name: Install NDK & Android platform
         run: |
           yes | sdkmanager --licenses
-          sdkmanager "ndk;27.0.12077973" "platforms;android-36" "build-tools;36.0.0"
+          sdkmanager "ndk;26.3.11579264" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Decode signing key
+        if: github.ref_type == 'tag'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > android/app/xingmanxia.jks
+            echo "storePassword=$STORE_PASSWORD" > android/key.properties
+            echo "keyPassword=$KEY_PASSWORD" >> android/key.properties
+            echo "keyAlias=$KEY_ALIAS" >> android/key.properties
+            echo "storeFile=xingmanxia.jks" >> android/key.properties
+            echo "✅ 签名密钥已配置"
+          else
+            echo "⚠️ 未配置签名密钥，使用 debug 签名"
+          fi
 
       - name: Cache pub dependencies
         uses: actions/cache@v4
