@@ -193,13 +193,28 @@ class XifanVideoSource implements VideoSource {
     final key = '$videoId/$season/$episode';
     final cached = _urlCache[key];
     if (cached != null && !cached.expired) return cached.url;
-    final raw = await Net.get('$_host/watch/$videoId/$season/$episode.html',
-        timeout: const Duration(seconds: 20));
+    // 网络抖动/超时重试一次，避免偶发失败直接打断播放
+    String raw;
+    try {
+      raw = await Net.get('$_host/watch/$videoId/$season/$episode.html',
+          timeout: const Duration(seconds: 20));
+    } catch (_) {
+      raw = await Net.get('$_host/watch/$videoId/$season/$episode.html',
+          timeout: const Duration(seconds: 25));
+    }
     // 播放页在 <script> 的 JSON 字符串里给出视频地址，斜杠被转义为 \/，
     // 还原成普通 / 后再用正则取直链。
     final html = raw.replaceAll(r'\/', '/');
     final m = _mp4Re.firstMatch(html) ?? _mp4FallbackRe.firstMatch(html);
-    if (m == null) throw Exception('稀饭：未找到播放直链');
+    if (m == null) {
+      // 命中反爬/人机校验落地页时给出可读提示，而非笼统的"未找到直链"
+      if (html.contains('captcha') ||
+          html.contains('verify') ||
+          html.contains('cf-challenge')) {
+        throw Exception('稀饭：该线路触发人机校验，请稍后重试或换线路');
+      }
+      throw Exception('稀饭：未找到播放直链');
+    }
     final url = m.group(0)!;
     _urlCache[key] = _CachedUrl(url);
     return url;

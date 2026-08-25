@@ -279,7 +279,7 @@ class _ReadingStatsCard extends StatelessWidget {
   });
 
   String _fmt(int sec) {
-    if (sec < 60) return '${sec}秒';
+    if (sec < 60) return '$sec秒';
     if (sec < 3600) return '${sec ~/ 60}分钟';
     final h = sec ~/ 3600;
     final m = (sec % 3600) ~/ 60;
@@ -753,7 +753,7 @@ class _ReadingReportSheet extends StatelessWidget {
   const _ReadingReportSheet({required this.days});
 
   String _fmt(int sec) {
-    if (sec < 60) return '${sec}秒';
+    if (sec < 60) return '$sec秒';
     if (sec < 3600) return '${sec ~/ 60}分钟';
     final h = sec ~/ 3600;
     final m = (sec % 3600) ~/ 60;
@@ -840,7 +840,7 @@ class _ReadingReportSheet extends StatelessWidget {
               child: Row(
                 children: [
                   Expanded(
-                    child: _sumCell('${activeDays}天', '本周阅读'),
+                    child: _sumCell('$activeDays天', '本周阅读'),
                   ),
                   Container(
                       width: 0.5,

@@ -41,6 +41,10 @@ class VideoDetail {
   final String? area; // 地区
   final String? year;
   final String? type; // TV / 剧场版 / OVA
+  /// 配音/语言（如「日语」「国语」），详情页展示用。
+  final String? lang;
+  /// 标签列表（如 恋爱 / 搞笑 / 奇幻），详情页展示用。
+  final List<String> tags;
   /// 播放源（线路）名称映射：key 为 [VideoEpisode.season]（1 基），
   /// value 为源名（如「稀饭新番主线-1」）。为 null 或缺失某 key 时按「线路 N」兜底。
   final Map<int, String>? sourceNames;
@@ -50,5 +54,7 @@ class VideoDetail {
       this.area,
       this.year,
       this.type,
+      this.lang,
+      this.tags = const [],
       this.sourceNames});
 }

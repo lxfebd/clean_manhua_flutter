@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../net/image_cache.dart';
 import '../../utils/image_super_res.dart';
@@ -61,17 +60,38 @@ class _CachedImageState extends State<CachedImage> {
 
   String _superResKey() => '${widget.url}|${ImageSuperRes.algoVersion}';
 
+  /// 图片请求加 Referer，避免部分 CDN（如 lain.bgm.tv）防盗链拒绝。
+  static Map<String, String> _headersFor(String url) {
+    final host = Uri.tryParse(url)?.host ?? '';
+    if (host.contains('bgm.tv')) {
+      return const {
+        'Referer': 'https://bgm.tv/',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) '
+            'Chrome/120.0.0.0 Safari/537.36',
+      };
+    }
+    return const {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+          'AppleWebKit/537.36 (KHTML, like Gecko) '
+          'Chrome/120.0.0.0 Safari/537.36',
+    };
+  }
+
   Future<void> _load() async {
     if (_loading || widget.url.isEmpty) return;
     _loading = true;
     if (mounted) setState(() => _failed = false);
     try {
+      final headers = _headersFor(widget.url);
       if (widget.superRes) {
         final sr = await ImageCacheManager.load(_superResKey(),
+            headers: headers,
             fetch: () async {
-              final raw = await ImageCacheManager.load(widget.url);
+              final raw = await ImageCacheManager.load(widget.url,
+                  headers: headers);
               return await ImageSuperRes.upscale2x(raw);
-            });
+            }).timeout(const Duration(seconds: 8));
         if (mounted) {
           setState(() {
             _bytes = sr;
@@ -79,7 +99,8 @@ class _CachedImageState extends State<CachedImage> {
           });
         }
       } else {
-        final b = await ImageCacheManager.load(widget.url);
+        final b = await ImageCacheManager.load(widget.url, headers: headers)
+            .timeout(const Duration(seconds: 8));
         if (mounted) {
           setState(() {
             _bytes = b;
@@ -103,9 +124,10 @@ class _CachedImageState extends State<CachedImage> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            SvgPicture.asset(
-              'assets/placeholder_cover.svg',
+            Image.asset(
+              'assets/placeholder_cover.webp',
               fit: BoxFit.cover,
+              gaplessPlayback: true,
             ),
             if (_failed)
               Center(
@@ -138,7 +160,7 @@ class _CachedImageState extends State<CachedImage> {
       );
     } else {
       img = Image.asset(
-        'assets/placeholder_cover.png',
+        'assets/placeholder_cover.webp',
         fit: BoxFit.cover,
         width: widget.width,
         height: widget.height,

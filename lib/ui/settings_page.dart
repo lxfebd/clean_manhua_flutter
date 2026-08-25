@@ -10,6 +10,7 @@ import '../net/local_store.dart';
 import '../net/novel_shelf_store.dart';
 import '../net/update_checker.dart';
 import '../theme.dart';
+import '../utils/danmaku.dart';
 import 'source_manage_page.dart';
 import 'widgets/update_download_dialog.dart';
 import 'widgets/motion.dart';
@@ -29,6 +30,7 @@ class _SettingsPageState extends State<SettingsPage> {
   int _themeId = 0;
   bool _loaded = false;
   bool _checking = false;
+  DanmakuSettings _danmaku = const DanmakuSettings();
 
   @override
   void initState() {
@@ -41,12 +43,14 @@ class _SettingsPageState extends State<SettingsPage> {
     final h = await LocalStore.horizontalReader();
     final rtl = await LocalStore.rtlReader();
     final tid = await LocalStore.themeId();
+    final dm = await LocalStore.danmakuSettings();
     if (mounted) {
       setState(() {
         _dark = d;
         _horizontal = h;
         _rtl = rtl;
         _themeId = tid;
+        _danmaku = dm;
         _loaded = true;
       });
     }
@@ -188,6 +192,88 @@ class _SettingsPageState extends State<SettingsPage> {
                     subtitle: '自定义点击区域操作',
                     onTap: _showGestureSettings,
                   ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            FadeSlideIn(
+              delay: const Duration(milliseconds: 220),
+              child: _SectionLabel(label: '播放器'),
+            ),
+            const SizedBox(height: 6),
+            FadeSlideIn(
+              delay: const Duration(milliseconds: 280),
+              child: _SettingsCard(
+                children: [
+                  _SettingTile(
+                    icon: Icons.subtitles_rounded,
+                    title: '弹幕',
+                    subtitle: _danmaku.on ? '已开启 · 数据源：弹弹 play' : '视频播放时显示评论弹幕',
+                    trailing: Switch(
+                      value: _danmaku.on,
+                      onChanged: (v) async {
+                        final next = _danmaku.copyWith(on: v);
+                        await LocalStore.setDanmaku(next);
+                        if (mounted) setState(() => _danmaku = next);
+                      },
+                    ),
+                  ),
+                  if (_danmaku.on) ...[
+                    Container(
+                      height: 0.5,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                    ),
+                    _SliderTile(
+                      icon: Icons.format_size_rounded,
+                      title: '弹幕字号',
+                      value: _danmaku.fontSize,
+                      min: 12,
+                      max: 22,
+                      divisions: 10,
+                      display: '${_danmaku.fontSize.round()}',
+                      onChanged: (v) {
+                        final next = _danmaku.copyWith(fontSize: v);
+                        setState(() => _danmaku = next);
+                        LocalStore.setDanmaku(next);
+                      },
+                    ),
+                    Container(
+                      height: 0.5,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                    ),
+                    _SliderTile(
+                      icon: Icons.speed_rounded,
+                      title: '弹幕速度',
+                      value: _danmaku.speed,
+                      min: 1.0,
+                      max: 3.0,
+                      divisions: 20,
+                      display: '${_danmaku.speed.toStringAsFixed(1)}x',
+                      onChanged: (v) {
+                        final next = _danmaku.copyWith(speed: v);
+                        setState(() => _danmaku = next);
+                        LocalStore.setDanmaku(next);
+                      },
+                    ),
+                    Container(
+                      height: 0.5,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                    ),
+                    _SliderTile(
+                      icon: Icons.opacity_rounded,
+                      title: '弹幕透明度',
+                      value: _danmaku.opacity,
+                      min: 0.2,
+                      max: 1.0,
+                      divisions: 8,
+                      display: '${(_danmaku.opacity * 100).round()}%',
+                      onChanged: (v) {
+                        final next = _danmaku.copyWith(opacity: v);
+                        setState(() => _danmaku = next);
+                        LocalStore.setDanmaku(next);
+                      },
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -747,6 +833,83 @@ class _SettingTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 带图标标题 + 滑条 + 当前值显示的设置项（用于字号/速度/透明度等数值调节）。
+class _SliderTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final double value;
+  final double min;
+  final double max;
+  final int divisions;
+  final String display;
+  final ValueChanged<double> onChanged;
+
+  const _SliderTile({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.divisions,
+    required this.display,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 6, 8, 6),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: scheme.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 18, color: scheme.primary),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              title,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: scheme.onSurface,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 44,
+            child: Text(
+              display,
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: scheme.primary,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 150,
+            child: Slider(
+              value: value.clamp(min, max),
+              min: min,
+              max: max,
+              divisions: divisions,
+              onChanged: onChanged,
+            ),
+          ),
+        ],
       ),
     );
   }

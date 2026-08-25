@@ -17,6 +17,8 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace = "com.xingmanxia.app"
     compileSdk = 36
+    // 统一 NDK：cmake 3.22 与 NDK 27 不兼容（clang 无法定位导致构建失败），
+    // 使用 26.3.11579264 已验证可正常构建（cronet_http / media_kit 向下兼容）。
     ndkVersion = "26.3.11579264"
 
     compileOptions {

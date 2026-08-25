@@ -152,6 +152,15 @@ class SourceConfigStore {
             'https://www.xbiquge.com',
           ],
         ),
+        const SourceConfig(
+          engineId: 'xbiquge',
+          id: 'xbiquge',
+          name: '新笔趣阁',
+          tier: SourceTier.primary,
+          hosts: [
+            'https://www.xbiquge.bz',
+          ],
+        ),
       ];
 
   /// 合并后的全部配置（带缓存）。

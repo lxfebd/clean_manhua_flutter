@@ -99,12 +99,29 @@ class AgedMVideoSource implements VideoSource {
 
   @override
   Future<String> playUrl(String videoId, int season, int episode) async {
-    final html = await Net.get(
-      '$_base/play/$videoId/$season/$episode',
-      headers: {'Cookie': 'adult=1'},
-    );
+    // 网络抖动/超时重试一次（与稀饭源一致），提升弱网下解析成功率。
+    String html;
+    try {
+      html = await Net.get(
+        '$_base/play/$videoId/$season/$episode',
+        headers: {'Cookie': 'adult=1'},
+        timeout: const Duration(seconds: 20),
+      );
+    } catch (_) {
+      html = await Net.get(
+        '$_base/play/$videoId/$season/$episode',
+        headers: {'Cookie': 'adult=1'},
+        timeout: const Duration(seconds: 25),
+      );
+    }
     final m = _iframeRe.firstMatch(html);
     if (m == null) {
+      // 检测反爬/人机校验，给出可操作提示而非笼统报错
+      if (html.contains('captcha') ||
+          html.contains('verify') ||
+          html.contains('cf-challenge')) {
+        throw Exception('AGE：该线路触发人机校验，请稍后重试或换线路');
+      }
       throw Exception('未找到播放入口 iframe');
     }
     return m.group(1)!;

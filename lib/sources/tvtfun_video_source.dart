@@ -10,8 +10,11 @@ import 'video_source.dart';
 /// 在线源定义（creamycake css1 源集）。
 ///
 /// 数据流：
-/// - 搜索：HTTP JSON API，返回 slug / name / cover
-/// - 详情：HTML 页面解析剧集与元信息
+/// - 列表 / 分类 / 搜索：HTTP JSON API
+///     https://www.tvtfun.net/api/videos?pageIndex=N&pageSize=M[&area=X][&tag=Y]
+///     https://www.tvtfun.net/api/videos/search?q=关键词&pageSize=M&page=N
+///   返回 list[].slug / name / pic / remarks / score / tag / area / year
+/// - 详情：HTML 页面解析剧集与元信息（年份/地区/标签）
 /// - 播放：返回播放页 URL，由 WebView 加载并拦截 resolve-play-url API，
 ///   获取视频直链后交给 NativePlayer（media_kit）播放
 class TvTfunVideoSource implements VideoSource {
@@ -33,6 +36,16 @@ class TvTfunVideoSource implements VideoSource {
   static final RegExp _ogImageRe = RegExp(
       r'<meta[^>]+property="og:image"[^>]+content="([^"]+)"');
 
+  /// 服务端渲染的元信息行：<span ...>年份</span><span class="truncate">2026</span>
+  static final RegExp _metaRowRe = RegExp(
+      r'<span class="shrink-0 text-white/50">([^<]+)</span>'
+      r'<span class="truncate">([^<]+)</span>');
+
+  /// Next.js RSC 内嵌 JSON 里的 tag 字段：..."tag":"动画,动作冒险,奇幻",...
+  /// （RSC payload 是 JS 字符串，双引号被转义为 \"）
+  static final RegExp _embeddedTagRe = RegExp(
+      r'\\"tag\\":\\"([^"\\]+)\\"');
+
   @override
   String get id => 'tvtfun';
   @override
@@ -43,41 +56,63 @@ class TvTfunVideoSource implements VideoSource {
         Category('all', '全部'),
         Category('jp', '日本'),
         Category('cn', '国创'),
+        Category('kr', '韩国'),
         Category('movie', '剧场版'),
+        Category('tag_恋爱', '恋爱'),
+        Category('tag_搞笑', '搞笑'),
+        Category('tag_奇幻', '奇幻'),
+        Category('tag_科幻', '科幻'),
+        Category('tag_治愈', '治愈'),
+        Category('tag_校园', '校园'),
+        Category('tag_战斗', '战斗'),
+        Category('year_2026', '2026年'),
+        Category('year_2025', '2025年'),
+        Category('year_2024', '2024年'),
+        Category('year_2023', '2023年'),
+        Category('year_2022', '2022年'),
       ];
 
   @override
   Future<List<ComicItem>> listByCategory(String categoryId, int page) async {
-    if (page > 1) return const <ComicItem>[];
-    final html = await Net.get(base,
+    final params = <String, String>{
+      'pageIndex': page.toString(),
+      'pageSize': '20',
+    };
+    if (categoryId == 'jp') {
+      params['area'] = '日本';
+    } else if (categoryId == 'cn') {
+      params['area'] = '中国';
+    } else if (categoryId == 'kr') {
+      params['area'] = '韩国';
+    } else if (categoryId == 'movie') {
+      params['tag'] = '剧场版';
+    } else if (categoryId.startsWith('tag_')) {
+      params['tag'] = categoryId.substring(4);
+    } else if (categoryId.startsWith('year_')) {
+      params['year'] = categoryId.substring(5);
+    }
+    final query = params.entries
+        .map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}')
+        .join('&');
+    final json = jsonDecode(await Net.get('$base/api/videos?$query',
         headers: const {'Cookie': 'quality=1080'},
-        timeout: const Duration(seconds: 40));
-    return _parseHome(html);
+        timeout: const Duration(seconds: 30)));
+    final videos = (json['data']?['videos'] as List? ?? const []);
+    return videos.map<ComicItem>((v) => _toItem(v as Map<String, dynamic>)).toList();
   }
 
   @override
   Future<List<ComicItem>> search(String keyword, int page) async {
+    if (keyword.trim().isEmpty) return const [];
     final url = '$base/api/videos/search'
-        '?q=${Uri.encodeQueryComponent(keyword)}&pageSize=10';
-    final json = jsonDecode(await Net.get(url));
+        '?q=${Uri.encodeQueryComponent(keyword)}&pageSize=10&page=$page';
+    final json = jsonDecode(await Net.get(url,
+        headers: const {'Cookie': 'quality=1080'},
+        timeout: const Duration(seconds: 30)));
     final videos = (json['data']?['videos'] as List? ?? const []);
-    return videos.map<ComicItem>((v) {
-      final slug = v['slug'] as String? ?? '';
-      var cover = (v['cover'] as String? ?? '');
-      // 解码 Next.js 图片代理 URL
-      if (cover.contains('/_next/image')) {
-        final u = Uri.tryParse(cover);
-        final real = u?.queryParameters['url'];
-        if (real != null && real.isNotEmpty) {
-          cover = Uri.decodeComponent(real);
-        }
-      }
-      return ComicItem(
-        slug,
-        (v['name'] as String?) ?? '',
-        cover,
-      );
-    }).toList();
+    return videos
+        .map<ComicItem>((v) => _toItem(v as Map<String, dynamic>))
+        .toList();
   }
 
   @override
@@ -96,11 +131,42 @@ class TvTfunVideoSource implements VideoSource {
     final description = _first(_descRe, html);
     final cover = _first(_ogImageRe, html);
 
+    // 年份/地区/语言来自服务端渲染的元信息行
+    String? area;
+    String? year;
+    String? type;
+    String? lang;
+    for (final m in _metaRowRe.allMatches(html)) {
+      final label = m.group(1)?.trim() ?? '';
+      final value = _unescape(m.group(2)?.trim() ?? '');
+      if (label == '年份') year = value;
+      if (label == '地区') area = value;
+      if (label == '类型') type = value;
+      if (label == '语言') lang = value;
+    }
+
+    // 标签来自 RSC 内嵌 JSON 的 tag 字段（以逗号分隔）
+    final tags = _embeddedTagRe
+        .firstMatch(html)
+        ?.group(1)
+        ?.split(',')
+        .map((t) => t.trim())
+        .where((t) => t.isNotEmpty)
+        .toList() ??
+        const <String>[];
+
+    final item = ComicItem(videoId, title, cover ?? '')
+      ..lang = lang;
     return VideoDetail(
-      ComicItem(videoId, title, cover ?? ''),
+      item,
       episodes,
       description: description,
       cover: cover,
+      area: area,
+      year: year,
+      type: type,
+      lang: lang,
+      tags: tags,
     );
   }
 
@@ -128,30 +194,33 @@ class TvTfunVideoSource implements VideoSource {
   /// 返回使用 Cloudflare IP 直连时需要的请求头（Host 头）。
   Map<String, String> get cloudflareHeaders => {'Host': 'www.tvtfun.net'};
 
-  /// 解析首页卡片列表
-  List<ComicItem> _parseHome(String html) {
-    final items = <ComicItem>[];
-    // TvTFun 首页卡片结构：<a class="..." href="/video/video-XXX">...<img alt="标题" src="封面">
-    final cardRe = RegExp(
-        r'<a\b[^>]*?href="(/video/video-[^"]+)"[^>]*>(.*?)</a>',
-        dotAll: true);
-    for (final m in cardRe.allMatches(html)) {
-      final href = m.group(1) ?? '';
-      final inner = m.group(2) ?? '';
-      final imgAlt =
-          RegExp(r'<img[^>]*alt="([^"]+)"').firstMatch(inner)?.group(1);
-      var imgSrc =
-          RegExp(r'<img[^>]*src="([^"]+)"').firstMatch(inner)?.group(1) ?? '';
-      // 解码 Next.js 图片代理 URL
-      imgSrc = _resolveNextImageUrl(imgSrc);
-      if (href.isEmpty || imgAlt == null) continue;
-      items.add(ComicItem(
-        href.replaceAll('/video/', ''),
-        _unescape(imgAlt.trim()),
-        imgSrc,
-      ));
+  /// API 条目 -> ComicItem（带评分 / 更新提示 / 别名等元信息）
+  ComicItem _toItem(Map<String, dynamic> v) {
+    final slug = (v['slug'] as String? ?? '').isNotEmpty
+        ? v['slug'] as String
+        : (v['id'] as String? ?? '');
+    var cover = (v['pic'] as String? ?? '');
+    // 解码 Next.js 图片代理 URL
+    if (cover.contains('/_next/image')) {
+      final u = Uri.tryParse(cover);
+      final real = u?.queryParameters['url'];
+      if (real != null && real.isNotEmpty) {
+        cover = Uri.decodeComponent(real);
+      }
     }
-    return items;
+    final score = v['score'];
+    final hits = v['hitsMonth'] ?? v['hits'];
+    return ComicItem(
+      slug,
+      (v['name'] as String?) ?? '',
+      cover,
+    )
+      ..yname = (v['sub'] as String?) ?? ''
+      ..score = score?.toString()
+      ..hits = hits?.toString()
+      ..content = (v['content'] as String?) ?? ''
+      ..remarks = (v['remarks'] as String?) ?? ''
+      ..lang = (v['lang'] as String?) ?? '';
   }
 
   /// 解析剧集列表
@@ -183,19 +252,6 @@ class TvTfunVideoSource implements VideoSource {
     final raw = _first(_titleRe, html);
     if (raw == null) return null;
     return raw.replaceAll(RegExp(r'\s*[-_|].*$'), '').trim();
-  }
-
-  /// 解码 Next.js 图片代理 URL
-  String _resolveNextImageUrl(String url) {
-    if (url.isEmpty) return url;
-    final u = Uri.tryParse(url);
-    if (u != null && u.path == '/_next/image') {
-      final real = u.queryParameters['url'];
-      if (real != null && real.isNotEmpty) {
-        return Uri.decodeComponent(real);
-      }
-    }
-    return url;
   }
 
   String? _first(RegExp re, String html) {

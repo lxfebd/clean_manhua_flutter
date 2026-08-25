@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:cronet_http/cronet_http.dart' as cronet;
 import 'package:http/http.dart' as http;
 
+import 'local_store.dart';
+
 /// 零第三方依赖 HTTP 客户端（基于 dart:io HttpClient）。
 /// 注意：类名用 Net，避免与 dart:io 的 HttpClient 冲突。
 class Net {
@@ -31,6 +33,32 @@ class Net {
       '104.16.151.88',
     ],
   };
+
+  /// 从本地持久化恢复用户自选的优选 IP（覆盖内置默认）。
+  /// 应用启动时调用一次；工具页「优选 IP」扫描应用后会写入本地。
+  static Future<void> restorePreferredHostIps() async {
+    try {
+      final j = await LocalStore.readJson('preferred_ips');
+      if (j is Map) {
+        j.forEach((k, v) {
+          if (v is List && k is String) {
+            preferredHostIps[k] = v.whereType<String>().toList();
+          }
+        });
+      }
+    } catch (_) {
+      // 恢复失败则保留内置默认
+    }
+  }
+
+  /// 将当前优选 IP 配置持久化到本地，重启后由 [restorePreferredHostIps] 恢复。
+  static Future<void> savePreferredHostIps() async {
+    try {
+      await LocalStore.writeJson('preferred_ips', preferredHostIps);
+    } catch (_) {
+      // 写失败忽略，不影响内存配置
+    }
+  }
 
   /// 当前域名已尝试到的候选 IP 下标，失败时轮询切换。
   static final Map<String, int> _ipIndex = {};
@@ -152,7 +180,7 @@ class Net {
   static bool? _cronetUsable;
 
   /// 真正走一次 Cronet 的完整请求（探测 + 响应），整体受 [probe] 限时。
-  /// 成功返回 String 或 List<int>（按 [asBytes]），失败抛异常由调用方回退 dart:io。
+  /// 成功返回 String 或 `List<int>`（按 [asBytes]），失败抛异常由调用方回退 dart:io。
   static Future<Object> _attemptCronet(
       String urlStr, Map<String, String>? headers, Duration t, Duration probe,
       {required String accept, required bool asBytes}) async {

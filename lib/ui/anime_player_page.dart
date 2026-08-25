@@ -63,6 +63,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   // 5 秒超时后放弃隐藏（降级为 WebView 播放），避免卡在黑屏。
   bool _resolving = true;
   Timer? _resolveTimer;
+  // WebView 主页面加载失败（断网/超时/服务器错误）时记录，优先展示错误态而非黑屏。
+  String? _webError;
 
   static const ua = 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
@@ -92,12 +94,29 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       ..setBackgroundColor(Colors.black)
       ..setNavigationDelegate(NavigationDelegate(
         onPageStarted: (_) {
-          setState(() => _loading = true);
+          setState(() {
+            _loading = true;
+            _webError = null;
+          });
           _injectApiInterceptor();
         },
         onPageFinished: (_) {
           setState(() => _loading = false);
           _triggerAutoPlay();
+        },
+        onWebResourceError: (err) {
+          // 仅主框架加载失败（断网/超时/服务器错误）时展示错误态，
+          // 子资源（图片/接口）失败不影响播放，避免误报。
+          if (err.isForMainFrame != true || !mounted) return;
+          final desc = err.description.trim();
+          setState(() {
+            _webError ??=
+                '页面加载失败${desc.isNotEmpty ? '\n$desc' : ''}';
+            // 主框架失败时停止隐藏覆盖层，避免卡在黑屏
+            _resolving = false;
+          });
+          _resolveTimer?.cancel();
+          _videoPollTimer?.cancel();
         },
       ))
       ..loadRequest(Uri.parse(widget.url), headers: _hostHeader(widget.url));
@@ -116,6 +135,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   /// （Anime4K 超分 + 硬解），仅在拿到真实 m3u8/mp4 直链时生效。
   Future<void> _onVideoSrcCaptured(String src) async {
     if (src.isEmpty || !isDirectMediaUrl(src)) return;
+    // Anime1 的 CDN 直链（.v.anime1.me）需携带签名 Cookie(h/p/e) 才能访问，
+    // 原生播放器无法携带 Cookie，保留 WebView 由站点播放器播放（同域自动带）。
+    if (widget.sourceId == 'anime1' && src.contains('anime1.me')) return;
     if (src == _hookedVideoUrl) return;
     _hookedVideoUrl = src;
     if (!mounted) return;
@@ -470,8 +492,41 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   Widget _webView() {
     return Stack(children: [
       WebViewWidget(controller: _controller),
-      // 解析中或加载中：黑屏 + loading，隐藏网页内容防止"两层壳"闪烁
-      if (_loading || _resolving)
+      if (_webError != null)
+        // 主框架加载失败：错误态 + 重试（替代黑屏/白屏）
+        Container(
+          color: Colors.black,
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.wifi_off_rounded,
+                    color: Colors.white54, size: 34),
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32),
+                  child: Text(
+                    _webError!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: _reloadWebView,
+                  icon: const Icon(Icons.refresh, size: 16),
+                  label: const Text('重试'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF3A6EA5),
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        )
+      else if (_loading || _resolving)
+        // 解析中或加载中：黑屏 + loading，隐藏网页内容防止"两层壳"闪烁
         Container(
           color: Colors.black,
           child: Center(
@@ -493,6 +548,24 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           ),
         ),
     ]);
+  }
+
+  /// 错误态重试：重置解析状态、重启直链捕获，重新加载当前播放页。
+  void _reloadWebView() {
+    setState(() {
+      _webError = null;
+      _loading = true;
+      _resolving = true;
+    });
+    _resolveTimer?.cancel();
+    _resolveTimer = Timer(const Duration(seconds: 8), () {
+      if (mounted && _resolving) {
+        setState(() => _resolving = false);
+      }
+    });
+    _hookVideoSource();
+    _injectApiInterceptor();
+    _controller.reload();
   }
 
   /// 统一全屏入口：无论用户点击页面内任何位置进入全屏，
@@ -1438,8 +1511,16 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                     Text(
                       [
                         if (d.area != null) d.area!,
+                        if (d.lang != null) d.lang!,
                         if (d.year != null) d.year!,
                         if (d.type != null) d.type!,
+                        if (d.video.score != null &&
+                            d.video.score!.isNotEmpty &&
+                            d.video.score != '0')
+                          '评分 ${d.video.score}',
+                        if (d.video.remarks != null &&
+                            d.video.remarks!.isNotEmpty)
+                          d.video.remarks!,
                         if (d.episodes.isNotEmpty) '共 ${d.episodes.length} 集',
                       ].where((s) => s.isNotEmpty).join(' · '),
                       style: TextStyle(
@@ -1447,6 +1528,38 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                         color: Colors.white.withValues(alpha: 0.85),
                       ),
                     ),
+                    if (d.tags.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          for (final t in d.tags)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.16),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: Colors.white
+                                      .withValues(alpha: 0.22),
+                                  width: 0.6,
+                                ),
+                              ),
+                              child: Text(
+                                t,
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.white
+                                      .withValues(alpha: 0.92),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),

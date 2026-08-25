@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/comic_item.dart';
+import '../utils/danmaku.dart';
 
 /// 在独立 Isolate 中解析 JSON（用于大文件，避免阻塞 UI）。
 dynamic _jsonDecodeCompute(String raw) => jsonDecode(raw);
@@ -333,6 +334,7 @@ class LocalStore {
         'rtl': await rtlReader(),
         'themeId': v,
         'resLevel': await resLevel(),
+        'autoPageTurn': await autoPageTurn(),
       });
 
   static Future<bool> horizontalReader() async =>
@@ -350,6 +352,7 @@ class LocalStore {
         'horizontal': await horizontalReader(),
         'rtl': await rtlReader(),
         'resLevel': await resLevel(),
+        'autoPageTurn': await autoPageTurn(),
       });
 
   static Future<void> setHorizontalReader(bool v) async => _write('settings', {
@@ -357,6 +360,7 @@ class LocalStore {
         'horizontal': v,
         'rtl': await rtlReader(),
         'resLevel': await resLevel(),
+        'autoPageTurn': await autoPageTurn(),
       });
 
   static Future<void> setRtlReader(bool v) async => _write('settings', {
@@ -364,6 +368,7 @@ class LocalStore {
         'horizontal': await horizontalReader(),
         'rtl': v,
         'resLevel': await resLevel(),
+        'autoPageTurn': await autoPageTurn(),
       });
 
   static Future<void> setResLevel(int v) async => _write('settings', {
@@ -371,7 +376,39 @@ class LocalStore {
         'horizontal': await horizontalReader(),
         'rtl': await rtlReader(),
         'resLevel': v,
+        'autoPageTurn': await autoPageTurn(),
       });
+
+  /// 自动翻页间隔（秒）；0 = 关闭。
+  static Future<int> autoPageTurn() async =>
+      ((await _read('settings')) as Map?)?['autoPageTurn'] as int? ?? 0;
+
+  static Future<void> setAutoPageTurn(int seconds) async => _write('settings', {
+        'dark': await darkMode(),
+        'horizontal': await horizontalReader(),
+        'rtl': await rtlReader(),
+        'resLevel': await resLevel(),
+        'autoPageTurn': seconds,
+      });
+
+  /// 只更新单个设置键，其余设置保持不变（避免全量覆盖丢字段）。
+  static Future<void> _updateSetting(String key, Object? value) async {
+    final s = Map<String, dynamic>.from(
+        ((await _read('settings')) as Map?) ?? const {});
+    s[key] = value;
+    await _write('settings', s);
+  }
+
+  /// 弹幕显示设置（开关、字号、速度、透明度）。
+  static Future<DanmakuSettings> danmakuSettings() async {
+    final j = ((await _read('settings')) as Map?)?['danmaku'];
+    return j is Map
+        ? DanmakuSettings.fromJson(Map<String, dynamic>.from(j))
+        : const DanmakuSettings();
+  }
+
+  static Future<void> setDanmaku(DanmakuSettings s) async =>
+      _updateSetting('danmaku', s.toJson());
 
   // ---- 小说阅读设置 ----
   /// 小说字号（默认 17）。

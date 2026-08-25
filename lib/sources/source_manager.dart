@@ -1,4 +1,5 @@
 import 'agedm_video_source.dart';
+import 'anime1_video_source.dart';
 import 'biquge_novel_source.dart';
 import 'comic_source.dart';
 import 'dm5_source.dart';
@@ -9,6 +10,7 @@ import 'novel_source.dart';
 import 'source_config.dart';
 import 'tvtfun_video_source.dart';
 import 'video_source.dart';
+import 'xbiquge_novel_source.dart';
 import 'xifan_video_source.dart';
 
 /// 多源聚合管理器：注册所有可用源，支持切换当前源。
@@ -27,6 +29,7 @@ class SourceManager {
     AgedMVideoSource(),
     TvTfunVideoSource(),
     XifanVideoSource(),
+    Anime1VideoSource(),
   ];
 
   static VideoSource? videoById(String id) {
@@ -36,9 +39,10 @@ class SourceManager {
     return null;
   }
 
-  /// 小说源：笔趣阁类聚合（经典模板，host 可配置）。
+  /// 小说源：笔趣阁（tobiquge.com）+ 新笔趣阁（xbiquge.bz），两套独立书库互为补充。
   static final List<NovelSource> novelSources = [
     BiqugeNovelSource(),
+    XbiqugeNovelSource(),
   ];
 
   /// tier 排序权重：primary 优先，其次 fallback，disabled 最后（且不展示）。

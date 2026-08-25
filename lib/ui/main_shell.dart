@@ -34,7 +34,6 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
     _autoCheckUpdate();
   }
 
-  /// 启动时自动检查更新：每天最多一次，有新版本弹提示。失败静默忽略。
   Future<void> _autoCheckUpdate() async {
     try {
       final last = await LocalStore.lastUpdateCheckTs();
@@ -45,14 +44,13 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
           timeout: const Duration(seconds: 10));
       if (info == null || !mounted) return;
       if (mounted) _showUpdateDialog(info);
-    } catch (_) {
-      // 检查失败静默，用户仍可在设置页手动检查
-    }
+    } catch (_) {}
   }
 
   void _showUpdateDialog(UpdateInfo info) {
     showDialog<void>(
       context: context,
+      barrierDismissible: true,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         title: Text('发现新版本 v${info.version}'),

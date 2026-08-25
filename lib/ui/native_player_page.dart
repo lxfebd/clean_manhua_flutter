@@ -10,7 +10,9 @@ import 'package:volume_controller/volume_controller.dart';
 import '../net/local_store.dart';
 import '../sources/video_source.dart';
 import '../utils/anime4k.dart';
+import '../utils/danmaku.dart';
 import 'anime_player_page.dart';
+import 'widgets/danmaku_overlay.dart';
 import 'widgets/player_widgets.dart';
 
 /// 手势类型。
@@ -154,6 +156,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   Timer? _resumeTipTimer;
   int _lastSavedSec = -1;
 
+  // ── 弹幕 ────────────────────────────────────
+  List<DanmakuItem> _danmaku = const [];
+  DanmakuSettings _danmakuSet = const DanmakuSettings();
+
   String get _histKey => widget.historyKey ?? widget.url;
   SrPreset get _sr => Anime4KManager.presetById(_srId);
 
@@ -195,6 +201,27 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     _clockTimer = Timer.periodic(const Duration(seconds: 20), (_) => _tickClock());
     _initSystemLevels();
     _boot();
+    _loadDanmaku();
+  }
+
+  /// 加载弹幕设置并拉取当前集的弹幕（在线失败静默，不影响播放）。
+  Future<void> _loadDanmaku() async {
+    final set = await LocalStore.danmakuSettings();
+    if (!mounted) return;
+    setState(() => _danmakuSet = set);
+    final items = await DanmakuFetcher.fetch(widget.title, _curEpisode);
+    if (!mounted) return;
+    setState(() {
+      _danmaku = items;
+    });
+  }
+
+  /// 切换弹幕开关（同步持久化）。
+  Future<void> _toggleDanmaku() async {
+    final v = !_danmakuSet.on;
+    setState(() => _danmakuSet = _danmakuSet.copyWith(on: v));
+    await LocalStore.setDanmaku(_danmakuSet);
+    _toast(v ? '已开启弹幕' : '已关闭弹幕');
   }
 
   /// 接管设备音量与屏幕亮度。
@@ -661,6 +688,11 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         _lastSavedSec = -1;
       });
       await _open(url);
+      // 换集后重新拉取该集弹幕
+      setState(() {
+        _danmaku = const [];
+      });
+      _loadDanmaku();
     } catch (e) {
       if (mounted) _toast('切换失败：$e');
     } finally {
@@ -977,6 +1009,15 @@ class _NativePlayerPageState extends State<NativePlayerPage>
               filterQuality:
                   _enhance ? FilterQuality.high : FilterQuality.medium,
             ),
+          // 弹幕层（在画面之上、手势/控制层之下）
+          if (_danmakuSet.on)
+            Positioned.fill(
+              child: DanmakuOverlay(
+                items: _danmaku,
+                position: _pos.inMilliseconds / 1000.0,
+                settings: _danmakuSet,
+              ),
+            ),
           // 亮度遮罩：只在拿不到系统亮度控制权时兜底
           if (!_brightnessNative && _brightness < 1.0)
             IgnorePointer(
@@ -1192,6 +1233,13 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                     fontWeight: FontWeight.w600)),
             const SizedBox(width: 6),
           ],
+          // 弹幕开关（竖屏小窗也显示，方便快速开/关）
+          _barBtn(
+            _danmakuSet.on ? Icons.subtitles_rounded : Icons.subtitles_off_rounded,
+            _toggleDanmaku,
+            active: _danmakuSet.on,
+          ),
+          const SizedBox(width: 2),
           _barBtn(Icons.more_vert_rounded, _showMorePanel),
         ]),
       ),

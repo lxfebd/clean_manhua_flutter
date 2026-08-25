@@ -279,7 +279,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
   String _modeTitle() {
     switch (_mode) {
       case 'category':
-        return _cats.firstWhere(
+        return _sourceCats.firstWhere(
           (c) => c.id == _categoryId,
           orElse: () => Category('', '分类'),
         ).name;
@@ -643,8 +643,12 @@ class _AnimeCardState extends State<_AnimeCard> {
                     child: Stack(
                       children: [
                         Positioned.fill(
-                          child: CachedImage(widget.item.pic,
-                              fit: BoxFit.cover, radius: 0),
+                          // 无封面源（如 Anime1 纯文本站）用首字占位封面，避免千篇一律的空占位图
+                          child: widget.item.pic.isEmpty
+                              ? _LetterCover(
+                                  title: widget.item.name, scheme: scheme)
+                              : CachedImage(widget.item.pic,
+                                  fit: BoxFit.cover, radius: 0),
                         ),
                         Positioned(
                           top: 0,
@@ -684,6 +688,68 @@ class _AnimeCardState extends State<_AnimeCard> {
                             ),
                           ),
                         ),
+                        if (widget.item.score != null &&
+                            widget.item.score!.isNotEmpty &&
+                            widget.item.score != '0')
+                          Positioned(
+                            top: 6,
+                            right: 6,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 5, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.6),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.star_rounded,
+                                      size: 10, color: Colors.amber),
+                                  const SizedBox(width: 2),
+                                  Text(
+                                    widget.item.score!,
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.amber,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        if (widget.item.remarks != null &&
+                            widget.item.remarks!.isNotEmpty)
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 3),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.bottomCenter,
+                                  end: Alignment.topCenter,
+                                  colors: [
+                                    Colors.black.withValues(alpha: 0.78),
+                                    Colors.transparent,
+                                  ],
+                                ),
+                              ),
+                              child: Text(
+                                widget.item.remarks!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 9.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
                         Center(
                           child: AnimatedContainer(
                             duration: const Duration(milliseconds: 200),
@@ -720,6 +786,48 @@ class _AnimeCardState extends State<_AnimeCard> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 无封面条目的首字占位封面：按标题哈希取主题色，居中显示首个字符，
+/// 避免纯文本源（如 Anime1）全部卡片挤成同一张空占位图。
+class _LetterCover extends StatelessWidget {
+  final String title;
+  final ColorScheme scheme;
+  const _LetterCover({required this.title, required this.scheme});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = title.trim();
+    final letter = t.isEmpty ? '?' : t.characters.first.toUpperCase();
+    const palette = [
+      Color(0xFF5B7FFF), Color(0xFF4FC3A1), Color(0xFFEF6C6C),
+      Color(0xFFF2A65A), Color(0xFF8E7CF5), Color(0xFF3FA7D6),
+      Color(0xFFE06FB4), Color(0xFF6FA86F),
+    ];
+    var hash = 0;
+    for (final c in t.codeUnits) {
+      hash = (hash * 31 + c) & 0x7fffffff;
+    }
+    final bg = palette[hash % palette.length];
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [bg.withValues(alpha: 0.85), bg.withValues(alpha: 0.55)],
+        ),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        letter,
+        style: TextStyle(
+          fontSize: 40,
+          fontWeight: FontWeight.w800,
+          color: Colors.white.withValues(alpha: 0.92),
         ),
       ),
     );

@@ -45,20 +45,17 @@ class UpdateDownloadManager {
   String? _apkPath;
   int _totalSize = 0;
 
-  /// GitHub 加速镜像：按速度优先级排序，直连放最后。
-  /// 空字符串表示直连 GitHub（对国内用户最慢）。
+  /// GitHub 加速镜像：按速度优先级排列，空字符串表示直连 GitHub。
+  /// 2026-08 实测：ghproxy.net 是唯一稳定支持大文件+Range 的镜像（241KB/s）。
   static const _mirrors = <String>[
-    'https://gh-proxy.com/',
     'https://ghproxy.net/',
-    'https://mirror.ghproxy.com/',
-    'https://github.moeyy.xyz/',
-    'https://ghps.cc/',
+    'https://ghfast.top/',
     '',
   ];
 
-  /// 慢速阈值：10 秒内平均速度低于此值则放弃当前镜像换下一个。
-  static const int _minSpeedBytesPerSec = 50 * 1024; // 50 KB/s
-  static const Duration _speedCheckDuration = Duration(seconds: 10);
+  /// 慢速阈值：5 秒内平均速度低于此值则放弃当前镜像换下一个。
+  static const int _minSpeedBytesPerSec = 200 * 1024; // 200 KB/s
+  static const Duration _speedCheckDuration = Duration(seconds: 5);
 
   /// 启动后台下载（去重，已在跑就直接返回）。
   Future<void> start(String apkUrl) async {

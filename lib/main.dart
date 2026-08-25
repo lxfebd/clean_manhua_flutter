@@ -5,6 +5,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'net/bookshelf_store.dart';
+import 'net/http_client.dart';
 import 'net/local_store.dart';
 import 'net/novel_shelf_store.dart';
 import 'theme.dart';
@@ -19,6 +20,9 @@ void main() async {
   } catch (_) {}
   try {
     await LocalStore.init();
+  } catch (_) {}
+  try {
+    await Net.restorePreferredHostIps();
   } catch (_) {}
   try {
     final dir = await getApplicationSupportDirectory();

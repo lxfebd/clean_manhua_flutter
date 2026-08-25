@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -64,6 +63,11 @@ class _ReaderPageState extends State<ReaderPage> {
   double _dim = 1.0; // 亮度（1.0=最亮），真实接管系统亮度
   bool _brightnessNative = false; // 是否已接管系统亮度（false 时降级为遮罩）
   Timer? _hideTimer;
+  int _autoPage = 0; // 自动翻页间隔（秒），0 = 关闭
+  Timer? _autoPageTimer;
+
+  /// 章节图片列表缓存：key=chapterId，已加载/预取的章节直接用，避免连读重复拉取。
+  final Map<String, List<String>> _chapterPicCache = {};
 
   /// 阅读时长统计：累计本次阅读秒数，每 5s flush 一次。
   final Stopwatch _readWatch = Stopwatch();
@@ -78,7 +82,6 @@ class _ReaderPageState extends State<ReaderPage> {
   /// 防误触：触摸锁、动画锁、二次返回退出
   bool _touchLocked = false; // 用户主动锁定触控（躺卧阅读）
   bool _pageAnimating = false; // 翻页动画进行中
-  DateTime _lastBackTime = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastTouchTime = DateTime.fromMillisecondsSinceEpoch(0);
   Offset? _lastTouchPos;
   // 手动双击检测（不依赖 GestureDetector.onDoubleTap，因与子组件手势竞技场冲突）
@@ -128,6 +131,7 @@ class _ReaderPageState extends State<ReaderPage> {
     _horizontal = await LocalStore.horizontalReader();
     _rtl = await LocalStore.rtlReader();
     _resLevel = await LocalStore.resLevel();
+    _autoPage = await LocalStore.autoPageTurn();
     _downloaded = await DownloadManager.isDownloaded(_book.key, widget.chapterId);
     _load();
   }
@@ -144,8 +148,7 @@ class _ReaderPageState extends State<ReaderPage> {
       });
     }
     try {
-      final urls = await SourceManager.byId(widget.sourceId)
-          .chapterPics(chapterId);
+      final urls = await _chapterUrls(chapterId);
       final downloaded = await DownloadManager.isDownloaded(_book.key, chapterId);
       if (downloaded) {
         final local = <String>[];
@@ -176,9 +179,72 @@ class _ReaderPageState extends State<ReaderPage> {
       // 切章节后重新记录历史（页码以 target 为准）
       _recordHistory(chapterTitle: chapterTitle);
       _prefetch(target);
+      _prefetchNextChapter();
+      _startAutoPage();
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  /// 获取章节图片列表：优先用缓存（连读/重复打开免网络请求）。
+  Future<List<String>> _chapterUrls(String chapterId) async {
+    final cached = _chapterPicCache[chapterId];
+    if (cached != null) return cached;
+    final urls =
+        await SourceManager.byId(widget.sourceId).chapterPics(chapterId);
+    _chapterPicCache[chapterId] = urls;
+    return urls;
+  }
+
+  /// 沉浸式连读加速：预先拉取下一话的图片列表并预取前 2 页，连读时秒开。
+  Future<void> _prefetchNextChapter() async {
+    if (!_canContinue) return;
+    final next = widget.chapters[_chapterIndex + 1];
+    if (_chapterPicCache.containsKey(next.id)) return;
+    try {
+      final urls = await _chapterUrls(next.id);
+      // 预取下一话前 2 页图片字节（与 _prefetch 一致处理 JM 解扰）
+      for (var i = 0; i < 2 && i < urls.length; i++) {
+        final u = urls[i];
+        if (u.startsWith('/')) continue;
+        if (u.contains('@') || widget.sourceId == 'jm') {
+          ImageCacheManager.load(u, fetch: () async {
+            final split = JmScramble.splitUrl(u);
+            final referer = _jmReferer(split.url);
+            var raw = Uint8List.fromList(await Net.getBytesCronet(
+              split.url,
+              headers: {
+                'User-Agent': Net.defaultUA,
+                'Referer': referer,
+                'Accept': 'image/webp,image/*,*/*',
+              },
+            ));
+            if (JmScramble.parseAid(u) != null) {
+              raw = await JmScramble.descrambleAsync(raw, u);
+            }
+            return raw;
+          });
+        } else {
+          ImageCacheManager.preload(u, headers: _headersForUrl(u));
+        }
+      }
+    } catch (_) {}
+  }
+
+  /// 自动翻页：按间隔定时翻页。每次用户触摸/切章都会重置计时。
+  void _startAutoPage() {
+    _autoPageTimer?.cancel();
+    if (_autoPage <= 0) return;
+    _autoPageTimer = Timer.periodic(Duration(seconds: _autoPage), (_) {
+      if (!mounted || _loading || _pageAnimating) return;
+      if (_overlay || _touchLocked) return; // 工具栏/触控锁定中不自动翻页
+      _nextPage();
+    });
+  }
+
+  void _stopAutoPage() {
+    _autoPageTimer?.cancel();
+    _autoPageTimer = null;
   }
 
   /// 记录历史（含页码）。翻页时也会调用以持续更新进度。
@@ -199,8 +265,7 @@ class _ReaderPageState extends State<ReaderPage> {
 
   Future<void> _load() async {
     try {
-      final urls = await SourceManager.byId(widget.sourceId)
-          .chapterPics(widget.chapterId);
+      final urls = await _chapterUrls(widget.chapterId);
       if (_downloaded) {
         final local = <String>[];
         for (var i = 0; i < urls.length; i++) {
@@ -227,6 +292,8 @@ class _ReaderPageState extends State<ReaderPage> {
       } else {
         _prefetch(0);
       }
+      _prefetchNextChapter();
+      _startAutoPage();
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
@@ -322,19 +389,8 @@ class _ReaderPageState extends State<ReaderPage> {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      // 防误触：二次返回确认。第一次按返回显示提示，1.5s 内再按才退出。
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
-        final now = DateTime.now();
-        final dt = now.difference(_lastBackTime).inMilliseconds;
-        if (dt < 1500) {
-          Navigator.maybePop(context);
-        } else {
-          _lastBackTime = now;
-          _toast('再按一次返回退出阅读');
-        }
-      },
+      // 去掉防误触二次返回：直接返回上一集/退出，避免多次按返回无效影响使用。
+      canPop: true,
       child: Scaffold(
       backgroundColor: Colors.black,
       // 注意：Scaffold body 给的是宽松约束，Stack 会按非 positioned 子节点
@@ -413,6 +469,7 @@ class _ReaderPageState extends State<ReaderPage> {
         horizontal: _horizontal,
         dim: _dim,
         resLevel: _resLevel,
+        autoPage: _autoPage,
         onDimChanged: (v) {
           _setBrightness(v);
         },
@@ -423,6 +480,11 @@ class _ReaderPageState extends State<ReaderPage> {
         onResLevelChanged: (v) {
           setState(() => _resLevel = v);
           LocalStore.setResLevel(v);
+        },
+        onAutoPageChanged: (v) {
+          setState(() => _autoPage = v);
+          LocalStore.setAutoPageTurn(v);
+          _startAutoPage();
         },
         onCatalog: () {
           Navigator.pop(context);
@@ -595,6 +657,8 @@ class _ReaderPageState extends State<ReaderPage> {
 
   /// 点击阅读区：按 x 位置判断 left/center/right，按手势配置执行动作。
   void _onReaderTap(Offset pos) {
+    // 用户触摸即重置自动翻页计时（从最后交互起重新计 N 秒）
+    _startAutoPage();
     // 防误触：动画中禁止操作
     if (_pageAnimating) return;
 
@@ -737,6 +801,7 @@ class _ReaderPageState extends State<ReaderPage> {
     _hideTimer?.cancel();
     _historyDebounce?.cancel();
     _scrollEndTimer?.cancel();
+    _stopAutoPage();
     // 清理滑动 Completer，避免等待方永久挂起
     if (_ReaderPageState._scrollEndCompleter != null &&
         !_ReaderPageState._scrollEndCompleter!.isCompleted) {
@@ -1172,7 +1237,7 @@ class _CachedReaderImageState extends State<_CachedReaderImage> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            Image.asset('assets/placeholder_cover.png',
+            Image.asset('assets/placeholder_cover.webp',
                 fit: BoxFit.cover, gaplessPlayback: true),
             Center(
               child: GestureDetector(
@@ -1197,7 +1262,7 @@ class _CachedReaderImageState extends State<_CachedReaderImage> {
       return SizedBox(
         width: double.infinity,
         height: 240,
-        child: SvgPicture.asset('assets/placeholder_cover.svg',
+        child: Image.asset('assets/placeholder_cover.webp',
             fit: BoxFit.cover),
       );
     }
@@ -1423,14 +1488,16 @@ class _ToolBtn extends StatelessWidget {
   }
 }
 
-/// 阅读设置抽屉（S6）：亮度滑块 + 翻页模式 + 目录/章节/下载。
+/// 阅读设置抽屉（S6）：亮度滑块 + 翻页模式 + 画质 + 自动翻页 + 目录/章节/下载。
 class _ReaderSettingsSheet extends StatefulWidget {
   final bool horizontal;
   final double dim;
   final int resLevel;
+  final int autoPage;
   final ValueChanged<double> onDimChanged;
   final ValueChanged<bool> onLayoutChanged;
   final ValueChanged<int> onResLevelChanged;
+  final ValueChanged<int> onAutoPageChanged;
   final VoidCallback onCatalog;
 
   /// 章内切换章节（章节列表非空时才可用）。
@@ -1440,9 +1507,11 @@ class _ReaderSettingsSheet extends StatefulWidget {
     required this.horizontal,
     required this.dim,
     required this.resLevel,
+    required this.autoPage,
     required this.onDimChanged,
     required this.onLayoutChanged,
     required this.onResLevelChanged,
+    required this.onAutoPageChanged,
     required this.onCatalog,
     this.onSelectChapter,
     this.onDownload,
@@ -1456,6 +1525,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
   late double _localDim;
   late int _localResLevel;
   late bool _localHorizontal;
+  late int _localAutoPage;
 
   @override
   void initState() {
@@ -1463,6 +1533,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
     _localDim = widget.dim;
     _localResLevel = widget.resLevel;
     _localHorizontal = widget.horizontal;
+    _localAutoPage = widget.autoPage;
   }
 
   @override
@@ -1471,6 +1542,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
     _localDim = widget.dim;
     _localResLevel = widget.resLevel;
     _localHorizontal = widget.horizontal;
+    _localAutoPage = widget.autoPage;
   }
 
   @override
@@ -1588,6 +1660,43 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
             ),
           ),
           const SizedBox(height: 16),
+          // 自动翻页
+          Text('自动翻页',
+              style: const TextStyle(
+                  fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _autoOption('关闭', 0, _localAutoPage, () {
+                setState(() => _localAutoPage = 0);
+                widget.onAutoPageChanged(0);
+              }),
+              const SizedBox(width: 6),
+              _autoOption('5秒', 5, _localAutoPage, () {
+                setState(() => _localAutoPage = 5);
+                widget.onAutoPageChanged(5);
+              }),
+              const SizedBox(width: 6),
+              _autoOption('10秒', 10, _localAutoPage, () {
+                setState(() => _localAutoPage = 10);
+                widget.onAutoPageChanged(10);
+              }),
+              const SizedBox(width: 6),
+              _autoOption('20秒', 20, _localAutoPage, () {
+                setState(() => _localAutoPage = 20);
+                widget.onAutoPageChanged(20);
+              }),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '开启后自动翻页，触摸屏幕或显示菜单时暂停',
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.white.withValues(alpha: 0.4),
+            ),
+          ),
+          const SizedBox(height: 16),
           Row(
             children: [
               Expanded(
@@ -1684,6 +1793,10 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
       ),
     );
   }
+
+  /// 自动翻页选项按钮（复用画质选项风格）。
+  Widget _autoOption(String label, int value, int current, VoidCallback onTap) =>
+      _resOption(label, value, current, onTap);
 
   Widget _ghostBtn(String label, IconData icon, VoidCallback onTap) {
     return InkWell(
