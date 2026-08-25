@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../net/download_manager.dart';
 import '../net/image_cache.dart';
 import '../net/local_store.dart';
+import '../sources/source_manager.dart';
 import 'settings_page.dart';
 import 'tools/device_tools_page.dart';
 import 'tools/image_tools_page.dart';
@@ -36,7 +37,7 @@ class ToolboxPageState extends State<ToolboxPage> {
   int _cacheCount = 0;
   bool _busyCache = false;
 
-  static const String _nekogalUrl = 'https://www.xifan.moe/';
+  static const String _nekogalUrl = 'https://xifan.moe/';
 
   @override
   void initState() {
@@ -108,11 +109,14 @@ class ToolboxPageState extends State<ToolboxPage> {
   Future<void> _retryDownload(DownloadRecord d) async {
     setState(() => _busyDownloads = true);
     try {
+      // 从源头重新获取图片 URL 列表，避免传入空数组导致立即完成
+      final source = SourceManager.byId(d.book.sourceId);
+      final urls = await source.chapterPics(d.chapterId);
       await DownloadManager.retry(
         '${d.book.sourceId}::${d.book.comicId}',
         d.chapterId,
         d.chapterTitle,
-        [],
+        urls,
       );
       await _refreshDownloads();
     } catch (e) {

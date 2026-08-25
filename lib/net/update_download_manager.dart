@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'update_checker.dart';
 
@@ -41,8 +42,8 @@ class UpdateDownloadManager {
   bool _running = false;
   bool _cancelled = false;
   String? _downloadedPath;
-  Directory? _tmpDir;
-  String get _apkPath => '${_tmpDir?.path ?? '/tmp'}/xingmanxia.apk';
+  String? _apkPath;
+  int _totalSize = 0;
 
   /// GitHub 加速镜像：按速度优先级排序，直连放最后。
   /// 空字符串表示直连 GitHub（对国内用户最慢）。
@@ -65,7 +66,11 @@ class UpdateDownloadManager {
     _running = true;
     _cancelled = false;
     _downloadedPath = null;
-    _tmpDir ??= await Directory.systemTemp.createTemp('xingmanxia_update');
+    _totalSize = 0;
+    // 使用应用缓存目录（getTemporaryDirectory），而非系统级 /data/local/tmp，
+    // 符合 Android 存储规范且 FileProvider 可正常分享。
+    final cacheDir = await getTemporaryDirectory();
+    _apkPath = '${cacheDir.path}/xingmanxia_update.apk';
     _notify('更新下载', '开始下载…', 0, 0, false);
     _state = const UpdateDownloadState();
     _stateCtrl.add(_state);
@@ -79,8 +84,11 @@ class UpdateDownloadManager {
     _state = const UpdateDownloadState(error: '已取消');
     _stateCtrl.add(_state);
     _cancelNotif();
-    _tmpDir?.deleteSync(recursive: true);
-    _tmpDir = null;
+    final p = _apkPath;
+    if (p != null) {
+      final f = File(p);
+      if (f.existsSync()) f.deleteSync();
+    }
   }
 
   Future<void> _downloadWithMirrors(String originalUrl) async {
@@ -92,13 +100,15 @@ class UpdateDownloadManager {
     for (var i = 0; i < candidates.length; i++) {
       if (_cancelled) break;
       final url = candidates[i];
-      final label = i == 0 ? '直连' : '镜像${i}';
+      final label = i == 0 ? '直连' : '镜像$i';
       try {
         final path = await _downloadOne(url, label: label);
         if (_cancelled) return;
         _downloadedPath = path;
         _state = UpdateDownloadState(
-            received: _state.total, total: _state.total, done: true);
+            received: _totalSize > 0 ? _totalSize : await File(path).length(),
+            total: _totalSize > 0 ? _totalSize : await File(path).length(),
+            done: true);
         _stateCtrl.add(_state);
         _notifyDone();
         await _triggerInstall();
@@ -118,7 +128,9 @@ class UpdateDownloadManager {
   /// 下载单个 URL（带 Range 断点续传 + 速度计算）。
   /// 使用固定路径文件，切换镜像/重试时可续传。
   Future<String> _downloadOne(String url, {required String label}) async {
-    final file = File(_apkPath);
+    final path = _apkPath;
+    if (path == null) throw Exception('下载路径未初始化');
+    final file = File(path);
 
     var received = 0;
     if (file.existsSync()) {
@@ -136,17 +148,23 @@ class UpdateDownloadManager {
       if (res.statusCode != 200 && res.statusCode != 206) {
         throw Exception('HTTP ${res.statusCode} ($label)');
       }
-      final total = res.contentLength > 0
-          ? received + res.contentLength
-          : (res.headers.value('content-range') != null
-              ? int.parse(res.headers.value('content-range')!.split('/').last)
-              : 0);
 
       // 服务器不支持 Range（200 且 received>0）：清空文件从头下，避免追加损坏
       if (res.statusCode == 200 && received > 0) {
         received = 0;
         if (file.existsSync()) await file.delete();
       }
+
+      // 总大小只设一次（第一个返回 content-length 的镜像），后续镜像不覆盖
+      final respTotal = res.contentLength > 0
+          ? received + res.contentLength
+          : (res.headers.value('content-range') != null
+              ? int.parse(res.headers.value('content-range')!.split('/').last)
+              : 0);
+      if (respTotal > 0 && _totalSize == 0) {
+        _totalSize = respTotal;
+      }
+      final total = _totalSize > 0 ? _totalSize : respTotal;
 
       final sink = file.openWrite(mode: FileMode.append);
       var lastTick = DateTime.now();
@@ -166,15 +184,14 @@ class UpdateDownloadManager {
           final speedBytes = (received - lastBytes) / (dt / 1000);
           lastBytes = received;
           lastTick = now;
-          // 慢速检测：前 10 秒内平均速度 < 50KB/s 则放弃
+          // 慢速检测：前 10 秒内平均速度 < 50KB/s 则放弃当前镜像换下一个。
+          // 不删除已下载文件，下一个镜像用 Range 续传。
           if (!speedCheckPassed &&
               now.difference(startTime).inMilliseconds >=
                   _speedCheckDuration.inMilliseconds) {
             final avgSpeed = received / now.difference(startTime).inMilliseconds * 1000;
             if (avgSpeed < _minSpeedBytesPerSec) {
               await sink.close();
-              if (file.existsSync()) await file.delete();
-              received = 0;
               throw Exception('速度太慢 ${_fmtSpeed(avgSpeed)} ($label)');
             }
             speedCheckPassed = true;
@@ -183,7 +200,7 @@ class UpdateDownloadManager {
           _state = UpdateDownloadState(
               received: received, total: total, speed: speedStr);
           _stateCtrl.add(_state);
-          _notify('更新下载', '$label 下载中 $speedStr', received, total, false);
+          _notify('更新下载', '$label $speedStr', received, total, false);
         }
       }
       await sink.close();

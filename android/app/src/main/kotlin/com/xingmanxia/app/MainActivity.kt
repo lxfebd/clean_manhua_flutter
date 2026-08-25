@@ -15,6 +15,7 @@ import java.io.File
 
 class MainActivity : FlutterActivity() {
     private val notifChannelId = "xingmanxia_update"
+    private val notifChannelIdHigh = "xingmanxia_install"
     private val notifId = 9527
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -28,8 +29,12 @@ class MainActivity : FlutterActivity() {
                         if (path == null) {
                             result.error("NO_PATH", "path is null", null)
                         } else {
-                            installApk(File(path))
-                            result.success(true)
+                            try {
+                                installApk(File(path))
+                                result.success(true)
+                            } catch (e: Exception) {
+                                result.error("INSTALL_FAIL", e.message, null)
+                            }
                         }
                     }
                     else -> result.notImplemented()
@@ -75,8 +80,8 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun ensureChannel() {
+        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
             if (nm.getNotificationChannel(notifChannelId) == null) {
                 val ch = NotificationChannel(
                     notifChannelId,
@@ -87,6 +92,20 @@ class MainActivity : FlutterActivity() {
                     setShowBadge(false)
                 }
                 nm.createNotificationChannel(ch)
+            }
+            // 高优先级通道：用于下载完成后弹出安装器
+            if (nm.getNotificationChannel(notifChannelIdHigh) == null) {
+                val chHigh = NotificationChannel(
+                    notifChannelIdHigh,
+                    "安装更新",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "下载完成后拉起安装器"
+                    setShowBadge(true)
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 200, 200, 200)
+                }
+                nm.createNotificationChannel(chHigh)
             }
         }
     }
@@ -116,13 +135,14 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun showDoneNotif(title: String, text: String, path: String) {
-        val builder = NotificationCompat.Builder(this, notifChannelId)
+        val builder = NotificationCompat.Builder(this, notifChannelIdHigh)
             .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setAutoCancel(true)
             .setOngoing(false)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
 
         if (path.isNotEmpty()) {
             val file = File(path)
@@ -132,12 +152,15 @@ class MainActivity : FlutterActivity() {
                     setDataAndType(uri, "application/vnd.android.package-archive")
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 }
                 val pi = PendingIntent.getActivity(
                     this, 0, intent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
                 builder.setContentIntent(pi)
+                // 全屏 Intent：屏幕开启时直接拉起安装器（Android 10+ 后台启动 Activity 的合规方式）
+                builder.setFullScreenIntent(pi, true)
             }
         } else {
             val intent = Intent(this, MainActivity::class.java).apply {
@@ -155,7 +178,7 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun showErrorNotif(title: String, text: String) {
-        val builder = NotificationCompat.Builder(this, notifChannelId)
+        val builder = NotificationCompat.Builder(this, notifChannelIdHigh)
             .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_notify_error)
@@ -175,18 +198,20 @@ class MainActivity : FlutterActivity() {
             setDataAndType(uri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
         val pi = PendingIntent.getActivity(
             this, 0, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val builder = NotificationCompat.Builder(this, notifChannelId)
+        val builder = NotificationCompat.Builder(this, notifChannelIdHigh)
             .setContentTitle("点击安装更新")
             .setContentText("下载完成，点击安装")
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setAutoCancel(true)
             .setOngoing(false)
             .setContentIntent(pi)
+            .setFullScreenIntent(pi, true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(notifId, builder.build())
@@ -207,6 +232,7 @@ class MainActivity : FlutterActivity() {
             setDataAndType(uri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
         startActivity(intent)
     }

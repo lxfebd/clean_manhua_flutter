@@ -52,6 +52,8 @@ dependencies:
   file_picker: ^11.0.3
   device_info_plus: ^11.2.0
   qr_flutter: ^4.1.0
+  url_launcher: ^6.3.1
+  flutter_svg: ^2.0.10
 
 dev_dependencies:
   flutter_test:
@@ -77,6 +79,7 @@ flutter:
 
   assets:
     - assets/anime4k/
+    - assets/placeholder_cover.svg
     - ui_assets/icon-logo.png
 
   # To add assets to your application, add an assets section, like this:

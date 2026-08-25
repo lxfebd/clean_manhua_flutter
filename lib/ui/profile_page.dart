@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../main.dart';
 import '../net/bookshelf_store.dart';
 import '../net/local_store.dart';
+import '../net/update_checker.dart';
 import 'settings_page.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
@@ -654,6 +656,23 @@ class _HistorySheet extends StatelessWidget {
 class _HelpSheet extends StatelessWidget {
   const _HelpSheet();
 
+  static String _issuesUrl() {
+    final body = Uri.encodeComponent(
+      '请描述遇到的问题：\n\n'
+      '版本：${UpdateChecker.currentVersion()}\n'
+      '设备：\n'
+      '复现步骤：\n'
+      '1. \n'
+      '2. \n'
+      '3. \n'
+      '\n'
+      '（如有截图请附上）',
+    );
+    final title = Uri.encodeComponent('[Bug] ');
+    return 'https://github.com/lxfebd/clean_manhua_flutter/issues/new'
+        '?title=$title&body=$body';
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -694,6 +713,32 @@ class _HelpSheet extends StatelessWidget {
               '• 数据源加载失败可尝试「切换数据源」或稍后重试\n'
               '• 发现 Bug 或有建议，欢迎反馈',
               style: TextStyle(fontSize: 13, height: 1.8),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () async {
+                  Navigator.pop(context);
+                  // 用系统浏览器打开 GitHub Issues（WebView 内登录态不可靠，
+                  // OAuth 重定向/Cookie 隔离会导致用户无法登录提交）。
+                  final uri = Uri.parse(_issuesUrl());
+                  try {
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri,
+                          mode: LaunchMode.externalApplication);
+                    }
+                  } catch (_) {}
+                },
+                icon: const Icon(Icons.bug_report_outlined, size: 18),
+                label: const Text('提交反馈 / 报告 Bug'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(44),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
             ),
           ],
         ),

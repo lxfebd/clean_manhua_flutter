@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../net/image_cache.dart';
 import '../../utils/image_super_res.dart';
@@ -58,7 +59,7 @@ class _CachedImageState extends State<CachedImage> {
     }
   }
 
-  String _superResKey() => '${widget.url}|sr2x';
+  String _superResKey() => '${widget.url}|${ImageSuperRes.algoVersion}';
 
   Future<void> _load() async {
     if (_loading || widget.url.isEmpty) return;
@@ -95,21 +96,30 @@ class _CachedImageState extends State<CachedImage> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     Widget img;
     if (widget.url.isEmpty || _failed) {
       img = GestureDetector(
         onTap: _load,
-        child: Container(
-          color: scheme.surfaceContainerHighest,
-          alignment: Alignment.center,
-          child: Icon(
-            _failed
-                ? Icons.refresh_rounded
-                : Icons.image_not_supported_outlined,
-            color: scheme.onSurface.withValues(alpha: 0.3),
-            size: _failed ? 26 : 28,
-          ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            SvgPicture.asset(
+              'assets/placeholder_cover.svg',
+              fit: BoxFit.cover,
+            ),
+            if (_failed)
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Icon(Icons.refresh_rounded,
+                      color: Colors.white70, size: 26),
+                ),
+              ),
+          ],
         ),
       );
     } else if (_bytes != null) {
@@ -127,17 +137,12 @@ class _CachedImageState extends State<CachedImage> {
         cacheWidth: cw,
       );
     } else {
-      img = Container(
-        color: scheme.surfaceContainerHighest,
-        alignment: Alignment.center,
-        child: SizedBox(
-          width: 18,
-          height: 18,
-          child: CircularProgressIndicator(
-            strokeWidth: 1.6,
-            color: scheme.primary.withValues(alpha: 0.7),
-          ),
-        ),
+      img = Image.asset(
+        'assets/placeholder_cover.png',
+        fit: BoxFit.cover,
+        width: widget.width,
+        height: widget.height,
+        gaplessPlayback: true,
       );
     }
 

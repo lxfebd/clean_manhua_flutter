@@ -59,6 +59,10 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   int _curEpisode = 1;
   double _speed = 1.0;
   bool _descExpanded = false;
+  // 解析中：WebView 加载后先隐藏网页内容，等直链捕获后直接切原生播放器。
+  // 5 秒超时后放弃隐藏（降级为 WebView 播放），避免卡在黑屏。
+  bool _resolving = true;
+  Timer? _resolveTimer;
 
   static const ua = 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
@@ -99,6 +103,13 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       ..loadRequest(Uri.parse(widget.url), headers: _hostHeader(widget.url));
     _enableWebViewMediaPlayback();
     _hookVideoSource();
+    // 8 秒后放弃隐藏 WebView（降级为网页播放），避免一直黑屏。
+    // 弱网环境下 5 秒可能不够解析直链。
+    _resolveTimer = Timer(const Duration(seconds: 8), () {
+      if (mounted && _resolving) {
+        setState(() => _resolving = false);
+      }
+    });
   }
 
   /// WebView 内 video 直链被捕获时，切到 mpv 原生播放器
@@ -108,6 +119,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     if (src == _hookedVideoUrl) return;
     _hookedVideoUrl = src;
     if (!mounted) return;
+    // 取消解析定时器，防止 pushReplacement 后定时器触发 setState
+    _resolveTimer?.cancel();
+    _videoPollTimer?.cancel();
     // 用 pushReplacement 替换当前网页播放器，避免栈里叠两层播放器：
     // 选集页 → 网页播放器 → 原生播放器。返回时直接回到选集页。
     Navigator.of(context).pushReplacement(MaterialPageRoute(
@@ -208,6 +222,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   @override
   void dispose() {
     _videoPollTimer?.cancel();
+    _resolveTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
@@ -455,11 +470,26 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   Widget _webView() {
     return Stack(children: [
       WebViewWidget(controller: _controller),
-      if (_loading)
+      // 解析中或加载中：黑屏 + loading，隐藏网页内容防止"两层壳"闪烁
+      if (_loading || _resolving)
         Container(
           color: Colors.black,
-          child: const Center(
-            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  _resolving ? '解析直链中…' : '加载中…',
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+              ],
+            ),
           ),
         ),
     ]);

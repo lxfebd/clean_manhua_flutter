@@ -112,33 +112,32 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    // 用 Stack + AnimatedOpacity 替代 IndexedStack，保持所有子页面 State 不被销毁的同时
+    // 实现 Tab 切换淡入淡出动画（不依赖 AnimatedSwitcher + KeyedSubtree 那种销毁重建模式）。
+    final tabs = [
+      const MangaAnimeTabs(),
+      BookshelfPage(key: _shelfKey),
+      ToolboxPage(key: _toolboxKey),
+      ProfilePage(key: _profileKey, onSwitchTab: _onTab),
+    ];
     return Scaffold(
       extendBody: true,
-      body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 380),
-        switchInCurve: Curves.easeOutCubic,
-        switchOutCurve: Curves.easeInCubic,
-        transitionBuilder: (child, anim) {
-          return FadeTransition(
-            opacity: anim,
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(0, 0.04),
-                end: Offset.zero,
-              ).animate(anim),
-              child: child,
+      body: Stack(
+        children: [
+          for (var i = 0; i < tabs.length; i++)
+            TickerMode(
+              enabled: _index == i,
+              child: AnimatedOpacity(
+                opacity: _index == i ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                child: IgnorePointer(
+                  ignoring: _index != i,
+                  child: tabs[i],
+                ),
+              ),
             ),
-          );
-        },
-        child: KeyedSubtree(
-          key: ValueKey(_index),
-          child: IndexedStack(index: _index, children: [
-            const MangaAnimeTabs(),
-            BookshelfPage(key: _shelfKey),
-            ToolboxPage(key: _toolboxKey),
-            ProfilePage(key: _profileKey, onSwitchTab: _onTab),
-          ]),
-        ),
+        ],
       ),
       bottomNavigationBar: _GlassBottomBar(
         currentIndex: _index,

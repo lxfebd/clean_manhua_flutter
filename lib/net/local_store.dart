@@ -226,7 +226,9 @@ class LocalStore {
       final f = await _fileAsync(name);
       final json = jsonEncode(data);
       await f.writeAsString(json, flush: true);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('LocalStore._write($name) error: $e');
+    }
   }
 
   static dynamic _read(String name) async {
@@ -497,10 +499,16 @@ class LocalStore {
 
   // ---- 下载记录 ----
   static Future<List<DownloadRecord>> downloads() async {
-    final list = (await _read('downloads') as List?) ?? [];
-    return list
-        .map((e) => DownloadRecord.fromMap(e as Map<String, dynamic>))
-        .toList();
+    try {
+      final raw = await _read('downloads');
+      if (raw is! List) return [];
+      return raw
+          .map((e) => DownloadRecord.fromMap(e as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      debugPrint('LocalStore.downloads() error: $e');
+      return [];
+    }
   }
 
   static Future<DownloadRecord?> downloadOf(String key) async {

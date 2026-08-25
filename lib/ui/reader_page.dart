@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -80,6 +81,18 @@ class _ReaderPageState extends State<ReaderPage> {
   DateTime _lastBackTime = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastTouchTime = DateTime.fromMillisecondsSinceEpoch(0);
   Offset? _lastTouchPos;
+  // 手动双击检测（不依赖 GestureDetector.onDoubleTap，因与子组件手势竞技场冲突）
+  DateTime _lastTapTime = DateTime.fromMillisecondsSinceEpoch(0);
+  Offset? _lastTapPos;
+  // 双击阈值：时间 500ms（比系统 kDoubleTapTimeout=300ms 更宽容，适配低端机），
+  // 距离 64px（系统 kDoubleTapSlop 物理像素，适配 DPI）。
+  static const int _doubleTapMs = 500;
+  static const double _doubleTapDist = 64.0;
+  // 滑动检测：事件驱动（Completer），不再用静态轮询。
+  // 多个 ReaderPage 实例并存（分屏/画中画）时共享该状态，滑动等待超分
+  // 只是推迟一点执行，行为仍是安全的。
+  static Completer<void>? _scrollEndCompleter;
+  Timer? _scrollEndTimer;
   Timer? _historyDebounce;
 
   /// 当前加载的章节 id 与页数（记录历史用）。
@@ -549,6 +562,28 @@ class _ReaderPageState extends State<ReaderPage> {
     _toast(_touchLocked ? '触摸已锁定' : '触摸已解锁');
   }
 
+  /// 标记开始滑动，超分在滑动期间暂停。
+  /// 使用 Completer 事件驱动：滑动开始时创建 Completer，结束时 complete 它，
+  /// _CachedReaderImage 通过 await Completer.future 等待停止，无需轮询。
+  void _markScrolling() {
+    _scrollEndTimer?.cancel();
+    if (_scrollEndCompleter == null || _scrollEndCompleter!.isCompleted) {
+      _scrollEndCompleter = Completer<void>();
+    }
+    _scrollEndTimer = Timer(const Duration(milliseconds: 400), _markScrollEnd);
+  }
+
+  void _markScrollEnd() {
+    _scrollEndTimer?.cancel();
+    final c = _scrollEndCompleter;
+    _scrollEndCompleter = null;
+    c?.complete();
+  }
+
+  /// 供 _CachedReaderImage 等待滑动结束（事件驱动，非轮询）。
+  static Completer<void>? get _currentScrollCompleter =>
+      _ReaderPageState._scrollEndCompleter;
+
   /// 把本次累计的阅读时长 flush 到本地存储（每 5s 一次，退出时再 flush 一次）。
   Future<void> _flushStats() async {
     final elapsed = _readWatch.elapsed.inSeconds;
@@ -562,16 +597,37 @@ class _ReaderPageState extends State<ReaderPage> {
   void _onReaderTap(Offset pos) {
     // 防误触：动画中禁止操作
     if (_pageAnimating) return;
+
+    final now = DateTime.now();
+
+    // 手动双击检测（不依赖 GestureDetector.onDoubleTap，因与子组件手势竞技场冲突）。
+    // 锁定时：双击 → 解锁。未锁定时：双击 → 切换菜单显隐（不会意外锁定）。
+    final tapDt = now.difference(_lastTapTime).inMilliseconds;
+    if (tapDt < _doubleTapMs && _lastTapPos != null &&
+        (pos - _lastTapPos!).distance < _doubleTapDist) {
+      if (_touchLocked) {
+        _toggleTouchLock();
+      } else {
+        _toggleOverlay();
+      }
+      _lastTapTime = DateTime.fromMillisecondsSinceEpoch(0);
+      _lastTapPos = null;
+      return;
+    }
+    _lastTapTime = now;
+    _lastTapPos = pos;
+
     // 防误触：触摸锁定（躺卧阅读时用户主动锁屏）
     if (_touchLocked) {
       _toast('触摸已锁定，双击解锁');
       return;
     }
-    // 防掌按：连续两次触摸间隔 < 100ms 且位置相近 → 判定为掌按手势
-    final now = DateTime.now();
-    final dt = now.difference(_lastTouchTime).inMilliseconds;
-    if (dt < 200 && _lastTouchPos != null &&
+    // 防掌按：连续两次触摸间隔 < 200ms 且位置相近 → 判定为掌按手势。
+    // 掌按时更新时间戳但不执行动作，防止掌按期间误翻页。
+    final touchDt = now.difference(_lastTouchTime).inMilliseconds;
+    if (touchDt < 200 && _lastTouchPos != null &&
         (pos - _lastTouchPos!).distance < 80) {
+      _lastTouchTime = now;
       return;
     }
     _lastTouchTime = now;
@@ -680,6 +736,13 @@ class _ReaderPageState extends State<ReaderPage> {
     _statsTimer?.cancel();
     _hideTimer?.cancel();
     _historyDebounce?.cancel();
+    _scrollEndTimer?.cancel();
+    // 清理滑动 Completer，避免等待方永久挂起
+    if (_ReaderPageState._scrollEndCompleter != null &&
+        !_ReaderPageState._scrollEndCompleter!.isCompleted) {
+      _ReaderPageState._scrollEndCompleter!.complete();
+    }
+    _ReaderPageState._scrollEndCompleter = null;
     _readWatch.stop();
     final elapsed = _readWatch.elapsed.inSeconds;
     if (elapsed > 0) LocalStore.addReadingSeconds(elapsed);
@@ -720,11 +783,11 @@ class _ReaderPageState extends State<ReaderPage> {
       return GestureDetector(
         behavior: HitTestBehavior.translucent,
         onTapDown: (d) => _onReaderTap(d.globalPosition),
-        onDoubleTap: _toggleTouchLock,
         child: PageView.builder(
           controller: ctrl,
           itemCount: _urls.length + (_canContinue ? 1 : 0),
           onPageChanged: (idx) {
+            _markScrolling();
             setState(() => _curPage = idx);
             _recordHistory();
             if (idx >= _urls.length && _canContinue) {
@@ -756,11 +819,19 @@ class _ReaderPageState extends State<ReaderPage> {
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onTapDown: (d) => _onReaderTap(d.globalPosition),
-      onDoubleTap: _toggleTouchLock,
-      child: ListView.builder(
-        controller: sctrl,
-        padding: EdgeInsets.zero,
-        itemCount: _urls.length + (_canContinue ? 1 : 0),
+      child: NotificationListener<ScrollNotification>(
+        onNotification: (n) {
+          if (n is ScrollStartNotification) {
+            _markScrolling();
+          } else if (n is ScrollEndNotification) {
+            _markScrollEnd();
+          }
+          return false;
+        },
+        child: ListView.builder(
+          controller: sctrl,
+          padding: EdgeInsets.zero,
+          itemCount: _urls.length + (_canContinue ? 1 : 0),
         itemBuilder: (c, i) {
           if (i >= _urls.length && _canContinue) {
             return _NextChapterFooter(
@@ -773,6 +844,7 @@ class _ReaderPageState extends State<ReaderPage> {
               onLayout: (h) => _observeLayout(i, h),
               sourceId: widget.sourceId);
         },
+        ),
       ),
     );
   }
@@ -1045,27 +1117,36 @@ class _CachedReaderImageState extends State<_CachedReaderImage> {
   /// 否则返回 403/404 导致「图片加载失败」。与 _prefetch 保持一致的 headers。
   Map<String, String>? _headers() => _ReaderPageState._headersForUrl(widget.url);
 
-  String _srKey() => '${widget.url}|sr2x';
+  String _srKey() => '${widget.url}|${ImageSuperRes.algoVersion}';
 
+  /// 先加载原图快速显示，滑动停止后再异步超分升级。
+  /// 避免超分 Isolate 在滑动期间并发导致低端机卡死。
   Future<void> _load() async {
     setState(() {
       _bytes = null;
       _failed = false;
     });
     try {
-      final Uint8List b;
-      if (widget.superRes) {
-        b = await ImageCacheManager.load(_srKey(),
-            headers: _headers(),
-            fetch: () async {
-              final raw = await ImageCacheManager.load(widget.url,
-                  headers: _headers());
-              return await ImageSuperRes.upscale2x(raw);
-            });
-      } else {
-        b = await ImageCacheManager.load(widget.url, headers: _headers());
+      // 第一步：先加载原图（快速显示）
+      final raw = await ImageCacheManager.load(widget.url, headers: _headers());
+      if (!mounted) return;
+      setState(() => _bytes = raw);
+
+      if (!widget.superRes) return;
+
+      // 第二步：等滑动停止后再做超分（防止滑动期间 Isolate 并发卡死）
+      await _waitForScrollEnd();
+      if (!mounted) return;
+
+      // 超分缓存命中则秒换；未命中则排队做 Lanczos-3（全局互斥锁串行化）
+      final sr = await ImageCacheManager.load(_srKey(),
+          headers: _headers(),
+          fetch: () async => await ImageSuperRes.upscale2x(raw));
+      if (mounted) {
+        setState(() {
+          _bytes = sr;
+        });
       }
-      if (mounted) setState(() => _bytes = b);
     } catch (_) {
       if (mounted) {
         setState(() => _failed = true);
@@ -1074,14 +1155,40 @@ class _CachedReaderImageState extends State<_CachedReaderImage> {
     }
   }
 
+  /// 等待滑动停止（事件驱动，非轮询）。滑动中不启动超分。
+  /// 使用 Completer：滑动停止时 notification 触发 complete，等待方立即恢复。
+  Future<void> _waitForScrollEnd() async {
+    final c = _ReaderPageState._currentScrollCompleter;
+    if (c == null || c.isCompleted) return;
+    await c.future.timeout(const Duration(seconds: 3), onTimeout: () => null);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_failed) {
-      return const SizedBox(
+      return SizedBox(
         width: double.infinity,
         height: 200,
-        child: Center(
-          child: Text('加载失败', style: TextStyle(color: Colors.white38)),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.asset('assets/placeholder_cover.png',
+                fit: BoxFit.cover, gaplessPlayback: true),
+            Center(
+              child: GestureDetector(
+                onTap: _load,
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Icon(Icons.refresh_rounded,
+                      color: Colors.white70, size: 26),
+                ),
+              ),
+            ),
+          ],
         ),
       );
     }
@@ -1090,16 +1197,8 @@ class _CachedReaderImageState extends State<_CachedReaderImage> {
       return SizedBox(
         width: double.infinity,
         height: 240,
-        child: Center(
-          child: SizedBox(
-            width: 26,
-            height: 26,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: Colors.white.withValues(alpha: 0.7),
-            ),
-          ),
-        ),
+        child: SvgPicture.asset('assets/placeholder_cover.svg',
+            fit: BoxFit.cover),
       );
     }
     final dpr = MediaQuery.of(context).devicePixelRatio;
