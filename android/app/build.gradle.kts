@@ -52,6 +52,16 @@ android {
     }
 
     buildTypes {
+        // debug 与 release 统一用同一把 release 签名（key.properties），
+        // 保证测试环境能用 GitHub 的 release APK 直接覆盖安装 debug 包，
+        // 避免"软件包似乎无效/签名不一致"导致无法更新安装。
+        debug {
+            signingConfig = if (keystorePropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+        }
         release {
             signingConfig = if (keystorePropertiesFile.exists()) {
                 signingConfigs.getByName("release")

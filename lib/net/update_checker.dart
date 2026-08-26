@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import 'http_client.dart';
 
@@ -26,9 +27,22 @@ class UpdateChecker {
   /// 仓库全名（owner/repo），写死为当前开源仓库。
   static const String repo = 'lxfebd/clean_manhua_flutter';
 
-  /// 本机版本号。优先取构建时注入的 APP_VERSION（CI 通过 --dart-define 注入），
-  /// 兜底用 pubspec 版本常量。
+  /// 本机版本号缓存（启动时从 PackageInfo 异步获取）。
+  static String _cached = '';
+
+  /// 启动时调用：从系统 PackageInfo 读取真实版本号缓存起来。
+  static Future<void> init() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      _cached = info.version;
+    } catch (_) {}
+  }
+
+  /// 本机版本号。优先取启动时缓存的 PackageInfo 真实版本，
+  /// 其次取构建时注入的 APP_VERSION（CI 通过 --dart-define 注入），
+  /// 兜底用 1.0.0。
   static String currentVersion() {
+    if (_cached.isNotEmpty) return _cached;
     const injected = String.fromEnvironment('APP_VERSION');
     if (injected.isNotEmpty) return injected;
     return '1.0.0';

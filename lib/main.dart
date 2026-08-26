@@ -8,6 +8,7 @@ import 'net/bookshelf_store.dart';
 import 'net/http_client.dart';
 import 'net/local_store.dart';
 import 'net/novel_shelf_store.dart';
+import 'net/update_checker.dart';
 import 'theme.dart';
 import 'ui/main_shell.dart';
 
@@ -20,6 +21,9 @@ void main() async {
   } catch (_) {}
   try {
     await LocalStore.init();
+  } catch (_) {}
+  try {
+    await UpdateChecker.init();
   } catch (_) {}
   try {
     await Net.restorePreferredHostIps();
