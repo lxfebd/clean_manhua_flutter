@@ -9,9 +9,9 @@ void main() {
   test('xbiquge novel source live verification', () async {
     final src = XbiqugeNovelSource();
 
-    // 先探测网络连通性，不可达则跳过（不阻断 CI）
+    // 先探测网络连通性（categories 是本地硬编码不发请求，用 rank 探测真实网络）
     try {
-      await src.categories().timeout(const Duration(seconds: 15));
+      await src.rank(1).timeout(const Duration(seconds: 15));
     } catch (e) {
       // ignore: avoid_print
       print('xbiquge.bz 网络不可达，跳过测试: $e');
