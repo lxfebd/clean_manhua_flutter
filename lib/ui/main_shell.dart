@@ -117,22 +117,9 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
       ToolboxPage(key: _toolboxKey),
       ProfilePage(key: _profileKey, onSwitchTab: _onTab),
     ];
-    final body = Stack(
-      children: [
-        for (var i = 0; i < tabs.length; i++)
-          TickerMode(
-            enabled: _index == i,
-            child: AnimatedOpacity(
-              opacity: _index == i ? 1.0 : 0.0,
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOutCubic,
-              child: IgnorePointer(
-                ignoring: _index != i,
-                child: tabs[i],
-              ),
-            ),
-          ),
-      ],
+    final body = IndexedStack(
+      index: _index,
+      children: tabs,
     );
 
     // 平板/桌面：左侧 NavigationRail + 右侧内容

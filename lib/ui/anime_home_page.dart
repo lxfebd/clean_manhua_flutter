@@ -6,6 +6,7 @@ import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
 import '../sources/video_source.dart';
 import 'anime_player_page.dart';
+import 'responsive.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
 
@@ -234,12 +235,17 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
           ),
         ),
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
+          padding: EdgeInsets.fromLTRB(
+            Responsive.pagePadding(context),
+            6,
+            Responsive.pagePadding(context),
+            12,
+          ),
           sliver: SliverGrid(
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 150,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
+            gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: Responsive.isTablet(context) ? 200 : 150,
+              mainAxisSpacing: Responsive.gridSpacing(context),
+              crossAxisSpacing: Responsive.gridSpacing(context),
               childAspectRatio: 0.62,
             ),
             delegate: SliverChildBuilderDelegate(
