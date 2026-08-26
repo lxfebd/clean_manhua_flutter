@@ -8,6 +8,7 @@ import 'bookshelf_page.dart';
 import 'home_page.dart';
 import 'novel_home_page.dart';
 import 'profile_page.dart';
+import 'responsive.dart';
 import 'toolbox_page.dart';
 import 'widgets/motion.dart';
 
@@ -110,33 +111,50 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    // 用 Stack + AnimatedOpacity 替代 IndexedStack，保持所有子页面 State 不被销毁的同时
-    // 实现 Tab 切换淡入淡出动画（不依赖 AnimatedSwitcher + KeyedSubtree 那种销毁重建模式）。
     final tabs = [
       const MangaAnimeTabs(),
       BookshelfPage(key: _shelfKey),
       ToolboxPage(key: _toolboxKey),
       ProfilePage(key: _profileKey, onSwitchTab: _onTab),
     ];
-    return Scaffold(
-      extendBody: true,
-      body: Stack(
-        children: [
-          for (var i = 0; i < tabs.length; i++)
-            TickerMode(
-              enabled: _index == i,
-              child: AnimatedOpacity(
-                opacity: _index == i ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.easeOutCubic,
-                child: IgnorePointer(
-                  ignoring: _index != i,
-                  child: tabs[i],
-                ),
+    final body = Stack(
+      children: [
+        for (var i = 0; i < tabs.length; i++)
+          TickerMode(
+            enabled: _index == i,
+            child: AnimatedOpacity(
+              opacity: _index == i ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              child: IgnorePointer(
+                ignoring: _index != i,
+                child: tabs[i],
               ),
             ),
-        ],
-      ),
+          ),
+      ],
+    );
+
+    // 平板/桌面：左侧 NavigationRail + 右侧内容
+    if (Responsive.isTablet(context)) {
+      return Scaffold(
+        body: Row(
+          children: [
+            _TabletSideNav(
+              currentIndex: _index,
+              onTap: _onTab,
+              isDark: isDark,
+            ),
+            Expanded(child: body),
+          ],
+        ),
+      );
+    }
+
+    // 手机：底部玻璃导航栏
+    return Scaffold(
+      extendBody: true,
+      body: body,
       bottomNavigationBar: _GlassBottomBar(
         currentIndex: _index,
         onTap: _onTab,
@@ -290,6 +308,144 @@ class _Item extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 平板/桌面侧边导航栏：替代底部导航，宽屏更高效。
+class _TabletSideNav extends StatelessWidget {
+  final int currentIndex;
+  final ValueChanged<int> onTap;
+  final bool isDark;
+  const _TabletSideNav({
+    required this.currentIndex,
+    required this.onTap,
+    required this.isDark,
+  });
+
+  static const _items = [
+    (Icons.home_outlined, Icons.home_rounded, '首页'),
+    (Icons.bookmark_border_rounded, Icons.bookmark_rounded, '书架'),
+    (Icons.tune_outlined, Icons.tune, '工具'),
+    (Icons.person_outline_rounded, Icons.person_rounded, '我的'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final showLabel = Responsive.isExpanded(context);
+    return Container(
+      width: showLabel ? 96 : 72,
+      margin: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: scheme.onSurface.withValues(alpha: 0.06),
+          width: 0.8,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.07),
+            blurRadius: 16,
+            spreadRadius: -2,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          child: Column(
+            children: [
+              const SizedBox(height: 6),
+              Text('星漫匣',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: showLabel ? 15 : 11,
+                      color: scheme.primary)),
+              const SizedBox(height: 18),
+              for (var i = 0; i < _items.length; i++)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: _SideNavItem(
+                    item: _items[i],
+                    index: i,
+                    current: currentIndex,
+                    onTap: onTap,
+                    showLabel: showLabel,
+                    isDark: isDark,
+                  ),
+                ),
+              const Spacer(),
+              Icon(Icons.auto_awesome_rounded,
+                  size: 18, color: scheme.onSurface.withValues(alpha: 0.25)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SideNavItem extends StatelessWidget {
+  final (IconData, IconData, String) item;
+  final int index;
+  final int current;
+  final ValueChanged<int> onTap;
+  final bool showLabel;
+  final bool isDark;
+  const _SideNavItem({
+    required this.item,
+    required this.index,
+    required this.current,
+    required this.onTap,
+    required this.showLabel,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isOn = index == current;
+    final fg = Theme.of(context).colorScheme.onSurface;
+    final softColor = fg.withValues(alpha: isDark ? 0.45 : 0.35);
+    return PressableScale(
+      onTap: () => onTap(index),
+      scale: 0.92,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+        padding: EdgeInsets.symmetric(
+          vertical: 10,
+          horizontal: showLabel ? 12 : 0,
+        ),
+        decoration: BoxDecoration(
+          color: isOn ? fg.withValues(alpha: 0.08) : Colors.transparent,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          mainAxisAlignment: showLabel
+              ? MainAxisAlignment.start
+              : MainAxisAlignment.center,
+          children: [
+            Icon(isOn ? item.$2 : item.$1,
+                size: 22, color: isOn ? fg : softColor),
+            if (showLabel) ...[
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  item.$3,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: isOn ? FontWeight.w700 : FontWeight.w500,
+                    color: isOn ? fg : softColor,
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );

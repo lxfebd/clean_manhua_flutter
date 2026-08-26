@@ -5,6 +5,7 @@ import '../net/download_manager.dart';
 import '../net/image_cache.dart';
 import '../net/local_store.dart';
 import '../sources/source_manager.dart';
+import 'responsive.dart';
 import 'settings_page.dart';
 import 'tools/device_tools_page.dart';
 import 'tools/image_tools_page.dart';
@@ -233,7 +234,7 @@ class ToolboxPageState extends State<ToolboxPage> {
         _categoryLabel(scheme, '实用工具'),
         const SizedBox(height: 10),
         GridView.count(
-          crossAxisCount: 2,
+          crossAxisCount: Responsive.toolGridColumns(context),
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           mainAxisSpacing: 12,

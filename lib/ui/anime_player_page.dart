@@ -6,6 +6,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import '../sources/video_source.dart';
 import 'native_player_page.dart';
+import 'responsive.dart';
 import 'widgets/player_widgets.dart';
 
 /// B站风格 WebView 播放器：16:9 视频区 + 选集 + 简介 + 全屏 + 有声。
@@ -1731,8 +1732,8 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
       out.add(SliverPadding(
         padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
         sliver: SliverGrid(
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 4,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: Responsive.episodeGridColumns(context),
             mainAxisSpacing: 10,
             crossAxisSpacing: 10,
             childAspectRatio: 1.4,

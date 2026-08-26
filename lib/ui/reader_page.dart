@@ -11,6 +11,7 @@ import '../net/http_client.dart';
 import '../net/image_cache.dart';
 import '../net/jm_scramble.dart';
 import '../net/local_store.dart';
+import 'responsive.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
 import '../utils/image_super_res.dart';
@@ -1872,7 +1873,7 @@ class _CatalogSheet extends StatelessWidget {
             Flexible(
               child: GridView.builder(
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 6,
+                  crossAxisCount: Responsive.chapterGridColumns(context),
                   mainAxisSpacing: 8,
                   crossAxisSpacing: 8,
                   childAspectRatio: 1.1,
