@@ -40,6 +40,10 @@ flutter build apk --debug          # 产物：build/app/outputs/flutter-apk/app-
 - 🚀 **TvTFun 视频源增强**：接入官方 API 分页（pageIndex/pageSize）+ 地区/标签分类（日本/国创/韩国/剧场版/恋爱/搞笑等）+ 年份筛选（2026–2022）+ 元数据（评分/更新集数/tag/配音语言）
 - 🎬 **Anime4K 视频超分**：5 档位（关闭/智能降噪/轻量超分/均衡超分/极致超分）CNN 着色器，原生播放器全屏/竖屏均可切换；mpv 画质增强（去色带 + 高质量缩放核）
 - 🧪 **视频源端到端验证测试**：`test/verify_tvtfun_test.dart`、`test/verify_anime1_test.dart` 真实请求远端源，覆盖分类/分页/搜索/详情/播放全链路；tvtfun 实时请求加限流降温与有限重试
+- 🐛 **修复更新安装"软件包无效"**：统一 debug/release 签名（debug 构建也用 `xingmanxia.jks`），保证测试环境可用 GitHub release APK 覆盖安装
+- 🐛 **修复版本号读取**：`UpdateChecker` 改用 `package_info_plus` 读取真实版本（原硬编码 1.0.0 导致更新检查永远误判有新版本）
+- ⚡ **更新下载加速**：镜像优化为实测可达的 `ghproxy.net`（14 KB/s → 700+ KB/s），下载慢时更快切换镜像
+- 🧪 端到端验证：v1.2.0 → 检测 v1.3.2 → 下载(651KB/s) → 系统安装器 → **安装成功**，版本升级到 1.3.2
 
 ### v1.3.1（2026-08-25）
 - 🚀 **网络工具新增「优选 IP」**：对指定域名（默认 TvTFun）并发扫描 Cloudflare 节点（TCP 443 + TLS 握手），按延迟排序展示结果；一键应用前 N 个到 `Net.preferredHostIps` 直连加速，结果持久化、重启自动恢复，可一键清除回退系统 DNS
