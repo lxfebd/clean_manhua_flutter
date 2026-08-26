@@ -75,3 +75,30 @@ download_*.py
 t5_*.ps1
 payload.bin
 plain.txt
+
+# ===== 源站调试快照（HTML/JSON/XML/JS 抓取产物，勿入库）=====
+/anime1*.html
+/anime1*.json
+/animelist.json
+/bimi*.html
+/bimi*.json
+/c_home.html
+/cover1.xml
+/homelist.js
+/t*.json
+/tablet*.xml
+/tvtfun_*.html
+/tvtfun_*.json
+/tvtfun_*.js
+/yh*.html
+/yhdm.html
+/c[0-9].json
+/c_api*.json
+/d[0-9].json
+/e[0-9].json
+/release_body.json
+
+# ===== 交接记录（勿入库）=====
+HANDOFF.md
+/交接*.md
+

@@ -5,6 +5,7 @@ import '../models/comic_item.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
 import 'detail_page.dart';
+import 'responsive.dart';
 import 'unified_search_page.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
@@ -193,11 +194,11 @@ class _HomePageState extends State<HomePage> {
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
           sliver: SliverGrid(
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 112,
+            gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: Responsive.isTablet(context) ? 152 : 112,
               mainAxisSpacing: 14,
-              crossAxisSpacing: 10,
-              childAspectRatio: 0.6,
+              crossAxisSpacing: Responsive.isTablet(context) ? 14 : 10,
+              childAspectRatio: 0.62,
             ),
             delegate: SliverChildBuilderDelegate(
             (c, i) => RepaintBoundary(
@@ -256,7 +257,8 @@ class _HomePageState extends State<HomePage> {
     return SafeArea(
       bottom: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(18, 56, 18, 10),
+        padding: EdgeInsets.fromLTRB(
+            18, Responsive.isTablet(context) ? 24 : 56, 18, 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -362,7 +364,7 @@ class _HomePageState extends State<HomePage> {
     return Stack(
       children: [
         SizedBox(
-          height: 44,
+          height: Responsive.isTablet(context) ? 48 : 44,
           child: ListView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -452,32 +454,43 @@ class _SourceSwitchButton extends StatelessWidget {
       onTap: onTap,
       scale: 0.94,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: BorderRadius.circular(9),
+          gradient: LinearGradient(
+            colors: [
+              scheme.primary.withValues(alpha: 0.16),
+              scheme.primary.withValues(alpha: 0.06),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: scheme.onSurface.withValues(alpha: 0.15),
+            color: scheme.primary.withValues(alpha: 0.32),
             width: 1,
           ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.public_rounded, size: 14, color: scheme.onSurface.withValues(alpha: 0.8)),
+            Icon(Icons.public_rounded, size: 15, color: scheme.primary),
             const SizedBox(width: 5),
+            Text(
+              '站点',
+              style: TextStyle(
+                fontSize: 11,
+                color: scheme.primary.withValues(alpha: 0.85),
+              ),
+            ),
+            const SizedBox(width: 4),
             Text(
               sourceName,
               style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: scheme.onSurface,
-                letterSpacing: 0.2,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: scheme.primary,
               ),
             ),
             const SizedBox(width: 3),
-            Icon(Icons.unfold_more_rounded,
-                size: 14, color: scheme.onSurface.withValues(alpha: 0.6)),
+            Icon(Icons.unfold_more_rounded, size: 15, color: scheme.primary),
           ],
         ),
       ),
@@ -665,7 +678,9 @@ class _FeaturedBannerState extends State<_FeaturedBanner> {
   @override
   void initState() {
     super.initState();
-    _ctrl = PageController(viewportFraction: 0.86);
+    // 平板视口更宽，横幅更大更有冲击力
+    _ctrl = PageController(
+        viewportFraction: Responsive.isTablet(context) ? 0.7 : 0.86);
   }
 
   @override
@@ -704,7 +719,7 @@ class _FeaturedBannerState extends State<_FeaturedBanner> {
           ),
         ),
         SizedBox(
-          height: 176,
+          height: Responsive.isTablet(context) ? 240 : 176,
           child: PageView.builder(
             controller: _ctrl,
             itemCount: widget.items.length,
@@ -989,6 +1004,30 @@ class _ComicCardState extends State<_ComicCard> {
                                 style: const TextStyle(
                                   fontSize: 9,
                                   color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                        // 更新/完结状态角标（如"更新至第19集"/"全12集"）
+                        if ((widget.item.remarks ?? '').isNotEmpty)
+                          Positioned(
+                            top: 6,
+                            right: 6,
+                            child: Container(
+                              constraints: const BoxConstraints(maxWidth: 84),
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: scheme.primary.withValues(alpha: 0.9),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                widget.item.remarks!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 8.5,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
                             ),

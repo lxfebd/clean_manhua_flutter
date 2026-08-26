@@ -25,6 +25,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
   final _items = <ComicItem>[];
   int _page = 1;
   bool _loading = false;
+  bool _noMore = false;
   String _mode = 'rank';
   String _categoryId = '';
   String _keyword = '';
@@ -121,11 +122,13 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
     _page = 1;
     _items.clear();
     _error = null;
+    _noMore = false;
     setState(() {});
     _loadMore();
   }
 
   void _onScroll() {
+    if (_noMore) return;
     if (_scrollCtrl.position.pixels >
         _scrollCtrl.position.maxScrollExtent - 400) {
       _loadMore();
@@ -133,7 +136,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
   }
 
   Future<void> _loadMore() async {
-    if (_loading) return;
+    if (_loading || _noMore) return;
     _loading = true;
     final source = _source;
     final next = _page;
@@ -154,9 +157,14 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
       }
       if (mounted) {
         setState(() {
-          _items.addAll(r);
-          _page++;
+          if (r.isEmpty) {
+            _noMore = true;
+          } else {
+            _items.addAll(r);
+            _page++;
+          }
         });
+        _maybeAutoLoadMore();
       }
     } catch (e) {
       if (mounted && _items.isEmpty) {
@@ -171,6 +179,17 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
     _mode = mode;
     if (categoryId != null) _categoryId = categoryId;
     _refresh();
+  }
+
+  /// 内容不满一屏时自动续页，避免首屏太短时滚动分页不触发导致"很快到底"的错觉。
+  void _maybeAutoLoadMore() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _loading || _noMore) return;
+      if (_scrollCtrl.hasClients &&
+          _scrollCtrl.position.maxScrollExtent <= 0) {
+        _loadMore();
+      }
+    });
   }
 
   @override
@@ -652,7 +671,9 @@ class _AnimeCardState extends State<_AnimeCard> {
                           // 无封面源（如 Anime1 纯文本站）用首字占位封面，避免千篇一律的空占位图
                           child: widget.item.pic.isEmpty
                               ? _LetterCover(
-                                  title: widget.item.name, scheme: scheme)
+                                  title: widget.item.name,
+                                  scheme: scheme,
+                                  remark: widget.item.remarks)
                               : CachedImage(widget.item.pic,
                                   fit: BoxFit.cover, radius: 0),
                         ),
@@ -803,7 +824,9 @@ class _AnimeCardState extends State<_AnimeCard> {
 class _LetterCover extends StatelessWidget {
   final String title;
   final ColorScheme scheme;
-  const _LetterCover({required this.title, required this.scheme});
+  /// 更新/完结状态提示（如"更新至第19集"），无封面时展示更友好
+  final String? remark;
+  const _LetterCover({required this.title, required this.scheme, this.remark});
 
   @override
   Widget build(BuildContext context) {
@@ -819,22 +842,78 @@ class _LetterCover extends StatelessWidget {
       hash = (hash * 31 + c) & 0x7fffffff;
     }
     final bg = palette[hash % palette.length];
-    return Container(
+    return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [bg.withValues(alpha: 0.85), bg.withValues(alpha: 0.55)],
+          colors: [bg.withValues(alpha: 0.95), bg.withValues(alpha: 0.6)],
         ),
       ),
-      alignment: Alignment.center,
-      child: Text(
-        letter,
-        style: TextStyle(
-          fontSize: 40,
-          fontWeight: FontWeight.w800,
-          color: Colors.white.withValues(alpha: 0.92),
-        ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // 大首字水印（轻透明白）
+          Positioned(
+            top: 6,
+            left: 10,
+            child: Text(
+              letter,
+              style: TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.w800,
+                color: Colors.white.withValues(alpha: 0.22),
+              ),
+            ),
+          ),
+          // 底部：完整标题 + 更新备注，让无封面卡片也有作品标识
+          Positioned(
+            left: 8,
+            right: 8,
+            bottom: 8,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  t,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    height: 1.22,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    shadows: const [
+                      Shadow(color: Colors.black54, blurRadius: 6),
+                    ],
+                  ),
+                ),
+                if (remark != null && remark!.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 5, vertical: 1.5),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.38),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      remark!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 8.5,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

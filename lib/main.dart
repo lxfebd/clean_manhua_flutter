@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -47,7 +48,8 @@ class YingManHeApp extends StatefulWidget {
   State<YingManHeApp> createState() => YingManHeAppState();
 }
 
-class YingManHeAppState extends State<YingManHeApp> {
+class YingManHeAppState extends State<YingManHeApp>
+    with WidgetsBindingObserver {
   ThemeMode _themeMode = ThemeMode.light;
   int _themeId = 0;
   bool _loaded = false;
@@ -55,7 +57,40 @@ class YingManHeAppState extends State<YingManHeApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // 首帧后校正方向策略，避免启动就处于"竖屏锁+横屏 letterbox"状态
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _allowTabletRotations());
     _loadTheme();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _allowTabletRotations();
+    }
+  }
+
+  /// 平板始终允许"竖屏+横屏"，残留的竖屏方向锁不会再导致横屏 letterbox（居中留白）。
+  /// 不触碰手机方向策略，避免影响手机端原有行为。
+  void _allowTabletRotations() {
+    try {
+      final view = WidgetsBinding.instance.platformDispatcher.views.first;
+      final w = view.physicalSize.width / view.devicePixelRatio;
+      if (w >= 440) {
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadTheme() async {

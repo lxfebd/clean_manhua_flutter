@@ -32,6 +32,14 @@ class AgedMVideoSource implements VideoSource {
       RegExp(r'<h2 class="video_detail_title">([^<]+)</h2>');
   static final RegExp _infoRe =
       RegExp(r'<div class="video_detail_info"><span>([^<]+)</span>([^<]+)</div>');
+  /// 目录页卡片：h4/h5 标题内的详情链接（标题 + 番剧 ID）
+  static final RegExp _catalogCardRe = RegExp(
+      r'<h[45][^>]*>\s*<a[^>]*href="[^"]*?/detail/(\d+)"[^>]*>\s*([^<]+?)\s*</a>',
+      dotAll: true);
+  /// 目录页非标题链接（资源详情/在线播放等），解析时过滤
+  static const _catalogNoise = {
+    '资源详情', '在线播放', '继续播放', '播放', '详情', '展开', '收起'
+  };
 
   @override
   String get id => 'agedm';
@@ -50,10 +58,26 @@ class AgedMVideoSource implements VideoSource {
 
   @override
   Future<List<ComicItem>> listByCategory(String categoryId, int page) async {
-    // home 页直接展示最新番剧，无服务端过滤；简化处理：忽略 page，按类别标记返回全部
-    if (page > 1) return const <ComicItem>[];
-    final html = await Net.get(_base, headers: const {'Cookie': 'adult=1'});
-    return _parseCards(html);
+    // 首页仅精选分区、无分页；第 1 页用首页（真实封面）。
+    if (page == 1) {
+      final html =
+          await Net.get(_base, headers: const {'Cookie': 'adult=1'});
+      final home = _parseCards(html);
+      if (home.isNotEmpty) return home;
+    }
+    // 目录页支持翻页：categoryId 末段即页码（all-all-all-all-all-time-1），
+    // 替换为当前 page 后请求 /catalog/ 分页列表，避免第 2 页起返回空。
+    final cat = _pageCategory(categoryId, page);
+    final html =
+        await Net.get('$_base/catalog/$cat', headers: const {'Cookie': 'adult=1'});
+    return _parseCatalog(html);
+  }
+
+  /// 替换 categoryId 末段页码为当前页：all-all-all-all-all-time-1 → ...-time-2
+  static String _pageCategory(String categoryId, int page) {
+    final m = RegExp(r'^(.*)-(\d+)$').firstMatch(categoryId);
+    if (m != null) return '${m.group(1)}-$page';
+    return categoryId;
   }
 
   @override
@@ -150,6 +174,20 @@ class AgedMVideoSource implements VideoSource {
           id,
           _unescape(m.group(2) ?? '').trim(),
           _resolveCover(m.group(3)!)));
+    }
+    return out;
+  }
+
+  /// 目录页解析：仅标题+ID（目录列表封面为通用占位图，不提取）。
+  List<ComicItem> _parseCatalog(String html) {
+    final out = <ComicItem>[];
+    final seen = <String>{};
+    for (final m in _catalogCardRe.allMatches(html)) {
+      final id = m.group(1)!;
+      if (!seen.add(id)) continue;
+      final raw = _unescape(m.group(2) ?? '').trim();
+      if (raw.isEmpty || _catalogNoise.contains(raw)) continue;
+      out.add(ComicItem(id, raw, ''));
     }
     return out;
   }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
+import '../net/local_store.dart';
 import '../sources/video_source.dart';
 import 'native_player_page.dart';
 import 'responsive.dart';
@@ -242,13 +243,28 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     });
   }
 
+  /// 退出全屏/离开播放页时恢复方向：平板解锁跟随设备（横屏填满），
+  /// 手机恢复竖屏避免卡横屏。dispose 中调用，不依赖 BuildContext。
+  void _unlockOrientation() {
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final w = view.physicalSize.width / view.devicePixelRatio;
+    final tablet = w >= 440;
+    SystemChrome.setPreferredOrientations(tablet
+        ? [
+            DeviceOrientation.portraitUp,
+            DeviceOrientation.landscapeLeft,
+            DeviceOrientation.landscapeRight,
+          ]
+        : [DeviceOrientation.portraitUp]);
+  }
+
   @override
   void dispose() {
     _videoPollTimer?.cancel();
     _resolveTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    _unlockOrientation();
     super.dispose();
   }
 
@@ -484,6 +500,32 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   }
 
   Widget _normalBody() {
+    // 平板横屏：左视频(16:9 居中、纯黑底) + 右固定宽度竖控制面板，
+    // 与手机端面板控件/顺序一致，仅布局从上下堆叠改为左右分栏。
+    if (Responsive.isTablet(context)) {
+      return Container(
+        color: Colors.black,
+        child: Row(children: [
+          Expanded(
+            child: Center(
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: _webView(),
+              ),
+            ),
+          ),
+          Container(
+            width: 336,
+            decoration: const BoxDecoration(
+              border: Border(
+                left: BorderSide(color: Colors.white12, width: 0.8),
+              ),
+            ),
+            child: _belowPanel(),
+          ),
+        ]),
+      );
+    }
     return Column(children: [
       AspectRatio(aspectRatio: 16 / 9, child: _webView()),
       Expanded(child: _belowPanel()),
@@ -584,12 +626,17 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     if (!_fullscreen) return;
     setState(() => _fullscreen = false);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    _unlockOrientation();
   }
 
   // ══ 竖屏下方面板（与原生播放器 _belowPanel 对齐） ══════════════
   Widget _belowPanel() {
-    final scheme = Theme.of(context).colorScheme;
+    final base = Theme.of(context).colorScheme;
+    // 平板分栏右侧面板使用深色配色，提升影音质感（避免纯白面板在看番时刺眼）
+    final scheme = Responsive.isTablet(context)
+        ? ColorScheme.fromSeed(
+            seedColor: base.primary, brightness: Brightness.dark)
+        : base;
     final bottomPad = MediaQuery.of(context).viewPadding.bottom;
     final eps = widget.episodes;
     final multi = eps.length > 1;
@@ -1390,6 +1437,26 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
   bool _expanded = false;
   int _curSeason = 0;
   int _curEpisode = 0;
+  List<VideoRecord> _videoRecords = [];
+  final Map<int, int> _linePages = {};
+  static const int _epsPerPage = 12;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHistory();
+  }
+
+  Future<void> _loadHistory() async {
+    final records = await LocalStore.videoRecords();
+    if (!mounted) return;
+    final match = records
+        .where((r) =>
+            r.sourceId == widget.source.id &&
+            r.videoId == widget.detail.video.id)
+        .toList();
+    setState(() => _videoRecords = match);
+  }
 
   /// 给播放器内部切集用：解析任意一集的播放地址。
   Future<String> _resolveEpisodeUrl(int season, int episode) =>
@@ -1457,6 +1524,50 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
     }
   }
 
+  /// 计算立即播放应跳转的集：优先用户手动选中 → 历史记录 → 第一集。
+  (int, int, int) _playTarget() {
+    final flat = widget.detail.episodes;
+    if (flat.isEmpty) return (0, 0, 0);
+    final sel = flat.indexWhere(
+        (e) => e.season == _curSeason && e.episode == _curEpisode);
+    if (sel >= 0) return (_curSeason, _curEpisode, sel);
+    if (_videoRecords.isNotEmpty) {
+      final r = _videoRecords.first;
+      final hi = flat.indexWhere(
+          (e) => e.season == r.season && e.episode == r.episode);
+      if (hi >= 0) return (r.season, r.episode, hi);
+    }
+    return (flat.first.season, flat.first.episode, 0);
+  }
+
+  /// 立即播放按钮文案，体现与当前选中/历史集数的联动关系。
+  String _playLabel() {
+    final flat = widget.detail.episodes;
+    if (flat.isEmpty) return '立即播放';
+    final sel = flat.indexWhere(
+        (e) => e.season == _curSeason && e.episode == _curEpisode);
+    if (sel >= 0) {
+      final t = flat[sel].title;
+      return t.isEmpty ? '播放 第$_curEpisode集' : '播放 $t';
+    }
+    if (_videoRecords.isNotEmpty) {
+      final r = _videoRecords.first;
+      return '继续观看 第${r.episode}集';
+    }
+    return '立即播放';
+  }
+
+  /// 封面加载失败/无封面时的兜底：使用本地占位封面图 + 柔和品牌色叠加，
+  /// 避免"空蓝块"的空洞感（贴合"放封面"的预期）。
+  Widget _coverFallback(ThemeData theme) {
+    return Stack(fit: StackFit.expand, children: [
+      Image.asset('assets/placeholder_cover.webp',
+          fit: BoxFit.cover, gaplessPlayback: true),
+      Container(
+          color: theme.colorScheme.primary.withValues(alpha: 0.18)),
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1475,8 +1586,10 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                     fit: BoxFit.cover,
                     cacheWidth:
                         (MediaQuery.sizeOf(context).width * MediaQuery.devicePixelRatioOf(context)).toInt(),
-                    errorBuilder: (_, __, ___) =>
-                        Container(color: theme.colorScheme.primary)),
+                    errorBuilder: (_, __, ___) => _coverFallback(theme),
+                  )
+              else
+                _coverFallback(theme),
               Container(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
@@ -1489,6 +1602,39 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                   ),
                 ),
               ),
+              // 角落标签
+              if (d.type != null || d.video.remarks != null)
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (d.type != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.45),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.2), width: 0.5),
+                          ),
+                          child: Text(d.type!,
+                              style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w600)),
+                        ),
+                      if (d.type != null && d.video.remarks != null) const SizedBox(width: 6),
+                      if (d.video.remarks != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary.withValues(alpha: 0.7),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(d.video.remarks!,
+                              style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w700)),
+                        ),
+                    ],
+                  ),
+                ),
               Positioned(
                 left: 16,
                 right: 16,
@@ -1574,10 +1720,12 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
             child: FilledButton.icon(
               onPressed: d.episodes.isEmpty
                   ? null
-                  : () => _play(d.episodes.first.season,
-                      d.episodes.first.episode, 0),
+                  : () {
+                      final t = _playTarget();
+                      _play(t.$1, t.$2, t.$3);
+                    },
               icon: const Icon(Icons.play_arrow_rounded),
-              label: const Text('立即播放'),
+              label: Text(_playLabel()),
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(46),
                 shape: RoundedRectangleBorder(
@@ -1653,7 +1801,7 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                 ),
               ),
               const SizedBox(width: 8),
-              Text('选集',
+              Text('全集',
                   style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w800,
@@ -1668,7 +1816,7 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
-                  '${d.episodes.length}',
+                  '${d.episodes.length}集',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
@@ -1676,6 +1824,27 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                   ),
                 ),
               ),
+              const Spacer(),
+              if (_videoRecords.isNotEmpty)
+                GestureDetector(
+                  onTap: () {
+                    final r = _videoRecords.first;
+                    final flat = d.episodes;
+                    final hi = flat.indexWhere(
+                        (e) => e.season == r.season && e.episode == r.episode);
+                    if (hi >= 0) _play(r.season, r.episode, hi);
+                  },
+                  child: Row(children: [
+                    Icon(Icons.history_rounded,
+                        size: 15, color: theme.colorScheme.primary),
+                    const SizedBox(width: 4),
+                    Text('上次：第${_videoRecords.first.episode}集',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: theme.colorScheme.primary,
+                            fontWeight: FontWeight.w600)),
+                  ]),
+                ),
             ]),
           ),
         ),
@@ -1687,6 +1856,7 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
   /// 选集按播放源（season）分组渲染：每组一个源名 + 集数头，下面是该源的剧集网格。
   /// 仅当存在多个源时才显示分组头，单源时退化为原来的扁平网格。
   List<Widget> _buildEpisodeSlivers(ThemeData theme, VideoDetail d) {
+    final scheme = theme.colorScheme;
     final flat = d.episodes;
     final bySeason = <int, List<VideoEpisode>>{};
     for (final e in flat) {
@@ -1696,6 +1866,7 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
     final groups = [
       for (final k in keys)
         (
+          season: k,
           name: widget.detail.sourceNames?[k] ?? '线路 $k',
           eps: bySeason[k]!,
         ),
@@ -1703,124 +1874,223 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
     final multi = groups.length > 1;
     final out = <Widget>[];
     for (final g in groups) {
-      if (multi) {
-        out.add(SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-            child: Row(children: [
-              Icon(Icons.playlist_play_rounded,
-                  size: 16, color: theme.colorScheme.primary),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(g.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w700,
-                        color: theme.colorScheme.onSurface)),
+      final total = g.eps.length;
+      final pageCount = (total + _epsPerPage - 1) ~/ _epsPerPage;
+      final rawPage = _linePages[g.season] ?? 0;
+      final page = rawPage < 0 ? 0 : (rawPage >= pageCount ? pageCount - 1 : rawPage);
+      final start = page * _epsPerPage;
+      final end = start + _epsPerPage < total ? start + _epsPerPage : total;
+      final pageEps = g.eps.sublist(start, end);
+      // 线路头：主色竖条 + 名称 + 本线路总集数
+      out.add(SliverToBoxAdapter(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(20, multi ? 18 : 6, 20, 10),
+          child: Row(children: [
+            Container(
+              width: 4,
+              height: 16,
+              decoration: BoxDecoration(
+                color: scheme.primary,
+                borderRadius: BorderRadius.circular(2),
               ),
-              Text('${g.eps.length} 集',
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(g.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                      fontSize: 11.5,
-                      color: theme.colorScheme.onSurface
-                          .withValues(alpha: 0.5))),
-            ]),
-          ),
-        ));
-      }
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: scheme.onSurface)),
+            ),
+            Text('本线路共 $total 集',
+                style: TextStyle(
+                    fontSize: 11.5,
+                    color: scheme.onSurface.withValues(alpha: 0.5))),
+          ]),
+        ),
+      ));
+      // 关键性能修复：用懒加载 SliverGrid 替代 shrinkWrap GridView，
+      // 避免整组卡片全量构建导致滚动卡顿。
       out.add(SliverPadding(
-        padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+        padding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
         sliver: SliverGrid(
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: Responsive.episodeGridColumns(context),
-            mainAxisSpacing: 10,
-            crossAxisSpacing: 10,
-            childAspectRatio: 1.4,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: 1.55,
           ),
           delegate: SliverChildBuilderDelegate(
             (c, i) {
-              final ep = g.eps[i];
+              final ep = pageEps[i];
               final flatIdx = flat.indexOf(ep);
               final isOpening = _openingIndex == flatIdx;
               final isCurrent =
                   ep.season == _curSeason && ep.episode == _curEpisode;
+              final isHistory = _videoRecords.isNotEmpty &&
+                  _videoRecords.first.season == ep.season &&
+                  _videoRecords.first.episode == ep.episode &&
+                  !isCurrent;
+              final showTitle =
+                  ep.title.isNotEmpty && !ep.title.startsWith('第');
               return Material(
                 color: isOpening
-                    ? theme.colorScheme.primary
+                    ? scheme.primary
                     : isCurrent
-                        ? theme.colorScheme.primary.withValues(alpha: 0.14)
-                        : theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(10),
+                        ? scheme.primary.withValues(alpha: 0.16)
+                        : scheme.surfaceContainerHighest
+                            .withValues(alpha: 0.55),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(
+                    color: isCurrent ? scheme.primary : Colors.transparent,
+                    width: 1.2,
+                  ),
+                ),
+                clipBehavior: Clip.antiAlias,
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(10),
                   onTap: _openingMsg == null
                       ? () => _play(ep.season, ep.episode, flatIdx)
                       : null,
                   child: Stack(children: [
-                    Positioned(
-                      top: 5,
-                      left: 6,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 5, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: isCurrent
-                              ? theme.colorScheme.primary
-                              : Colors.black.withValues(alpha: 0.22),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          '${ep.episode}',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                            color: isCurrent
-                                ? Colors.white
-                                : Colors.white70,
-                          ),
-                        ),
-                      ),
-                    ),
                     Center(
                       child: isOpening
                           ? const SizedBox(
-                              width: 16,
-                              height: 16,
+                              width: 18,
+                              height: 18,
                               child: CircularProgressIndicator(
                                   color: Colors.white, strokeWidth: 2))
                           : Padding(
-                              padding: const EdgeInsets.only(
-                                  top: 8, left: 4, right: 4),
-                              child: Text(
-                                ep.title.isEmpty
-                                    ? '第${ep.episode}集'
-                                    : ep.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: isCurrent
-                                      ? FontWeight.w800
-                                      : FontWeight.w600,
-                                  color: isCurrent
-                                      ? theme.colorScheme.primary
-                                      : theme.colorScheme.onSurface,
-                                ),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 6),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    '第${ep.episode}集',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: isCurrent
+                                          ? FontWeight.w800
+                                          : FontWeight.w700,
+                                      color: isCurrent
+                                          ? scheme.primary
+                                          : scheme.onSurface,
+                                    ),
+                                  ),
+                                  if (showTitle) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      ep.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: isCurrent
+                                            ? scheme.primary
+                                                .withValues(alpha: 0.8)
+                                            : scheme.onSurface
+                                                .withValues(alpha: 0.5),
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
                             ),
                     ),
+                    if (isHistory)
+                      Positioned(
+                        top: 5,
+                        right: 5,
+                        child: Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: scheme.primary,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: scheme.primary
+                                    .withValues(alpha: 0.4),
+                                blurRadius: 3,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                   ]),
                 ),
               );
             },
-            childCount: g.eps.length,
+            childCount: pageEps.length,
           ),
         ),
       ));
+      // 分页控件
+      if (pageCount > 1) {
+        out.add(SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 12, bottom: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _pageBtn(
+                    theme,
+                    Icons.chevron_left_rounded,
+                    page > 0
+                        ? () =>
+                            setState(() => _linePages[g.season] = page - 1)
+                        : null),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Text('${page + 1} / $pageCount',
+                      style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: scheme.onSurface.withValues(alpha: 0.6))),
+                ),
+                _pageBtn(
+                    theme,
+                    Icons.chevron_right_rounded,
+                    page < pageCount - 1
+                        ? () =>
+                            setState(() => _linePages[g.season] = page + 1)
+                        : null),
+              ],
+            ),
+          ),
+        ));
+      }
     }
     out.add(const SliverToBoxAdapter(child: SizedBox(height: 70)));
     return out;
+  }
+
+  Widget _pageBtn(ThemeData theme, IconData icon, VoidCallback? onTap) {
+    final disabled = onTap == null;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          color: disabled
+              ? Colors.transparent
+              : theme.colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 0.8),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(icon,
+            size: 20,
+            color: disabled
+                ? theme.colorScheme.onSurface.withValues(alpha: 0.25)
+                : theme.colorScheme.onSurface),
+      ),
+    );
   }
 }

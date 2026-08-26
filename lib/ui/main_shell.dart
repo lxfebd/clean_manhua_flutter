@@ -126,6 +126,7 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
     if (Responsive.isTablet(context)) {
       return Scaffold(
         body: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _TabletSideNav(
               currentIndex: _index,
@@ -322,9 +323,8 @@ class _TabletSideNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final showLabel = Responsive.isExpanded(context);
     return Container(
-      width: showLabel ? 96 : 72,
+      width: 108,
       margin: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
       decoration: BoxDecoration(
         color: scheme.surface.withValues(alpha: 0.94),
@@ -344,31 +344,33 @@ class _TabletSideNav extends StatelessWidget {
       ),
       child: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 14),
+          padding: const EdgeInsets.symmetric(vertical: 10),
           child: Column(
             children: [
-              const SizedBox(height: 6),
-              Text('星漫匣',
-                  style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: showLabel ? 15 : 11,
-                      color: scheme.primary)),
-              const SizedBox(height: 18),
+              // 顶部 Logo 独立小区域，不占 4 项均分高度
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text('星漫匣',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                        color: scheme.primary)),
+              ),
+              // 4 个导航项垂直均分剩余高度，整块可点 + 整块高亮
               for (var i = 0; i < _items.length; i++)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: _SideNavItem(
-                    item: _items[i],
-                    index: i,
-                    current: currentIndex,
-                    onTap: onTap,
-                    showLabel: showLabel,
-                    isDark: isDark,
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 4, horizontal: 6),
+                    child: _SideNavItem(
+                      item: _items[i],
+                      index: i,
+                      current: currentIndex,
+                      onTap: onTap,
+                      isDark: isDark,
+                    ),
                   ),
                 ),
-              const Spacer(),
-              Icon(Icons.auto_awesome_rounded,
-                  size: 18, color: scheme.onSurface.withValues(alpha: 0.25)),
             ],
           ),
         ),
@@ -382,56 +384,55 @@ class _SideNavItem extends StatelessWidget {
   final int index;
   final int current;
   final ValueChanged<int> onTap;
-  final bool showLabel;
   final bool isDark;
   const _SideNavItem({
     required this.item,
     required this.index,
     required this.current,
     required this.onTap,
-    required this.showLabel,
     required this.isDark,
   });
 
   @override
   Widget build(BuildContext context) {
     final isOn = index == current;
-    final fg = Theme.of(context).colorScheme.onSurface;
+    final scheme = Theme.of(context).colorScheme;
+    final fg = scheme.onSurface;
     final softColor = fg.withValues(alpha: isDark ? 0.45 : 0.35);
     return PressableScale(
       onTap: () => onTap(index),
-      scale: 0.92,
+      scale: 0.94,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 240),
+        duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
-        padding: EdgeInsets.symmetric(
-          vertical: 10,
-          horizontal: showLabel ? 12 : 0,
-        ),
+        width: double.infinity,
+        height: double.infinity,
+        alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: isOn ? fg.withValues(alpha: 0.08) : Colors.transparent,
+          color: isOn
+              ? scheme.primary.withValues(alpha: isDark ? 0.28 : 0.16)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(14),
+          border: isOn
+              ? Border.all(
+                  color: scheme.primary.withValues(alpha: 0.3), width: 1)
+              : null,
         ),
-        child: Row(
-          mainAxisAlignment: showLabel
-              ? MainAxisAlignment.start
-              : MainAxisAlignment.center,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Icon(isOn ? item.$2 : item.$1,
-                size: 22, color: isOn ? fg : softColor),
-            if (showLabel) ...[
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  item.$3,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: isOn ? FontWeight.w700 : FontWeight.w500,
-                    color: isOn ? fg : softColor,
-                  ),
-                ),
+                size: 28, color: isOn ? scheme.primary : softColor),
+            const SizedBox(height: 7),
+            Text(
+              item.$3,
+              style: TextStyle(
+                fontSize: 13.5,
+                fontWeight: isOn ? FontWeight.w700 : FontWeight.w500,
+                color: isOn ? scheme.primary : softColor,
               ),
-            ],
+            ),
           ],
         ),
       ),

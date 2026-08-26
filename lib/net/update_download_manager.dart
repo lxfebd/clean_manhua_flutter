@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 
+import 'local_store.dart';
 import 'update_checker.dart';
 
 /// 后台更新下载状态。
@@ -64,10 +64,12 @@ class UpdateDownloadManager {
     _cancelled = false;
     _downloadedPath = null;
     _totalSize = 0;
-    // 使用应用缓存目录（getTemporaryDirectory），而非系统级 /data/local/tmp，
-    // 符合 Android 存储规范且 FileProvider 可正常分享。
-    final cacheDir = await getTemporaryDirectory();
-    _apkPath = '${cacheDir.path}/xingmanxia_update.apk';
+    // 更新 APK 存放到应用的规范下载目录（LocalStore.downloadDir，
+    // 即 .../files/data/downloads/），与漫画下载同一目录、统一管理；
+    // 应用私有目录可被 FileProvider 的 files-path 正常分享用于安装。
+    final dl = await LocalStore.downloadDir();
+    await dl.create(recursive: true);
+    _apkPath = '${dl.path}/xingmanxia_update.apk';
     _notify('更新下载', '开始下载…', 0, 0, false);
     _state = const UpdateDownloadState();
     _stateCtrl.add(_state);

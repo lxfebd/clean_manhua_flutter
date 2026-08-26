@@ -59,13 +59,14 @@ class Responsive {
     return 12;
   }
 
-  /// 剧集网格列数。
+  /// 剧集网格列数：剧集卡片需要容纳集数+标题，格子不宜过窄。
+  /// 平板适当减少列数、加宽卡片，提升触控热区（用户反馈"一行8个格子很挤"）。
   static int episodeGridColumns(BuildContext context) {
     final w = widthOf(context);
     if (w < _mediumBreak) return 4;
-    if (w < _expandedBreak) return 6;
-    if (w < _largeBreak) return 8;
-    return 10;
+    if (w < _expandedBreak) return 5;
+    if (w < _largeBreak) return 6;
+    return 7;
   }
 
   /// 工具箱网格列数。

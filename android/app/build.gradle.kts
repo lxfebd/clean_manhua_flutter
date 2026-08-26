@@ -40,6 +40,11 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // 默认仅打包 arm64-v8a（发布版体积最省，112MB→33.5MB）；
+        // debug 构建在下方 buildTypes 中放开全 ABI，保证 x86/x86_64 模拟器可正常测试。
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     signingConfigs {
@@ -60,6 +65,10 @@ android {
                 signingConfigs.getByName("release")
             } else {
                 signingConfigs.getByName("debug")
+            }
+            // 调试/测试保留全 ABI：x86/x86_64 模拟器、老设备都能跑。
+            ndk {
+                abiFilters += setOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
             }
         }
         release {

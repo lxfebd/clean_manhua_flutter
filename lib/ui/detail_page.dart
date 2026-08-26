@@ -6,6 +6,7 @@ import '../sources/source_manager.dart';
 import '../net/download_manager.dart';
 import '../net/local_store.dart';
 import 'reader_page.dart';
+import 'responsive.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
 
@@ -97,6 +98,9 @@ class _DetailPageState extends State<DetailPage> {
     final mq = MediaQuery.of(context);
     final name = _detail?.name ?? widget.name ?? '加载中…';
     final pic = _detail?.pic ?? widget.pic;
+    if (Responsive.isTablet(context)) {
+      return _buildTablet(theme, scheme, mq, name, pic);
+    }
     final topPad = mq.padding.top;
     final heroH = _heroHeight + topPad;
     final collapseProgress = (_scrollOffset / _heroHeight).clamp(0.0, 1.0);
@@ -386,6 +390,263 @@ class _DetailPageState extends State<DetailPage> {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// 平板横屏：左封面 + 右信息/按钮/章节列表（与播放器、预备页分栏范式统一）。
+  Widget _buildTablet(
+      ThemeData theme, ColorScheme scheme, MediaQueryData mq,
+      String name, String? pic) {
+    final topPad = mq.padding.top;
+    final d = _detail;
+    final metaParts = <String>[
+      if (d != null && (d.author ?? '').isNotEmpty) '${d.author} 著',
+      if (d != null && (d.type ?? '').isNotEmpty) d.type!,
+      if (d != null && (d.area ?? '').isNotEmpty) d.area!,
+    ];
+    return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
+      body: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── 左侧：完整竖版封面（固定） ──────────────────────
+          Container(
+            width: 300,
+            padding: EdgeInsets.fromLTRB(16, topPad + 10, 8, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const _BackButton(),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: Container(
+                      width: double.infinity,
+                      color: scheme.surfaceContainerHighest,
+                      child: (pic == null || pic.isEmpty)
+                          ? Center(
+                              child: Icon(Icons.image_outlined,
+                                  size: 48,
+                                  color: scheme.onSurface
+                                      .withValues(alpha: 0.2)))
+                          : CachedImage(pic, fit: BoxFit.cover, radius: 0),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // ── 右侧：信息 + 按钮 + 简介 + 章节列表（可滚动） ──
+          Expanded(
+            child: CustomScrollView(
+              controller: _scrollCtrl,
+              physics: const BouncingScrollPhysics(),
+              slivers: [
+                if (_loading)
+                  const SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.only(top: 80),
+                      child: _LoadingView(),
+                    ),
+                  )
+                else if (_error != null)
+                  SliverToBoxAdapter(
+                    child: _ErrorView(error: _error!, onRetry: _load),
+                  )
+                else if (d != null) ...[
+                  SliverToBoxAdapter(
+                    child: FadeSlideIn(
+                      delay: const Duration(milliseconds: 80),
+                      offset: 14,
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(18, topPad + 12, 18, 6),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(d.name,
+                                style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                    height: 1.3)),
+                            if (metaParts.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                metaParts.join(' · '),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    fontSize: 12.5,
+                                    color: scheme.onSurface
+                                        .withValues(alpha: 0.55)),
+                              ),
+                            ],
+                            const SizedBox(height: 10),
+                            Wrap(spacing: 6, runSpacing: 6, children: [
+                              if ((d.status ?? '').isNotEmpty)
+                                _StatusPill(label: d.status!),
+                              _CountPill(label: '${d.chapters.length} 话'),
+                            ]),
+                            const SizedBox(height: 16),
+                            // 统一尺寸按钮，并排大热区
+                            Row(children: [
+                              Expanded(
+                                child: FilledButton.icon(
+                                  onPressed: d.chapters.isEmpty
+                                      ? null
+                                      : () =>
+                                          _openChapter(d.chapters.first),
+                                  icon: const Icon(Icons.play_arrow_rounded,
+                                      size: 18),
+                                  label: const Text('开始阅读'),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: _toggleSave,
+                                  icon: Icon(
+                                    _saved
+                                        ? Icons.bookmark_rounded
+                                        : Icons.bookmark_outline_rounded,
+                                    size: 18,
+                                  ),
+                                  label: Text(
+                                      _saved ? '已在书架' : '加入书架'),
+                                ),
+                              ),
+                            ]),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  if ((d.description ?? '').isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: FadeSlideIn(
+                        delay: const Duration(milliseconds: 170),
+                        offset: 14,
+                        child: _DescCard(detail: d),
+                      ),
+                    ),
+                  SliverToBoxAdapter(
+                    child: FadeSlideIn(
+                      delay: const Duration(milliseconds: 250),
+                      offset: 14,
+                      child: _ChapterHeader(
+                        count: d.chapters.length,
+                        descending: _descending,
+                        onToggleDescending: () {
+                          setState(() {
+                            _descending = !_descending;
+                            _sortedCache = null;
+                          });
+                        },
+                        onTapAll: _showAllChapters,
+                      ),
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: _tabletChapterList(d, scheme),
+                  ),
+                  SliverToBoxAdapter(
+                    child: SizedBox(height: mq.padding.bottom + 40),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 平板右栏章节列表：竖向排列，直观大热区，支持排序切换与全部/批量下载。
+  Widget _tabletChapterList(ComicDetail d, ColorScheme scheme) {
+    final chapters = _sortedChapters();
+    final show = chapters.length < 12 ? chapters.length : 12;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(18, 4, 18, 4),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+            color: scheme.onSurface.withValues(alpha: 0.06)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          for (var i = 0; i < show; i++) ...[
+            if (i > 0)
+              Divider(
+                  height: 0.5,
+                  indent: 16,
+                  endIndent: 16,
+                  color: scheme.onSurface.withValues(alpha: 0.06)),
+            _ChapterTile(
+              index: i,
+              chapter: chapters[i],
+              onTap: () => _openChapter(chapters[i]),
+            ),
+          ],
+          Divider(
+              height: 0.5,
+              indent: 16,
+              endIndent: 16,
+              color: scheme.onSurface.withValues(alpha: 0.06)),
+          Row(children: [
+            Expanded(
+              child: InkWell(
+                onTap: _showAllChapters,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        '查看全部 ${d.chapters.length} 话',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: scheme.onSurface.withValues(alpha: 0.6),
+                        ),
+                      ),
+                      Icon(Icons.keyboard_arrow_down_rounded,
+                          size: 16, color: scheme.onSurface.withValues(alpha: 0.4)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Container(
+                width: 0.5,
+                height: 18,
+                color: scheme.onSurface.withValues(alpha: 0.08)),
+            Expanded(
+              child: InkWell(
+                onTap: _showBatchDownload,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.download_outlined,
+                          size: 15, color: scheme.primary.withValues(alpha: 0.9)),
+                      const SizedBox(width: 4),
+                      Text('批量下载',
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: scheme.primary)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ]),
         ],
       ),
     );

@@ -897,6 +897,7 @@ class _ReaderPageState extends State<ReaderPage> {
         child: ListView.builder(
           controller: sctrl,
           padding: EdgeInsets.zero,
+          cacheExtent: 900,
           itemCount: _urls.length + (_canContinue ? 1 : 0),
         itemBuilder: (c, i) {
           if (i >= _urls.length && _canContinue) {
@@ -964,9 +965,13 @@ class _ImageView extends StatefulWidget {
   State<_ImageView> createState() => _ImageViewState();
 }
 
-class _ImageViewState extends State<_ImageView> {
+class _ImageViewState extends State<_ImageView>
+    with AutomaticKeepAliveClientMixin {
   bool _error = false;
   final GlobalKey _imgKey = GlobalKey();
+
+  @override
+  bool get wantKeepAlive => true;
 
   bool get _isJm => widget.sourceId == 'jm';
 
@@ -1011,6 +1016,7 @@ class _ImageViewState extends State<_ImageView> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     if (_error) {
       return SizedBox(
         width: double.infinity,
@@ -1161,9 +1167,13 @@ class _CachedReaderImage extends StatefulWidget {
   State<_CachedReaderImage> createState() => _CachedReaderImageState();
 }
 
-class _CachedReaderImageState extends State<_CachedReaderImage> {
+class _CachedReaderImageState extends State<_CachedReaderImage>
+    with AutomaticKeepAliveClientMixin {
   Uint8List? _bytes;
   bool _failed = false;
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -1188,10 +1198,13 @@ class _CachedReaderImageState extends State<_CachedReaderImage> {
   /// 先加载原图快速显示，滑动停止后再异步超分升级。
   /// 避免超分 Isolate 在滑动期间并发导致低端机卡死。
   Future<void> _load() async {
-    setState(() {
-      _bytes = null;
+    // 保留已加载图片字节，避免占位高度(240)与实际高度来回跳变造成上翻抖动；
+    // 仅在确实没有图片时才触发重建显示占位。
+    if (_bytes == null) {
+      setState(() => _failed = false);
+    } else {
       _failed = false;
-    });
+    }
     try {
       // 第一步：先加载原图（快速显示）
       final raw = await ImageCacheManager.load(widget.url, headers: _headers());
@@ -1231,6 +1244,7 @@ class _CachedReaderImageState extends State<_CachedReaderImage> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     if (_failed) {
       return SizedBox(
         width: double.infinity,

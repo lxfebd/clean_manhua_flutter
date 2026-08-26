@@ -12,6 +12,7 @@ import '../sources/video_source.dart';
 import '../utils/anime4k.dart';
 import '../utils/danmaku.dart';
 import 'anime_player_page.dart';
+import 'responsive.dart';
 import 'widgets/danmaku_overlay.dart';
 import 'widgets/player_widgets.dart';
 
@@ -772,7 +773,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     } else {
       _locked = false;
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-      SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+      _unlockOrientation();
     }
     _bumpControls();
   }
@@ -918,8 +919,23 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     }
     _player?.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    _unlockOrientation();
     super.dispose();
+  }
+
+  /// 退出全屏/离开播放页时恢复方向：平板解锁跟随设备（横屏填满），
+  /// 手机恢复竖屏避免卡横屏。dispose 中调用，不依赖 BuildContext。
+  void _unlockOrientation() {
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final w = view.physicalSize.width / view.devicePixelRatio;
+    final tablet = w >= 440;
+    SystemChrome.setPreferredOrientations(tablet
+        ? [
+            DeviceOrientation.portraitUp,
+            DeviceOrientation.landscapeLeft,
+            DeviceOrientation.landscapeRight,
+          ]
+        : [DeviceOrientation.portraitUp]);
   }
 
   // ══════════════════════════════════════════════
@@ -935,13 +951,37 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         backgroundColor: Colors.black,
         body: _fullscreen
             ? _stage()
-            : SafeArea(
-                bottom: false,
-                child: Column(children: [
-                  AspectRatio(aspectRatio: 16 / 9, child: _stage()),
-                  Expanded(child: _belowPanel()),
-                ]),
-              ),
+            : Responsive.isTablet(context)
+                ? Row(children: [
+                    Expanded(
+                      child: SafeArea(
+                        bottom: false,
+                        child: Center(
+                          child: AspectRatio(
+                            aspectRatio: 16 / 9,
+                            child: _stage(),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Container(
+                      width: 336,
+                      decoration: const BoxDecoration(
+                        border: Border(
+                          left:
+                              BorderSide(color: Colors.white12, width: 0.8),
+                        ),
+                      ),
+                      child: _belowPanel(),
+                    ),
+                  ])
+                : SafeArea(
+                    bottom: false,
+                    child: Column(children: [
+                      AspectRatio(aspectRatio: 16 / 9, child: _stage()),
+                      Expanded(child: _belowPanel()),
+                    ]),
+                  ),
       ),
     );
   }
@@ -1508,7 +1548,12 @@ class _NativePlayerPageState extends State<NativePlayerPage>
 
   // ══ 竖屏下方面板 ══════════════════════════════
   Widget _belowPanel() {
-    final scheme = Theme.of(context).colorScheme;
+    final base = Theme.of(context).colorScheme;
+    // 平板分栏右侧面板深色配色，与 AnimePlayerPage 保持一致
+    final scheme = Responsive.isTablet(context)
+        ? ColorScheme.fromSeed(
+            seedColor: base.primary, brightness: Brightness.dark)
+        : base;
     final bottomPad = MediaQuery.of(context).viewPadding.bottom;
     final multi = widget.episodes.length > 1 && widget.resolveUrl != null;
     return Container(
