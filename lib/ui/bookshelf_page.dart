@@ -399,6 +399,7 @@ class BookshelfPageState extends State<BookshelfPage>
     if (_checkingUpdate) return;
     setState(() => _checkingUpdate = true);
     var newCount = 0;
+    var fail = 0;
     for (final d in _items) {
       final sid = BookshelfStore.sourceIdOf(d.id) ?? SourceManager.current.id;
       final source = SourceManager.byId(sid);
@@ -408,22 +409,24 @@ class BookshelfPageState extends State<BookshelfPage>
         final hadNew = BookshelfStore.hasUpdate(sid, d.id, cur);
         BookshelfStore.setLastSeenChapters(sid, d.id, cur);
         if (hadNew) newCount++;
-      } catch (_) {}
+      } catch (_) {
+        fail++;
+      }
     }
     if (mounted) {
       setState(() {
         _updateCount = newCount;
         _checkingUpdate = false;
       });
-      if (newCount == 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('所有收藏已是最新')),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('发现 $newCount 部作品有更新')),
-        );
-      }
+      // 全部失败（断网/源全挂）与"无更新"语义不同，需分别提示，避免误导用户
+      final msg = (fail == _items.length && _items.isNotEmpty)
+          ? '检查更新失败：网络不可达或源全部失效'
+          : newCount == 0
+              ? '所有收藏已是最新'
+              : '发现 $newCount 部作品有更新';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg)),
+      );
     }
   }
 
@@ -481,6 +484,8 @@ class BookshelfPageState extends State<BookshelfPage>
           ),
           child: Text(
             label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 13,
               fontWeight: active ? FontWeight.w700 : FontWeight.w500,
@@ -743,7 +748,9 @@ class _ShelfCardState extends State<_ShelfCard> {
                               Positioned(
                                 top: 6,
                                 left: 6,
+                                right: 6,
                                 child: Container(
+                                  constraints: const BoxConstraints(maxWidth: 100),
                                   padding: const EdgeInsets.symmetric(
                                       horizontal: 5, vertical: 2),
                                   decoration: BoxDecoration(
@@ -753,6 +760,8 @@ class _ShelfCardState extends State<_ShelfCard> {
                                   ),
                                   child: Text(
                                     widget.item.comic.author ?? '',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
                                       fontSize: 9,
                                       color: Colors.white,

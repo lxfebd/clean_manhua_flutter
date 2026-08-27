@@ -68,9 +68,10 @@ class Anime1VideoSource implements VideoSource {
       _cache = out;
       _cacheAt = now;
       return out;
-    } catch (_) {
-      // 拉取失败（断网/被拦）时返回上次缓存，避免整源不可用
-      return _cache ?? const [];
+    } catch (e) {
+      // 有缓存就用缓存（合理降级）；首次加载无缓存则上抛，由首页错误态提示重试
+      if (_cache != null) return _cache!;
+      rethrow;
     }
   }
 

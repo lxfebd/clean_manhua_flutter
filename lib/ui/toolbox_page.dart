@@ -556,7 +556,9 @@ class ToolboxPageState extends State<ToolboxPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
+        Wrap(
+          spacing: 12,
+          runSpacing: 4,
           children: [
             Text(
               '共 ${_downloads.length} 个',
@@ -564,11 +566,9 @@ class ToolboxPageState extends State<ToolboxPage> {
                   fontSize: 13,
                   color: scheme.onSurface.withValues(alpha: 0.6)),
             ),
-            const SizedBox(width: 12),
             Text('已完成 $done',
                 style: TextStyle(
                     fontSize: 13, color: scheme.primary)),
-            const SizedBox(width: 12),
             Text('进行中 $running',
                 style: TextStyle(
                     fontSize: 13, color: scheme.onSurface.withValues(alpha: 0.6))),

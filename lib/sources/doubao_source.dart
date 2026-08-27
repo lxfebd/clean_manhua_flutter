@@ -88,12 +88,9 @@ class DoubaoSource extends ComicSource {
     if (cipherBytes == null || cipherBytes.length < 32) return const <String>[];
     final iv = Uint8List.sublistView(cipherBytes, 0, 16);
     final cipher = Uint8List.sublistView(cipherBytes, 16);
-    Uint8List plain;
-    try {
-      plain = await AesCbc.decryptCbcAsync(cipher, _key, iv);
-    } catch (_) {
-      return const <String>[];
-    }
+    // 解密失败（密钥轮换/IV错位/payload损坏）直接抛出，
+    // 由阅读器展示"章节加载失败"并提供重试，而不是返回空列表伪装成"无图"。
+    final plain = await AesCbc.decryptCbcAsync(cipher, _key, iv);
     final text = utf8.decode(plain);
     final Map<String, dynamic> obj = jsonDecode(text) as Map<String, dynamic>;
     final list = obj['chapter_images'];

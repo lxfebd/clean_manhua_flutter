@@ -13,11 +13,10 @@ import 'source_result.dart';
 class SourceHttp {
   /// 读取某源的第一个可用 host（无配置/为空时回退 [fallback]）。
   static Future<String> pickHost(String engineId, List<String> fallback) async {
-    try {
-      final hosts = await SourceConfigStore.hostsFor(engineId, fallback);
-      if (hosts.isNotEmpty) return hosts.first;
-    } catch (_) {}
-    return fallback.isNotEmpty ? fallback.first : '';
+    final hosts = await SourceConfigStore.hostsFor(engineId, fallback);
+    return hosts.isNotEmpty
+        ? hosts.first
+        : (fallback.isNotEmpty ? fallback.first : '');
   }
 
   /// GET：host 由配置决定，path 拼接在 host 之后。

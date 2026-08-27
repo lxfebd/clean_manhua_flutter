@@ -97,7 +97,9 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
     try {
       final cats = await _source.categories();
       if (mounted && cats.isNotEmpty) setState(() => _sourceCats = cats);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('loadSourceCats failed: $e');
+    }
   }
 
   /// 切换视频源后刷新列表与分类。
@@ -232,16 +234,20 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  _modeTitle(),
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: Theme.of(context).colorScheme.onSurface,
+                Expanded(
+                  child: Text(
+                    _modeTitle(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
                   ),
                 ),
-                const Spacer(),
-                if (_items.isNotEmpty)
+                if (_items.isNotEmpty) ...[
+                  const SizedBox(width: 8),
                   Text(
                     '${_items.length} 部',
                     style: TextStyle(
@@ -249,6 +255,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
                       color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
                     ),
                   ),
+                ],
               ],
             ),
           ),
@@ -336,42 +343,48 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
                   ),
                 ),
                 const SizedBox(width: 10),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '星漫匣',
-                      style: TextStyle(
-                        fontSize: 21,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.5,
-                        color: scheme.onSurface,
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '星漫匣',
+                        style: TextStyle(
+                          fontSize: 21,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.5,
+                          color: scheme.onSurface,
+                        ),
                       ),
-                    ),
-                    GestureDetector(
-                      onTap: _pickSource,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            _source.name,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: scheme.onSurface.withValues(alpha: 0.5),
-                              letterSpacing: 1,
+                      GestureDetector(
+                        onTap: _pickSource,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                _source.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: scheme.onSurface.withValues(alpha: 0.5),
+                                  letterSpacing: 1,
+                                ),
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 3),
-                          Icon(Icons.swap_horiz_rounded,
-                              size: 13,
-                              color: scheme.onSurface.withValues(alpha: 0.4)),
-                        ],
+                            const SizedBox(width: 3),
+                            Icon(Icons.swap_horiz_rounded,
+                                size: 13,
+                                color: scheme.onSurface.withValues(alpha: 0.4)),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 8),
                 GestureDetector(
                   onTap: _pickSource,
                   child: Container(
@@ -392,12 +405,16 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
                             size: 14,
                             color: scheme.onSurface.withValues(alpha: 0.8)),
                         const SizedBox(width: 5),
-                        Text(
-                          _source.name,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: scheme.onSurface,
+                        Flexible(
+                          child: Text(
+                            _source.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: scheme.onSurface,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 3),

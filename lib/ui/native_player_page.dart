@@ -524,7 +524,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           map[_histKey] = sec;
         }
         await LocalStore.writeJson('video_progress', map);
-      } catch (_) {}
+      } catch (e) {
+        // 续播进度持久化失败需可观测，否则用户以为已保存实则丢失
+        debugPrint('save video progress failed: $e');
+      }
     }();
   }
 
@@ -1520,6 +1523,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
             ],
             Text(text,
                 maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                     color: color,
                     fontSize: 12.5,
@@ -1694,28 +1698,36 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(children: [
-                    Text('Anime4K 超分',
-                        style: TextStyle(
-                            color: scheme.onSurface,
-                            fontSize: 14.5,
-                            fontWeight: FontWeight.w700)),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: on
-                            ? PlayerColors.sr.withValues(alpha: 0.2)
-                            : scheme.onSurface.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(_sr.name,
+                    Flexible(
+                      child: Text('Anime4K 超分',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w700,
-                              color: on
-                                  ? PlayerColors.sr
-                                  : scheme.onSurface.withValues(alpha: 0.6))),
+                              color: scheme.onSurface,
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w700)),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: on
+                              ? PlayerColors.sr.withValues(alpha: 0.2)
+                              : scheme.onSurface.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(_sr.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                                color: on
+                                    ? PlayerColors.sr
+                                    : scheme.onSurface.withValues(alpha: 0.6))),
+                      ),
                     ),
                   ]),
                   const SizedBox(height: 4),
@@ -1810,6 +1822,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                   : scheme.onSurface.withValues(alpha: 0.7)),
           const SizedBox(height: 6),
           Text(label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                   fontSize: 11,
                   color: scheme.onSurface.withValues(alpha: 0.55))),

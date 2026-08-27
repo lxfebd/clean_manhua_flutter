@@ -914,28 +914,36 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(children: [
-                    Text('网页画质增强(滤镜)',
-                        style: TextStyle(
-                            color: scheme.onSurface,
-                            fontSize: 14.5,
-                            fontWeight: FontWeight.w700)),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: on
-                            ? PlayerColors.sr.withValues(alpha: 0.2)
-                            : scheme.onSurface.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(_srName,
+                    Flexible(
+                      child: Text('网页画质增强(滤镜)',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w700,
-                              color: on
-                                  ? PlayerColors.sr
-                                  : scheme.onSurface.withValues(alpha: 0.6))),
+                              color: scheme.onSurface,
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w700)),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: on
+                              ? PlayerColors.sr.withValues(alpha: 0.2)
+                              : scheme.onSurface.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(_srName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                                color: on
+                                    ? PlayerColors.sr
+                                    : scheme.onSurface.withValues(alpha: 0.6))),
+                      ),
                     ),
                   ]),
                   const SizedBox(height: 4),
@@ -977,6 +985,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                   : scheme.onSurface.withValues(alpha: 0.7)),
           const SizedBox(height: 6),
           Text(label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                   fontSize: 11,
                   color: scheme.onSurface.withValues(alpha: 0.55))),
@@ -1184,6 +1194,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
             ],
             Text(text,
                 maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                     color: color,
                     fontSize: 12.5,
@@ -1606,6 +1617,7 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
               if (d.type != null || d.video.remarks != null)
                 Positioned(
                   top: 12,
+                  left: 12,
                   right: 12,
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -1619,18 +1631,24 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                             border: Border.all(color: Colors.white.withValues(alpha: 0.2), width: 0.5),
                           ),
                           child: Text(d.type!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w600)),
                         ),
                       if (d.type != null && d.video.remarks != null) const SizedBox(width: 6),
                       if (d.video.remarks != null)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.primary.withValues(alpha: 0.7),
-                            borderRadius: BorderRadius.circular(12),
+                        Flexible(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary.withValues(alpha: 0.7),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(d.video.remarks!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w700)),
                           ),
-                          child: Text(d.video.remarks!,
-                              style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w700)),
                         ),
                     ],
                   ),

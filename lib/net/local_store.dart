@@ -241,7 +241,10 @@ class LocalStore {
         return await compute(_jsonDecodeCompute, raw);
       }
       return jsonDecode(raw);
-    } catch (_) {
+    } catch (e) {
+      // 文件损坏（写入中断/磁盘错误）与"不存在"在此都返回 null；
+      // 但损坏需留可观测日志，便于排查"收藏/历史突然清空"类问题。
+      debugPrint('LocalStore._read($name) 解析失败（数据可能已损坏）: $e');
       return null;
     }
   }

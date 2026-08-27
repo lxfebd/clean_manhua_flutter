@@ -44,8 +44,10 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
       final info = await UpdateChecker.checkLatest(
           timeout: const Duration(seconds: 10));
       if (info == null || !mounted) return;
-      if (mounted) _showUpdateDialog(info);
-    } catch (_) {}
+      _showUpdateDialog(info);
+    } catch (e) {
+      debugPrint('auto update check failed: $e');
+    }
   }
 
   void _showUpdateDialog(UpdateInfo info) {

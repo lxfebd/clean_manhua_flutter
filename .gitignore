@@ -102,3 +102,6 @@ plain.txt
 HANDOFF.md
 /交接*.md
 
+# ===== 本地回归测试（仅本地验证用，勿入库）=====
+/test/regression_*_test.dart
+

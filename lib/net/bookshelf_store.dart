@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../models/comic_item.dart';
 import '../sources/comic_source.dart';
 
@@ -27,7 +29,16 @@ class BookshelfStore {
     }
     try {
       _cache = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
-    } catch (_) {
+    } catch (e) {
+      // 数据损坏（写入中断/磁盘错误）：备份损坏文件再从空开始，
+      // 避免静默清空导致用户书架"凭空消失"且无法追溯。
+      debugPrint('bookshelf 数据损坏，已备份原文件: $e');
+      try {
+        f.renameSync(
+            '${f.path}.corrupt-${DateTime.now().millisecondsSinceEpoch}');
+      } catch (e2) {
+        debugPrint('bookshelf 备份失败: $e2');
+      }
       _cache = {};
     }
   }
@@ -57,7 +68,10 @@ class BookshelfStore {
   static Future<void> _writeAsync(File f, String data) async {
     try {
       await f.writeAsString(data, flush: true);
-    } catch (_) {}
+    } catch (e) {
+      // 写盘失败（磁盘满/权限）需可观测，否则内存已更新但磁盘没落盘，下次启动丢失
+      debugPrint('bookshelf 写盘失败: $e');
+    }
   }
 
   static String _key(String sourceId, String comicId) => '$sourceId|$comicId';

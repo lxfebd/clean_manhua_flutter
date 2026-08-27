@@ -53,7 +53,9 @@ class _HomePageState extends State<HomePage> {
     try {
       final cats = await SourceManager.current.categories();
       if (mounted) setState(() => _cats = cats);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('loadCategories failed: $e');
+    }
   }
 
   void _refresh() {
@@ -170,16 +172,20 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  _modeTitle(),
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: theme.colorScheme.onSurface,
+                Expanded(
+                  child: Text(
+                    _modeTitle(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: theme.colorScheme.onSurface,
+                    ),
                   ),
                 ),
-                const Spacer(),
-                if (_items.isNotEmpty)
+                if (_items.isNotEmpty) ...[
+                  const SizedBox(width: 8),
                   Text(
                     '${_items.length} 部',
                     style: TextStyle(
@@ -187,6 +193,7 @@ class _HomePageState extends State<HomePage> {
                       color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                     ),
                   ),
+                ],
               ],
             ),
           ),
@@ -275,29 +282,33 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
                 const SizedBox(width: 10),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '星漫匣',
-                      style: TextStyle(
-                        fontSize: 21,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.5,
-                        color: scheme.onSurface,
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '星漫匣',
+                        style: TextStyle(
+                          fontSize: 21,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.5,
+                          color: scheme.onSurface,
+                        ),
                       ),
-                    ),
-                    Text(
-                      SourceManager.current.name,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: scheme.onSurface.withValues(alpha: 0.5),
+                      Text(
+                        SourceManager.current.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: scheme.onSurface.withValues(alpha: 0.5),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 8),
                 _SourceSwitchButton(
                   sourceName: SourceManager.current.name,
                   onTap: _showSourceSheet,
@@ -481,12 +492,16 @@ class _SourceSwitchButton extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 4),
-            Text(
-              sourceName,
-              style: TextStyle(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w700,
-                color: scheme.primary,
+            Flexible(
+              child: Text(
+                sourceName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: scheme.primary,
+                ),
               ),
             ),
             const SizedBox(width: 3),
@@ -993,7 +1008,9 @@ class _ComicCardState extends State<_ComicCard> {
                           Positioned(
                             top: 6,
                             left: 6,
+                            right: 6,
                             child: Container(
+                              constraints: const BoxConstraints(maxWidth: 100),
                               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                               decoration: BoxDecoration(
                                 color: Colors.black.withValues(alpha: 0.55),
@@ -1001,6 +1018,8 @@ class _ComicCardState extends State<_ComicCard> {
                               ),
                               child: Text(
                                 widget.item.author!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
                                   fontSize: 9,
                                   color: Colors.white,

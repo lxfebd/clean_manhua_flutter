@@ -92,33 +92,26 @@ class XifanVideoSource implements VideoSource {
   Future<List<ComicItem>> search(String keyword, int page) async {
     if (keyword.trim().isEmpty) return const [];
     final url = '$_api?mid=1&wd=${Uri.encodeQueryComponent(keyword)}&page=$page';
-    try {
-      return _parseList(
-          await Net.get(url, timeout: const Duration(seconds: 20)));
-    } catch (_) {
-      return const [];
-    }
+    // 网络/解析失败直接上抛，由列表页错误态处理，避免把"加载失败"伪装成"无结果"
+    return _parseList(
+        await Net.get(url, timeout: const Duration(seconds: 20)));
   }
 
   Future<List<ComicItem>> _list(int page) async {
     final url = '$_api?mid=1&page=$page';
-    try {
-      return _parseList(
-          await Net.get(url, timeout: const Duration(seconds: 20)));
-    } catch (_) {
-      return const [];
-    }
+    return _parseList(
+        await Net.get(url, timeout: const Duration(seconds: 20)));
   }
 
   List<Map<String, dynamic>> _parseListRaw(String body) {
-    try {
-      final json = jsonDecode(body) as Map<String, dynamic>;
-      if (json['code'] != 1) return const [];
-      final list = (json['list'] as List?) ?? const [];
-      return list.map<Map<String, dynamic>>((e) => e as Map<String, dynamic>).toList();
-    } catch (_) {
-      return const [];
-    }
+    final json = jsonDecode(body) as Map<String, dynamic>;
+    // code != 1 视为无结果（如翻页越界），返回空列表；
+    // 但 jsonDecode/类型转换异常自然上抛，不再被吞掉伪装成"无结果"。
+    if (json['code'] != 1) return const [];
+    final list = (json['list'] as List?) ?? const [];
+    return list
+        .map<Map<String, dynamic>>((e) => e as Map<String, dynamic>)
+        .toList();
   }
 
   ComicItem _toItem(Map<String, dynamic> m) {

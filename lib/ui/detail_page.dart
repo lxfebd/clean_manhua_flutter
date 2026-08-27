@@ -804,6 +804,9 @@ class _DetailPageState extends State<DetailPage> {
                                     name: _detail!.name,
                                     pic: _detail!.pic ?? '',
                                   );
+                                  var ok = 0;
+                                  var fail = 0;
+                                  String? firstErr;
                                   for (final idx in picks) {
                                     final ch = chapters[idx];
                                     setS(() {
@@ -827,16 +830,22 @@ class _DetailPageState extends State<DetailPage> {
                                           currentTotal = t;
                                         }),
                                       );
-                                    } catch (_) {}
+                                      ok++;
+                                    } catch (e) {
+                                      fail++;
+                                      firstErr ??= e.toString();
+                                    }
                                   }
                                   if (ctx.mounted) {
                                     Navigator.pop(ctx);
                                   }
                                   if (mounted) {
+                                    final msg = fail == 0
+                                        ? '已下载 $ok 话'
+                                        : '$ok 话成功，$fail 话失败${firstErr == null ? '' : '：$firstErr'}';
                                     ScaffoldMessenger.of(context)
                                         .showSnackBar(SnackBar(
-                                      content: Text(
-                                          '已下载 ${picks.length} 话'),
+                                      content: Text(msg),
                                     ));
                                   }
                                 },

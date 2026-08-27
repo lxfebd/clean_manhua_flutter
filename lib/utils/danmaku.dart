@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+
 import '../net/http_client.dart';
 
 /// 弹幕条目：出现时间（秒）、文本、颜色（ARGB）、类型。
@@ -57,11 +59,13 @@ class DanmakuFetcher {
   static const String _host = 'https://api.dandanplay.net';
 
   static Future<List<DanmakuItem>> fetch(String title, int episode) async {
+    // 设计上不抛错打断播放，但失败需留可观测日志，便于定位"弹幕长期不显示"
     try {
       final epId = await _match(title, episode);
       if (epId == null) return const [];
       return await _comments(epId);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('danmaku fetch($title, $episode) failed: $e');
       return const [];
     }
   }

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../models/comic_item.dart';
 import '../sources/novel_source.dart';
 
@@ -25,7 +27,14 @@ class NovelShelfStore {
     }
     try {
       _cache = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('novel_shelf 数据损坏，已备份原文件: $e');
+      try {
+        f.renameSync(
+            '${f.path}.corrupt-${DateTime.now().millisecondsSinceEpoch}');
+      } catch (e2) {
+        debugPrint('novel_shelf 备份失败: $e2');
+      }
       _cache = {};
     }
   }
@@ -44,7 +53,9 @@ class NovelShelfStore {
   static Future<void> _writeAsync(File f, String data) async {
     try {
       await f.writeAsString(data, flush: true);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('novel_shelf 写盘失败: $e');
+    }
   }
 
   static String _key(String sourceId, String novelId) => '$sourceId|$novelId';

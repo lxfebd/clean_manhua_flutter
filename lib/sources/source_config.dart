@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../net/local_store.dart';
 
 /// 源优先级层级（对应 Ani 的 `MediaSourceTier`）。
@@ -197,7 +199,8 @@ class SourceConfigStore {
     try {
       final c = await byEngine(engineId);
       return c.hosts.isNotEmpty ? c.hosts : fallback;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('hostsFor($engineId) failed: $e');
       return fallback;
     }
   }
@@ -210,7 +213,8 @@ class SourceConfigStore {
     try {
       final c = await byEngine(engineId);
       return c.imageHosts.isNotEmpty ? c.imageHosts : fallback;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('imageHostsFor($engineId) failed: $e');
       return fallback;
     }
   }

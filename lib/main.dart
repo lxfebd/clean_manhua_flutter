@@ -19,21 +19,31 @@ void main() async {
   PaintingBinding.instance.imageCache.maximumSizeBytes = 30 * 1024 * 1024;
   try {
     MediaKit.ensureInitialized();
-  } catch (_) {}
+  } catch (e) {
+    debugPrint('MediaKit init failed: $e');
+  }
   try {
     await LocalStore.init();
-  } catch (_) {}
+  } catch (e) {
+    debugPrint('LocalStore init failed: $e');
+  }
   try {
     await UpdateChecker.init();
-  } catch (_) {}
+  } catch (e) {
+    debugPrint('UpdateChecker init failed: $e');
+  }
   try {
     await Net.restorePreferredHostIps();
-  } catch (_) {}
+  } catch (e) {
+    debugPrint('restorePreferredHostIps failed: $e');
+  }
   try {
     final dir = await getApplicationSupportDirectory();
     BookshelfStore.bindFile(File('${dir.path}/bookshelf.json'));
     NovelShelfStore.bindFile(File('${dir.path}/novel_shelf.json'));
-  } catch (_) {}
+  } catch (e) {
+    debugPrint('shelf bind failed: $e');
+  }
   runApp(const YingManHeApp());
 }
 
