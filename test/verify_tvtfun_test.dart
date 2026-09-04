@@ -18,6 +18,10 @@ Future<T> net<T>(Future<T> Function() fn, {int times = 5}) async {
 
 /// 临时验证测试：真实请求 tvtfun.net，验证视频源
 /// 分类分页 / 标签筛选 / 搜索 / 详情 / 播放 逻辑。
+///
+/// 默认跳过：源站"半通"（探测通过但后续请求被限流）时整测可挂满 5 分钟，
+/// 破坏本地回归确定性。需要真机验源时临时把 _skipLive 改成 false。
+const bool _skipLive = true;
 void main() {
   test('tvtfun video source live verification', () async {
     final src = TvTfunVideoSource();
@@ -116,5 +120,5 @@ void main() {
     // ignore: avoid_print
     print('\n=== playUrl ===\n$play');
     expect(play, contains('/video/${all1.first.id}/play'));
-  }, timeout: const Timeout(Duration(minutes: 5)));
+  }, timeout: const Timeout(Duration(minutes: 5)), skip: _skipLive ? '真实网络验证，默认跳过' : false);
 }

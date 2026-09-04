@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../net/cf_ip_picker.dart';
 import '../../net/http_client.dart';
 import '../../sources/source_config.dart';
+import '../responsive.dart';
 
 /// 网络查询类工具：DNS 查询、Ping 测试、IP 归属地、天气。
 class NetworkToolsPage extends StatefulWidget {
@@ -223,7 +224,9 @@ class _NetworkToolsPageState extends State<NetworkToolsPage>
 
   Widget _buildDns(ColorScheme scheme) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 110),
+      padding: EdgeInsets.fromLTRB(
+          Responsive.pagePadding(context), 16,
+          Responsive.pagePadding(context), (Responsive.isTablet(context) ? 24 : 110)),
       children: [
         TextField(
           controller: _dnsCtrl,
@@ -252,7 +255,9 @@ class _NetworkToolsPageState extends State<NetworkToolsPage>
 
   Widget _buildPing(ColorScheme scheme) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 110),
+      padding: EdgeInsets.fromLTRB(
+          Responsive.pagePadding(context), 16,
+          Responsive.pagePadding(context), (Responsive.isTablet(context) ? 24 : 110)),
       children: [
         TextField(
           controller: _pingCtrl,
@@ -281,7 +286,9 @@ class _NetworkToolsPageState extends State<NetworkToolsPage>
 
   Widget _buildIp(ColorScheme scheme) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 110),
+      padding: EdgeInsets.fromLTRB(
+          Responsive.pagePadding(context), 16,
+          Responsive.pagePadding(context), (Responsive.isTablet(context) ? 24 : 110)),
       children: [
         TextField(
           controller: _ipCtrl,
@@ -310,7 +317,9 @@ class _NetworkToolsPageState extends State<NetworkToolsPage>
 
   Widget _buildWeather(ColorScheme scheme) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 110),
+      padding: EdgeInsets.fromLTRB(
+          Responsive.pagePadding(context), 16,
+          Responsive.pagePadding(context), (Responsive.isTablet(context) ? 24 : 110)),
       children: [
         TextField(
           controller: _cityCtrl,
@@ -469,7 +478,9 @@ class _CfPickerTabState extends State<_CfPickerTab> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 110),
+      padding: EdgeInsets.fromLTRB(
+          Responsive.pagePadding(context), 16,
+          Responsive.pagePadding(context), (Responsive.isTablet(context) ? 24 : 110)),
       children: [
         TextField(
           controller: _domainCtrl,
@@ -743,7 +754,9 @@ class _SourceCheckTabState extends State<_SourceCheckTab> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 110),
+      padding: EdgeInsets.fromLTRB(
+          Responsive.pagePadding(context), 16,
+          Responsive.pagePadding(context), (Responsive.isTablet(context) ? 24 : 110)),
       children: [
         Text(
           '检测所有启用源的 HTTPS 连通性与延迟（TCP 443 + TLS 握手）。'
@@ -804,7 +817,7 @@ class _SourceCheckTabState extends State<_SourceCheckTab> {
 
   Widget _resultRow(ColorScheme scheme, _SrcCheck r,
       {required bool isLast}) {
-    final okColor = r.ok ? const Color(0xFF34C759) : scheme.error;
+    final okColor = r.ok ? Colors.green : scheme.error;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       decoration: isLast

@@ -6,9 +6,11 @@ import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
 import 'detail_page.dart';
 import 'responsive.dart';
+import 'tokens.dart';
 import 'unified_search_page.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
+import 'widgets/state_view.dart';
 
 /// 首页：搜索 + 横向 Hero + 分类胶囊 + 漫画网格（错峰入场）
 class HomePage extends StatefulWidget {
@@ -58,16 +60,17 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  void _refresh() {
+  /// 下拉刷新：清空并重拉首页数据（页数重置）
+  Future<void> _refresh() async {
     _page = 1;
     _items.clear();
     _error = null;
     _done = false;
     setState(() {});
     _loadCategories();
-    _loadMore();
+    await _loadMore();
     // 若当前源在源管理里被禁用，回退到第一个启用源
-    SourceManager.ensureEnabledCurrent().then((_) {
+    await SourceManager.ensureEnabledCurrent().then((_) {
       if (mounted) setState(() {});
     });
   }
@@ -144,9 +147,19 @@ class _HomePageState extends State<HomePage> {
       return _done ? _EmptyState(mode: _mode) : _LoadingDots();
     }
     final theme = Theme.of(context);
-    return CustomScrollView(
+    final isDesktop = DesktopUi.isDesktopPlatform;
+    final scrollView = CustomScrollView(
       controller: _scrollCtrl,
-      physics: const BouncingScrollPhysics(),
+      physics: isDesktop
+          ? const ScrollPhysics(parent: ClampingScrollPhysics())
+          : const AlwaysScrollableScrollPhysics(
+              parent: BouncingScrollPhysics()),
+      scrollBehavior: isDesktop
+          ? ScrollConfiguration.of(context).copyWith(
+              scrollbars: true,
+              overscroll: false,
+            )
+          : null,
       slivers: [
         // 顶部大封面横幅（仅推荐模式下展示前 5 张作为精选）
         if (_mode == 'rank' && _items.length >= 5)
@@ -159,63 +172,44 @@ class _HomePageState extends State<HomePage> {
           ),
         // 列表区
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          padding: EdgeInsets.fromLTRB(
+              Responsive.pagePadding(context), 8,
+              Responsive.pagePadding(context), 4),
           sliver: SliverToBoxAdapter(
-            child: Row(
-              children: [
-                Container(
-                  width: 3,
-                  height: 14,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _modeTitle(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: theme.colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-                if (_items.isNotEmpty) ...[
-                  const SizedBox(width: 8),
-                  Text(
-                    '${_items.length} 部',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                    ),
-                  ),
-                ],
-              ],
+            child: SectionHeader(
+              icon: _modeIcon(),
+              title: _modeTitle(),
+              count: _items.isNotEmpty ? _items.length : null,
             ),
           ),
         ),
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
+          padding: EdgeInsets.fromLTRB(
+            Responsive.pagePadding(context),
+            6,
+            Responsive.pagePadding(context),
+            12,
+          ),
           sliver: SliverGrid(
-            gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: Responsive.isTablet(context) ? 152 : 112,
-              mainAxisSpacing: 14,
-              crossAxisSpacing: Responsive.isTablet(context) ? 14 : 10,
-              childAspectRatio: 0.62,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: Responsive.comicGridColumns(context),
+              mainAxisSpacing: Responsive.gridSpacing(context),
+              crossAxisSpacing: Responsive.gridSpacing(context),
+              // 桌面端卡片更方正（0.72），充分利用桌面宽度而非手机竖卡放大
+              childAspectRatio: isDesktop ? 0.72 : 0.62,
             ),
             delegate: SliverChildBuilderDelegate(
             (c, i) => RepaintBoundary(
               child: FadeSlideIn(
                 delay: Duration(milliseconds: 50 * (i % 12)),
                 offset: 16,
-                child: _ComicCard(
-                  item: _items[i],
-                  sourceId: SourceManager.current.id,
-                  onTap: () => _openDetail(_items[i]),
+                child: ContextMenuWrapper(
+                  items: () => _cardMenu(_items[i]),
+                  child: _ComicCard(
+                    item: _items[i],
+                    sourceId: SourceManager.current.id,
+                    onTap: () => _openDetail(_items[i]),
+                  ),
                 ),
               ),
             ),
@@ -242,6 +236,14 @@ class _HomePageState extends State<HomePage> {
         const SliverToBoxAdapter(child: SizedBox(height: 100)),
       ],
     );
+    if (!isDesktop) {
+      return RefreshIndicator(
+        onRefresh: _refresh,
+        color: theme.colorScheme.primary,
+        child: scrollView,
+      );
+    }
+    return scrollView;
   }
 
   String _modeTitle() {
@@ -259,67 +261,32 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  IconData _modeIcon() {
+    switch (_mode) {
+      case 'category':
+        return Icons.grid_view_rounded;
+      case 'search':
+        return Icons.search_rounded;
+      default:
+        return Icons.local_fire_department_rounded;
+    }
+  }
+
   Widget _buildHeader(ThemeData theme) {
     final scheme = theme.colorScheme;
-    return SafeArea(
-      bottom: false,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-            18, Responsive.isTablet(context) ? 24 : 56, 18, 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                // logo（漫画收纳箱图标）
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(9),
-                  child: Image.asset(
-                    'ui_assets/icon-logo.png',
-                    width: 32,
-                    height: 32,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Flexible(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '星漫匣',
-                        style: TextStyle(
-                          fontSize: 21,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.5,
-                          color: scheme.onSurface,
-                        ),
-                      ),
-                      Text(
-                        SourceManager.current.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: scheme.onSurface.withValues(alpha: 0.5),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                _SourceSwitchButton(
-                  sourceName: SourceManager.current.name,
-                  onTap: _showSourceSheet,
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            // 搜索栏 + 漫画/动漫切换（同一行，对齐 UI_v2）
-            Row(
-              children: [
-                Expanded(
+    final isTablet = Responsive.isTablet(context);
+    // 桌面端（Windows/macOS/Linux）：工具栏形态——不重复 Logo 与标题（侧栏已有），
+    // 一行内放 搜索框 + 源切换 + 刷新 + 类型分段，与桌面应用（YouTube/Spotify PC）一致。
+    if (DesktopUi.isDesktopPlatform) {
+      return SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(32, 16, 32, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 520),
                   child: _SearchBar(
                     controller: _searchCtrl,
                     onSubmit: (v) {
@@ -337,8 +304,105 @@ class _HomePageState extends State<HomePage> {
                     },
                   ),
                 ),
+              ),
+              const SizedBox(width: 10),
+              _SourceSwitchButton(
+                sourceName: SourceManager.current.name,
+                onTap: _showSourceSheet,
+              ),
+              const SizedBox(width: 6),
+              IconButton(
+                tooltip: '刷新',
+                onPressed: _refresh,
+                icon: const Icon(Icons.refresh_rounded, size: 20),
+                color: T.color(scheme.onSurface, TextTier.mid,
+                    brightness: scheme.brightness),
+              ),
+              const Spacer(),
+              TypeSegment(
+                type: widget.type,
+                onChanged: widget.onTypeChanged,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        // SafeArea 已计入状态栏高度，不再叠加 56（否则手机首屏顶部被双重下推、
+        // 出现大段空洞）。与 anime_home 修复保持一致，统一为 16。
+        padding: EdgeInsets.fromLTRB(
+          Responsive.pagePadding(context),
+          16,
+          Responsive.pagePadding(context),
+          isTablet ? 8 : 10,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                // logo（漫画收纳箱图标）
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(isTablet ? 8 : 9),
+                  child: Image.asset(
+                    'ui_assets/icon-logo.png',
+                    width: isTablet ? 28 : 32,
+                    height: isTablet ? 28 : 32,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                SizedBox(width: isTablet ? 8 : 10),
+                Text(
+                  '星漫匣',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: isTablet ? 18 : 21,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.5,
+                    color: scheme.onSurface,
+                  ),
+                ),
                 const SizedBox(width: 10),
-                _TypeSegment(
+                // 源切换按钮紧贴标题：当前站点一目了然，点击切换。
+                // 避免被 Spacer/Flexible 推到右上角孤悬、与搜索区脱节。
+                _SourceSwitchButton(
+                  sourceName: SourceManager.current.name,
+                  onTap: _showSourceSheet,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            // 搜索栏 + 漫画/动漫切换（同一行，对齐 UI_v2）
+            Row(
+              children: [
+                Flexible(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                        maxWidth: Responsive.fieldMaxWidth(context)),
+                    child: _SearchBar(
+                      controller: _searchCtrl,
+                      onSubmit: (v) {
+                        _keyword = v;
+                        _switchMode('search');
+                      },
+                      onSearchAll: (kw) {
+                        HapticFeedback.selectionClick();
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => UnifiedSearchPage(keyword: kw),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                TypeSegment(
                   type: widget.type,
                   onChanged: widget.onTypeChanged,
                 ),
@@ -355,7 +419,7 @@ class _HomePageState extends State<HomePage> {
     if (!mounted || enabled.isEmpty) return;
     final curId = SourceManager.current.id;
     final curInList = enabled.indexWhere((s) => s.id == curId);
-    await showModalBottomSheet<void>(
+    await showResponsiveBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => _SourceSwitchSheet(
@@ -378,7 +442,9 @@ class _HomePageState extends State<HomePage> {
           height: Responsive.isTablet(context) ? 48 : 44,
           child: ListView(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
+            // 与内容区 pagePadding 对齐，避免大屏下胶囊栏与正文左缘不齐。
+            padding:
+                EdgeInsets.symmetric(horizontal: Responsive.pagePadding(context)),
             children: [
               _Chip(
                 label: '推荐',
@@ -447,6 +513,30 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
+
+  /// 桌面右键菜单：查看详情 / 复制标题（Fluent ContextMenu 惯例）。
+  List<CtxMenuItem> _cardMenu(ComicItem it) => [
+        CtxMenuItem(
+          label: '查看详情',
+          icon: Icons.open_in_new_rounded,
+          onTap: () => _openDetail(it),
+        ),
+        const CtxMenuItem.separator(),
+        CtxMenuItem(
+          label: '复制标题',
+          icon: Icons.copy_rounded,
+          onTap: () async {
+            await Clipboard.setData(ClipboardData(text: it.name));
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('已复制「${it.name}」'),
+              behavior: SnackBarBehavior.floating,
+              width: 260,
+              duration: const Duration(seconds: 2),
+            ));
+          },
+        ),
+      ];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -461,52 +551,50 @@ class _SourceSwitchButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return PressableScale(
+    return HoverEffect(
       onTap: onTap,
-      scale: 0.94,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              scheme.primary.withValues(alpha: 0.16),
-              scheme.primary.withValues(alpha: 0.06),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: scheme.primary.withValues(alpha: 0.32),
-            width: 1,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.public_rounded, size: 15, color: scheme.primary),
-            const SizedBox(width: 5),
-            Text(
-              '站点',
-              style: TextStyle(
-                fontSize: 11,
-                color: scheme.primary.withValues(alpha: 0.85),
-              ),
+      opacity: 0.92,
+      child: PressableScale(
+        onTap: onTap,
+        scale: 0.95,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(6, 5, 10, 5),
+          decoration: BoxDecoration(
+            color: scheme.primary.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(R.pill),
+            border: Border.all(
+              color: scheme.primary.withValues(alpha: 0.22),
+              width: 0.8,
             ),
-            const SizedBox(width: 4),
-            Flexible(
-              child: Text(
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 22,
+                height: 22,
+                decoration: BoxDecoration(
+                  color: scheme.primary,
+                  borderRadius: BorderRadius.circular(R.control),
+                ),
+                child: Icon(Icons.public_rounded,
+                    size: 14, color: scheme.onPrimary),
+              ),
+              const SizedBox(width: 6),
+              Text(
                 sourceName,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                  color: scheme.primary,
-                ),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: scheme.primary,
+                    ),
               ),
-            ),
-            const SizedBox(width: 3),
-            Icon(Icons.unfold_more_rounded, size: 15, color: scheme.primary),
-          ],
+              const SizedBox(width: 2),
+              Icon(Icons.keyboard_arrow_down_rounded,
+                  size: 16, color: scheme.primary),
+            ],
+          ),
         ),
       ),
     );
@@ -536,22 +624,14 @@ class _SearchBarState extends State<_SearchBar> {
       curve: Curves.easeOutCubic,
       decoration: BoxDecoration(
         color: scheme.surface,
-        borderRadius: BorderRadius.circular(26),
+        borderRadius: BorderRadius.circular(R.card),
         border: Border.all(
           color: _focused
-              ? scheme.primary.withValues(alpha: 0.55)
-              : scheme.onSurface.withValues(alpha: 0.06),
-          width: _focused ? 1.4 : 0.6,
+              ? T.color(scheme.onSurface, TextTier.low,
+                  brightness: scheme.brightness)
+              : scheme.outline,
+          width: 1,
         ),
-        boxShadow: [
-          if (_focused)
-            BoxShadow(
-              color: scheme.primary.withValues(alpha: 0.18),
-              blurRadius: 16,
-              spreadRadius: -4,
-              offset: const Offset(0, 4),
-            ),
-        ],
       ),
       child: Focus(
         onFocusChange: (v) => setState(() => _focused = v),
@@ -559,17 +639,22 @@ class _SearchBarState extends State<_SearchBar> {
           controller: widget.controller,
           textInputAction: TextInputAction.search,
           onSubmitted: widget.onSubmit,
-          style: TextStyle(fontSize: 14, color: scheme.onSurface),
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurface,
+              ),
           decoration: InputDecoration(
             hintText: '搜索漫画、动漫、小说…',
-            hintStyle: TextStyle(
-              fontSize: 13.5,
-              color: scheme.onSurface.withValues(alpha: 0.4),
-            ),
+            hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: T.color(scheme.onSurface, TextTier.disabled,
+                      brightness: scheme.brightness),
+                ),
             prefixIcon: Icon(
               Icons.search_rounded,
               size: 20,
-              color: _focused ? scheme.primary : scheme.onSurface.withValues(alpha: 0.55),
+              color: _focused
+                  ? scheme.primary
+                  : T.color(scheme.onSurface, TextTier.low,
+                      brightness: scheme.brightness),
             ),
             suffixIcon: widget.controller.text.isNotEmpty
                 ? Row(
@@ -585,7 +670,10 @@ class _SearchBarState extends State<_SearchBar> {
                           },
                         ),
                       IconButton(
-                        icon: Icon(Icons.close_rounded, size: 18, color: scheme.onSurface.withValues(alpha: 0.5)),
+                        icon: Icon(Icons.close_rounded,
+                            size: 18,
+                            color: T.color(scheme.onSurface, TextTier.low,
+                                brightness: scheme.brightness)),
                         onPressed: () {
                           widget.controller.clear();
                           setState(() {});
@@ -636,8 +724,10 @@ class _Chip extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 14),
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: active ? scheme.onSurface : scheme.surface,
-            borderRadius: BorderRadius.circular(999),
+            // 选中态用 primary 底 + onPrimary 字：明暗两套主题都自动满足对比度。
+            // （旧实现 onSurface 底 + 写死 Colors.white 字，暗色下对比度仅 1.20）
+            color: active ? scheme.primary : scheme.surface,
+            borderRadius: BorderRadius.circular(R.pill),
             border: Border.all(
               color: active
                   ? Colors.transparent
@@ -649,22 +739,26 @@ class _Chip extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (icon != null) ...[
-                Icon(icon,
-                    size: 13,
-                    color: active
-                        ? Colors.white
-                        : scheme.onSurface.withValues(alpha: 0.65)),
+                Icon(
+                  icon,
+                  size: 13,
+                  color: active
+                      ? scheme.onPrimary
+                      : T.color(scheme.onSurface, TextTier.low,
+                          brightness: scheme.brightness),
+                ),
                 const SizedBox(width: 4),
               ],
               Text(
                 label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-                  color: active
-                      ? Colors.white
-                      : scheme.onSurface.withValues(alpha: 0.7),
-                ),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontWeight:
+                          active ? FontWeight.w600 : FontWeight.w500,
+                      color: active
+                          ? scheme.onPrimary
+                          : T.color(scheme.onSurface, TextTier.mid,
+                              brightness: scheme.brightness),
+                    ),
               ),
             ],
           ),
@@ -687,20 +781,34 @@ class _FeaturedBanner extends StatefulWidget {
 }
 
 class _FeaturedBannerState extends State<_FeaturedBanner> {
-  late final PageController _ctrl;
+  PageController? _ctrl;
   int _page = 0;
 
   @override
   void initState() {
     super.initState();
+    // 注意：不能在 initState 里读 MediaQuery/Responsive（dependOnInheritedWidget
+    // 在 initState 未完成前调用会抛异常 → 真机首页红屏）。在 didChangeDependencies
+    // 里初始化并按尺寸类重建控制器。
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
     // 平板视口更宽，横幅更大更有冲击力
-    _ctrl = PageController(
-        viewportFraction: Responsive.isTablet(context) ? 0.7 : 0.86);
+    final fraction = Responsive.isTablet(context) ? 0.7 : 0.86;
+    if (_ctrl == null) {
+      _ctrl = PageController(viewportFraction: fraction);
+    } else if (_ctrl!.viewportFraction != fraction) {
+      // 尺寸类变化（如横屏/竖屏切换）时重建，避免 viewportFraction 失效
+      _ctrl!.dispose();
+      _ctrl = PageController(viewportFraction: fraction);
+    }
   }
 
   @override
   void dispose() {
-    _ctrl.dispose();
+    _ctrl?.dispose();
     super.dispose();
   }
 
@@ -711,43 +819,45 @@ class _FeaturedBannerState extends State<_FeaturedBanner> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(18, 6, 18, 10),
-          child: Row(
-            children: [
-              Text(
-                '本周精选',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: scheme.onSurface,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                '${_page + 1}/${widget.items.length}',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: scheme.onSurface.withValues(alpha: 0.4),
-                ),
-              ),
-            ],
+          padding: EdgeInsets.fromLTRB(
+              Responsive.pagePadding(context), 6,
+              Responsive.pagePadding(context), 10),
+          child: SectionHeader(
+            icon: Icons.auto_awesome_rounded,
+            title: '本周精选',
+            trailing: Text(
+              '${_page + 1}/${widget.items.length}',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: T.color(scheme.onSurface, TextTier.disabled,
+                        brightness: scheme.brightness),
+                  ),
+            ),
           ),
         ),
         SizedBox(
-          height: Responsive.isTablet(context) ? 240 : 176,
+          // 横幅高度随断点阶梯化：单张卡宽随 viewportFraction 放大后，
+          // 若高度固定 240 会在 1600dp+ 屏上过于扁平、封面裁切严重。
+          // 桌面端保持 240，不抢屏（浏览器首页横幅普遍 220~260）。
+          height: DesktopUi.isDesktopPlatform
+              ? 240
+              : (Responsive.isLarge(context)
+                  ? 300
+                  : (Responsive.isExpanded(context)
+                      ? 260
+                      : (Responsive.isTablet(context) ? 240 : 176))),
           child: PageView.builder(
-            controller: _ctrl,
+            controller: _ctrl!,
             itemCount: widget.items.length,
             onPageChanged: (i) => setState(() => _page = i),
             itemBuilder: (_, i) {
               final it = widget.items[i];
               return AnimatedBuilder(
-                animation: _ctrl,
+                animation: _ctrl!,
                 builder: (c, child) {
                   double scale = 1.0;
                   double opacity = 1.0;
-                  if (_ctrl.position.haveDimensions) {
-                    final cur = _ctrl.page ?? 0;
+                  if (_ctrl!.position.haveDimensions) {
+                    final cur = _ctrl!.page ?? 0;
                     final diff = (cur - i).abs();
                     scale = (1 - diff * 0.07).clamp(0.88, 1.0);
                     opacity = (1 - diff * 0.25).clamp(0.7, 1.0);
@@ -808,7 +918,7 @@ class _FeaturedCard extends StatelessWidget {
         onTap: onTap,
         scale: 0.98,
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(R.card),
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -820,7 +930,8 @@ class _FeaturedCard extends StatelessWidget {
                   radius: 0,
                 ),
               ),
-              // 暗色渐变
+              // 暗色渐变：对角 + 底部两道，保证标题永远落在深色衬上，
+              // 避免亮色封面把白字"吃掉"（底部渐变到 55% 处仍保留 0.72 黑度）。
               Positioned.fill(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
@@ -836,11 +947,27 @@ class _FeaturedCard extends StatelessWidget {
                   ),
                 ),
               ),
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      colors: [
+                        Colors.black.withValues(alpha: 0.78),
+                        Colors.black.withValues(alpha: 0.35),
+                        Colors.black.withValues(alpha: 0.0),
+                      ],
+                      stops: const [0.0, 0.28, 0.55],
+                    ),
+                  ),
+                ),
+              ),
               // 信息
               Positioned(
                 left: 16,
                 right: 16,
-                bottom: 14,
+                bottom: 16,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
@@ -851,39 +978,40 @@ class _FeaturedCard extends StatelessWidget {
                         color: scheme.secondary,
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: const Text(
+                      child: Text(
                         '精选',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                          letterSpacing: 1,
-                        ),
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                              letterSpacing: 1,
+                            ),
                       ),
                     ),
                     const SizedBox(height: 6),
                     Text(
                       item.name,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                        shadows: [
-                          Shadow(blurRadius: 8, color: Colors.black54),
-                        ],
-                      ),
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            height: 1.25,
+                            color: Colors.white,
+                            shadows: const [
+                              Shadow(blurRadius: 8, color: Colors.black54),
+                            ],
+                          ),
                     ),
                     if ((item.author ?? '').isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 2),
                         child: Text(
                           item.author!,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Colors.white70,
-                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelSmall
+                              ?.copyWith(color: Colors.white70),
                         ),
                       ),
                   ],
@@ -964,28 +1092,14 @@ class _ComicCardState extends State<_ComicCard> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 240),
           curve: Curves.easeOutCubic,
-          transform: Matrix4.identity()..translate(0.0, _hover ? -4 : 0),
+          transform: Matrix4.identity()..translateByDouble(0.0, _hover ? -4 : 0, 0.0, 1.0),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: _hover
-                ? [
-                    BoxShadow(
-                      color: scheme.primary.withValues(alpha: 0.22),
-                      blurRadius: 16,
-                      spreadRadius: -3,
-                      offset: const Offset(0, 8),
-                    ),
-                  ]
-                : const [
-                    BoxShadow(
-                      color: Color(0x10000000),
-                      blurRadius: 6,
-                      offset: Offset(0, 2),
-                    ),
-                  ],
+            borderRadius: BorderRadius.circular(R.card),
+            // Minimalist：卡片不使用投影，悬停仅以微位移反馈。
+            boxShadow: const [],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(R.card),
             child: Container(
               color: scheme.surface,
               child: Column(
@@ -1060,11 +1174,10 @@ class _ComicCardState extends State<_ComicCard> {
                       widget.item.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
-                        color: scheme.onSurface,
-                      ),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: scheme.onSurface,
+                          ),
                     ),
                   ),
                 ],
@@ -1099,9 +1212,9 @@ class _SourceSwitchSheet extends StatelessWidget {
         margin: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(28),
+          borderRadius: BorderRadius.circular(R.sheet),
         ),
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1110,7 +1223,7 @@ class _SourceSwitchSheet extends StatelessWidget {
               child: Container(
                 width: 36,
                 height: 4,
-                margin: const EdgeInsets.only(bottom: 14),
+                margin: const EdgeInsets.only(bottom: 10),
                 decoration: BoxDecoration(
                   color: scheme.onSurface.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(2),
@@ -1119,13 +1232,12 @@ class _SourceSwitchSheet extends StatelessWidget {
             ),
             Text(
               '切换数据源',
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w800,
-                color: scheme.onSurface,
-              ),
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: scheme.onSurface,
+                  ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
             for (var i = 0; i < sources.length; i++) ...[
               FadeSlideIn(
                 delay: Duration(milliseconds: 40 * i),
@@ -1134,8 +1246,8 @@ class _SourceSwitchSheet extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                   onTap: () => onSelected(i),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    margin: const EdgeInsets.only(bottom: 6),
                     decoration: BoxDecoration(
                       color: i == currentIndex
                           ? scheme.primary.withValues(alpha: 0.10)
@@ -1144,7 +1256,8 @@ class _SourceSwitchSheet extends StatelessWidget {
                       border: Border.all(
                         color: i == currentIndex
                             ? scheme.primary.withValues(alpha: 0.5)
-                            : scheme.onSurface.withValues(alpha: 0.04),
+                            : T.color(scheme.onSurface, TextTier.hairline,
+                                brightness: scheme.brightness),
                       ),
                     ),
                     child: Row(
@@ -1162,11 +1275,11 @@ class _SourceSwitchSheet extends StatelessWidget {
                         Expanded(
                           child: Text(
                             sources[i].name,
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: scheme.onSurface,
-                            ),
+                            style:
+                                Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                      color: scheme.onSurface,
+                                    ),
                           ),
                         ),
                         Icon(
@@ -1184,10 +1297,10 @@ class _SourceSwitchSheet extends StatelessWidget {
             Center(
               child: Text(
                 '可前往「工具 → 数据源管理」调整各源域名/启用状态',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: scheme.onSurface.withValues(alpha: 0.45),
-                ),
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: T.color(scheme.onSurface, TextTier.disabled,
+                          brightness: scheme.brightness),
+                    ),
               ),
             ),
           ],
@@ -1255,46 +1368,11 @@ class _ErrorState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0, end: 1),
-            duration: const Duration(milliseconds: 600),
-            curve: Curves.easeOutBack,
-            builder: (_, v, child) => Transform.scale(scale: v, child: child),
-            child: Container(
-              width: 84,
-              height: 84,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: scheme.error.withValues(alpha: 0.10),
-              ),
-              child: Icon(Icons.cloud_off_outlined, size: 44, color: scheme.error),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 40),
-            child: Text(
-              message,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: scheme.onSurface.withValues(alpha: 0.7),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: onRetry,
-            icon: const Icon(Icons.refresh_rounded, size: 18),
-            label: const Text('重试'),
-          ),
-        ],
-      ),
+    return StateView(
+      kind: StateViewKind.error,
+      message: message,
+      onRetry: onRetry,
+      icon: Icons.cloud_off_outlined,
     );
   }
 }
@@ -1307,7 +1385,9 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final text = mode == 'search' ? '没有找到相关结果' : '该分类暂时没有内容';
+    final isSearch = mode == 'search';
+    final text = isSearch ? '没有找到相关结果' : '该分类暂时没有内容';
+    final subtitle = isSearch ? '换个关键词试试，或点击右侧搜索全源内容' : '换个分类看看，精彩内容持续更新中';
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1324,10 +1404,20 @@ class _EmptyState extends StatelessWidget {
           const SizedBox(height: 14),
           Text(
             text,
-            style: TextStyle(
-              fontSize: 14,
-              color: scheme.onSurface.withValues(alpha: 0.6),
-            ),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: T.color(scheme.onSurface, TextTier.low,
+                      brightness: scheme.brightness),
+                ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: T.color(scheme.onSurface, TextTier.disabled,
+                      brightness: scheme.brightness),
+                ),
           ),
         ],
       ),
@@ -1335,57 +1425,4 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-/// 漫画 / 动漫 分段切换（黑底胶囊，对齐 UI_v2 顶部 segment）。
-class _TypeSegment extends StatelessWidget {
-  final int type;
-  final ValueChanged<int>? onChanged;
-  const _TypeSegment({required this.type, this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      height: 40,
-      padding: const EdgeInsets.all(2),
-      decoration: BoxDecoration(
-        color: scheme.onSurface,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _seg(context, '漫画', 0),
-          _seg(context, '动漫', 1),
-          _seg(context, '小说', 2),
-        ],
-      ),
-    );
-  }
-
-  Widget _seg(BuildContext context, String label, int v) {
-    final scheme = Theme.of(context).colorScheme;
-    final active = type == v;
-    return GestureDetector(
-      onTap: onChanged == null ? null : () => onChanged!(v),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOutCubic,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: active ? scheme.surface : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-            color: active
-                ? scheme.onSurface
-                : scheme.surface.withValues(alpha: 0.7),
-          ),
-        ),
-      ),
-    );
-  }
-}
+// _TypeSegment 已移至 responsive.dart 作为共享组件 TypeSegment

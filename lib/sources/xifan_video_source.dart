@@ -162,7 +162,8 @@ class XifanVideoSource implements VideoSource {
     if (tabIdx < 0) return const [];
     // 只取 anthology-tab 到第一个剧集列表块之间，避免误匹配其它 swiper-slide
     final listIdx = html.indexOf('anthology-list-play', tabIdx);
-    final end = listIdx > 0 ? listIdx : (tabIdx + 4000);
+    final rawEnd = listIdx > 0 ? listIdx : (tabIdx + 4000);
+    final end = rawEnd > html.length ? html.length : rawEnd;
     final block = html.substring(tabIdx, end);
     final names = <String>[];
     final re =

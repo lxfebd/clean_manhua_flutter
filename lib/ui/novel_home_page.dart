@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'novel_detail_page.dart';
+import 'responsive.dart';
 
 import '../models/comic_item.dart';
 import '../sources/novel_source.dart';
@@ -74,13 +75,25 @@ class _NovelHomePageState extends State<NovelHomePage> {
           SliverAppBar(
             pinned: true,
             backgroundColor: scheme.surface,
-            title: _TypeSegment(type: widget.type, onChanged: widget.onTypeChanged),
-            titleSpacing: 16,
+            // 桌面端侧栏已区分漫画/动漫/小说，顶栏不再重复 TypeSegment，
+            // 改为显示当前栏目标题（桌面应用标准顶栏）。
+            title: DesktopUi.isDesktopPlatform
+                ? Text('小说',
+                    style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: scheme.onSurface))
+                : TypeSegment(type: widget.type, onChanged: widget.onTypeChanged),
+            // 大屏（≥840dp）内容已被限宽但 SliverAppBar 仍占满全宽：
+            // 小段若靠左会留大片空白，居中与页面其它元素更协调。
+            centerTitle: Responsive.isExpanded(context),
+            titleSpacing: Responsive.pagePadding(context),
             actions: const [],
           ),
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: EdgeInsets.symmetric(
+                  horizontal: Responsive.pagePadding(context), vertical: 8),
               child: Text('我的小说书架',
                   style: TextStyle(
                       fontSize: 16,
@@ -92,15 +105,15 @@ class _NovelHomePageState extends State<NovelHomePage> {
           if (_sources.isNotEmpty) ...[
             SliverToBoxAdapter(
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: EdgeInsets.symmetric(
+                    horizontal: Responsive.pagePadding(context), vertical: 8),
                 child: _sourceChips(scheme),
               ),
             ),
             _novelGrid(scheme),
           ] else
             SliverToBoxAdapter(
-              child: _EmptySource(scheme),
+              child: _EmptySource(),
             ),
         ],
       ),
@@ -111,19 +124,23 @@ class _NovelHomePageState extends State<NovelHomePage> {
     if (_shelf.isEmpty) {
       return SliverToBoxAdapter(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Text('书架还是空的，去添加喜欢的小说吧～',
-              style: TextStyle(color: scheme.onSurface.withValues(alpha: 0.55))),
+          padding: EdgeInsets.symmetric(
+              horizontal: Responsive.pagePadding(context), vertical: 8),
+          child: const EmptyStateView(
+            icon: Icons.menu_book_outlined,
+            title: '书架还是空的',
+            subtitle: '去添加喜欢的小说吧～',
+          ),
         ),
       );
     }
     return SliverPadding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: EdgeInsets.symmetric(horizontal: Responsive.pagePadding(context)),
       sliver: SliverGrid(
-        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 112,
-          mainAxisSpacing: 14,
-          crossAxisSpacing: 10,
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: Responsive.novelGridColumns(context),
+          mainAxisSpacing: Responsive.gridSpacing(context),
+          crossAxisSpacing: Responsive.gridSpacing(context),
           childAspectRatio: 0.62,
         ),
         delegate: SliverChildBuilderDelegate(
@@ -153,29 +170,31 @@ class _NovelHomePageState extends State<NovelHomePage> {
       return SliverToBoxAdapter(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Center(
-            child: Column(children: [
-              Text(_error!,
-                  style: TextStyle(
-                      color: scheme.onSurface.withValues(alpha: 0.6))),
-              const SizedBox(height: 12),
-              FilledButton(onPressed: _loadNovels, child: const Text('重试')),
-            ]),
+          child: ErrorStateView(
+            message: _error!,
+            onRetry: () {
+              setState(() => _loading = true);
+              _loadNovels();
+            },
           ),
         ),
       );
     }
     if (_items.isEmpty) {
       return const SliverToBoxAdapter(
-          child: SizedBox(height: 40, child: Center(child: Text('暂无内容'))));
+          child: EmptyStateView(
+            icon: Icons.article_outlined,
+            title: '暂无内容',
+          ));
     }
     return SliverPadding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: EdgeInsets.symmetric(
+          horizontal: Responsive.pagePadding(context), vertical: 8),
       sliver: SliverGrid(
-        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 112,
-          mainAxisSpacing: 14,
-          crossAxisSpacing: 10,
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: Responsive.novelGridColumns(context),
+          mainAxisSpacing: Responsive.gridSpacing(context),
+          crossAxisSpacing: Responsive.gridSpacing(context),
           childAspectRatio: 0.62,
         ),
         delegate: SliverChildBuilderDelegate(
@@ -225,57 +244,7 @@ class _NovelHomePageState extends State<NovelHomePage> {
       );
 }
 
-class _TypeSegment extends StatelessWidget {
-  final int type;
-  final ValueChanged<int>? onChanged;
-  const _TypeSegment({required this.type, this.onChanged});
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      height: 36,
-      padding: const EdgeInsets.all(2),
-      decoration: BoxDecoration(
-        color: scheme.onSurface,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _seg(scheme, '漫画', 0),
-          _seg(scheme, '动漫', 1),
-          _seg(scheme, '小说', 2),
-        ],
-      ),
-    );
-  }
-
-  Widget _seg(scheme, String label, int v) {
-    final active = type == v;
-    return GestureDetector(
-      onTap: onChanged == null ? null : () => onChanged!(v),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOutCubic,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: active ? scheme.surface : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-            color: active
-                ? scheme.onSurface
-                : scheme.surface.withValues(alpha: 0.7),
-          ),
-        ),
-      ),
-    );
-  }
-}
+// _TypeSegment 已移至 responsive.dart 作为共享组件 TypeSegment
 
 class _NovelCard extends StatelessWidget {
   final ComicItem item;
@@ -313,17 +282,21 @@ class _ShelfCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => NovelDetailPage(
-            sourceId: d.id.contains('|') ? d.id.split('|').first : '',
-            novelId: d.id,
-            name: d.name,
-            pic: d.pic ?? '',
+      onTap: () {
+        final sourceId = d.id.contains('|') ? d.id.split('|').first : '';
+        if (sourceId.isEmpty) return;
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => NovelDetailPage(
+              sourceId: sourceId,
+              novelId: d.id,
+              name: d.name,
+              pic: d.pic ?? '',
+            ),
           ),
-        ),
-      ),
+        );
+      },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -345,25 +318,15 @@ class _ShelfCard extends StatelessWidget {
 }
 
 class _EmptySource extends StatelessWidget {
-  final ColorScheme scheme;
-  const _EmptySource(this.scheme);
+  const _EmptySource();
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        children: [
-          Icon(Icons.menu_book_rounded,
-              size: 48, color: scheme.onSurface.withValues(alpha: 0.35)),
-          const SizedBox(height: 12),
-          Text('小说源即将接入',
-              style:
-                  TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: scheme.onSurface)),
-          const SizedBox(height: 6),
-          Text('具体小说源（笔趣阁类等）随后接入，书架已就绪。',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: scheme.onSurface.withValues(alpha: 0.55))),
-        ],
+    return const Padding(
+      padding: EdgeInsets.all(32),
+      child: EmptyStateView(
+        icon: Icons.menu_book_rounded,
+        title: '小说源即将接入',
+        subtitle: '具体小说源（笔趣阁类等）随后接入，书架已就绪。',
       ),
     );
   }

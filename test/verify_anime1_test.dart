@@ -6,6 +6,10 @@ import 'package:xingmanxia/sources/anime1_video_source.dart';
 ///
 /// 注意：Anime1 为纯文本站（无封面/无简介），列表项 pic 为空属正常；
 /// 播放走 WebView（CDN 直链需签名 Cookie），playUrl 返回剧集页 URL。
+///
+/// 默认跳过：真实网络源验证，源站波动时拖垮本地回归。
+/// 需要验源时临时把 _skipLive 改成 false。
+const bool _skipLive = true;
 void main() {
   test('anime1 video source live verification', () async {
     final src = Anime1VideoSource();
@@ -85,5 +89,5 @@ void main() {
     print('\n=== playUrl ===\n$play');
     expect(play, matches(RegExp(r'^https://anime1\.me/\d+$')),
         reason: '应返回 anime1.me 剧集页 URL（WebView 播放）');
-  }, timeout: const Timeout(Duration(minutes: 3)));
+  }, timeout: const Timeout(Duration(minutes: 3)), skip: _skipLive ? '真实网络验证，默认跳过' : false);
 }

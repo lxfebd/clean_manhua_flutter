@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -462,8 +463,9 @@ class _ReaderPageState extends State<ReaderPage> {
   void _showReaderSettings() {
     _hideTimer?.cancel();
     setState(() => _overlay = true);
-    showModalBottomSheet<void>(
+    showResponsiveBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.black.withValues(alpha: 0.6),
       barrierColor: Colors.transparent,
       builder: (_) => _ReaderSettingsSheet(
@@ -513,7 +515,7 @@ class _ReaderPageState extends State<ReaderPage> {
   void _showChapterList() {
     _hideTimer?.cancel();
     setState(() => _overlay = true);
-    showModalBottomSheet<void>(
+    showResponsiveBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => _ChapterListSheet(
@@ -535,7 +537,7 @@ class _ReaderPageState extends State<ReaderPage> {
   void _showCatalog() {
     _hideTimer?.cancel();
     setState(() => _overlay = true);
-    showModalBottomSheet<void>(
+    showResponsiveBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => _CatalogSheet(
@@ -698,7 +700,11 @@ class _ReaderPageState extends State<ReaderPage> {
     _lastTouchTime = now;
     _lastTouchPos = pos;
 
-    final w = MediaQuery.of(context).size.width;
+    // 热区按"限宽容器实际宽度"三等分：正文被 Center+ConstrainedBox 限宽
+    // （大于 readerMaxWidth 时居中留白），若按全屏宽划分，大屏上左右热区
+    // 与视觉三等分错位（越宽错位越大），导致翻页/切菜单区域漂移。
+    final w = min(MediaQuery.sizeOf(context).width,
+        Responsive.readerMaxWidth(context));
     String region;
     if (pos.dx < w / 3) {
       region = 'left';
@@ -846,12 +852,16 @@ class _ReaderPageState extends State<ReaderPage> {
           }
         });
       }
-      return GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onTapDown: (d) => _onReaderTap(d.globalPosition),
-        child: PageView.builder(
-          controller: ctrl,
-          itemCount: _urls.length + (_canContinue ? 1 : 0),
+      return Center(
+        child: ConstrainedBox(
+          constraints:
+              BoxConstraints(maxWidth: Responsive.readerMaxWidth(context)),
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTapDown: (d) => _onReaderTap(d.localPosition),
+            child: PageView.builder(
+              controller: ctrl,
+              itemCount: _urls.length + (_canContinue ? 1 : 0),
           onPageChanged: (idx) {
             _markScrolling();
             setState(() => _curPage = idx);
@@ -875,42 +885,53 @@ class _ReaderPageState extends State<ReaderPage> {
                 horizontal: true, sourceId: widget.sourceId);
           },
         ),
-      );
-    }
+      ),
+    ),
+  );
+  }
     _scrollCtrl?.dispose();
     final sctrl = ScrollController();
     _scrollCtrl = sctrl;
     // 点击空白切换工具栏显隐。GestureDetector 放在 body 内层而非 Stack 顶层，
     // 否则会遮蔽顶部返回/底部工具栏按钮（hit test 自顶向下、命中即止）。
-    return GestureDetector(
-      behavior: HitTestBehavior.translucent,
-      onTapDown: (d) => _onReaderTap(d.globalPosition),
-      child: NotificationListener<ScrollNotification>(
-        onNotification: (n) {
-          if (n is ScrollStartNotification) {
-            _markScrolling();
-          } else if (n is ScrollEndNotification) {
-            _markScrollEnd();
-          }
-          return false;
-        },
-        child: ListView.builder(
-          controller: sctrl,
-          padding: EdgeInsets.zero,
-          cacheExtent: 900,
-          itemCount: _urls.length + (_canContinue ? 1 : 0),
-        itemBuilder: (c, i) {
-          if (i >= _urls.length && _canContinue) {
-            return _NextChapterFooter(
-              title: _nextChapter()?.title ?? '',
-              onTap: _continueToNextChapter,
-            );
-          }
-          return _ImageView(_urls[i],
-              pageIndex: i, totalPages: _urls.length, resLevel: _resLevel,
-              onLayout: (h) => _observeLayout(i, h),
-              sourceId: widget.sourceId);
-        },
+    return Center(
+      child: ConstrainedBox(
+        constraints:
+            BoxConstraints(maxWidth: Responsive.readerMaxWidth(context)),
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTapDown: (d) => _onReaderTap(d.localPosition),
+          child: NotificationListener<ScrollNotification>(
+            onNotification: (n) {
+              if (n is ScrollStartNotification) {
+                _markScrolling();
+              } else if (n is ScrollEndNotification) {
+                _markScrollEnd();
+              }
+              return false;
+            },
+            child: ListView.builder(
+              controller: sctrl,
+              padding: EdgeInsets.zero,
+              // cacheExtent 在 Flutter 3.44 中已标记 deprecated（推荐 scrollCacheExtent），
+              // 但后者类型为 ScrollCacheExtent? 且未从 widgets 导出，
+              // widgets 层无法直接引用；此处保留旧 API 以维持构建通过。
+              cacheExtent: 900,
+              itemCount: _urls.length + (_canContinue ? 1 : 0),
+              itemBuilder: (c, i) {
+                if (i >= _urls.length && _canContinue) {
+                  return _NextChapterFooter(
+                    title: _nextChapter()?.title ?? '',
+                    onTap: _continueToNextChapter,
+                  );
+                }
+                return _ImageView(_urls[i],
+                    pageIndex: i, totalPages: _urls.length, resLevel: _resLevel,
+                    onLayout: (h) => _observeLayout(i, h),
+                    sourceId: widget.sourceId);
+              },
+            ),
+          ),
         ),
       ),
     );
@@ -1319,7 +1340,7 @@ class _ReaderTopBar extends StatelessWidget {
           duration: const Duration(milliseconds: 200),
           opacity: visible ? 1 : 0,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+            padding: EdgeInsets.fromLTRB(Responsive.pagePadding(context), 8, Responsive.pagePadding(context), 0),
             child: Row(
               children: [
                 _GlassCircle(icon: Icons.arrow_back_rounded, onTap: onBack),
@@ -1475,7 +1496,7 @@ class _ReaderToolbar extends StatelessWidget {
   Widget _sep() => Container(
         width: 0.5,
         height: 22,
-        margin: const EdgeInsets.symmetric(horizontal: 14),
+        margin: const EdgeInsets.symmetric(horizontal: 4),
         color: Colors.white.withValues(alpha: 0.18),
       );
 }
@@ -1562,12 +1583,16 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.fromLTRB(22, 16, 22, 28),
-      decoration: const BoxDecoration(
-        color: Color(0xFF0F1013),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        border: Border(top: BorderSide(color: Color(0x1FFFFFFF))),
+      padding: EdgeInsets.fromLTRB(Responsive.pagePadding(context), 16, Responsive.pagePadding(context), 28),
+      // 固定深色背景：阅读器本身是黑底图片查看器，弹窗用深色与整体一致，
+      // 且无论 App 是浅色/深色主题，白色文字都必定可读
+      // （原先用 scheme.surface，浅色主题下变成白底白字，完全看不见）。
+      decoration: BoxDecoration(
+        color: const Color(0xFF1C1B1F),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1583,13 +1608,20 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
               ),
             ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 16),
           Text('阅读设置',
               style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
                   color: Colors.white)),
-          const SizedBox(height: 18),
+          const SizedBox(height: 12),
+          // 内容区可滚动：亮度+翻页+画质+自动翻页+按钮在横屏平板上
+          // 容易超出 BottomSheet 默认高度（原溢出 ~129px）。
+          Flexible(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
           // 亮度
           Row(
             children: [
@@ -1599,7 +1631,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
               Expanded(
                 child: SliderTheme(
                   data: SliderThemeData(
-                    activeTrackColor: const Color(0xFF3A6EA5),
+                    activeTrackColor: scheme.primary,
                     inactiveTrackColor: Colors.white.withValues(alpha: 0.15),
                     thumbColor: Colors.white,
                     trackHeight: 3,
@@ -1735,6 +1767,10 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
           ),
         ],
       ),
+    ),
+  ),
+        ],
+      ),
     );
   }
 
@@ -1747,6 +1783,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
   }
 
   Widget _layoutOption(String label, bool active, VoidCallback onTap) {
+    final scheme = Theme.of(context).colorScheme;
     return Expanded(
       child: InkWell(
         onTap: onTap,
@@ -1754,12 +1791,12 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
           padding: const EdgeInsets.symmetric(vertical: 11),
           decoration: BoxDecoration(
             color: active
-                ? const Color(0xFF3A6EA5)
+                ? scheme.primary
                 : Colors.white.withValues(alpha: 0.06),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: active
-                  ? const Color(0xFF3A6EA5)
+                  ? scheme.primary
                   : Colors.white.withValues(alpha: 0.1),
             ),
           ),
@@ -1779,6 +1816,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
 
   Widget _resOption(String label, int value, int current, VoidCallback onTap) {
     final active = value == current;
+    final scheme = Theme.of(context).colorScheme;
     return Expanded(
       child: InkWell(
         onTap: onTap,
@@ -1786,12 +1824,12 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
             color: active
-                ? const Color(0xFF3A6EA5)
+                ? scheme.primary
                 : Colors.white.withValues(alpha: 0.06),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: active
-                  ? const Color(0xFF3A6EA5)
+                  ? scheme.primary
                   : Colors.white.withValues(alpha: 0.1),
             ),
           ),
@@ -1858,10 +1896,11 @@ class _CatalogSheet extends StatelessWidget {
     return SafeArea(
       child: Container(
         margin: const EdgeInsets.all(12),
-        padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
-        decoration: const BoxDecoration(
-          color: Color(0xFF14161B),
-          borderRadius: BorderRadius.all(Radius.circular(24)),
+        padding: EdgeInsets.fromLTRB(Responsive.pagePadding(context), 16, Responsive.pagePadding(context), 20),
+        decoration: BoxDecoration(
+          // 固定深色背景，避免浅色主题下白底白字（与设置弹窗一致）
+        color: const Color(0xFF1C1B1F),
+          borderRadius: const BorderRadius.all(Radius.circular(24)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1885,39 +1924,48 @@ class _CatalogSheet extends StatelessWidget {
                     color: Colors.white)),
             const SizedBox(height: 12),
             Flexible(
-              child: GridView.builder(
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: Responsive.chapterGridColumns(context),
-                  mainAxisSpacing: 8,
-                  crossAxisSpacing: 8,
-                  childAspectRatio: 1.1,
-                ),
-                itemCount: urls.length,
-                itemBuilder: (_, i) {
-                  final active = i == current;
-                  return InkWell(
-                    onTap: () => onSelect(i),
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: active
-                            ? const Color(0xFF3A6EA5)
-                            : Colors.white.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        '${i + 1}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight:
-                              active ? FontWeight.w700 : FontWeight.w500,
-                          color: active
-                              ? Colors.white
-                              : Colors.white.withValues(alpha: 0.7),
-                        ),
-                      ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  // 目录弹窗被限宽（500dp）居中，网格列数不能按全屏宽算
+                  // （全屏宽在桌面高达 14 列，500dp 内每格会被挤到 ~24dp）。
+                  // 按容器实际宽度推导，每格约 44dp 起，最多 10 列。
+                  final cols =
+                      (constraints.maxWidth / 44).floor().clamp(4, 10);
+                  return GridView.builder(
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: cols,
+                      mainAxisSpacing: 8,
+                      crossAxisSpacing: 8,
+                      childAspectRatio: 1.1,
                     ),
+                    itemCount: urls.length,
+                    itemBuilder: (_, i) {
+                      final active = i == current;
+                      return InkWell(
+                        onTap: () => onSelect(i),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: active
+                                ? Theme.of(context).colorScheme.primary
+                                : Colors.white.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            '${i + 1}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight:
+                                  active ? FontWeight.w700 : FontWeight.w500,
+                              color: active
+                                  ? Colors.white
+                                  : Colors.white.withValues(alpha: 0.7),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
                   );
                 },
               ),
@@ -1984,7 +2032,7 @@ class _NextChapterFooter extends StatelessWidget {
               icon: const Icon(Icons.skip_next_rounded, size: 18),
               label: Text('下一话：$title'),
               style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF3A6EA5),
+                backgroundColor: Theme.of(context).colorScheme.primary,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               ),
@@ -2012,10 +2060,11 @@ class _ChapterListSheet extends StatelessWidget {
     return SafeArea(
       child: Container(
         margin: const EdgeInsets.all(12),
-        padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
-        decoration: const BoxDecoration(
-          color: Color(0xFF14161B),
-          borderRadius: BorderRadius.all(Radius.circular(24)),
+        padding: EdgeInsets.fromLTRB(Responsive.pagePadding(context), 16, Responsive.pagePadding(context), 20),
+        decoration: BoxDecoration(
+          // 固定深色背景，避免浅色主题下白底白字（与设置弹窗一致）
+        color: const Color(0xFF1C1B1F),
+          borderRadius: const BorderRadius.all(Radius.circular(24)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -2052,7 +2101,7 @@ class _ChapterListSheet extends StatelessWidget {
                       margin: const EdgeInsets.only(bottom: 2),
                       decoration: BoxDecoration(
                         color: active
-                            ? const Color(0xFF3A6EA5)
+                            ? Theme.of(context).colorScheme.primary
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(8),
                       ),

@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 
+import '../responsive.dart';
+
 /// 图片处理工具：压缩/转换/缩放、加水印、高斯模糊、九宫格切图。
 class ImageToolsPage extends StatefulWidget {
   const ImageToolsPage({super.key});
@@ -211,7 +213,9 @@ class _ImageToolsPageState extends State<ImageToolsPage> {
       body: SafeArea(
         bottom: false,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 8, 18, 110),
+          padding: EdgeInsets.fromLTRB(
+              Responsive.pagePadding(context), 8,
+              Responsive.pagePadding(context), (Responsive.isTablet(context) ? 24 : 110)),
           children: [
             Row(
               children: [

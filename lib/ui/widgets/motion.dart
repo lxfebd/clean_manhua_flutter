@@ -151,7 +151,7 @@ class _HoverLiftCardState extends State<HoverLiftCard> {
           duration: const Duration(milliseconds: 240),
           curve: Curves.easeOutCubic,
           transform: Matrix4.identity()
-            ..translate(0.0, _hovered ? -widget.liftOffset : 0.0),
+            ..translateByDouble(0.0, _hovered ? -widget.liftOffset : 0.0, 0.0, 1.0),
           decoration: BoxDecoration(
             boxShadow: _hovered ? widget.shadows : const [],
           ),

@@ -53,7 +53,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
 
   /// 弹出视频源选择底部弹窗。
   void _pickSource() {
-    showModalBottomSheet(
+    showResponsiveBottomSheet(
       context: context,
       backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
@@ -216,47 +216,28 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
         child: CircularProgressIndicator(strokeWidth: 2),
       );
     }
+    final isDesktop = DesktopUi.isDesktopPlatform;
     return CustomScrollView(
       controller: _scrollCtrl,
-      physics: const BouncingScrollPhysics(),
+      physics: isDesktop
+          ? const ScrollPhysics(parent: ClampingScrollPhysics())
+          : const BouncingScrollPhysics(),
+      scrollBehavior: isDesktop
+          ? ScrollConfiguration.of(context).copyWith(
+              scrollbars: true,
+              overscroll: false,
+            )
+          : null,
       slivers: [
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+          padding: EdgeInsets.fromLTRB(
+              Responsive.pagePadding(context), 4,
+              Responsive.pagePadding(context), 4),
           sliver: SliverToBoxAdapter(
-            child: Row(
-              children: [
-                Container(
-                  width: 3,
-                  height: 14,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _modeTitle(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-                if (_items.isNotEmpty) ...[
-                  const SizedBox(width: 8),
-                  Text(
-                    '${_items.length} 部',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
-                    ),
-                  ),
-                ],
-              ],
+            child: SectionHeader(
+              icon: _modeIcon(),
+              title: _modeTitle(),
+              count: _items.isNotEmpty ? _items.length : null,
             ),
           ),
         ),
@@ -268,19 +249,23 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
             12,
           ),
           sliver: SliverGrid(
-            gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: Responsive.isTablet(context) ? 200 : 150,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: Responsive.comicGridColumns(context),
               mainAxisSpacing: Responsive.gridSpacing(context),
               crossAxisSpacing: Responsive.gridSpacing(context),
-              childAspectRatio: 0.62,
+              // 桌面端卡片更方正，充分利用桌面宽度
+              childAspectRatio: isDesktop ? 0.72 : 0.62,
             ),
             delegate: SliverChildBuilderDelegate(
               (c, i) => FadeSlideIn(
                 delay: Duration(milliseconds: 50 * (i % 12)),
                 offset: 16,
-                child: _AnimeCard(
-                  item: _items[i],
-                  onTap: () => _openDetail(_items[i]),
+                child: ContextMenuWrapper(
+                  items: () => _cardMenu(_items[i]),
+                  child: _AnimeCard(
+                    item: _items[i],
+                    onTap: () => _openDetail(_items[i]),
+                  ),
                 ),
               ),
               childCount: _items.length,
@@ -322,12 +307,105 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
     }
   }
 
+  IconData _modeIcon() {
+    switch (_mode) {
+      case 'category':
+        return Icons.grid_view_rounded;
+      case 'search':
+        return Icons.search_rounded;
+      default:
+        return Icons.local_fire_department_rounded;
+    }
+  }
+
   Widget _buildHeader(ThemeData theme) {
     final scheme = theme.colorScheme;
+    // 桌面端（Windows/macOS/Linux）：工具栏形态——不重复 Logo 与标题（侧栏已有），
+    // 一行内放 搜索框 + 番剧源切换 + 刷新 + 类型分段。
+    // 窄窗（逻辑宽 <600dp，用户把桌面窗口拖成手机式竖条时）回退到手机式 Column 头部，
+    // 避免桌面工具栏在一行内塞不下而拥挤/溢出；中等宽度下搜索框随可用宽度收缩自适应。
+    if (DesktopUi.isDesktopPlatform && Responsive.isTablet(context)) {
+      final searchMaxWidth =
+          Responsive.widthOf(context) * 0.5 <= 520.0
+              ? Responsive.widthOf(context) * 0.5
+              : 520.0;
+      return SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(32, 16, 32, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: searchMaxWidth),
+                  child: _animeSearch(theme),
+                ),
+              ),
+              const SizedBox(width: 10),
+              GestureDetector(
+                onTap: _pickSource,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: scheme.primary.withValues(alpha: 0.22),
+                      width: 0.8,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.public_rounded,
+                          size: 15, color: scheme.primary),
+                      const SizedBox(width: 6),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 110),
+                        child: Text(
+                          _source.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: scheme.primary,
+                          ),
+                        ),
+                      ),
+                      Icon(Icons.keyboard_arrow_down_rounded,
+                          size: 16, color: scheme.primary),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              IconButton(
+                tooltip: '刷新',
+                onPressed: _refresh,
+                icon: const Icon(Icons.refresh_rounded, size: 20),
+                color: scheme.onSurface.withValues(alpha: 0.7),
+              ),
+              const Spacer(),
+              TypeSegment(
+                type: widget.type,
+                onChanged: widget.onTypeChanged,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    // SafeArea 已计入状态栏高度，不再叠加 topPad（否则平板/桌面头部被双重下推）。
+    // 顶部间距与 home_page 保持一致：平板紧凑、手机大一些。
+    final top = Responsive.isTablet(context) ? 16.0 : 52.0;
     return SafeArea(
       bottom: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(18, 56, 18, 10),
+        padding: EdgeInsets.fromLTRB(
+            Responsive.pagePadding(context), top,
+            Responsive.pagePadding(context), 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -431,11 +509,15 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
             // 搜索栏 + 漫画/动漫切换（同一行）
             Row(
               children: [
-                Expanded(
-                  child: _animeSearch(theme),
+                Flexible(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                        maxWidth: Responsive.fieldMaxWidth(context)),
+                    child: _animeSearch(theme),
+                  ),
                 ),
                 const SizedBox(width: 10),
-                _typeSegment(
+                TypeSegment(
                   type: widget.type,
                   onChanged: widget.onTypeChanged,
                 ),
@@ -488,59 +570,15 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
     );
   }
 
-  /// 漫画 / 动漫 分段切换（黑底胶囊）。
-  Widget _typeSegment({
-    required int type,
-    ValueChanged<int>? onChanged,
-  }) {
-    final scheme = Theme.of(context).colorScheme;
-    Widget seg(String label, int v) {
-      final active = type == v;
-      return GestureDetector(
-        onTap: onChanged == null ? null : () => onChanged(v),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: active ? scheme.surface : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-              color: active
-                  ? scheme.onSurface
-                  : scheme.surface.withValues(alpha: 0.7),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      height: 40,
-      padding: const EdgeInsets.all(2),
-      decoration: BoxDecoration(
-        color: scheme.onSurface,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [seg('漫画', 0), seg('动漫', 1), seg('小说', 2)],
-      ),
-    );
-  }
+  // _typeSegment 已移至 responsive.dart 作为共享组件 TypeSegment
 
   Widget _buildChips(ThemeData theme) {
     final primary = theme.colorScheme.secondary;
     return SizedBox(
-      height: 44,
+      height: Responsive.isTablet(context) ? 48 : 44,
       child: ListView(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
+        padding: EdgeInsets.symmetric(horizontal: Responsive.pagePadding(context)),
         children: [
           for (final c in _sourceCats)
             Padding(
@@ -557,22 +595,14 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
                     color: _categoryId == c.id && _mode == 'category'
                         ? primary
                         : theme.colorScheme.surface,
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(10),
                     border: Border.all(
                       color: _categoryId == c.id && _mode == 'category'
                           ? primary
-                          : theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                          : theme.colorScheme.outline,
                     ),
-                    boxShadow: _categoryId == c.id && _mode == 'category'
-                        ? [
-                            BoxShadow(
-                              color: primary.withValues(alpha: 0.35),
-                              blurRadius: 12,
-                              spreadRadius: -2,
-                              offset: const Offset(0, 4),
-                            ),
-                          ]
-                        : null,
+                    // Minimalist：选中态仅以填充 + 描边区分，不使用辉光。
+                    boxShadow: const [],
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -628,6 +658,30 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
       }
     }
   }
+
+  /// 桌面右键菜单：查看详情 / 复制标题（Fluent ContextMenu 惯例）。
+  List<CtxMenuItem> _cardMenu(ComicItem it) => [
+        CtxMenuItem(
+          label: '查看详情',
+          icon: Icons.open_in_new_rounded,
+          onTap: () => _openDetail(it),
+        ),
+        const CtxMenuItem.separator(),
+        CtxMenuItem(
+          label: '复制标题',
+          icon: Icons.copy_rounded,
+          onTap: () async {
+            await Clipboard.setData(ClipboardData(text: it.name));
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('已复制「${it.name}」'),
+              behavior: SnackBarBehavior.floating,
+              width: 260,
+              duration: const Duration(seconds: 2),
+            ));
+          },
+        ),
+      ];
 }
 
 class _AnimeCard extends StatefulWidget {
@@ -654,28 +708,14 @@ class _AnimeCardState extends State<_AnimeCard> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 240),
           curve: Curves.easeOutCubic,
-          transform: Matrix4.identity()..translate(0.0, _hover ? -4 : 0),
+          transform: Matrix4.identity()..translateByDouble(0.0, _hover ? -4 : 0, 0.0, 1.0),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: _hover
-                ? [
-                    BoxShadow(
-                      color: scheme.secondary.withValues(alpha: 0.22),
-                      blurRadius: 16,
-                      spreadRadius: -3,
-                      offset: const Offset(0, 8),
-                    ),
-                  ]
-                : const [
-                    BoxShadow(
-                      color: Color(0x10000000),
-                      blurRadius: 6,
-                      offset: Offset(0, 2),
-                    ),
-                  ],
+            borderRadius: BorderRadius.circular(12),
+            // Minimalist：卡片无投影，悬停仅微位移反馈。
+            boxShadow: const [],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(12),
             child: Container(
               color: scheme.surface,
               child: Column(
@@ -797,16 +837,16 @@ class _AnimeCardState extends State<_AnimeCard> {
                         Center(
                           child: AnimatedContainer(
                             duration: const Duration(milliseconds: 200),
-                            width: _hover ? 48 : 0,
-                            height: _hover ? 48 : 0,
+                            width: _hover ? 48 : 36,
+                            height: _hover ? 48 : 36,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: scheme.secondary.withValues(alpha: 0.9),
+                              color: scheme.secondary.withValues(alpha: _hover ? 0.9 : 0.7),
                             ),
                             child: const Icon(
                               Icons.play_arrow_rounded,
                               color: Colors.white,
-                              size: 30,
+                              size: 24,
                             ),
                           ),
                         ),

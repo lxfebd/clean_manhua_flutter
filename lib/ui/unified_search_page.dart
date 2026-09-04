@@ -7,6 +7,7 @@ import '../models/comic_item.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
 import 'detail_page.dart';
+import 'responsive.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
 
@@ -72,52 +73,77 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SafeArea(
         bottom: false,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
-              child: Row(
+        // 整页限宽居中（M3 LS-U2）：搜索行与结果列表在桌面大屏不拉满全宽。
+        // SizedBox.expand + Align 保证高度有界（Expanded 安全），宽度收口到 900dp。
+        child: SizedBox.expand(
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 900),
+              child: Column(
                 children: [
-                  IconButton(
-                    onPressed: () => Navigator.maybePop(context),
-                    icon: Icon(Icons.arrow_back_ios_new_rounded,
-                        size: 18, color: scheme.onSurface),
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: SizedBox(
-                      height: 40,
-                      child: TextField(
-                        controller: _searchCtrl,
-                        textInputAction: TextInputAction.search,
-                        onSubmitted: (_) => _search(),
-                        style: TextStyle(fontSize: 14, color: scheme.onSurface),
-                        decoration: InputDecoration(
-                          hintText: '搜索所有源…',
-                          hintStyle: TextStyle(
-                              fontSize: 13.5,
-                              color: scheme.onSurface.withValues(alpha: 0.4)),
-                          prefixIcon: Icon(Icons.search_rounded, size: 20,
-                              color: scheme.primary),
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                          border: InputBorder.none,
-                          filled: true,
-                          fillColor: scheme.surface,
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                        Responsive.pagePadding(context), 10,
+                        Responsive.pagePadding(context), 8),
+                    child: Row(
+                      children: [
+                        IconButton(
+                          onPressed: () => Navigator.maybePop(context),
+                          icon: Icon(
+                              DesktopUi.isDesktopPlatform
+                                  ? Icons.arrow_back_rounded
+                                  : Icons.arrow_back_ios_new_rounded,
+                              size: 18, color: scheme.onSurface),
                         ),
-                      ),
+                        const SizedBox(width: 4),
+                        // Flexible（loose）而非 Expanded（tight）：tight 约束会吞掉
+                        // ConstrainedBox(maxWidth)，导致大屏搜索框仍被拉满全宽。
+                        Flexible(
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                                maxWidth: Responsive.fieldMaxWidth(context)),
+                            child: SizedBox(
+                              height: 40,
+                              child: TextField(
+                                controller: _searchCtrl,
+                                textInputAction: TextInputAction.search,
+                                onSubmitted: (_) => _search(),
+                                style: TextStyle(
+                                    fontSize: 14, color: scheme.onSurface),
+                                decoration: InputDecoration(
+                                  hintText: '搜索所有源…',
+                                  hintStyle: TextStyle(
+                                      fontSize: 13.5,
+                                      color: scheme.onSurface
+                                          .withValues(alpha: 0.4)),
+                                  prefixIcon: Icon(Icons.search_rounded,
+                                      size: 20,
+                                      color: scheme.primary),
+                                  isDense: true,
+                                  contentPadding: const EdgeInsets.symmetric(
+                                      vertical: 10),
+                                  border: InputBorder.none,
+                                  filled: true,
+                                  fillColor: scheme.surface,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton(
+                          onPressed: _search,
+                          child: const Text('搜索'),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  FilledButton(
-                    onPressed: _search,
-                    child: const Text('搜索'),
-                  ),
+                  Expanded(child: _buildBody(scheme)),
                 ],
               ),
             ),
-            Expanded(child: _buildBody(scheme)),
-          ],
+          ),
         ),
       ),
     );
@@ -152,7 +178,9 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
       );
     }
     return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(14, 4, 14, 110),
+      padding: EdgeInsets.fromLTRB(
+          Responsive.pagePadding(context), 4,
+          Responsive.pagePadding(context), (Responsive.isTablet(context) ? 24 : 110)),
       itemCount: _results.length,
       itemBuilder: (_, i) => _SourceResultGroup(
         result: _results[i],
@@ -190,42 +218,15 @@ class _SourceResultGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(4, 14, 4, 8),
-          child: Row(
-            children: [
-              Container(
-                width: 3,
-                height: 14,
-                decoration: BoxDecoration(
-                  color: scheme.primary,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(result.source.name,
-                  style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: scheme.onSurface)),
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                decoration: BoxDecoration(
-                  color: scheme.primary.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text('${result.items.length}',
-                    style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: scheme.primary)),
-              ),
-            ],
+          child: SectionHeader(
+            icon: Icons.public_rounded,
+            title: result.source.name,
+            count: result.items.length,
           ),
         ),
         Wrap(
@@ -267,18 +268,12 @@ class _UnifiedCardState extends State<_UnifiedCard> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 240),
           curve: Curves.easeOutCubic,
-          transform: Matrix4.identity()..translate(0.0, _hover ? -4 : 0),
+          transform: Matrix4.identity()..translateByDouble(0.0, _hover ? -4 : 0, 0.0, 1.0),
           width: 104,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
-            boxShadow: _hover
-                ? [BoxShadow(
-                    color: scheme.primary.withValues(alpha: 0.18),
-                    blurRadius: 12,
-                    spreadRadius: -2,
-                    offset: const Offset(0, 6),
-                  )]
-                : null,
+            // Minimalist：卡片无投影，悬停仅微位移反馈。
+            boxShadow: const [],
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),

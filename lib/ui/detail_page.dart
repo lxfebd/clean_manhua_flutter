@@ -93,14 +93,24 @@ class _DetailPageState extends State<DetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final mq = MediaQuery.of(context);
-    final name = _detail?.name ?? widget.name ?? '加载中…';
-    final pic = _detail?.pic ?? widget.pic;
-    if (Responsive.isTablet(context)) {
-      return _buildTablet(theme, scheme, mq, name, pic);
-    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final theme = Theme.of(context);
+        final scheme = theme.colorScheme;
+        final mq = MediaQuery.of(context);
+        final name = _detail?.name ?? widget.name ?? '加载中…';
+        final pic = _detail?.pic ?? widget.pic;
+
+        // 分栏布局：Expanded 及以上（≥840dp）才左右分栏。
+        //
+        // 原先 600/1200 两个分支都走 _buildTablet，判断是冗余的；且 600dp 就分栏过窄
+        // ——按 detailLeftWidth，600dp 时左 260 + 右仅 340，两侧都施展不开。
+        // M3 明确：Medium(600-839) 只有「低密度 + 操作明确」的内容才适合双窗格，
+        // 竞品 Mihon / Kotatsu 也都是横屏或大屏才分栏。
+        if (constraints.maxWidth >= Responsive.mediumBreakpoint) {
+          return _buildTablet(theme, scheme, mq, name, pic);
+        }
+        // 手机：单栏沉浸式布局
     final topPad = mq.padding.top;
     final heroH = _heroHeight + topPad;
     final collapseProgress = (_scrollOffset / _heroHeight).clamp(0.0, 1.0);
@@ -112,7 +122,9 @@ class _DetailPageState extends State<DetailPage> {
           // ── 可滚动内容 ────────────────────────────────────────
           CustomScrollView(
             controller: _scrollCtrl,
-            physics: const BouncingScrollPhysics(),
+            physics: DesktopUi.isDesktopPlatform
+                ? kDesktopScrollPhysics
+                : const BouncingScrollPhysics(),
             slivers: [
               // 给 Hero 留出空间
               SliverToBoxAdapter(
@@ -179,7 +191,7 @@ class _DetailPageState extends State<DetailPage> {
                     delay: const Duration(milliseconds: 300),
                     offset: 14,
                     child: Container(
-                      margin: const EdgeInsets.fromLTRB(18, 4, 18, 4),
+                      margin: EdgeInsets.fromLTRB(Responsive.pagePadding(context), 4, Responsive.pagePadding(context), 4),
                       decoration: BoxDecoration(
                         color: scheme.surface,
                         borderRadius: BorderRadius.circular(14),
@@ -393,9 +405,11 @@ class _DetailPageState extends State<DetailPage> {
         ],
       ),
     );
+      },
+    );
   }
 
-  /// 平板横屏：左封面 + 右信息/按钮/章节列表（与播放器、预备页分栏范式统一）。
+  /// 平板/桌面横屏：左封面 + 右信息/按钮/章节列表（与播放器、预备页分栏范式统一）。
   Widget _buildTablet(
       ThemeData theme, ColorScheme scheme, MediaQueryData mq,
       String name, String? pic) {
@@ -406,6 +420,10 @@ class _DetailPageState extends State<DetailPage> {
       if (d != null && (d.type ?? '').isNotEmpty) d.type!,
       if (d != null && (d.area ?? '').isNotEmpty) d.area!,
     ];
+    
+    // 使用响应式左侧面板宽度
+    final leftPanelWidth = Responsive.detailLeftWidth(context);
+    
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       body: Row(
@@ -413,26 +431,32 @@ class _DetailPageState extends State<DetailPage> {
         children: [
           // ── 左侧：完整竖版封面（固定） ──────────────────────
           Container(
-            width: 300,
-            padding: EdgeInsets.fromLTRB(16, topPad + 10, 8, 16),
+            width: leftPanelWidth,
+            padding: EdgeInsets.fromLTRB(
+                Responsive.pagePadding(context), topPad + 10, 8, 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const _BackButton(),
                 const SizedBox(height: 10),
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: Container(
-                      width: double.infinity,
-                      color: scheme.surfaceContainerHighest,
-                      child: (pic == null || pic.isEmpty)
-                          ? Center(
-                              child: Icon(Icons.image_outlined,
-                                  size: 48,
-                                  color: scheme.onSurface
-                                      .withValues(alpha: 0.2)))
-                          : CachedImage(pic, fit: BoxFit.cover, radius: 0),
+                // 封面保持 2:3 比例并限高，避免大屏（左栏随视口高度拉伸）
+                // 把封面拉成全列高的竖长条、BoxFit.cover 裁切到只剩中缝。
+                Center(
+                  child: AspectRatio(
+                    aspectRatio: 2 / 3,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: Container(
+                        width: double.infinity,
+                        color: scheme.surfaceContainerHighest,
+                        child: (pic == null || pic.isEmpty)
+                            ? Center(
+                                child: Icon(Icons.image_outlined,
+                                    size: 48,
+                                    color: scheme.onSurface
+                                        .withValues(alpha: 0.2)))
+                            : CachedImage(pic, fit: BoxFit.cover, radius: 0),
+                      ),
                     ),
                   ),
                 ),
@@ -440,10 +464,17 @@ class _DetailPageState extends State<DetailPage> {
             ),
           ),
           // ── 右侧：信息 + 按钮 + 简介 + 章节列表（可滚动） ──
+          // 桌面超宽屏右栏不含限宽（本页是独立路由，不经过 main_shell 的
+          // MaxWidthContainer），内容会被拉到 1500dp+；限宽 1040 居中。
           Expanded(
-            child: CustomScrollView(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1040),
+                child: CustomScrollView(
               controller: _scrollCtrl,
-              physics: const BouncingScrollPhysics(),
+              physics: DesktopUi.isDesktopPlatform
+                  ? kDesktopScrollPhysics
+                  : const BouncingScrollPhysics(),
               slivers: [
                 if (_loading)
                   const SliverToBoxAdapter(
@@ -462,13 +493,13 @@ class _DetailPageState extends State<DetailPage> {
                       delay: const Duration(milliseconds: 80),
                       offset: 14,
                       child: Padding(
-                        padding: EdgeInsets.fromLTRB(18, topPad + 12, 18, 6),
+                        padding: EdgeInsets.fromLTRB(Responsive.pagePadding(context), topPad + 12, Responsive.pagePadding(context), 6),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(d.name,
-                                style: const TextStyle(
-                                    fontSize: 20,
+                                style: TextStyle(
+                                    fontSize: Responsive.isExpanded(context) ? 24 : 20,
                                     fontWeight: FontWeight.w800,
                                     height: 1.3)),
                             if (metaParts.isNotEmpty) ...[
@@ -557,6 +588,8 @@ class _DetailPageState extends State<DetailPage> {
                 ],
               ],
             ),
+            ),
+            ),
           ),
         ],
       ),
@@ -566,14 +599,24 @@ class _DetailPageState extends State<DetailPage> {
   /// 平板右栏章节列表：竖向排列，直观大热区，支持排序切换与全部/批量下载。
   Widget _tabletChapterList(ComicDetail d, ColorScheme scheme) {
     final chapters = _sortedChapters();
-    final show = chapters.length < 12 ? chapters.length : 12;
+    // 平板上显示更多章节（最多20个），充分利用空间
+    final isExpanded = Responsive.isExpanded(context);
+    final show = isExpanded
+        ? (chapters.length < 20 ? chapters.length : 20)
+        : (chapters.length < 12 ? chapters.length : 12);
     return Container(
-      margin: const EdgeInsets.fromLTRB(18, 4, 18, 4),
+      margin: EdgeInsets.fromLTRB(
+        Responsive.pagePadding(context),
+        4,
+        Responsive.pagePadding(context),
+        4,
+      ),
       decoration: BoxDecoration(
         color: scheme.surface,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-            color: scheme.onSurface.withValues(alpha: 0.06)),
+          color: scheme.onSurface.withValues(alpha: 0.06),
+        ),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -581,10 +624,11 @@ class _DetailPageState extends State<DetailPage> {
           for (var i = 0; i < show; i++) ...[
             if (i > 0)
               Divider(
-                  height: 0.5,
-                  indent: 16,
-                  endIndent: 16,
-                  color: scheme.onSurface.withValues(alpha: 0.06)),
+                height: 0.5,
+                indent: 16,
+                endIndent: 16,
+                color: scheme.onSurface.withValues(alpha: 0.06),
+              ),
             _ChapterTile(
               index: i,
               chapter: chapters[i],
@@ -592,61 +636,74 @@ class _DetailPageState extends State<DetailPage> {
             ),
           ],
           Divider(
-              height: 0.5,
-              indent: 16,
-              endIndent: 16,
-              color: scheme.onSurface.withValues(alpha: 0.06)),
-          Row(children: [
-            Expanded(
-              child: InkWell(
-                onTap: _showAllChapters,
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        '查看全部 ${d.chapters.length} 话',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: scheme.onSurface.withValues(alpha: 0.6),
+            height: 0.5,
+            indent: 16,
+            endIndent: 16,
+            color: scheme.onSurface.withValues(alpha: 0.06),
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: _showAllChapters,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          '查看全部 ${d.chapters.length} 话',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: scheme.onSurface.withValues(alpha: 0.6),
+                          ),
                         ),
-                      ),
-                      Icon(Icons.keyboard_arrow_down_rounded,
-                          size: 16, color: scheme.onSurface.withValues(alpha: 0.4)),
-                    ],
+                        Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          size: 16,
+                          color: scheme.onSurface.withValues(alpha: 0.4),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-            Container(
+              Container(
                 width: 0.5,
                 height: 18,
-                color: scheme.onSurface.withValues(alpha: 0.08)),
-            Expanded(
-              child: InkWell(
-                onTap: _showBatchDownload,
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.download_outlined,
-                          size: 15, color: scheme.primary.withValues(alpha: 0.9)),
-                      const SizedBox(width: 4),
-                      Text('批量下载',
+                color: scheme.onSurface.withValues(alpha: 0.08),
+              ),
+              Expanded(
+                child: InkWell(
+                  onTap: _showBatchDownload,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.download_outlined,
+                          size: 15,
+                          color: scheme.primary.withValues(alpha: 0.9),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '批量下载',
                           style: TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w600,
-                              color: scheme.primary)),
-                    ],
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: scheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          ]),
+            ],
+          ),
         ],
       ),
     );
@@ -697,7 +754,7 @@ class _DetailPageState extends State<DetailPage> {
     var currentIdx = -1;
     var currentDone = 0;
     var currentTotal = 0;
-    showModalBottomSheet<void>(
+    showResponsiveBottomSheet<void>(
       context: context,
       backgroundColor: Theme.of(context).colorScheme.surface,
       isScrollControlled: true,
@@ -879,7 +936,7 @@ class _DetailPageState extends State<DetailPage> {
   Set<String> _cachedChapters = {};
 
   void _showAllChaptersSheet() {
-    showModalBottomSheet<void>(
+    showResponsiveBottomSheet<void>(
       context: context,
       backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
@@ -1073,6 +1130,23 @@ class _Hero extends StatelessWidget {
             ),
           ),
         ),
+        // 底部恒暗黑衬：标题区白字在浅色主题/浅封面上也不隐身
+        Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+                colors: [
+                  Colors.black.withValues(alpha: 0.72),
+                  Colors.black.withValues(alpha: 0.25),
+                  Colors.black.withValues(alpha: 0.0),
+                ],
+                stops: const [0, 0.3, 0.58],
+              ),
+            ),
+          ),
+        ),
         // 标题区
         Positioned(
           left: 18,
@@ -1091,15 +1165,9 @@ class _Hero extends StatelessWidget {
                           horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
                         color: scheme.secondary,
-                        borderRadius: BorderRadius.circular(6),
-                        boxShadow: [
-                          BoxShadow(
-                            color: scheme.secondary.withValues(alpha: 0.35),
-                            blurRadius: 10,
-                            spreadRadius: -2,
-                            offset: const Offset(0, 3),
-                          ),
-                        ],
+                        borderRadius: BorderRadius.circular(5),
+                        // Minimalist：徽标扁平，不使用辉光。
+                        boxShadow: const [],
                       ),
                       child: Text(
                         (status?.isNotEmpty == true) ? status! : '连载中',
@@ -1176,18 +1244,26 @@ class _BackButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final isTablet = Responsive.isTablet(context);
+    
     return Padding(
       padding: const EdgeInsets.only(left: 8),
       child: Material(
-        color: Colors.black.withValues(alpha: 0.45),
+        color: isTablet 
+            ? scheme.surface.withValues(alpha: 0.9)
+            : Colors.black.withValues(alpha: 0.45),
         shape: const CircleBorder(),
         child: InkWell(
           customBorder: const CircleBorder(),
           onTap: () => Navigator.maybePop(context),
-          child: const SizedBox(
+          child: SizedBox(
             width: 40,
             height: 40,
-            child: Icon(Icons.arrow_back_rounded, color: Colors.white, size: 20),
+            child: Icon(
+                Icons.arrow_back_rounded, 
+                color: isTablet ? scheme.onSurface : Colors.white, 
+                size: 20),
           ),
         ),
       ),
@@ -1219,7 +1295,7 @@ class _MetaSection extends StatelessWidget {
       if ((d.area ?? '').isNotEmpty) d.area!,
     ];
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 6),
+      padding: EdgeInsets.fromLTRB(Responsive.pagePadding(context), 14, Responsive.pagePadding(context), 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1369,7 +1445,7 @@ class _DescCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 10, 18, 4),
+      padding: EdgeInsets.fromLTRB(Responsive.pagePadding(context), 10, Responsive.pagePadding(context), 4),
       child: Text(
         detail.description!,
         style: TextStyle(
@@ -1400,71 +1476,52 @@ class _ChapterHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
-      child: Row(
-        children: [
-          Container(
-            width: 3,
-            height: 14,
-            decoration: BoxDecoration(
-              color: scheme.primary,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            '章节',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-              color: scheme.onSurface,
-              letterSpacing: 0.5,
-            ),
-          ),
-          const SizedBox(width: 8),
-          GestureDetector(
-            onTap: onTapAll,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-              decoration: BoxDecoration(
-                color: scheme.primary.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(6),
-              ),
+      padding: EdgeInsets.fromLTRB(Responsive.pagePadding(context), 16, Responsive.pagePadding(context), 10),
+      child: SectionHeader(
+        icon: Icons.menu_book_rounded,
+        title: '章节',
+        count: count,
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            GestureDetector(
+              onTap: onTapAll,
+              behavior: HitTestBehavior.opaque,
               child: Text(
-                '$count',
+                '全部 $count',
                 style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
                   color: scheme.primary,
                 ),
               ),
             ),
-          ),
-          const Spacer(),
-          GestureDetector(
-            onTap: onToggleDescending,
-            behavior: HitTestBehavior.opaque,
-            child: Row(
-              children: [
-                Text(
-                  descending ? '倒序' : '正序',
-                  style: TextStyle(
-                    fontSize: 11,
+            const SizedBox(width: 14),
+            GestureDetector(
+              onTap: onToggleDescending,
+              behavior: HitTestBehavior.opaque,
+              child: Row(
+                children: [
+                  Text(
+                    descending ? '倒序' : '正序',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: scheme.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    descending
+                        ? Icons.arrow_upward_rounded
+                        : Icons.arrow_downward_rounded,
+                    size: 14,
                     color: scheme.primary,
                   ),
-                ),
-                const SizedBox(width: 4),
-                Icon(
-                  descending
-                      ? Icons.arrow_upward_rounded
-                      : Icons.arrow_downward_rounded,
-                  size: 14,
-                  color: scheme.primary,
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1622,54 +1679,6 @@ class _ErrorView extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-// ─── 自定义动画组件 ──────────────────────────────────────────────────────────
-
-class AnimatedRotation extends StatefulWidget {
-  final double turns;
-  final Duration duration;
-  final Widget child;
-  const AnimatedRotation({
-    super.key,
-    required this.turns,
-    required this.duration,
-    required this.child,
-  });
-
-  @override
-  State<AnimatedRotation> createState() => _AnimatedRotationState();
-}
-
-class _AnimatedRotationState extends State<AnimatedRotation>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: widget.duration,
-    value: widget.turns,
-  );
-
-  @override
-  void didUpdateWidget(covariant AnimatedRotation old) {
-    super.didUpdateWidget(old);
-    if (widget.turns != old.turns) {
-      _c.animateTo(widget.turns, curve: Curves.easeOutCubic);
-    }
-  }
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return RotationTransition(
-      turns: _c,
-      child: widget.child,
     );
   }
 }

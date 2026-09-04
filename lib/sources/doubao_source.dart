@@ -69,11 +69,6 @@ class DoubaoSource extends ComicSource {
     final cover = _first(_coverRe, body);
     final chapters = _chapterRe.allMatches(body).map((m) => Chapter(
         '${m.group(1)}/${m.group(2)}', _unescape(m.group(3) ?? ''))).toList();
-    // ignore: avoid_print
-    print('[DOUBAO-DEBUG] id=$comicId bodyLen=${body.length} '
-        'hasChapterRe=${_chapterRe.hasMatch(body)} '
-        'chapterCount=${chapters.length} titleRe=${title.isNotEmpty} '
-        'sample=${body.length > 200 ? body.substring(0, 200) : body}');
     return ComicDetail(ComicItem(comicId, title, cover), chapters);
   }
 

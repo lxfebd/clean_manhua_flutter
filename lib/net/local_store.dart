@@ -657,4 +657,33 @@ class LocalStore {
     await put('sources_config', data['sources_config']);
     return count;
   }
+
+  // ---- 桌面端窗口几何（尺寸/位置记忆）----
+  // 合并写入 settings，避免覆盖其它设置项。
+  static Future<void> setWindowGeometry({
+    double? w,
+    double? h,
+    double? x,
+    double? y,
+  }) async {
+    final m = ((await _read('settings')) as Map?)?.cast<String, dynamic>() ??
+        <String, dynamic>{};
+    if (w != null) m['winW'] = w;
+    if (h != null) m['winH'] = h;
+    if (x != null) m['winX'] = x;
+    if (y != null) m['winY'] = y;
+    await _write('settings', m);
+  }
+
+  /// 返回 {w,h,x,y}，无记录时返回 null。
+  static Future<Map<String, double>?> windowGeometry() async {
+    final m = ((await _read('settings')) as Map?)?.cast<String, dynamic>();
+    if (m == null || m['winW'] == null) return null;
+    return {
+      'w': (m['winW'] as num).toDouble(),
+      'h': (m['winH'] as num).toDouble(),
+      'x': (m['winX'] as num?)?.toDouble() ?? 0,
+      'y': (m['winY'] as num?)?.toDouble() ?? 0,
+    };
+  }
 }

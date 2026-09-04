@@ -13,6 +13,8 @@ analyzer:
   exclude:
     - tool/**
     - tools/**
+    # UI 重设计前的整页快照备份，非活代码（引用已删除的旧控件），不参与分析
+    - ui_backup_before_ui_fix/**
 
 linter:
   # The lint rules applied to this project can be customized in the

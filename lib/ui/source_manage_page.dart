@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../sources/source_config.dart';
 import '../sources/source_manager.dart';
+import 'responsive.dart';
 
 /// 数据源管理页：列出所有源，可启用/停用、编辑域名/图片CDN/代理/请求头/层级，
 /// 保存后持久化（源配置免发版更新），并同步 SourceManager 的启用列表。
@@ -102,16 +103,27 @@ class _SourceManagePageState extends State<SourceManagePage> {
       backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
         bottom: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+        // 整页限宽居中（M3 LS-U2）：本页是独立路由，桌面大屏不拉满全宽。
+        child: SizedBox.expand(
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 900),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
+              padding: EdgeInsets.fromLTRB(
+                  Responsive.pagePadding(context), 10,
+                  Responsive.pagePadding(context), 0),
               child: Row(
                 children: [
                   IconButton(
                     onPressed: () => Navigator.pop(context),
-                    icon: Icon(Icons.arrow_back_ios_new_rounded,
+                    icon: Icon(
+                        DesktopUi.isDesktopPlatform
+                            ? Icons.arrow_back_rounded
+                            : Icons.arrow_back_ios_new_rounded,
                         size: 18, color: theme.colorScheme.onSurface),
                   ),
                   const SizedBox(width: 4),
@@ -136,7 +148,9 @@ class _SourceManagePageState extends State<SourceManagePage> {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(18, 2, 18, 8),
+              padding: EdgeInsets.fromLTRB(
+                  Responsive.pagePadding(context), 2,
+                  Responsive.pagePadding(context), 8),
               child: Text(
                 '源 = 引擎代码（随版本）+ 此配置（可改，免发版）。域名失效时在此替换即可。',
                 style: TextStyle(
@@ -148,6 +162,9 @@ class _SourceManagePageState extends State<SourceManagePage> {
             Expanded(child: _buildList(theme)),
           ],
         ),
+      ),
+      ),
+      ),
       ),
     );
   }
@@ -161,7 +178,10 @@ class _SourceManagePageState extends State<SourceManagePage> {
       return const Center(child: CircularProgressIndicator(strokeWidth: 2));
     }
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(14, 4, 14, 110),
+      // 与头部用同一 pagePadding，大屏不因硬编码 14 与标题错位。
+      padding: EdgeInsets.fromLTRB(
+          Responsive.pagePadding(context), 4,
+          Responsive.pagePadding(context), (Responsive.isTablet(context) ? 24 : 110)),
       itemCount: cfgs.length,
       separatorBuilder: (_, __) => const SizedBox(height: 8),
       itemBuilder: (_, i) => _SourceCard(

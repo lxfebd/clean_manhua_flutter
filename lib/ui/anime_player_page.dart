@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import '../net/local_store.dart';
 import '../sources/video_source.dart';
+import 'desktop_webview.dart';
 import 'native_player_page.dart';
 import 'responsive.dart';
 import 'widgets/player_widgets.dart';
@@ -54,6 +56,8 @@ class AnimePlayerPage extends StatefulWidget {
 class _AnimePlayerPageState extends State<AnimePlayerPage>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final WebViewController _controller;
+  DesktopWebview? _desktop;
+  final List<StreamSubscription> _desktopSubs = [];
   bool _loading = true;
   bool _muted = false;
   bool _fullscreen = false;
@@ -61,6 +65,40 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   int _curEpisode = 1;
   double _speed = 1.0;
   bool _descExpanded = false;
+
+  /// WebView 是否真的初始化完成。桌面端异步 initialize，完成前显示加载态。
+  bool _webviewInit = false;
+
+  /// 桌面 WebView2 初始化失败（缺运行时等）：显示系统浏览器降级页。
+  bool _desktopInitFailed = false;
+
+  /// 统一 JS 执行：自动路由到 webview_flutter 或 WebView2。
+  Future<String?> _evalJs(String js) async {
+    final d = _desktop;
+    if (d != null) return d.evaluate(js);
+    try {
+      final r = await _controller.runJavaScriptReturningResult(js);
+      return r as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 统一 JS 执行（忽略返回值）。
+  Future<void> _runJs(String js) async {
+    final d = _desktop;
+    if (d != null) {
+      await d.runJavaScript(js);
+      return;
+    }
+    try {
+      await _controller.runJavaScript(js);
+    } catch (_) {}
+  }
+
+  /// 平板分栏右侧控制面板宽度（与 native_player_page.dart 统一）。
+  static const double _panelWidth = kPlayerPanelWidth;
+
   // 解析中：WebView 加载后先隐藏网页内容，等直链捕获后直接切原生播放器。
   // 5 秒超时后放弃隐藏（降级为 WebView 播放），避免卡在黑屏。
   bool _resolving = true;
@@ -89,7 +127,78 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     WidgetsBinding.instance.addObserver(this);
     _curSeason = widget.initialSeason;
     _curEpisode = widget.initialEpisode;
+    if (isWindowsWebView2) {
+      // Windows：内嵌 WebView2 解析直链 → 切内置原生播放器（mpv 硬解 + Anime4K 超分）。
+      // 网页只做“拿直链”的中间层，绝不让用户离开内置播放器。
+      _initDesktopWebview();
+    } else if (isWebViewSupported) {
+      // Android/iOS/macOS：官方 webview_flutter。
+      _initMobileWebview();
+    } else {
+      // Linux：无内嵌实现，走降级页（系统浏览器可播放）。
+      return;
+    }
+  }
 
+  /// Windows 内嵌 WebView2（webview_windows）：初始化、加载播放页、注入
+  /// resolve API 拦截 + 直链轮询，捕获后即切 NativePlayerPage（与移动端同链路）。
+  Future<void> _initDesktopWebview() async {
+    final wv = DesktopWebview();
+    _desktop = wv;
+    try {
+      await wv.initialize(userAgent: ua);
+      if (!mounted) return;
+      setState(() => _webviewInit = true);
+      // 导航失败 / 加载状态变化，复用现有状态字段
+      _desktopSubs.add(wv.loadErrors.listen((e) {
+        if (!mounted) return;
+        setState(() {
+          _webError ??= '页面加载失败\n$e';
+          _loading = false;
+          _resolving = false;
+        });
+        _resolveTimer?.cancel();
+        _videoPollTimer?.cancel();
+      }));
+      _desktopSubs.add(wv.loadingState.listen((loading) {
+        if (!mounted) return;
+        setState(() {
+          _loading = loading;
+          if (loading) {
+            _webError = null;
+          } else {
+            _triggerAutoPlay();
+          }
+        });
+        if (loading) {
+          _injectApiInterceptor();
+        }
+      }));
+      // 页面脚本执行前预注入拦截器：避免错过首屏 resolve API 响应，
+      // 并同步拦截 Hls.loadSource（AGE 类 WASM 解密直链）。
+      await wv.injectOnDocumentCreated(_apiInterceptorJs);
+      await wv.injectOnDocumentCreated(_hlsHookJs);
+      await wv.loadUrl(widget.url);
+      _hookVideoSource();
+      _resolveTimer = Timer(const Duration(seconds: 8), () {
+        if (mounted && _resolving) {
+          setState(() => _resolving = false);
+        }
+      });
+    } catch (e) {
+      debugPrint('WebView2 init failed: $e');
+      if (!mounted) return;
+      setState(() {
+        _webError = '网页播放器初始化失败\n$e\n请检查系统是否安装了 WebView2 运行时';
+        _webviewInit = false;
+        _desktopInitFailed = true;
+      });
+    }
+  }
+
+  /// Android/iOS/macOS：官方 webview_flutter 初始化。
+  void _initMobileWebview() {
+    _webviewInit = true;
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setUserAgent(ua)
@@ -175,67 +284,77 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   String _hookedVideoUrl = '';
   Timer? _videoPollTimer;
 
+  /// AGE 类（WASM 解密）Hls.loadSource 拦截：解密后的真实 m3u8
+  /// 写入 window._resolvedVideoUrl，由轮询捕获后交原生播放器。
+  static const String _hlsHookJs = '''
+    (function(){
+      var tryHook = function(){
+        if (window.Hls && !window._hlsHooked) {
+          var _proto = window.Hls.prototype;
+          if (_proto && _proto.loadSource) {
+            window._hlsHooked = true;
+            var _ls = _proto.loadSource;
+            _proto.loadSource = function(url){
+              try {
+                if (url && url.indexOf('http') === 0 &&
+                    url.indexOf('blob:') !== 0) {
+                  window._resolvedVideoUrl = url;
+                }
+              } catch(e){}
+              return _ls.apply(this, arguments);
+            };
+          }
+        }
+      };
+      tryHook();
+      var t = setInterval(function(){
+        tryHook();
+        if (window._hlsHooked) clearInterval(t);
+      }, 500);
+      setTimeout(function(){ clearInterval(t); }, 30000);
+    })();
+  ''';
+
+  /// 轮询捕获脚本：优先取拦截到的直链，其次扫描 DOM 里的 <video>。
+  static const String _videoPollJs = '''
+    (function(){
+      var _hooked = window._resolvedVideoUrl || '';
+      if (_hooked.indexOf('blob:') !== 0 && _hooked.indexOf('http') === 0) {
+        return _hooked;
+      }
+      var find = function(doc){
+        var v = doc.querySelector('video');
+        if(v){
+          var s = v.currentSrc || v.src || '';
+          if(s.indexOf('blob:') === 0) return '';
+          if(s) return s;
+          var src = v.querySelector('source');
+          if(src && src.src) return src.src;
+        }
+        var fr = doc.querySelector('iframe');
+        if(fr){
+          try{
+            var s2 = find(fr.contentDocument || fr.contentWindow.document);
+            if(s2) return s2;
+          }catch(e){}
+        }
+        return '';
+      };
+      return find(document);
+    })()
+  ''';
+
   void _hookVideoSource() {
     _videoPollTimer?.cancel();
     _videoPollTimer = Timer.periodic(const Duration(milliseconds: 900), (_) async {
       if (!mounted) return;
       String? src;
       try {
-        final r = await _controller.runJavaScriptReturningResult('''
-          (function(){
-            // ---- AGE 类（WASM 解密）拦截：覆写 Hls.prototype.loadSource ----
-            // jx 播放器在 WASM 解密出真实 m3u8 后调用 new Hls().loadSource(url)，
-            // 这里把解密后的真实直链截获到 window._resolvedVideoUrl（幂等注册）。
-            if (window.Hls && !window._hlsHooked) {
-              var _proto = window.Hls.prototype;
-              if (_proto && _proto.loadSource) {
-                window._hlsHooked = true;
-                var _ls = _proto.loadSource;
-                _proto.loadSource = function(url){
-                  try {
-                    if (url && url.indexOf('http') === 0 &&
-                        url.indexOf('blob:') !== 0) {
-                      window._resolvedVideoUrl = url;
-                    }
-                  } catch(e){}
-                  return _ls.apply(this, arguments);
-                };
-              }
-            }
-
-            // 优先检查 API / Hls 拦截到的视频直链
-            var _hooked = window._resolvedVideoUrl || '';
-            if (_hooked.indexOf('blob:') !== 0 && _hooked.indexOf('http') === 0) {
-              return _hooked;
-            }
-
-            var find = function(doc){
-              var v = doc.querySelector('video');
-              if(v){
-                var s = v.currentSrc || v.src || '';
-                if(s.indexOf('blob:') === 0) return '';
-                if(s) return s;
-                // 检查 <source> 子元素
-                var src = v.querySelector('source');
-                if(src && src.src) return src.src;
-              }
-              var fr = doc.querySelector('iframe');
-              if(fr){
-                try{
-                  var s2 = find(fr.contentDocument || fr.contentWindow.document);
-                  if(s2) return s2;
-                }catch(e){}
-              }
-              return '';
-            };
-            return find(document);
-          })()
-        ''');
-        final js = r as String?;
-        if (js != null && js.isNotEmpty) {
-          final decoded = js.startsWith('"') && js.endsWith('"')
-              ? (js.substring(1, js.length - 1))
-              : js;
+        final r = await _evalJs(_videoPollJs);
+        if (r != null && r.isNotEmpty) {
+          final decoded = r.startsWith('"') && r.endsWith('"')
+              ? (r.substring(1, r.length - 1))
+              : r;
           if (decoded.isNotEmpty) src = decoded;
         }
       } catch (_) {}
@@ -248,7 +367,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   void _unlockOrientation() {
     final view = WidgetsBinding.instance.platformDispatcher.views.first;
     final w = view.physicalSize.width / view.devicePixelRatio;
-    final tablet = w >= 440;
+    final tablet = w >= Responsive.tabletBreakpoint;
     SystemChrome.setPreferredOrientations(tablet
         ? [
             DeviceOrientation.portraitUp,
@@ -262,66 +381,72 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   void dispose() {
     _videoPollTimer?.cancel();
     _resolveTimer?.cancel();
+    for (final s in _desktopSubs) {
+      s.cancel();
+    }
+    _desktopSubs.clear();
+    _desktop?.dispose();
+    _desktop = null;
     WidgetsBinding.instance.removeObserver(this);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _unlockOrientation();
     super.dispose();
   }
 
+  /// resolve-play-url API 拦截脚本（fetch + XHR 双拦截）。
+  /// 幂等：重复执行自动跳过（window._videoUrlIntercepted 标记）。
+  static const String _apiInterceptorJs = '''
+    (function() {
+      if (window._videoUrlIntercepted) return;
+      window._videoUrlIntercepted = true;
+      window._resolvedVideoUrl = '';
+
+      // 拦截 fetch 请求中匹配 resolve-play-url 的 API
+      var origFetch = window.fetch;
+      window.fetch = function(url, opts) {
+        return origFetch.apply(this, arguments).then(function(response) {
+          var urlStr = (typeof url === 'string') ? url : (url ? url.url || '' : '');
+          if (urlStr.indexOf('/api/videos/resolve-play-url') >= 0) {
+            response.clone().json().then(function(data) {
+              if (data && data.data && data.data.url) {
+                window._resolvedVideoUrl = data.data.url;
+              }
+            }).catch(function(){});
+          }
+          return response;
+        });
+      };
+
+      // 拦截 XMLHttpRequest 中匹配 resolve-play-url 的 API
+      var origOpen = XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.open = function(method, url) {
+        this._requestUrl = url;
+        return origOpen.apply(this, arguments);
+      };
+      var origSend = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.send = function() {
+        if (this._requestUrl && typeof this._requestUrl === 'string' &&
+            this._requestUrl.indexOf('/api/videos/resolve-play-url') >= 0) {
+          this.addEventListener('load', function() {
+            try {
+              var data = JSON.parse(this.responseText);
+              if (data && data.data && data.data.url) {
+                window._resolvedVideoUrl = data.data.url;
+              }
+            } catch(e) {}
+          });
+        }
+        return origSend.apply(this, arguments);
+      };
+    })();
+  ''';
+
   /// 在 WebView 页面加载前注入 JavaScript，拦截 resolve-play-url API 请求。
   ///
   /// 部分视频源（如 TvTFun）的播放页通过调用 `/api/videos/resolve-play-url?episodeId=xxx`
   /// 获取视频直链，然后交给 ArtPlayer 播放。该 API 返回的 URL 是 m3u8/mp4 直链，
   /// 捕获后可直接交给 NativePlayer（media_kit）原生播放，无需 WebView 中转。
-  Future<void> _injectApiInterceptor() async {
-    try {
-      await _controller.runJavaScript('''
-        (function() {
-          if (window._videoUrlIntercepted) return;
-          window._videoUrlIntercepted = true;
-          window._resolvedVideoUrl = '';
-
-          // 拦截 fetch 请求中匹配 resolve-play-url 的 API
-          var origFetch = window.fetch;
-          window.fetch = function(url, opts) {
-            return origFetch.apply(this, arguments).then(function(response) {
-              var urlStr = (typeof url === 'string') ? url : (url ? url.url || '' : '');
-              if (urlStr.indexOf('/api/videos/resolve-play-url') >= 0) {
-                response.clone().json().then(function(data) {
-                  if (data && data.data && data.data.url) {
-                    window._resolvedVideoUrl = data.data.url;
-                  }
-                }).catch(function(){});
-              }
-              return response;
-            });
-          };
-
-          // 拦截 XMLHttpRequest 中匹配 resolve-play-url 的 API
-          var origOpen = XMLHttpRequest.prototype.open;
-          XMLHttpRequest.prototype.open = function(method, url) {
-            this._requestUrl = url;
-            return origOpen.apply(this, arguments);
-          };
-          var origSend = XMLHttpRequest.prototype.send;
-          XMLHttpRequest.prototype.send = function() {
-            if (this._requestUrl && typeof this._requestUrl === 'string' &&
-                this._requestUrl.indexOf('/api/videos/resolve-play-url') >= 0) {
-              this.addEventListener('load', function() {
-                try {
-                  var data = JSON.parse(this.responseText);
-                  if (data && data.data && data.data.url) {
-                    window._resolvedVideoUrl = data.data.url;
-                  }
-                } catch(e) {}
-              });
-            }
-            return origSend.apply(this, arguments);
-          };
-        })();
-      ''');
-    } catch (_) {}
-  }
+  Future<void> _injectApiInterceptor() => _runJs(_apiInterceptorJs);
 
   void _enableWebViewMediaPlayback() {
     try {
@@ -331,7 +456,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     } catch (_) {}
     // 拦截网页内部 video 全屏请求，转发给 app 级横屏全屏，
     // 避免出现"网页内竖屏全屏"与 app 全屏互相冲突。
-    _controller.runJavaScript('''
+    _runJs('''
       (function(){
         var hijack = function(){
           var v = document.querySelector('video');
@@ -385,17 +510,15 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     _played = true;
     await Future.delayed(const Duration(seconds: 2));
     await _applyWebViewSR();
-    try {
-      await _controller.runJavaScript('''
-        (function(){
-          var v = document.querySelector('video');
-          if(v){ v.muted=false; v.play().catch(function(){}); return 'video'; }
-          var b = document.querySelector('.artplayer-app video,.art-video video,[class*="play"],[id*="play"],.play-btn,button');
-          if(b){ b.click(); return 'click'; }
-          return 'none';
-        })();
-      ''');
-    } catch (_) {}
+    await _runJs('''
+      (function(){
+        var v = document.querySelector('video');
+        if(v){ v.muted=false; v.play().catch(function(){}); return 'video'; }
+        var b = document.querySelector('.artplayer-app video,.art-video video,[class*="play"],[id*="play"],.play-btn,button');
+        if(b){ b.click(); return 'click'; }
+        return 'none';
+      })();
+    ''');
   }
 
   /// 把画质增强(滤镜) CSS 应用到所有可见的 <video>（含跨域 iframe 内）。
@@ -408,26 +531,24 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
         ? 'contrast(1.18) saturate(1.25) brightness(1.06)'
         : _srLevel == 1
             ? 'contrast(1.06) saturate(1.08)'
-            : '';
-    try {
-      await _controller.runJavaScript('''
-        (function(){
-          var id = 'sr-style';
-          var old = document.getElementById(id);
-          if(old) old.remove();
-          if('$css' === '') return;
-          var s = document.createElement('style');
-          s.id = id;
-          s.innerHTML = 'video { filter: $css !important; image-rendering: crisp-edges !important; -webkit-filter: $css !important; }';
-          document.documentElement.appendChild(s);
-        })();
-      ''');
-    } catch (_) {}
+        : '';
+    await _runJs('''
+      (function(){
+        var id = 'sr-style';
+        var old = document.getElementById(id);
+        if(old) old.remove();
+        if('$css' === '') return;
+        var s = document.createElement('style');
+        s.id = id;
+        s.innerHTML = 'video { filter: $css !important; image-rendering: crisp-edges !important; -webkit-filter: $css !important; }';
+        document.documentElement.appendChild(s);
+      })();
+    ''');
   }
 
   void _toggleMute() {
     setState(() => _muted = !_muted);
-    _controller.runJavaScript('''
+    _runJs('''
       (function(){
         var v = document.querySelector('video');
         if(v) v.muted = ${_muted ? 'true' : 'false'};
@@ -463,6 +584,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
 
   /// 真正切集：更新当前集状态，并让 WebView 重新加载新一集的播放页。
   Future<void> _switchToEpisode(int season, int episode) async {
+    if (!_webviewInit) return;
     final resolver = widget.resolveUrl;
     if (resolver == null) return;
     if (!mounted) return;
@@ -474,18 +596,210 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     try {
       final url = await resolver(season, episode);
       if (!mounted) return;
-      await _controller.loadRequest(Uri.parse(url), headers: _hostHeader(url));
+      final d = _desktop;
+      if (d != null) {
+        await d.loadUrl(url);
+      } else {
+        await _controller.loadRequest(Uri.parse(url),
+            headers: _hostHeader(url));
+      }
     } catch (e) {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   @override
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
-      body: _fullscreen ? _fullBody() : _normalBody(),
+      // 降级页跟随应用主题；WebView 播放器保持纯黑影院底。
+      backgroundColor:
+          _webviewInit ? Colors.black : Theme.of(context).colorScheme.surface,
+      body: !_webviewInit
+          // WebView2 异步初始化期间显示加载态；真正不可用才显示降级页。
+          ? (_desktop != null && !_desktopInitFailed
+              ? const Center(
+                  child: SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: CircularProgressIndicator(strokeWidth: 2.5),
+                  ),
+                )
+              : _desktopFallbackBody())
+          : _fullscreen
+              ? _fullBody()
+              : _normalBody(),
     );
+  }
+
+  /// 无内嵌 WebView（Linux）或 WebView2 初始化失败时的降级页：
+  /// 用系统浏览器打开原网页播放，并提示切换到 App 内原生播放的线路。
+  Widget _desktopFallbackBody() {
+    final scheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  color: scheme.primary.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.desktop_windows_outlined,
+                    size: 34, color: scheme.primary),
+              ),
+              const SizedBox(height: 18),
+              Text(_desktopInitFailed ? '网页播放器不可用' : '该线路需要网页播放',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: scheme.onSurface)),
+              const SizedBox(height: 10),
+              Text(
+                _desktopInitFailed
+                    ? '系统缺少 WebView2 运行时，无法内嵌网页解析直链。'
+                        '请安装 Microsoft Edge WebView2 Runtime 后重试，'
+                        '或先用系统浏览器观看。'
+                    : '此线路的播放地址由站点网页加密提供，当前平台暂不支持内嵌'
+                        '网页播放器。你可以用系统浏览器打开继续观看，'
+                        '或在下方切到支持 App 内原生播放的线路。',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontSize: 13,
+                    height: 1.5,
+                    color: scheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                onPressed: _openInBrowser,
+                icon: const Icon(Icons.open_in_new, size: 18),
+                label: const Text('用系统浏览器播放'),
+                style: FilledButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                ),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () => Navigator.maybePop(context),
+                icon: const Icon(Icons.swap_horiz, size: 18),
+                label: const Text('返回切换线路'),
+                style: OutlinedButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                ),
+              ),
+              if (widget.episodes.length > 1) ...[
+                const SizedBox(height: 28),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('本集其它线路',
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: scheme.onSurface)),
+                ),
+                const SizedBox(height: 10),
+                _fallbackSourceChips(scheme),
+              ],
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 降级页里的切集按钮：解析目标集地址，直链则进原生播放器，
+  /// 否则仍走本降级页（用 pushReplacement 保持返回栈干净）。
+  Widget _fallbackSourceChips(ColorScheme scheme) {
+    final eps = widget.episodes;
+    final resolver = widget.resolveUrl;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final ep in eps.take(30))
+          OutlinedButton(
+            onPressed: resolver == null
+                ? null
+                : () => _fallbackSwitch(ep.season, ep.episode),
+            style: OutlinedButton.styleFrom(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              foregroundColor:
+                  ep.episode == _curEpisode ? scheme.primary : null,
+            ),
+            child: Text(ep.title.isEmpty ? '第${ep.episode}集' : ep.title,
+                style: const TextStyle(fontSize: 12.5)),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _fallbackSwitch(int season, int episode) async {
+    final resolver = widget.resolveUrl;
+    if (resolver == null) return;
+    try {
+      final url = await resolver(season, episode);
+      if (!mounted) return;
+      if (isDirectMediaUrl(url)) {
+        Navigator.of(context).pushReplacement(MaterialPageRoute(
+          builder: (_) => NativePlayerPage(
+            url: url,
+            title: widget.title,
+            cover: widget.cover,
+            episodes: widget.episodes,
+            season: season,
+            episode: episode,
+            resolveUrl: widget.resolveUrl,
+            sourceNames: widget.sourceNames,
+            sourceId: widget.sourceId,
+            videoId: widget.videoId,
+          ),
+        ));
+      } else {
+        setState(() {
+          _curSeason = season;
+          _curEpisode = episode;
+        });
+        await _launchExternal(url);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('切换失败：$e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _openInBrowser() => _launchExternal(widget.url);
+
+  Future<void> _launchExternal(String url) async {
+    try {
+      final uri = Uri.parse(url);
+      if (!await canLaunchUrl(uri)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('无法打开系统浏览器')),
+          );
+        }
+        return;
+      }
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('打开浏览器失败：$e')),
+        );
+      }
+    }
   }
 
   /// 全屏：WebView 铺满屏幕 + 原生风格控制浮层（返回/静音/超分/切集/退出）。
@@ -505,25 +819,29 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     if (Responsive.isTablet(context)) {
       return Container(
         color: Colors.black,
-        child: Row(children: [
-          Expanded(
-            child: Center(
-              child: AspectRatio(
-                aspectRatio: 16 / 9,
-                child: _webView(),
+        // SafeArea：横屏挖孔屏/刘海下 WebView 与面板不顶进系统区域（与 native_player 对齐）。
+        child: SafeArea(
+          bottom: false,
+          child: Row(children: [
+            Expanded(
+              child: Center(
+                child: AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: _webView(),
+                ),
               ),
             ),
-          ),
-          Container(
-            width: 336,
-            decoration: const BoxDecoration(
-              border: Border(
-                left: BorderSide(color: Colors.white12, width: 0.8),
+            Container(
+              width: _panelWidth,
+              decoration: const BoxDecoration(
+                border: Border(
+                  left: BorderSide(color: Colors.white12, width: 0.8),
+                ),
               ),
+              child: _belowPanel(),
             ),
-            child: _belowPanel(),
-          ),
-        ]),
+          ]),
+        ),
       );
     }
     return Column(children: [
@@ -533,8 +851,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   }
 
   Widget _webView() {
+    final d = _desktop;
     return Stack(children: [
-      WebViewWidget(controller: _controller),
+      d != null ? d.buildView() : WebViewWidget(controller: _controller),
       if (_webError != null)
         // 主框架加载失败：错误态 + 重试（替代黑屏/白屏）
         Container(
@@ -560,7 +879,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                   icon: const Icon(Icons.refresh, size: 16),
                   label: const Text('重试'),
                   style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF3A6EA5),
+                    backgroundColor: Theme.of(context).colorScheme.primary,
                     foregroundColor: Colors.white,
                   ),
                 ),
@@ -608,7 +927,12 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     });
     _hookVideoSource();
     _injectApiInterceptor();
-    _controller.reload();
+    final d = _desktop;
+    if (d != null) {
+      d.reload();
+    } else {
+      _controller.reload();
+    }
   }
 
   /// 统一全屏入口：无论用户点击页面内任何位置进入全屏，
@@ -1236,7 +1560,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   }
 
   void _applySpeed() {
-    _controller.runJavaScript('''
+    _runJs('''
       (function(){
         var v = document.querySelector('video');
         if(v) v.playbackRate = $_speed;
@@ -1583,6 +1907,220 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final d = widget.detail;
+    if (Responsive.isTablet(context)) {
+      return _buildTablet(theme, d);
+    }
+    return _buildPhone(theme, d);
+  }
+
+  Widget _buildTablet(ThemeData theme, VideoDetail d) {
+    final topPad = MediaQuery.of(context).padding.top;
+    final pad = Responsive.pagePadding(context);
+    
+    // 桌面端使用更大的左侧面板
+    final leftPanelWidth = Responsive.isLarge(context)
+        ? kPanelWidth + 80
+        : _leftPanelWidth;
+    
+    return Scaffold(
+      body: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── 左侧：封面 + 信息（固定宽度） ──────────────────
+          Container(
+            width: leftPanelWidth,
+            padding: EdgeInsets.fromLTRB(pad, topPad + 10, 8, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const _BackButton(),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: Container(
+                      width: double.infinity,
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      child: (d.cover == null || d.cover!.isEmpty)
+                          ? _coverFallback(theme)
+                          : Image.network(d.cover!,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) =>
+                                  _coverFallback(theme)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(d.video.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: theme.colorScheme.onSurface)),
+                const SizedBox(height: 6),
+                Text(
+                  [
+                    if (d.area != null) d.area!,
+                    if (d.lang != null) d.lang!,
+                    if (d.year != null) d.year!,
+                    if (d.type != null) d.type!,
+                    if (d.video.score != null &&
+                        d.video.score!.isNotEmpty &&
+                        d.video.score != '0')
+                      '评分 ${d.video.score}',
+                    if (d.video.remarks != null &&
+                        d.video.remarks!.isNotEmpty)
+                      d.video.remarks!,
+                    if (d.episodes.isNotEmpty) '共 ${d.episodes.length} 集',
+                  ].where((s) => s.isNotEmpty).join(' · '),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.65),
+                  ),
+                ),
+                if (d.tags.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final t in d.tags)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: theme.colorScheme.primary.withValues(alpha: 0.25),
+                              width: 0.6,
+                            ),
+                          ),
+                          child: Text(t,
+                              style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w500,
+                                  color: theme.colorScheme.primary)),
+                        ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: d.episodes.isEmpty
+                      ? null
+                      : () {
+                          final t = _playTarget();
+                          _play(t.$1, t.$2, t.$3);
+                        },
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: Text(_playLabel()),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(46),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // ── 右侧：剧集列表（可滚动） ─────────────────────
+          Expanded(
+            child: _episodePanel(theme, d),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static const double _leftPanelWidth = kPanelWidth;
+
+  Widget _episodePanel(ThemeData theme, VideoDetail d) {
+    return CustomScrollView(slivers: [
+      if (d.description != null && d.description!.isNotEmpty)
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+            child: GestureDetector(
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest
+                      .withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      d.description!,
+                      maxLines: _expanded ? null : 4,
+                      overflow: _expanded ? null : TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.6,
+                        color: theme.colorScheme.onSurface
+                            .withValues(alpha: 0.85),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Text(
+                          _expanded ? '收起' : '展开',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.colorScheme.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+          child: SectionHeader(
+            icon: Icons.playlist_play_rounded,
+            title: '全集',
+            count: d.episodes.length,
+            trailing: _videoRecords.isNotEmpty
+                ? GestureDetector(
+                    onTap: () {
+                      final r = _videoRecords.first;
+                      final flat = d.episodes;
+                      final hi = flat.indexWhere(
+                          (e) => e.season == r.season && e.episode == r.episode);
+                      if (hi >= 0) _play(r.season, r.episode, hi);
+                    },
+                    child: Row(children: [
+                      Icon(Icons.history_rounded,
+                          size: 15, color: theme.colorScheme.primary),
+                      const SizedBox(width: 4),
+                      Text('上次：第${_videoRecords.first.episode}集',
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: theme.colorScheme.primary,
+                              fontWeight: FontWeight.w600)),
+                    ]),
+                  )
+                : null,
+          ),
+        ),
+      ),
+      ..._buildEpisodeSlivers(theme, d),
+    ]);
+  }
+
+  Widget _buildPhone(ThemeData theme, VideoDetail d) {
     return Scaffold(
       body: CustomScrollView(slivers: [
         SliverAppBar(
@@ -1809,61 +2347,32 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
-            child: Row(children: [
-              Container(
-                width: 3,
-                height: 14,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primary,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text('全集',
-                  style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                      color: theme.colorScheme.onSurface)),
-              const SizedBox(width: 8),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color:
-                      theme.colorScheme.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  '${d.episodes.length}集',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-              ),
-              const Spacer(),
-              if (_videoRecords.isNotEmpty)
-                GestureDetector(
-                  onTap: () {
-                    final r = _videoRecords.first;
-                    final flat = d.episodes;
-                    final hi = flat.indexWhere(
-                        (e) => e.season == r.season && e.episode == r.episode);
-                    if (hi >= 0) _play(r.season, r.episode, hi);
-                  },
-                  child: Row(children: [
-                    Icon(Icons.history_rounded,
-                        size: 15, color: theme.colorScheme.primary),
-                    const SizedBox(width: 4),
-                    Text('上次：第${_videoRecords.first.episode}集',
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: theme.colorScheme.primary,
-                            fontWeight: FontWeight.w600)),
-                  ]),
-                ),
-            ]),
+            child: SectionHeader(
+              icon: Icons.playlist_play_rounded,
+              title: '全集',
+              count: d.episodes.length,
+              trailing: _videoRecords.isNotEmpty
+                  ? GestureDetector(
+                      onTap: () {
+                        final r = _videoRecords.first;
+                        final flat = d.episodes;
+                        final hi = flat.indexWhere(
+                            (e) => e.season == r.season && e.episode == r.episode);
+                        if (hi >= 0) _play(r.season, r.episode, hi);
+                      },
+                      child: Row(children: [
+                        Icon(Icons.history_rounded,
+                            size: 15, color: theme.colorScheme.primary),
+                        const SizedBox(width: 4),
+                        Text('上次：第${_videoRecords.first.episode}集',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: theme.colorScheme.primary,
+                                fontWeight: FontWeight.w600)),
+                      ]),
+                    )
+                  : null,
+            ),
           ),
         ),
         ..._buildEpisodeSlivers(theme, d),
@@ -2108,6 +2617,27 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
             color: disabled
                 ? theme.colorScheme.onSurface.withValues(alpha: 0.25)
                 : theme.colorScheme.onSurface),
+      ),
+    );
+  }
+}
+
+/// 平板分栏左上角返回按钮。
+class _BackButton extends StatelessWidget {
+  const _BackButton();
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => Navigator.maybePop(context),
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.35),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(Icons.arrow_back_rounded,
+            color: Colors.white, size: 20),
       ),
     );
   }

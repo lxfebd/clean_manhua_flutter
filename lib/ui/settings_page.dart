@@ -11,6 +11,7 @@ import '../net/novel_shelf_store.dart';
 import '../net/update_checker.dart';
 import '../theme.dart';
 import '../utils/danmaku.dart';
+import 'responsive.dart';
 import 'source_manage_page.dart';
 import 'widgets/update_download_dialog.dart';
 import 'widgets/motion.dart';
@@ -66,15 +67,52 @@ class _SettingsPageState extends State<SettingsPage> {
       backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
         bottom: false,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 14, 18, 110),
-          children: [
+        // 设置页限宽居中（M3 LS-U2）：本页是独立路由，桌面大屏不拉满全宽。
+        child: SizedBox.expand(
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 840),
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(
+                    Responsive.pagePadding(context), 14,
+                    Responsive.pagePadding(context), (Responsive.isTablet(context) ? 24 : 110)),
+                children: [
+            // 桌面端（Windows）没有系统返回手势/物理返回键，必须提供
+            // 显式返回按钮；移动端依赖系统返回，保持原样不加。
+            if (DesktopUi.isDesktopPlatform)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  children: [
+                    Tooltip(
+                      message: '返回',
+                      child: IconButton(
+                        onPressed: () => Navigator.maybePop(context),
+                        icon: const Icon(Icons.arrow_back_rounded, size: 20),
+                        color: theme.colorScheme.onSurface
+                            .withValues(alpha: 0.75),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '返回',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: theme.colorScheme.onSurface
+                            .withValues(alpha: 0.55),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             FadeSlideIn(
               duration: const Duration(milliseconds: 380),
               child: Text(
                   '设置',
                   style: TextStyle(
-                    fontSize: 21,
+                    fontSize: DesktopUi.isDesktopPlatform ? 26 : 21,
                     fontWeight: FontWeight.w700,
                     color: theme.colorScheme.onSurface,
                   ),
@@ -437,6 +475,9 @@ class _SettingsPageState extends State<SettingsPage> {
           ],
         ),
       ),
+      ),
+      ),
+      ),
     );
   }
 
@@ -445,9 +486,10 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _showGestureSettings() async {
     final cfg = await LocalStore.gestureConfig();
     if (!mounted) return;
-    showModalBottomSheet<void>(
+    showResponsiveBottomSheet<void>(
       context: context,
-      backgroundColor: const Color(0xFF0F1013),
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       barrierColor: Colors.black.withValues(alpha: 0.3),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -638,7 +680,7 @@ class _ThemeSelector extends StatelessWidget {
   final ValueChanged<int> onChanged;
   const _ThemeSelector({required this.current, required this.onChanged});
 
-  static const _names = ['墨蓝', '东京夜', '翡翠绿', '暖橙', '薰衣草'];
+  static const _names = ['墨(默认)', '墨蓝', '翡翠', '靛蓝', '薰衣草'];
 
   @override
   Widget build(BuildContext context) {
@@ -722,13 +764,14 @@ class _SectionLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return Row(
       children: [
         Container(
-          width: 3,
-          height: 12,
+          width: 4,
+          height: 16,
           decoration: BoxDecoration(
-            color: theme.colorScheme.primary,
+            color: scheme.primary,
             borderRadius: BorderRadius.circular(2),
           ),
         ),
@@ -947,58 +990,76 @@ class _GestureSettingsSheetState extends State<_GestureSettingsSheet> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final maxH = MediaQuery.sizeOf(context).height * 0.85;
     return SafeArea(
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(22, 16, 22, 28),
-        decoration: const BoxDecoration(
-          color: Color(0xFF0F1013),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border(top: BorderSide(color: Color(0x1FFFFFFF))),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(2),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxH),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(22, 16, 22, 20),
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            borderRadius:
+                const BorderRadius.vertical(top: Radius.circular(24)),
+            border: Border(
+                top:
+                    BorderSide(color: scheme.onSurface.withValues(alpha: 0.1))),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: scheme.onSurface.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            const Text('手势配置',
-                style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white)),
-            const SizedBox(height: 4),
-            const Text('点击阅读器三等分区域触发的操作',
-                style: TextStyle(
-                    fontSize: 12, color: Colors.white54)),
-            const SizedBox(height: 18),
-            for (final r in _regions) ...[
-              _regionRow(r, scheme),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
+              Text('手势配置',
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: scheme.onSurface)),
+              const SizedBox(height: 4),
+              Text('点击阅读器三等分区域触发的操作',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: scheme.onSurface.withValues(alpha: 0.5))),
+              const SizedBox(height: 18),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final r in _regions) ...[
+                        _regionRow(r, scheme),
+                        const SizedBox(height: 12),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: scheme.primary,
+                  ),
+                  onPressed: () async {
+                    await LocalStore.setGestureConfig(_cfg);
+                    if (context.mounted) Navigator.pop(context);
+                  },
+                  child: const Text('保存'),
+                ),
+              ),
             ],
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF3A6EA5),
-                ),
-                onPressed: () async {
-                  await LocalStore.setGestureConfig(_cfg);
-                  if (context.mounted) Navigator.pop(context);
-                },
-                child: const Text('保存'),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -1010,10 +1071,10 @@ class _GestureSettingsSheetState extends State<_GestureSettingsSheet> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(_regionLabels[region] ?? region,
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
-                color: Colors.white)),
+                color: scheme.onSurface.withValues(alpha: 0.85))),
         const SizedBox(height: 6),
         Wrap(
           spacing: 6,
@@ -1030,6 +1091,7 @@ class _GestureSettingsSheetState extends State<_GestureSettingsSheet> {
   }
 
   Widget _optBtn(String action, bool active, VoidCallback onTap) {
+    final scheme = Theme.of(context).colorScheme;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
@@ -1037,13 +1099,13 @@ class _GestureSettingsSheetState extends State<_GestureSettingsSheet> {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(
           color: active
-              ? const Color(0xFF3A6EA5)
-              : Colors.white.withValues(alpha: 0.06),
+              ? scheme.primary
+              : scheme.onSurface.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: active
-                ? const Color(0xFF3A6EA5)
-                : Colors.white.withValues(alpha: 0.1),
+                ? scheme.primary
+                : scheme.onSurface.withValues(alpha: 0.14),
           ),
         ),
         child: Text(
@@ -1051,7 +1113,7 @@ class _GestureSettingsSheetState extends State<_GestureSettingsSheet> {
           style: TextStyle(
             fontSize: 12,
             fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-            color: active ? Colors.white : Colors.white70,
+            color: active ? scheme.onPrimary : scheme.onSurfaceVariant,
           ),
         ),
       ),

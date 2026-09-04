@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -145,7 +146,10 @@ class _CachedImageState extends State<CachedImage> {
         ),
       );
     } else if (_bytes != null) {
-      final dpr = MediaQuery.of(context).devicePixelRatio;
+      // dpr 钳到 2.0：小米 2K/4K 屏 dpr 可达 3+，
+      // width*dpr 会请求 3 倍宽的缓存图，内存压力陡增且封面图本身无 2K 细节。
+      // 2x 是 UI 设计稿标准，足以覆盖绝大多数设备的清晰度需求。
+      final dpr = math.min(MediaQuery.of(context).devicePixelRatio, 2.0);
       final cw = widget.width != null
           ? (widget.width! * dpr).toInt()
           : (MediaQuery.sizeOf(context).width * dpr).toInt();

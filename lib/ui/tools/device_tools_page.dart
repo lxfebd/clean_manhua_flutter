@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 
+import '../responsive.dart';
+
 /// 设备系统类工具：设备信息、屏幕测试、秒表、指南针。
 class DeviceToolsPage extends StatefulWidget {
   const DeviceToolsPage({super.key});
@@ -162,7 +164,9 @@ class _DeviceToolsPageState extends State<DeviceToolsPage>
       );
     }
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 110),
+      padding: EdgeInsets.fromLTRB(
+          Responsive.pagePadding(context), 16,
+          Responsive.pagePadding(context), (Responsive.isTablet(context) ? 24 : 110)),
       children: _info.entries
           .map((e) => Container(
                 margin: const EdgeInsets.only(bottom: 8),

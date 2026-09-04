@@ -5,6 +5,9 @@ import 'package:xingmanxia/sources/xbiquge_novel_source.dart';
 ///
 /// 注意：xbiquge.bz 是中文小说站，GitHub Actions（美国机房）可能无法访问。
 /// 网络不可达时自动跳过，不阻断 CI。
+/// 默认跳过：真实网络源验证，源站波动时拖垮本地回归。
+/// 需要验源时临时把 _skipLive 改成 false。
+const bool _skipLive = true;
 void main() {
   test('xbiquge novel source live verification', () async {
     final src = XbiqugeNovelSource();
@@ -63,5 +66,5 @@ void main() {
     }
     expect(content.paragraphs, isNotEmpty);
     expect(content.title, isNotEmpty);
-  }, timeout: const Timeout(Duration(minutes: 2)));
+  }, timeout: const Timeout(Duration(minutes: 2)), skip: _skipLive ? '真实网络验证，默认跳过' : false);
 }

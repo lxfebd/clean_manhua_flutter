@@ -6,9 +6,14 @@ import '../main.dart';
 import '../net/bookshelf_store.dart';
 import '../net/local_store.dart';
 import '../net/update_checker.dart';
+import 'responsive.dart';
 import 'settings_page.dart';
+import 'tokens.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
+import 'widgets/settings_row.dart';
+import 'widgets/state_view.dart';
+import 'widgets/tap_target.dart';
 
 /// 我的页面（对齐 UI_v2 S8）：设置入口 + 用户卡 + 三格统计 + 功能列表。
 class ProfilePage extends StatefulWidget {
@@ -73,23 +78,155 @@ class ProfilePageState extends State<ProfilePage> {
       backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
         bottom: false,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 110),
+        child: Responsive.isExpanded(context)
+            ? _buildTablet(theme, scheme)
+            : RefreshIndicator(
+                onRefresh: _load,
+                color: scheme.primary,
+                child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: EdgeInsets.fromLTRB(
+                    Responsive.pagePadding(context), 10,
+                    Responsive.pagePadding(context), 110),
+                children: _buildContent(theme, scheme),
+              ),
+              ),
+      ),
+    );
+  }
+
+  Widget _buildTablet(ThemeData theme, ColorScheme scheme) {
+    final isDesktop = DesktopUi.isDesktopPlatform;
+    final bottomPad = isDesktop ? 24.0 : (Responsive.isTablet(context) ? 24.0 : 110.0);
+
+    // 左右两栏作为一个整体居中（避免各自散落、中间留白过大）。
+    // 二级限宽已移除：主框架 main_shell 已用 MaxWidthContainer 统一收口
+    // （1200/1400），本页不再叠加 maxWidth 800，避免大屏内容被压窄。
+    // 桌面信息密度更高，左右栏各加宽一档。
+    final leftPanelWidth = isDesktop ? 384.0 : 360.0;
+    final rightPanelWidth = isDesktop ? 420.0 : 380.0;
+
+    final settingsButton = PressableScale(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const SettingsPage()),
+        );
+      },
+      scale: 0.92,
+      child: const _SettingsButton(),
+    );
+    final leftList = ListView(
+      physics: isDesktop
+          ? const ClampingScrollPhysics()
+          : const AlwaysScrollableScrollPhysics(),
+      padding: EdgeInsets.fromLTRB(16, isDesktop ? 4 : 10, 8, bottomPad),
+      children: [
+        // 桌面页头不在此列（改为整页顶部），仅平板保留内联标题行。
+        if (!isDesktop)
+          FadeSlideIn(
+            duration: const Duration(milliseconds: 380),
+            child: Row(
+              children: [
+                Text('我的', style: theme.textTheme.displaySmall),
+                const Spacer(),
+                settingsButton,
+              ],
+            ),
+          ),
+        if (!isDesktop) const SizedBox(height: 18),
+        const FadeSlideIn(
+            delay: Duration(milliseconds: 80), child: _UserCard()),
+        const SizedBox(height: 14),
+        FadeSlideIn(
+            delay: const Duration(milliseconds: 120),
+            child: _ReadingStatsCard(
+                today: _todaySec,
+                week: _weekSec,
+                total: _totalSec,
+                onTap: _showReadingReport)),
+        const SizedBox(height: 14),
+        FadeSlideIn(
+            delay: const Duration(milliseconds: 160),
+            child: _StatsCard(
+                favorites: _favorites,
+                history: _history.length,
+                downloads: _downloads.length,
+                onFavorites: () => widget.onSwitchTab?.call(4),
+                onHistory: _showHistory,
+                onDownloads: () => widget.onSwitchTab?.call(4))),
+      ],
+    );
+
+    final twoColumns = Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // ── 左侧：用户卡 + 统计 ──────────────────────
+            SizedBox(
+              width: leftPanelWidth,
+              // 桌面去掉下拉刷新（右上角已有刷新入口）。
+              child: isDesktop
+                  ? leftList
+                  : RefreshIndicator(
+                      onRefresh: _load,
+                      color: scheme.primary,
+                      child: leftList,
+                    ),
+            ),
+            const SizedBox(width: 24),
+            // ── 右侧：功能列表 ─────────────────────────
+            SizedBox(
+              width: rightPanelWidth,
+              child: ListView(
+                physics: isDesktop
+                    ? const ClampingScrollPhysics()
+                    : const AlwaysScrollableScrollPhysics(),
+                padding: EdgeInsets.fromLTRB(8, isDesktop ? 4 : 10, 16, bottomPad),
+                children: [
+                  FadeSlideIn(
+                      delay: const Duration(milliseconds: 240),
+                      child: _MenuCard(
+                          dark: _dark,
+                          onDarkChanged: (v) async {
+                            YingManHeApp.of(context)?.setDark(v);
+                            await LocalStore.setDarkMode(v);
+                            if (mounted) setState(() => _dark = v);
+                          },
+                          onFavorites: () => widget.onSwitchTab?.call(4),
+                          onHistory: _showHistory,
+                          onDownloads: () => widget.onSwitchTab?.call(4),
+                          onHelp: _showHelp)),
+                ],
+              ),
+            ),
+          ],
+    );
+
+    if (!isDesktop) return twoColumns;
+    // 桌面：Fluent 页头（大标题 + 设置命令按钮）置于两栏之上。
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        DesktopPageHeader(
+          title: '我的',
+          subtitle: '账户 · 阅读统计 · 设置',
+          actions: [settingsButton],
+        ),
+        Expanded(child: twoColumns),
+      ],
+    );
+  }
+
+  List<Widget> _buildContent(ThemeData theme, ColorScheme scheme) {
+    return [
             // ── 顶栏：我的 + 设置 ─────────────────────────────
             FadeSlideIn(
               duration: const Duration(milliseconds: 380),
               child: Row(
                 children: [
-                  Text(
-                    '我的',
-                    style: TextStyle(
-                      fontSize: 21,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.5,
-                      color: scheme.onSurface,
-                    ),
-                  ),
+                  Text('我的', style: theme.textTheme.displaySmall),
                   const Spacer(),
                   PressableScale(
                     onTap: () {
@@ -101,19 +238,7 @@ class ProfilePageState extends State<ProfilePage> {
                       );
                     },
                     scale: 0.92,
-                    child: Container(
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(
-                        color: scheme.surface,
-                        borderRadius: BorderRadius.circular(11),
-                        border: Border.all(
-                          color: scheme.onSurface.withValues(alpha: 0.08),
-                        ),
-                      ),
-                      child: Icon(Icons.settings_outlined,
-                          size: 20, color: scheme.onSurface.withValues(alpha: 0.7)),
-                    ),
+                    child: const _SettingsButton(),
                   ),
                 ],
               ),
@@ -143,6 +268,9 @@ class ProfilePageState extends State<ProfilePage> {
                 favorites: _favorites,
                 history: _history.length,
                 downloads: _downloads.length,
+                onFavorites: () => widget.onSwitchTab?.call(1),
+                onHistory: _showHistory,
+                onDownloads: () => widget.onSwitchTab?.call(2),
               ),
             ),
             const SizedBox(height: 14),
@@ -162,10 +290,7 @@ class ProfilePageState extends State<ProfilePage> {
                 onHelp: _showHelp,
               ),
             ),
-          ],
-        ),
-      ),
-    );
+        ];
   }
 
   /// 下拉刷新统计（切 Tab 回来时由外部调用）。
@@ -173,7 +298,7 @@ class ProfilePageState extends State<ProfilePage> {
 
   void _showHistory() {
     final entries = _history.take(30).toList();
-    showModalBottomSheet<void>(
+    showResponsiveBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
@@ -184,7 +309,7 @@ class ProfilePageState extends State<ProfilePage> {
   }
 
   void _showHelp() {
-    showModalBottomSheet<void>(
+    showResponsiveBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => _HelpSheet(),
@@ -195,7 +320,7 @@ class ProfilePageState extends State<ProfilePage> {
   Future<void> _showReadingReport() async {
     final days = await LocalStore.recentReadingDays(7);
     if (!mounted) return;
-    showModalBottomSheet<void>(
+    showResponsiveBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
@@ -206,6 +331,34 @@ class ProfilePageState extends State<ProfilePage> {
   }
 }
 
+/// 统一设置入口按钮：浅底 + 圆角。
+class _SettingsButton extends StatelessWidget {
+  const _SettingsButton();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    // 视觉保持 36×36，命中区由 TapTargetMin 补到 44×44。
+    return TapTargetMin(
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color:
+              T.color(scheme.onSurface, TextTier.fill, brightness: scheme.brightness),
+          borderRadius: BorderRadius.circular(R.control),
+        ),
+        child: Icon(
+          Icons.settings_rounded,
+          size: 19,
+          color: T.color(scheme.onSurface, TextTier.low,
+              brightness: scheme.brightness),
+        ),
+      ),
+    );
+  }
+}
+
 /// 用户卡：本地使用提示（无账号体系）。
 class _UserCard extends StatelessWidget {
   const _UserCard();
@@ -213,26 +366,29 @@ class _UserCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(S.x16),
       decoration: BoxDecoration(
         color: scheme.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: scheme.onSurface.withValues(alpha: 0.06)),
+        borderRadius: BorderRadius.circular(R.hero),
+        border: Border.all(
+            color: T.color(scheme.onSurface, TextTier.hairline,
+                brightness: scheme.brightness)),
       ),
       child: Row(
         children: [
           Container(
-            width: 60,
-            height: 60,
+            width: 56,
+            height: 56,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: scheme.onSurface.withValues(alpha: 0.06),
+              color: scheme.primary.withValues(alpha: 0.1),
             ),
             child: Icon(
-              Icons.person_outline_rounded,
-              size: 30,
-              color: scheme.onSurface.withValues(alpha: 0.45),
+              Icons.person_rounded,
+              size: 28,
+              color: scheme.primary,
             ),
           ),
           const SizedBox(width: 14),
@@ -240,23 +396,32 @@ class _UserCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  '本地使用',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: scheme.onSurface,
-                  ),
-                ),
+                Text('本地使用', style: text.titleLarge),
                 const SizedBox(height: 3),
                 Text(
                   '收藏与阅读记录保存在本机',
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    color: scheme.onSurface.withValues(alpha: 0.5),
+                  style: text.bodySmall?.copyWith(
+                    color: T.color(scheme.onSurface, TextTier.low,
+                        brightness: scheme.brightness),
                   ),
                 ),
               ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: T.color(scheme.onSurface, TextTier.fill,
+                  brightness: scheme.brightness),
+              borderRadius: BorderRadius.circular(R.pill),
+            ),
+            child: Text(
+              '本地模式',
+              style: text.labelSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: T.color(scheme.onSurface, TextTier.low,
+                    brightness: scheme.brightness),
+              ),
             ),
           ),
         ],
@@ -289,58 +454,80 @@ class _ReadingStatsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
     return PressableScale(
       onTap: onTap,
       scale: 0.98,
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(S.x16),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: scheme.onSurface.withValues(alpha: 0.06)),
+          borderRadius: BorderRadius.circular(R.hero),
+          border: Border.all(
+              color: T.color(scheme.onSurface, TextTier.hairline,
+                  brightness: scheme.brightness)),
         ),
         child: Column(
           children: [
             Row(
               children: [
                 Container(
-                  width: 34,
-                  height: 34,
+                  width: 32,
+                  height: 32,
                   decoration: BoxDecoration(
                     color: scheme.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(R.control),
                   ),
                   child: Icon(Icons.bar_chart_rounded,
-                      size: 18, color: scheme.primary),
+                      size: 17, color: scheme.primary),
                 ),
                 const SizedBox(width: 10),
-                Text('阅读统计',
-                    style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: scheme.onSurface)),
+                Text('阅读统计', style: text.titleMedium),
                 const Spacer(),
-                Icon(Icons.chevron_right_rounded,
-                    size: 18, color: scheme.onSurface.withValues(alpha: 0.3)),
+                Text(
+                  '查看周报',
+                  style: text.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w500,
+                    color: T.color(scheme.onSurface, TextTier.low,
+                        brightness: scheme.brightness),
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 17,
+                  color: T.color(scheme.onSurface, TextTier.disabled,
+                      brightness: scheme.brightness),
+                ),
               ],
             ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                _stat(scheme, _fmt(today), '今日'),
-                Container(
-                  width: 0.5,
-                  height: 30,
-                  color: scheme.onSurface.withValues(alpha: 0.08),
-                ),
-                _stat(scheme, _fmt(week), '本周'),
-                Container(
-                  width: 0.5,
-                  height: 30,
-                  color: scheme.onSurface.withValues(alpha: 0.08),
-                ),
-                _stat(scheme, _fmt(total), '累计'),
-              ],
+            const SizedBox(height: S.x16),
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: S.x12),
+              decoration: BoxDecoration(
+                color: T.color(scheme.onSurface, TextTier.fill,
+                    brightness: scheme.brightness),
+                borderRadius: BorderRadius.circular(R.card),
+              ),
+              child: Row(
+                children: [
+                  _animStat(context, scheme, today, '今日'),
+                  Container(
+                    width: 0.5,
+                    height: 34,
+                    color: T.color(scheme.onSurface, TextTier.hairline,
+                        brightness: scheme.brightness),
+                  ),
+                  _animStat(context, scheme, week, '本周'),
+                  Container(
+                    width: 0.5,
+                    height: 34,
+                    color: T.color(scheme.onSurface, TextTier.hairline,
+                        brightness: scheme.brightness),
+                  ),
+                  _animStat(context, scheme, total, '累计'),
+                ],
+              ),
             ),
           ],
         ),
@@ -348,21 +535,53 @@ class _ReadingStatsCard extends StatelessWidget {
     );
   }
 
-  Widget _stat(ColorScheme scheme, String value, String label) {
+  Widget _animStat(
+      BuildContext context, ColorScheme scheme, int seconds, String label) {
     return Expanded(
       child: Column(
         children: [
-          Text(value,
-              style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: scheme.primary)),
-          const SizedBox(height: 2),
-          Text(label,
-              style: TextStyle(
-                  fontSize: 11,
-                  color: scheme.onSurface.withValues(alpha: 0.5))),
+          _AnimatedStat(
+            value: seconds,
+            formatter: _fmt,
+            color: scheme.onSurface,
+          ),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: T.color(scheme.onSurface, TextTier.low,
+                      brightness: scheme.brightness),
+                ),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+/// 带 count-up 动画的统计数值。
+class _AnimatedStat extends StatelessWidget {
+  final int value;
+  final String Function(int) formatter;
+  final Color color;
+  const _AnimatedStat({
+    required this.value,
+    required this.formatter,
+    required this.color,
+  });
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<int>(
+      tween: IntTween(begin: 0, end: value),
+      duration: const Duration(milliseconds: 800),
+      curve: Curves.easeOutCubic,
+      builder: (_, v, __) => FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(
+          formatter(v),
+          style: Theme.of(context).textTheme.titleLarge
+              ?.copyWith(fontWeight: FontWeight.w800, color: color),
+        ),
       ),
     );
   }
@@ -373,28 +592,40 @@ class _StatsCard extends StatelessWidget {
   final int favorites;
   final int history;
   final int downloads;
+  final VoidCallback? onFavorites;
+  final VoidCallback? onHistory;
+  final VoidCallback? onDownloads;
   const _StatsCard({
     required this.favorites,
     required this.history,
     required this.downloads,
+    this.onFavorites,
+    this.onHistory,
+    this.onDownloads,
   });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final isTablet = Responsive.isTablet(context);
+
     return Container(
       decoration: BoxDecoration(
         color: scheme.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: scheme.onSurface.withValues(alpha: 0.06)),
+        borderRadius: BorderRadius.circular(R.hero),
+        border: Border.all(
+            color: T.color(scheme.onSurface, TextTier.hairline,
+                brightness: scheme.brightness)),
       ),
+      clipBehavior: Clip.antiAlias,
       child: Row(
         children: [
-          _stat(scheme, favorites, '收藏'),
+          _stat(context, scheme, favorites, '收藏', isTablet, onFavorites),
           _divider(scheme),
-          _stat(scheme, history, '阅读记录'),
+          _stat(context, scheme, history, isTablet ? '记录' : '阅读记录', isTablet,
+              onHistory),
           _divider(scheme),
-          _stat(scheme, downloads, '已下载'),
+          _stat(context, scheme, downloads, '已下载', isTablet, onDownloads),
         ],
       ),
     );
@@ -402,33 +633,39 @@ class _StatsCard extends StatelessWidget {
 
   Widget _divider(ColorScheme scheme) => Container(
         width: 0.5,
-        height: 32,
-        color: scheme.onSurface.withValues(alpha: 0.08),
+        height: 30,
+        color: T.color(scheme.onSurface, TextTier.hairline,
+            brightness: scheme.brightness),
       );
 
-  Widget _stat(ColorScheme scheme, int value, String label) {
+  Widget _stat(
+      BuildContext context, ColorScheme scheme, int value, String label, bool isTablet,
+      VoidCallback? onTap) {
+    final text = Theme.of(context).textTheme;
     return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        child: Column(
-          children: [
-            Text(
-              '$value',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: scheme.onSurface,
+      child: InkWell(
+        onTap: onTap,
+        // 点击目标 ≥44dp，避免触控过小
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 15),
+          child: Column(
+            children: [
+              Text(
+                '$value',
+                style: (isTablet ? text.displaySmall : text.titleLarge)
+                    ?.copyWith(
+                        fontWeight: FontWeight.w800, color: scheme.onSurface),
               ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                color: scheme.onSurface.withValues(alpha: 0.45),
+              const SizedBox(height: 3),
+              Text(
+                label,
+                style: (isTablet ? text.bodySmall : text.labelSmall)
+                    ?.copyWith(
+                        color: T.color(scheme.onSurface, TextTier.low,
+                            brightness: scheme.brightness)),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -458,160 +695,123 @@ class _MenuCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: scheme.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: scheme.onSurface.withValues(alpha: 0.06)),
+        borderRadius: BorderRadius.circular(R.hero),
+        border: Border.all(
+            color: T.color(scheme.onSurface, TextTier.hairline,
+                brightness: scheme.brightness)),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
-          _Row(
-            icon: Icons.bookmark_outline_rounded,
-            label: '我的收藏',
+          SettingsRow(
+            icon: Icons.bookmark_rounded,
+            title: '我的收藏',
             onTap: onFavorites,
           ),
-          _sep(scheme),
-          _Row(
+          SettingsRow(
             icon: Icons.history_rounded,
-            label: '阅读历史',
+            title: '阅读历史',
             onTap: onHistory,
+            showDivider: true,
           ),
-          _sep(scheme),
-          _Row(
-            icon: Icons.download_outlined,
-            label: '我的下载',
+          SettingsRow(
+            icon: Icons.download_rounded,
+            title: '我的下载',
             onTap: onDownloads,
+            showDivider: true,
           ),
-          _sep(scheme),
-          _Row(
-            icon: Icons.dark_mode_outlined,
-            label: '夜间模式',
-            trailing: Switch(
-              value: dark,
-              onChanged: onDarkChanged,
-            ),
+          SettingsRow(
+            icon: Icons.dark_mode_rounded,
+            title: '夜间模式',
+            trailing: _ModernSwitch(value: dark, onChanged: onDarkChanged),
+            showDivider: true,
           ),
-          _sep(scheme),
-          _Row(
-            icon: Icons.help_outline_rounded,
-            label: '帮助与反馈',
+          SettingsRow(
+            icon: Icons.help_rounded,
+            title: '帮助与反馈',
             onTap: onHelp,
+            showDivider: true,
           ),
         ],
       ),
     );
   }
-
-  Widget _sep(ColorScheme scheme) => Container(
-        height: 0.5,
-        margin: const EdgeInsets.only(left: 56),
-        color: scheme.onSurface.withValues(alpha: 0.06),
-      );
 }
 
-class _Row extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback? onTap;
-  final Widget? trailing;
-  const _Row({
-    required this.icon,
-    required this.label,
-    this.onTap,
-    this.trailing,
-  });
+/// 现代感开关：主色选中轨道、无边框、略小尺寸。
+class _ModernSwitch extends StatelessWidget {
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  const _ModernSwitch({required this.value, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-        child: Row(
-          children: [
-            Icon(icon, size: 20, color: scheme.onSurface.withValues(alpha: 0.75)),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: scheme.onSurface,
-                ),
-              ),
-            ),
-            if (trailing != null)
-              trailing!
-            else
-              Icon(Icons.keyboard_arrow_right_rounded,
-                  size: 20, color: scheme.onSurface.withValues(alpha: 0.3)),
-          ],
+    return Transform.scale(
+      scale: 0.88,
+      child: Switch(
+        value: value,
+        onChanged: onChanged,
+        trackColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
+              ? scheme.primary
+              : scheme.onSurface.withValues(alpha: 0.1),
         ),
+        thumbColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
+              ? scheme.onPrimary
+              : scheme.surface,
+        ),
+        trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+        thumbIcon: WidgetStateProperty.all(const Icon(Icons.circle, size: 14)),
       ),
     );
   }
 }
+
 
 /// 阅读历史底部弹窗（最近 30 条）。
 class _HistorySheet extends StatelessWidget {
   final List<HistoryEntry> entries;
   const _HistorySheet({required this.entries});
 
-  @override
+@override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
     return SafeArea(
       child: Container(
-        margin: const EdgeInsets.all(12),
+        margin: const EdgeInsets.all(S.x12),
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(R.sheet),
         ),
         child: entries.isEmpty
-            ? Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(height: 10),
-                  Icon(Icons.history_rounded,
-                      size: 40, color: scheme.onSurface.withValues(alpha: 0.2)),
-                  const SizedBox(height: 10),
-                  const Text('暂无阅读记录'),
-                  const SizedBox(height: 20),
-                ],
+            ? StateView(
+                kind: StateViewKind.empty,
+                message: '暂无阅读记录',
+                icon: Icons.history_rounded,
+                onRetry: () => Navigator.pop(context),
+                retryLabel: '关闭',
               )
             : Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Center(
-                    child: Container(
-                      width: 36,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: scheme.onSurface.withValues(alpha: 0.18),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
+                  const SheetHandle(),
                   const SizedBox(height: 12),
-                  Text(
-                    '阅读历史（最近 ${entries.length} 条）',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: scheme.onSurface,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
+                  Text('阅读历史（最近 ${entries.length} 条）',
+                      style: text.titleMedium),
+                  const SizedBox(height: S.x8),
                   Flexible(
                     child: ListView.separated(
                       shrinkWrap: true,
                       itemCount: entries.length,
                       separatorBuilder: (_, __) => Container(
                         height: 0.5,
-                        color: scheme.onSurface.withValues(alpha: 0.06),
+                        color: T.color(scheme.onSurface, TextTier.hairline,
+                            brightness: scheme.brightness),
                       ),
                       itemBuilder: (_, i) {
                         final e = entries[i];
@@ -622,7 +822,7 @@ class _HistorySheet extends StatelessWidget {
                             width: 42,
                             height: 56,
                             child: ClipRRect(
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: BorderRadius.circular(R.control),
                               child: (e.book.pic.isEmpty)
                                   ? Container(color: scheme.surfaceContainerHighest)
                                   : CachedImage(e.book.pic,
@@ -633,13 +833,16 @@ class _HistorySheet extends StatelessWidget {
                             e.book.name,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 13.5),
+                            style: text.bodyMedium,
                           ),
                           subtitle: Text(
                             '读到 ${e.chapterTitle.isEmpty ? '未知章节' : e.chapterTitle}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 11),
+                            style: text.labelSmall?.copyWith(
+                              color: T.color(scheme.onSurface, TextTier.low,
+                                  brightness: scheme.brightness),
+                            ),
                           ),
                         );
                       },
@@ -676,43 +879,28 @@ class _HelpSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
     return SafeArea(
       child: Container(
-        margin: const EdgeInsets.all(12),
+        margin: const EdgeInsets.all(S.x12),
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(R.sheet),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: scheme.onSurface.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
+            const SheetHandle(),
+            const SizedBox(height: 12),
+            Text('帮助与反馈', style: text.titleLarge),
             const SizedBox(height: 12),
             Text(
-              '帮助与反馈',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: scheme.onSurface,
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
               '• 阅读某个数据源失败时，可先到「工具 → 数据源管理」检查域名是否有效\n'
               '• 数据源加载失败可尝试「切换数据源」或稍后重试\n'
               '• 发现 Bug 或有建议，欢迎反馈',
-              style: TextStyle(fontSize: 13, height: 1.8),
+              style: text.bodyMedium?.copyWith(height: 1.8),
             ),
             const SizedBox(height: 16),
             SizedBox(
@@ -735,7 +923,7 @@ class _HelpSheet extends StatelessWidget {
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(44),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(R.card),
                   ),
                 ),
               ),
@@ -763,6 +951,7 @@ class _ReadingReportSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
     final maxSec = [
       ...days.map((d) => (d['seconds'] as int?) ?? 0),
       60
@@ -773,44 +962,32 @@ class _ReadingReportSheet extends StatelessWidget {
         days.where((d) => ((d['seconds'] as int?) ?? 0) > 0).length;
     return SafeArea(
       child: Container(
-        margin: const EdgeInsets.all(12),
+        margin: const EdgeInsets.all(S.x12),
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(R.sheet),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: scheme.onSurface.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
+            const SheetHandle(),
             const SizedBox(height: 12),
             Row(
               children: [
                 Icon(Icons.insights_rounded, size: 18, color: scheme.primary),
                 const SizedBox(width: 8),
-                Text('阅读周报',
-                    style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: scheme.onSurface)),
+                Text('阅读周报', style: text.titleLarge),
               ],
             ),
             const SizedBox(height: 4),
             Text('最近 7 天阅读时长统计',
-                style: TextStyle(
-                    fontSize: 11.5,
-                    color: scheme.onSurface.withValues(alpha: 0.5))),
-            const SizedBox(height: 18),
+                style: text.bodySmall?.copyWith(
+                  color: T.color(scheme.onSurface, TextTier.low,
+                      brightness: scheme.brightness),
+                )),
+            const SizedBox(height: S.x16),
             SizedBox(
               height: 130,
               child: Row(
@@ -830,23 +1007,24 @@ class _ReadingReportSheet extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: S.x16),
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: scheme.primary.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(R.card),
               ),
               child: Row(
                 children: [
                   Expanded(
-                    child: _sumCell('$activeDays天', '本周阅读'),
+                    child: _sumCell(context, scheme, '$activeDays天', '本周阅读'),
                   ),
                   Container(
                       width: 0.5,
                       height: 26,
-                      color: scheme.onSurface.withValues(alpha: 0.1)),
-                  Expanded(child: _sumCell(_fmt(total), '本周时长')),
+                      color: T.color(scheme.onSurface, TextTier.hairline,
+                          brightness: scheme.brightness)),
+                  Expanded(child: _sumCell(context, scheme, _fmt(total), '本周时长')),
                 ],
               ),
             ),
@@ -856,15 +1034,19 @@ class _ReadingReportSheet extends StatelessWidget {
     );
   }
 
-  Widget _sumCell(String value, String label) {
+  Widget _sumCell(BuildContext context, ColorScheme scheme, String value, String label) {
+    final text = Theme.of(context).textTheme;
     return Column(
       children: [
         Text(value,
-            style: const TextStyle(
-                fontSize: 16, fontWeight: FontWeight.w700)),
+            style: text.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700, color: scheme.onSurface)),
         const SizedBox(height: 2),
         Text(label,
-            style: TextStyle(fontSize: 11, color: Colors.black.withValues(alpha: 0.5))),
+            style: text.labelSmall?.copyWith(
+              color: T.color(scheme.onSurface, TextTier.low,
+                  brightness: scheme.brightness),
+            )),
       ],
     );
   }
@@ -891,13 +1073,15 @@ class _Bar extends StatelessWidget {
   Widget build(BuildContext context) {
     final ratio = maxSeconds <= 0 ? 0.0 : (seconds / maxSeconds).clamp(0.0, 1.0);
     final barH = (ratio * 90).clamp(2.0, 90.0);
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
     return Column(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
         Text(
           seconds > 0 ? _shortFmt(seconds) : '',
-          style: TextStyle(
-              fontSize: 9, fontWeight: FontWeight.w600, color: color),
+          style: text.labelSmall?.copyWith(
+              fontWeight: FontWeight.w600, color: color),
         ),
         const SizedBox(height: 4),
         Container(
@@ -905,13 +1089,15 @@ class _Bar extends StatelessWidget {
           height: barH,
           decoration: BoxDecoration(
             color: color.withValues(alpha: seconds > 0 ? 1.0 : 0.15),
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(R.control),
           ),
         ),
         const SizedBox(height: 6),
         Text(dayLabel,
-            style: TextStyle(
-                fontSize: 9.5, color: Colors.black.withValues(alpha: 0.45))),
+            style: text.labelSmall?.copyWith(
+              color: T.color(scheme.onSurface, TextTier.low,
+                  brightness: scheme.brightness),
+            )),
       ],
     );
   }

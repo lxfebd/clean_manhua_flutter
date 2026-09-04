@@ -98,10 +98,24 @@ plain.txt
 /e[0-9].json
 /release_body.json
 
-# ===== 交接记录（勿入库）=====
+# ===== 交接记录（勿入库，私人上下文）=====
 HANDOFF.md
 /交接*.md
+PROJECT_MEMORY.md
+/.trae/
+/trae-memory*.md
 
 # ===== 本地回归测试（仅本地验证用，勿入库）=====
 /test/regression_*_test.dart
+
+# ===== 布局/UI 调试产物（截图、diff、预览、备份，勿入库）=====
+.tmp/
+/test/failures/
+/test/preview/
+/tools/shots_*/
+/ui_backup_*/
+/verify_shots/
+/shot.ps1
+/test_out.txt
+*.bak_ndk
 

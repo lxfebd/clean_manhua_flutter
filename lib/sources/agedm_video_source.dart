@@ -82,8 +82,10 @@ class AgedMVideoSource implements VideoSource {
 
   @override
   Future<List<ComicItem>> search(String keyword, int page) async {
+    // 注意：AGE 搜索接口的参数名是 query（表单 name="query"），
+    // 用 keyword 会被服务器忽略并返回首页推荐，导致搜索形同虚设。
     final url =
-        '$_base/search?keyword=${Uri.encodeQueryComponent(keyword)}&page=$page';
+        '$_base/search?query=${Uri.encodeQueryComponent(keyword)}&page=$page';
     final html = await Net.get(url, headers: {'Cookie': 'adult=1'});
     return _parseCards(html);
   }
@@ -93,7 +95,14 @@ class AgedMVideoSource implements VideoSource {
     final html =
         await Net.get('$_base/detail/$videoId', headers: {'Cookie': 'adult=1'});
     final title = _unescape(_first(_titleRe, html).trim());
-    final cover = _first(_coverRe, html);
+    String cover = _first(_coverRe, html);
+    final gi = html.indexOf('property="og:image"');
+    if (gi >= 0) {
+      final cs = html.indexOf('content="', gi);
+      final ce = cs >= 0 ? html.indexOf('"', cs + 9) : -1;
+      if (ce > cs) cover = _unescape(html.substring(cs + 9, ce));
+    }
+    cover = _resolveCover(cover);
     final desc = _extractDescription(html);
     String? area, year, type;
     for (final m in _infoRe.allMatches(html)) {

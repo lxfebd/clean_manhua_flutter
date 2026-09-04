@@ -237,8 +237,10 @@ class XbiqugeNovelSource extends NovelSource {
 
   static String _decodeBase64Utf8(String b64) {
     try {
-      // 兼容 URL-safe base64
-      final s = b64.replaceAll('-', '+').replaceAll('_', '/');
+      // 兼容 URL-safe base64 与省略 padding 的情况
+      var s = b64.replaceAll('-', '+').replaceAll('_', '/');
+      final pad = (4 - s.length % 4) % 4;
+      if (pad > 0) s += '=' * pad;
       final bytes = base64.decode(s);
       return utf8.decode(bytes);
     } catch (_) {

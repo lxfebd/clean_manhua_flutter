@@ -196,9 +196,8 @@ class TvTfunVideoSource implements VideoSource {
 
   /// API 条目 -> ComicItem（带评分 / 更新提示 / 别名等元信息）
   ComicItem _toItem(Map<String, dynamic> v) {
-    final slug = (v['slug'] as String? ?? '').isNotEmpty
-        ? v['slug'] as String
-        : (v['id'] as String? ?? '');
+    final slugStr = v['slug']?.toString() ?? '';
+    final slug = slugStr.isNotEmpty ? slugStr : (v['id']?.toString() ?? '');
     var cover = (v['pic'] as String? ?? '');
     // 解码 Next.js 图片代理 URL
     if (cover.contains('/_next/image')) {

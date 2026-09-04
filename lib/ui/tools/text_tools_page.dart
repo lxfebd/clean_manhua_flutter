@@ -9,6 +9,8 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../responsive.dart';
+
 /// 文本加密类工具：加密(MD5/SHA/Base64)、摩斯密码、长度换算、二维码生成。
 class TextToolsPage extends StatefulWidget {
   const TextToolsPage({super.key});
@@ -200,7 +202,7 @@ class _TextToolsPageState extends State<TextToolsPage>
       margin: const EdgeInsets.only(top: 10),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.grey.withValues(alpha: 0.08),
+        color: scheme.onSurface.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
@@ -221,7 +223,9 @@ class _TextToolsPageState extends State<TextToolsPage>
 
   Widget _buildEncrypt(ColorScheme scheme) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 110),
+      padding: EdgeInsets.fromLTRB(
+          Responsive.pagePadding(context), 16,
+          Responsive.pagePadding(context), (Responsive.isTablet(context) ? 24 : 110)),
       children: [
         TextField(
           controller: _encInCtrl,
@@ -257,7 +261,9 @@ class _TextToolsPageState extends State<TextToolsPage>
 
   Widget _buildMorse(ColorScheme scheme) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 110),
+      padding: EdgeInsets.fromLTRB(
+          Responsive.pagePadding(context), 16,
+          Responsive.pagePadding(context), (Responsive.isTablet(context) ? 24 : 110)),
       children: [
         TextField(
           controller: _morseInCtrl,
@@ -291,7 +297,9 @@ class _TextToolsPageState extends State<TextToolsPage>
   Widget _buildLength(ColorScheme scheme) {
     const units = ['mm', 'cm', 'm', 'km', 'in', 'ft', 'yd', 'mile'];
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 110),
+      padding: EdgeInsets.fromLTRB(
+          Responsive.pagePadding(context), 16,
+          Responsive.pagePadding(context), (Responsive.isTablet(context) ? 24 : 110)),
       children: [
         TextField(
           controller: _lenNumCtrl,
@@ -304,7 +312,7 @@ class _TextToolsPageState extends State<TextToolsPage>
         ),
         const SizedBox(height: 12),
         DropdownButtonFormField<String>(
-          value: _lenFrom,
+          initialValue: _lenFrom,
           isDense: true,
           decoration: const InputDecoration(
             labelText: '从',
@@ -318,7 +326,7 @@ class _TextToolsPageState extends State<TextToolsPage>
         ),
         const SizedBox(height: 12),
         DropdownButtonFormField<String>(
-          value: _lenTo,
+          initialValue: _lenTo,
           isDense: true,
           decoration: const InputDecoration(
             labelText: '到',
@@ -339,7 +347,9 @@ class _TextToolsPageState extends State<TextToolsPage>
 
   Widget _buildQr(ColorScheme scheme) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 110),
+      padding: EdgeInsets.fromLTRB(
+          Responsive.pagePadding(context), 16,
+          Responsive.pagePadding(context), (Responsive.isTablet(context) ? 24 : 110)),
       children: [
         TextField(
           controller: _qrInCtrl,

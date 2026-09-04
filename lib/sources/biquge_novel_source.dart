@@ -1,4 +1,4 @@
-import '../models/comic_item.dart';
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                import '../models/comic_item.dart';
 import 'novel_source.dart';
 import 'source_config.dart';
 import 'source_http.dart';
@@ -45,7 +45,6 @@ class BiqugeNovelSource extends NovelSource {
   static final RegExp _htmlCommentRe = RegExp(r'<!--[\s\S]*?-->');
   static final RegExp _bookLinkRe =
       RegExp(r'<a\s+href="/bqg/(\d+)/"[^>]*>([^<]+)</a>');
-  static final RegExp _imgRe = RegExp(r'<img[^>]+src="([^"]+)"');
 
   @override
   String get id => 'biquge';
@@ -105,12 +104,6 @@ class BiqugeNovelSource extends NovelSource {
     final chapters = <NovelChapter>[];
     final seen = <String>{};
     var idx = 0;
-    final chLinks = _chapterRe.allMatches(body).take(6).map((m) =>
-        '${m.group(1)}/${m.group(2)}:${m.group(3)}').join(' | ');
-    // ignore: avoid_print
-    print('[BIQUGE-DETAIL] id=$novelId bodyLen=${body.length} '
-        'chapterReCount=${_chapterRe.allMatches(body).length} '
-        'chLinks=$chLinks');
     for (final m in _chapterRe.allMatches(body)) {
       final nid = m.group(1)!;
       final cid = m.group(2)!;
@@ -142,11 +135,6 @@ class BiqugeNovelSource extends NovelSource {
     final paragraphs = _parseContent(body);
     final prev = _firstGroup(_prevRe, body);
     final next = _firstGroup(_nextRe, body);
-    // ignore: avoid_print
-    print('[BIQUGE-DEBUG] cid=$cid bodyLen=${body.length} '
-        'hasContent=${_contentRe.hasMatch(body)} paras=${paragraphs.length} '
-        'hasPrev=$prev hasNext=$next '
-        'sample=${body.length > 300 ? body.substring(0, 300) : body}');
     return NovelContent(
       chapterId,
       _clean(title),
@@ -181,10 +169,6 @@ class BiqugeNovelSource extends NovelSource {
       if (items.any((e) => e.id == id)) continue;
       items.add(ComicItem(id, _clean(m.group(2)!), ''));
     }
-    // ignore: avoid_print
-    print('[BIQUGE-LIST] bodyLen=${html.length} books=${items.length} '
-        'imgs=${_imgRe.allMatches(html).length} '
-        'imgSample=${_imgRe.allMatches(html).take(2).map((m)=>m.group(1)).join(' | ')}');
     return items;
   }
 

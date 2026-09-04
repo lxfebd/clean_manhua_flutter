@@ -8,6 +8,7 @@ import 'package:screen_brightness/screen_brightness.dart';
 import 'package:volume_controller/volume_controller.dart';
 
 import '../net/local_store.dart';
+import '../net/video_download_manager.dart';
 import '../sources/video_source.dart';
 import '../utils/anime4k.dart';
 import '../utils/danmaku.dart';
@@ -77,6 +78,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   Player? _player;
   VideoController? _controller;
   final List<StreamSubscription> _subs = [];
+
+  /// 平板分栏右侧控制面板宽度（与 anime_player_page.dart 统一）。
+  static const double _panelWidth = kPlayerPanelWidth;
 
   // ── 播放状态 ────────────────────────────────
   Duration _pos = Duration.zero;
@@ -931,7 +935,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   void _unlockOrientation() {
     final view = WidgetsBinding.instance.platformDispatcher.views.first;
     final w = view.physicalSize.width / view.devicePixelRatio;
-    final tablet = w >= 440;
+    final tablet = w >= Responsive.tabletBreakpoint;
     SystemChrome.setPreferredOrientations(tablet
         ? [
             DeviceOrientation.portraitUp,
@@ -968,7 +972,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                       ),
                     ),
                     Container(
-                      width: 336,
+                      width: _panelWidth,
                       decoration: const BoxDecoration(
                         border: Border(
                           left:
@@ -1951,7 +1955,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
               contentPadding: EdgeInsets.zero,
               dense: true,
               value: _enhance,
-              activeColor: PlayerColors.sr,
+              activeThumbColor: PlayerColors.sr,
               title: const Text('画质增强',
                   style: TextStyle(
                       color: Colors.white,
@@ -2124,6 +2128,64 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     ).then((_) => _scheduleHide());
   }
 
+  String _downloadSubtitle() {
+    final sid = widget.sourceId;
+    final vid = widget.videoId;
+    if (sid == null || vid == null) return '当前片源不支持下载';
+    final key = '$sid::$vid::$_curSeason-$_curEpisode';
+    final t = VideoDownloadManager.instance.taskOf(key);
+    if (t == null) return '保存到本地，可离线播放';
+    switch (t.state) {
+      case 'downloading':
+        final p = (t.progress * 100).round();
+        return '下载中 $p%';
+      case 'done':
+        return '已下载 · 点击重新下载';
+      case 'failed':
+        return '下载失败：${t.error ?? ''}';
+      case 'canceled':
+        return '已取消 · 点击重试';
+      default:
+        return '保存到本地，可离线播放';
+    }
+  }
+
+  Future<void> _startDownload() async {
+    final sid = widget.sourceId;
+    final vid = widget.videoId;
+    if (sid == null || vid == null) {
+      _toast('当前片源不支持下载');
+      return;
+    }
+    String url = widget.url;
+    final resolver = widget.resolveUrl;
+    if (resolver != null) {
+      try {
+        final resolved = await resolver(_curSeason, _curEpisode);
+        if (isDirectMediaUrl(resolved)) url = resolved;
+      } catch (_) {}
+    }
+    if (url.isEmpty || !url.startsWith('http')) {
+      _toast('无法获取本集直链');
+      return;
+    }
+    String referer = '';
+    try {
+      final u = Uri.parse(url);
+      referer = '${u.scheme}://${u.host}/';
+    } catch (_) {}
+    await VideoDownloadManager.instance.start(
+      sourceId: sid,
+      videoId: vid,
+      title: widget.title,
+      season: _curSeason,
+      episode: _curEpisode,
+      url: url,
+      headers: referer.isEmpty ? const {} : {'Referer': referer},
+    );
+    _toast('开始下载 ${widget.title} 第$_curEpisode集');
+  }
+
   void _showMorePanel() {
     _hideTimer?.cancel();
     showPlayerPanel(
@@ -2158,6 +2220,15 @@ class _NativePlayerPageState extends State<NativePlayerPage>
               onTap: () {
                 Navigator.of(ctx).pop();
                 _fallbackWeb();
+              },
+            ),
+            PanelOptionTile(
+              title: '下载本集',
+              subtitle: _downloadSubtitle(),
+              selected: false,
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _startDownload();
               },
             ),
             const Divider(color: Colors.white12, height: 20),

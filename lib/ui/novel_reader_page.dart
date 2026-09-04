@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../net/local_store.dart';
 import '../sources/novel_source.dart';
 import '../sources/source_manager.dart';
+import 'responsive.dart';
 
 /// 小说阅读器：渲染章节正文（段落列表），支持上下章导航与阅读进度记录。
 class NovelReaderPage extends StatefulWidget {
@@ -146,9 +147,9 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
 
   /// 打开阅读设置底部抽屉。
   void _showSettings() {
-    showModalBottomSheet<void>(
+    showResponsiveBottomSheet<void>(
       context: context,
-      backgroundColor: const Color(0xFF0F1013),
+      backgroundColor: Theme.of(context).colorScheme.surface,
       barrierColor: Colors.black.withValues(alpha: 0.3),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -223,22 +224,30 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
                 color: bgColor,
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => _go(_content!.prevChapterId),
-                        child: const Text('上一章'),
-                      ),
+                // 按钮行与正文同宽（680/720 限宽）居中：桌面端两个按钮不会
+                // 横跨全屏变成超宽大按钮，与上方限宽正文比例协调。
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                        maxWidth: Responsive.novelReaderMaxWidth(context)),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => _go(_content!.prevChapterId),
+                            child: const Text('上一章'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () => _go(_content!.nextChapterId),
+                            child: const Text('下一章'),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: () => _go(_content!.nextChapterId),
-                        child: const Text('下一章'),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -255,18 +264,25 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       color: useCustomBg
           ? Color(int.parse(_themes[_theme.clamp(0, _themes.length - 1)].bg))
           : scheme.surface,
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        itemCount: paras.length,
-        separatorBuilder: (_, __) =>
-            SizedBox(height: (_lineHeight / 100 * 10).clamp(6.0, 20.0)),
-        itemBuilder: (ctx, i) => Text(
-          paras[i],
-          textAlign: TextAlign.justify,
-          style: TextStyle(
-            fontSize: _fontSize.toDouble(),
-            height: _lineHeight / 100,
-            color: textColor,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: Responsive.novelReaderMaxWidth(context),
+          ),
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            itemCount: paras.length,
+            separatorBuilder: (_, __) =>
+                SizedBox(height: (_lineHeight / 100 * 10).clamp(6.0, 20.0)),
+            itemBuilder: (ctx, i) => Text(
+              paras[i],
+              textAlign: TextAlign.justify,
+              style: TextStyle(
+                fontSize: _fontSize.toDouble(),
+                height: _lineHeight / 100,
+                color: textColor,
+              ),
+            ),
           ),
         ),
       ),
@@ -307,10 +323,10 @@ class _NovelReaderSettingsSheetState
     return SafeArea(
       child: Container(
         padding: const EdgeInsets.fromLTRB(22, 16, 22, 28),
-        decoration: const BoxDecoration(
-          color: Color(0xFF0F1013),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border(top: BorderSide(color: Color(0x1FFFFFFF))),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border(top: BorderSide(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.1))),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -370,8 +386,13 @@ class _NovelReaderSettingsSheetState
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
-            style: const TextStyle(
-                fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white)),
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.85))),
         const SizedBox(height: 8),
         Wrap(
           spacing: 6,
@@ -390,12 +411,12 @@ class _NovelReaderSettingsSheetState
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(
           color: active
-              ? const Color(0xFF3A6EA5)
+              ? Theme.of(context).colorScheme.primary
               : Colors.white.withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: active
-                ? const Color(0xFF3A6EA5)
+                ? Theme.of(context).colorScheme.primary
                 : Colors.white.withValues(alpha: 0.1),
           ),
         ),

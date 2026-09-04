@@ -4,7 +4,9 @@ import 'package:flutter/services.dart';
 import '../sources/novel_source.dart';
 import '../sources/source_manager.dart';
 import '../ui/novel_reader_page.dart';
+import '../ui/responsive.dart';
 import '../ui/widgets/cached_image.dart';
+import '../ui/widgets/motion.dart';
 
 /// 小说详情页：封面/元信息 + 章节目录。章节点击进入阅读器。
 class NovelDetailPage extends StatefulWidget {
@@ -137,7 +139,112 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
                     ],
                   ),
                 )
-              : _body(scheme),
+              : Responsive.isExpanded(context)
+                  ? _bodyTablet(scheme)
+                  : _body(scheme),
+    );
+  }
+
+  Widget _bodyTablet(scheme) {
+    final d = _detail!;
+    final pad = Responsive.pagePadding(context);
+    
+    // 使用响应式左侧面板宽度
+    final leftPanelWidth = Responsive.detailLeftWidth(context);
+    
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // ── 左侧：封面 + 元信息（固定宽度） ──────────────
+        Container(
+          width: leftPanelWidth,
+          // body 已在 AppBar 之下，不再叠加状态栏高度，避免顶部空洞错位。
+          padding: EdgeInsets.fromLTRB(pad, 14, 8, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 2),
+              // 封面保持 2:3 比例：固定 height:200 在宽面板下会把封面压扁变形。
+              Center(
+                child: AspectRatio(
+                  aspectRatio: 2 / 3,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: CachedImage(d.pic ?? '',
+                        width: double.infinity, height: 200, radius: 10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(d.name,
+                  style: const TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 6),
+              Text('作者：${d.author ?? d.comic.author ?? '未知'}',
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: scheme.onSurface.withValues(alpha: 0.6))),
+              if (d.status != null)
+                Text('状态：${d.status}',
+                    style: TextStyle(
+                        fontSize: 13,
+                        color: scheme.onSurface.withValues(alpha: 0.6))),
+              const SizedBox(height: 10),
+              FilledButton.icon(
+                onPressed: _toggleSave,
+                icon: Icon(_saved
+                    ? Icons.bookmark_rounded
+                    : Icons.bookmark_border_rounded),
+                label: Text(_saved ? '已在书架' : '加入书架'),
+              ),
+              if (d.description != null && d.description!.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                Text(d.description!,
+                    maxLines: 8,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 13,
+                        height: 1.6,
+                        color: scheme.onSurface.withValues(alpha: 0.8))),
+              ],
+            ],
+          ),
+        ),
+        // ── 右侧：章节目录（可滚动） ─────────────────────
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: EdgeInsets.fromLTRB(pad, 16, pad, 8),
+                child: Text('目录（${d.chapters.length} 章）',
+                    style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: scheme.onSurface)),
+              ),
+              Expanded(
+                child: ListView.builder(
+                  padding: EdgeInsets.fromLTRB(pad, 0, pad, 16),
+                  itemCount: d.chapters.length,
+                  itemBuilder: (ctx, i) {
+                    final ch = d.chapters[i];
+                    return ListTile(
+                      dense: true,
+                      title: Text(ch.title,
+                          style: TextStyle(
+                              fontSize: 14, color: scheme.onSurface)),
+                      trailing:
+                          const Icon(Icons.chevron_right_rounded, size: 18),
+                      onTap: () => _openChapter(ch),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -200,23 +307,29 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
             ),
           ),
         SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Text('目录（${d.chapters.length} 章）',
-                style: TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w700, color: scheme.onSurface)),
+          child: FadeSlideIn(
+            delay: const Duration(milliseconds: 200),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text('目录（${d.chapters.length} 章）',
+                  style: TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w700, color: scheme.onSurface)),
+            ),
           ),
         ),
         SliverList(
           delegate: SliverChildBuilderDelegate(
             (ctx, i) {
               final ch = d.chapters[i];
-              return ListTile(
-                dense: true,
-                title: Text(ch.title,
-                    style: TextStyle(fontSize: 14, color: scheme.onSurface)),
-                trailing: const Icon(Icons.chevron_right_rounded, size: 18),
-                onTap: () => _openChapter(ch),
+              return FadeSlideIn(
+                delay: Duration(milliseconds: 250 + 30 * (i % 20)),
+                child: ListTile(
+                  dense: true,
+                  title: Text(ch.title,
+                      style: TextStyle(fontSize: 14, color: scheme.onSurface)),
+                  trailing: const Icon(Icons.chevron_right_rounded, size: 18),
+                  onTap: () => _openChapter(ch),
+                ),
               );
             },
             childCount: d.chapters.length,
@@ -226,3 +339,5 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
     );
   }
 }
+
+

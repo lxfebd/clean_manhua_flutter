@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -85,7 +86,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         title: Text(done ? '下载完成' : failed ? '下载失败' : '正在下载更新'),
         content: SizedBox(
-          width: 300,
+          width: math.min(MediaQuery.of(context).size.width * 0.85, 360),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -120,8 +121,8 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
                   if (_state.speed.isNotEmpty)
                     Text(
                       _state.speed,
-                      style: const TextStyle(
-                          fontSize: 11.5, color: Colors.grey),
+                      style: TextStyle(
+                          fontSize: 11.5, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5)),
                     ),
                 ],
               ),
