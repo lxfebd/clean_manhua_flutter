@@ -39,6 +39,19 @@ flutter build apk --debug       # 全 ABI（含 x86_64，模拟器可跑）
 
 ## 更新日志
 
+### v1.4.0（2026-09-04）
+- 📱 **手机/平板字号分档（TypeScale）**：手机（<600dp）保留设计稿原字号（display 19 / title 17 / micro 9），平板/桌面走桌面档（display 22 / title 17 / micro 11）；修复"改平板连带着手机字号一块放大"问题；新增 `test/design_tokens_test.dart` 设计 token 门禁（WCAG AA 对比度 + 字面量棘轮 + 两档字号守卫）
+- 🖥️ **桌面端窗口管理（Windows/macOS/Linux）**：window_manager 限定最小尺寸、记忆并恢复上次窗口位置/尺寸、窗口标题"星漫匣"
+- 🎨 **主题切换动效**：`AnimatedTheme` 220ms easeOutCubic 平滑过渡；`MaterialApp.builder` 统一系统栏样式（状态栏/导航栏透明、随明暗切换图标亮度）、`TextScaler.noScaling` 固定缩放、`MouseNavListener` 桌面鼠标导航
+- 🔋 **WakelockPlus 生命周期常亮**：前台 resumed/inactive 保持屏幕常亮，切后台/销毁恢复系统默认熄屏
+- 🐛 **修复首页精选横幅红屏**：`_FeaturedBanner` 把 initState 里读 MediaQuery/Responsive 移入 `didChangeDependencies`（真机首页会红屏刷屏的崩溃）
+- 🖼️ **封面图 dpr 钳 2.0**：高分屏（dpr≥3）不再请求 3 倍宽缓存图，封面内存与磁盘缓存压力大降
+- 🪟 **Windows WebView2（desktop_webview）**：动漫播放页 Windows 走 WebView2（webview_windows），替代灰屏占位；`webview_flutter` 仅用于移动端
+- ⬇️ **视频下载管理器（video_download_manager）**：动漫/视频下载独立管理器
+- 🧰 **布局/UI 审计工具**：tools/ 新增 ascii_view、pixel_layout_audit、ui_audit、vision_probe、layout_metrics_test
+- 🧪 **新增测试**：desktop_player_fallback、main_shell_large、main_shell_short_landscape、responsive、source_http_retry
+- 📦 **CI 升级**：Flutter 3.29.3 → 3.44.0、NDK 26.3 → 28.2（对齐新 API）；新增 Windows 电脑端构建 job（产物 app-windows artifact）
+
 ### v1.3.8（2026-08-27）
 - 📱 **平板全面适配（响应式分栏范式）**：
   - 首页：左侧常驻侧边栏（4 项垂直均分、整块可点、选中高亮）+ 右内容区

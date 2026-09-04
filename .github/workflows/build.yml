@@ -31,7 +31,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: '3.29.3'
+          flutter-version: '3.44.0'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -39,7 +39,7 @@ jobs:
       - name: Install NDK & Android platform
         run: |
           yes | sdkmanager --licenses
-          sdkmanager "ndk;26.3.11579264" "platforms;android-36" "build-tools;36.0.0"
+          sdkmanager "ndk;28.2.13676358" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Decode signing key
         if: github.ref_type == 'tag'
@@ -149,3 +149,42 @@ jobs:
           name: 星漫匣 v${{ steps.version.outputs.version }}
           files: build/app/outputs/flutter-apk/app-release.apk
           generate_release_notes: true
+
+  # ── Windows 电脑端（桌面版）构建 ──────────────────────────────────────
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.44.0'
+
+      - name: Cache pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.FLUTTER_HOME }}/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Build Windows desktop
+        run: flutter build windows --release
+
+      - name: Upload Windows build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-windows
+          path: build/windows/x64/runner/Release/
+          if-no-files-found: error
