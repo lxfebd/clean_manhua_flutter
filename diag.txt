@@ -1,0 +1,19 @@
+PWD=/home/runner/work/clean_manhua_flutter/clean_manhua_flutter
+APK exists: yes
+APK bytes: 213044837
+--- split (50MB/块) ---
+split rc=0
+--- ls chunks ---
+-rw-r--r-- 1 runner runner 50000000 Sep  4 13:12 apk.part.00
+-rw-r--r-- 1 runner runner 50000000 Sep  4 13:12 apk.part.01
+-rw-r--r-- 1 runner runner 50000000 Sep  4 13:12 apk.part.02
+-rw-r--r-- 1 runner runner 50000000 Sep  4 13:12 apk.part.03
+-rw-r--r-- 1 runner runner 13044837 Sep  4 13:12 apk.part.04
+--- wc chunks ---
+ 50000000 apk.part.00
+ 50000000 apk.part.01
+ 50000000 apk.part.02
+ 50000000 apk.part.03
+ 13044837 apk.part.04
+213044837 total
+Switched to a new branch 'ci-apk'
