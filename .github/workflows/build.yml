@@ -182,9 +182,25 @@ jobs:
       - name: Build Windows desktop
         run: flutter build windows --release
 
+      - name: Package Windows build
+        shell: bash
+        run: |
+          cd build/windows/x64/runner/Release
+          V=$(grep '^version:' ../../../../../pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
+          powershell -NoProfile -Command "Compress-Archive -Path '*' -DestinationPath '..\..\..\..\..\xingmanxia-windows-$V.zip' -Force"
+          ls -la ../../../../../xingmanxia-windows-$V.zip
+
       - name: Upload Windows build artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-windows
           path: build/windows/x64/runner/Release/
           if-no-files-found: error
+
+      - name: Attach Windows build to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: xingmanxia-windows-*.zip
+          generate_release_notes: false
