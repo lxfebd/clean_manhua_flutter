@@ -331,14 +331,7 @@ class LocalStore {
   static Future<int> themeId() async =>
       ((await _read('settings')) as Map?)?['themeId'] as int? ?? 0;
 
-  static Future<void> setThemeId(int v) async => _write('settings', {
-        'dark': await darkMode(),
-        'horizontal': await horizontalReader(),
-        'rtl': await rtlReader(),
-        'themeId': v,
-        'resLevel': await resLevel(),
-        'autoPageTurn': await autoPageTurn(),
-      });
+  static Future<void> setThemeId(int v) async => _updateSetting('themeId', v);
 
   static Future<bool> horizontalReader() async =>
       ((await _read('settings')) as Map?)?['horizontal'] as bool? ?? false;
@@ -350,49 +343,21 @@ class LocalStore {
   static Future<int> resLevel() async =>
       ((await _read('settings')) as Map?)?['resLevel'] as int? ?? 0;
 
-  static Future<void> setDarkMode(bool v) async => _write('settings', {
-        'dark': v,
-        'horizontal': await horizontalReader(),
-        'rtl': await rtlReader(),
-        'resLevel': await resLevel(),
-        'autoPageTurn': await autoPageTurn(),
-      });
+  static Future<void> setDarkMode(bool v) async => _updateSetting('dark', v);
 
-  static Future<void> setHorizontalReader(bool v) async => _write('settings', {
-        'dark': await darkMode(),
-        'horizontal': v,
-        'rtl': await rtlReader(),
-        'resLevel': await resLevel(),
-        'autoPageTurn': await autoPageTurn(),
-      });
+  static Future<void> setHorizontalReader(bool v) async =>
+      _updateSetting('horizontal', v);
 
-  static Future<void> setRtlReader(bool v) async => _write('settings', {
-        'dark': await darkMode(),
-        'horizontal': await horizontalReader(),
-        'rtl': v,
-        'resLevel': await resLevel(),
-        'autoPageTurn': await autoPageTurn(),
-      });
+  static Future<void> setRtlReader(bool v) async => _updateSetting('rtl', v);
 
-  static Future<void> setResLevel(int v) async => _write('settings', {
-        'dark': await darkMode(),
-        'horizontal': await horizontalReader(),
-        'rtl': await rtlReader(),
-        'resLevel': v,
-        'autoPageTurn': await autoPageTurn(),
-      });
+  static Future<void> setResLevel(int v) async => _updateSetting('resLevel', v);
 
   /// 自动翻页间隔（秒）；0 = 关闭。
   static Future<int> autoPageTurn() async =>
       ((await _read('settings')) as Map?)?['autoPageTurn'] as int? ?? 0;
 
-  static Future<void> setAutoPageTurn(int seconds) async => _write('settings', {
-        'dark': await darkMode(),
-        'horizontal': await horizontalReader(),
-        'rtl': await rtlReader(),
-        'resLevel': await resLevel(),
-        'autoPageTurn': seconds,
-      });
+  static Future<void> setAutoPageTurn(int seconds) async =>
+      _updateSetting('autoPageTurn', seconds);
 
   /// 只更新单个设置键，其余设置保持不变（避免全量覆盖丢字段）。
   static Future<void> _updateSetting(String key, Object? value) async {

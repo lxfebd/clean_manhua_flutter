@@ -183,6 +183,7 @@ class VideoDownloadManager {
       _canceled.remove(task.key);
       _tasks[task.key] = task;
     } else {
+      _canceled.remove(task.key);
       _tasks[task.key] = task;
     }
     _notify();
