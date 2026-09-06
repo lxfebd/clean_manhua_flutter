@@ -10,6 +10,7 @@ import '../sources/source_manager.dart';
 import 'anime_player_page.dart';
 import 'detail_page.dart';
 import 'native_player_page.dart';
+import 'reader_page.dart';
 import 'responsive.dart';
 import 'tokens.dart';
 import 'widgets/cached_image.dart';
@@ -37,6 +38,7 @@ class BookshelfPageState extends State<BookshelfPage>
   List<ComicDetail> _filtered = [];
   List<HistoryEntry> _recent = [];
   List<VideoRecord> _videos = [];
+  List<ComicBookmark> _bookmarks = [];
   // 下载（书架的「下载」Tab）：漫画章节下载 + 已下载完成的动漫。
   List<DownloadRecord> _mangaDownloads = [];
   List<VideoDownloadTask> _animeDownloads = [];
@@ -48,6 +50,9 @@ class BookshelfPageState extends State<BookshelfPage>
   List<String> _allTags = [];
   int _updateCount = 0;
   bool _checkingUpdate = false;
+
+  /// 续播解析中（防止 await playUrl 期间连点叠多个 dialog/播放器页）。
+  bool _openingVideo = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -71,18 +76,20 @@ class BookshelfPageState extends State<BookshelfPage>
       final ani = VideoDownloadManager.instance.tasks
           .where((t) => t.state == 'done')
           .toList();
+      final marks = await LocalStore.bookmarks();
       if (mounted) {
         setState(() {
           _items = list;
           _filtered = _tagFilter == null
               ? list
               : list.where((d) {
-                  final sid = BookshelfStore.sourceIdOf(d.id) ?? '';
+                  final sid = d.sourceId ?? BookshelfStore.sourceIdOf(d.id) ?? '';
                   return BookshelfStore.tagsOf(sid, d.id).contains(_tagFilter);
                 }).toList();
           _allTags = BookshelfStore.allTags();
           _recent = hist;
           _videos = videos;
+          _bookmarks = marks;
           _mangaDownloads = dl;
           _animeDownloads = ani;
           _loading = false;
@@ -242,8 +249,10 @@ class BookshelfPageState extends State<BookshelfPage>
         return '我的收藏';
       case 2:
         return '动画记录';
-      default:
+      case 3:
         return '下载';
+      default:
+        return '书签';
     }
   }
 
@@ -267,8 +276,10 @@ class BookshelfPageState extends State<BookshelfPage>
           _buildShelfGrid(scheme)
         else if (_tab == 2)
           _buildVideoList(scheme)
+        else if (_tab == 3)
+          _buildDownloadsView(scheme)
         else
-          _buildDownloadsView(scheme),
+          _buildBookmarkList(scheme),
       ],
     );
     if (isDesktop) return scroll;
@@ -425,6 +436,39 @@ class BookshelfPageState extends State<BookshelfPage>
     );
   }
 
+  /// 书签列表
+  Widget _buildBookmarkList(ColorScheme scheme) {
+    if (_bookmarks.isEmpty) {
+      return const SliverToBoxAdapter(
+        child: Padding(
+          padding: EdgeInsets.only(top: 120),
+          child: _TabEmpty(
+            icon: Icons.bookmark_added_rounded,
+            text: '还没有手动书签',
+            subtitle: '阅读漫画时呼出菜单点「书签当前页」，就能在这里随时跳回',
+          ),
+        ),
+      );
+    }
+    return SliverPadding(
+      padding: EdgeInsets.fromLTRB(
+        Responsive.pagePadding(context),
+        8,
+        Responsive.pagePadding(context),
+        110,
+      ),
+      sliver: SliverList.separated(
+        itemCount: _bookmarks.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 8),
+        itemBuilder: (c, i) => _BookmarkCard(
+          mark: _bookmarks[i],
+          onTap: () => _openBookmark(_bookmarks[i]),
+          onDelete: () => _deleteBookmark(_bookmarks[i]),
+        ),
+      ),
+    );
+  }
+
   /// 下载 Tab：漫画章节下载 + 已下载动漫，集中在此管理
   /// （下载本就属于「我的内容」，从工具箱挪到书架，工具箱回归纯工具）。
   Widget _buildDownloadsView(ColorScheme scheme) {
@@ -447,7 +491,14 @@ class BookshelfPageState extends State<BookshelfPage>
           children: [
             _sectionHeader(scheme, Icons.menu_book_rounded, '漫画下载',
                 totalManga,
-                _mangaDownloads.isEmpty ? null : _confirmClearMangaAll),
+                _mangaDownloads.isEmpty ? null : _confirmClearMangaAll,
+                trailing: _failedManga.isEmpty
+                    ? null
+                    : TextButton.icon(
+                        onPressed: _retryAllManga,
+                        icon: const Icon(Icons.refresh_rounded, size: 16),
+                        label: Text('重试 ${_failedManga.length}'),
+                      )),
             const SizedBox(height: 8),
             if (totalManga == 0)
               const _TabEmpty(
@@ -478,7 +529,8 @@ class BookshelfPageState extends State<BookshelfPage>
   }
 
   Widget _sectionHeader(ColorScheme scheme, IconData icon, String title,
-      int count, VoidCallback? onClear) {
+      int count, VoidCallback? onClear,
+      {Widget? trailing}) {
     return Row(
       children: [
         Icon(icon, size: 18, color: scheme.primary),
@@ -503,6 +555,10 @@ class BookshelfPageState extends State<BookshelfPage>
                     )),
           ),
         const Spacer(),
+        if (trailing != null) ...[
+          trailing,
+          const SizedBox(width: 4),
+        ],
         if (onClear != null)
           TextButton.icon(
             onPressed: onClear,
@@ -694,6 +750,44 @@ class BookshelfPageState extends State<BookshelfPage>
         ),
       ),
     );
+  }
+
+  /// 未完成（失败/中断）的漫画下载任务。
+  List<DownloadRecord> get _failedManga =>
+      _mangaDownloads.where((d) => !d.finished).toList();
+
+  /// 一键重试所有失败的漫画下载。
+  Future<void> _retryAllManga() async {
+    final failed = _failedManga;
+    if (failed.isEmpty) return;
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('正在重试 ${failed.length} 话…'),
+        duration: const Duration(seconds: 2)));
+    var ok = 0;
+    var keep = 0;
+    for (final d in failed) {
+      try {
+        final source = SourceManager.byId(d.book.sourceId);
+        final urls = await source.chapterPics(d.chapterId);
+        final success = await DownloadManager.retry(
+            '${d.book.sourceId}::${d.book.comicId}',
+            d.chapterId,
+            d.chapterTitle,
+            urls);
+        if (success) {
+          ok++;
+        } else {
+          keep++;
+        }
+      } catch (_) {
+        keep++;
+      }
+    }
+    await reload();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(keep == 0 ? '已重试完成：成功 $ok 话' : '重试完成：成功 $ok 话，$keep 话仍失败')));
   }
 
   Future<void> _retryMangaDownload(DownloadRecord d) async {
@@ -1099,8 +1193,10 @@ class BookshelfPageState extends State<BookshelfPage>
               ),
             ),
           )
+        else if (_tab == 3)
+          _buildDownloadsView(scheme)
         else
-          _buildDownloadsView(scheme),
+          _buildBookmarkList(scheme),
       ],
       ),
     );
@@ -1150,7 +1246,7 @@ class BookshelfPageState extends State<BookshelfPage>
       ),
     );
     if (ok != true) return;
-    final sid = BookshelfStore.sourceIdOf(d.id);
+    final sid = d.sourceId ?? BookshelfStore.sourceIdOf(d.id);
     if (sid != null) BookshelfStore.remove(sid, d.id);
     reload();
   }
@@ -1160,7 +1256,7 @@ class BookshelfPageState extends State<BookshelfPage>
       context,
       MaterialPageRoute(
         builder: (_) => DetailPage(
-          sourceId: BookshelfStore.sourceIdOf(d.id) ?? '',
+          sourceId: d.sourceId ?? BookshelfStore.sourceIdOf(d.id) ?? '',
           comicId: d.id,
           name: d.name,
           pic: d.pic,
@@ -1185,54 +1281,113 @@ class BookshelfPageState extends State<BookshelfPage>
     );
   }
 
+  /// 书签直达：先向源解析该章节的目录（拿到全章节列表供连读/切章），
+  /// 再携带书签页码直接进入阅读器。
+  Future<void> _openBookmark(ComicBookmark m) async {
+    final src = SourceManager.byId(m.book.sourceId);
+    try {
+      final detail = await src.detail(m.book.comicId);
+      if (!mounted) return;
+      final chapters = detail.chapters;
+      final ch = chapters.isNotEmpty
+          ? chapters.firstWhere((c) => c.id == m.chapterId,
+              orElse: () => chapters.first)
+          : Chapter(m.chapterId, m.chapterTitle);
+      Navigator.push(
+        context,
+        PageRouteBuilder(
+          pageBuilder: (_, __, ___) => ReaderPage(
+            sourceId: m.book.sourceId,
+            comicId: m.book.comicId,
+            chapterId: ch.id,
+            title: ch.title,
+            comicName: detail.name,
+            comicPic: detail.pic ?? '',
+            comicAuthor: detail.author ?? '',
+            chapters: chapters,
+            initialPage: m.pageIndex,
+          ),
+          transitionDuration: const Duration(milliseconds: 320),
+          transitionsBuilder: (_, anim, __, child) => FadeTransition(
+            opacity: anim,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 0.05),
+                end: Offset.zero,
+              ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOut)),
+              child: child,
+            ),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('跳转书签失败：$e')),
+      );
+    }
+  }
+
+  Future<void> _deleteBookmark(ComicBookmark m) async {
+    await LocalStore.removeBookmark(
+        m.book.sourceId, m.book.comicId, m.chapterId, m.pageIndex);
+    reload();
+  }
+
   /// 续播：先向源解析该集的播放入口（站点 iframe 解析器 URL），再交给
   /// AnimePlayerPage —— 由它抓到真实直链后自动切原生播放器。
   ///
   /// 不能直接 push NativePlayerPage：它要求必填真实直链（m3u8/mp4），
   /// 而直链只有 WebView 播放页才能拿到。
   Future<void> _openVideoRecord(VideoRecord r) async {
-    final src = SourceManager.videoById(r.sourceId);
-    if (src == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('该视频源已不可用，无法续播')),
-      );
-      return;
-    }
-    if (!mounted) return;
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
-    );
-    String url;
+    if (_openingVideo) return;
+    _openingVideo = true;
     try {
-      url = await src.playUrl(r.videoId, r.season, r.episode);
-    } catch (e) {
-      if (mounted) {
-        Navigator.of(context).pop();
+      final src = SourceManager.videoById(r.sourceId);
+      if (src == null) {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('续播失败：$e')),
+          const SnackBar(content: Text('该视频源已不可用，无法续播')),
         );
+        return;
       }
-      return;
-    }
-    if (!mounted) return;
-    Navigator.of(context).pop();
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => AnimePlayerPage(
-          url: url,
-          title: r.title,
-          cover: r.cover,
-          initialSeason: r.season,
-          initialEpisode: r.episode,
-          resolveUrl: (s, e) => src.playUrl(r.videoId, s, e),
-          sourceId: r.sourceId,
-          videoId: r.videoId,
+      if (!mounted) return;
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
+      );
+      String url;
+      try {
+        url = await src.playUrl(r.videoId, r.season, r.episode);
+      } catch (e) {
+        if (mounted) {
+          Navigator.of(context).pop();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('续播失败：$e')),
+          );
+        }
+        return;
+      }
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => AnimePlayerPage(
+            url: url,
+            title: r.title,
+            cover: r.cover,
+            initialSeason: r.season,
+            initialEpisode: r.episode,
+            resolveUrl: (s, e) => src.playUrl(r.videoId, s, e),
+            sourceId: r.sourceId,
+            videoId: r.videoId,
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      _openingVideo = false;
+    }
   }
 
   Future<void> _deleteVideoRecord(VideoRecord r) async {
@@ -1317,7 +1472,7 @@ class BookshelfPageState extends State<BookshelfPage>
     setState(() => _checkingUpdate = true);
     var count = 0;
     for (final d in _items) {
-      final sid = BookshelfStore.sourceIdOf(d.id);
+      final sid = d.sourceId ?? BookshelfStore.sourceIdOf(d.id);
       if (sid == null) continue;
       try {
         final detail = await SourceManager.byId(sid).detail(d.id);
@@ -1353,6 +1508,7 @@ class BookshelfPageState extends State<BookshelfPage>
             _tabItem('我的收藏', 1),
             _tabItem('动画记录', 2),
             _tabItem('下载', 3),
+            _tabItem('书签', 4),
           ],
         ),
       ),
@@ -1365,7 +1521,10 @@ class BookshelfPageState extends State<BookshelfPage>
     return Expanded(
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => setState(() => _tab = v),
+        onTap: () {
+          if (v == 4) reload(); // 切到书签页时刷新（阅读器里可能刚增删了书签）
+          setState(() => _tab = v);
+        },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           alignment: Alignment.center,
@@ -1688,7 +1847,7 @@ class _ShelfCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final hasUpdate = BookshelfStore.hasUpdate(
-      BookshelfStore.sourceIdOf(item.id) ?? '',
+      item.sourceId ?? BookshelfStore.sourceIdOf(item.id) ?? '',
       item.id,
       item.chapters.length,
     );
@@ -1850,6 +2009,120 @@ class _VideoRecordCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
                           color: T.color(scheme.onSurface, TextTier.low,
+                              brightness: scheme.brightness),
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: Icon(Icons.delete_outline,
+                  size: 18,
+                  color: scheme.error.withValues(alpha: 0.7)),
+              onPressed: onDelete,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 书签卡片：封面 + 书名 + 章节/页码 + 收藏时间。
+class _BookmarkCard extends StatelessWidget {
+  final ComicBookmark mark;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+  const _BookmarkCard({
+    required this.mark,
+    required this.onTap,
+    required this.onDelete,
+  });
+
+  /// 相对时间：刚刚 / N 分钟前 / N 小时前 / N 天前 / 具体日期。
+  static String _timeText(int ts) {
+    if (ts <= 0) return '';
+    final diff = DateTime.now().millisecondsSinceEpoch - ts;
+    if (diff < 60 * 1000) return '刚刚';
+    if (diff < 60 * 60 * 1000) return '${diff ~/ (60 * 1000)} 分钟前';
+    if (diff < 24 * 60 * 60 * 1000) return '${diff ~/ (60 * 60 * 1000)} 小时前';
+    if (diff < 30 * 24 * 60 * 60 * 1000) return '${diff ~/ (24 * 60 * 60 * 1000)} 天前';
+    final d = DateTime.fromMillisecondsSinceEpoch(ts);
+    final y = d.year;
+    final m = d.month.toString().padLeft(2, '0');
+    final dd = d.day.toString().padLeft(2, '0');
+    return '$y-$m-$dd';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final b = mark.book;
+    return PressableScale(
+      onTap: onTap,
+      scale: 0.98,
+      child: Container(
+        height: 80,
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(R.card),
+          border: Border.all(
+            color: T.color(scheme.onSurface, TextTier.hairline,
+                brightness: scheme.brightness),
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Row(
+          children: [
+            // 封面
+            SizedBox(
+              width: 56,
+              height: double.infinity,
+              child: (b.pic.isEmpty)
+                  ? Container(
+                      color: scheme.surfaceContainerHighest,
+                      child: Icon(
+                        Icons.book,
+                        size: 22,
+                        color: T.color(scheme.onSurface, TextTier.fill,
+                            brightness: scheme.brightness),
+                      ),
+                    )
+                  : CachedImage(b.pic, fit: BoxFit.cover, radius: 0),
+            ),
+            const SizedBox(width: 12),
+            // 信息
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    b.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: scheme.onSurface,
+                        ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    mark.pageIndex > 0
+                        ? '${mark.chapterTitle} · 第 ${mark.pageIndex + 1} 页'
+                        : mark.chapterTitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: T.color(scheme.onSurface, TextTier.low,
+                              brightness: scheme.brightness),
+                        ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _timeText(mark.timestamp),
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: T.color(scheme.onSurface, TextTier.disabled,
                               brightness: scheme.brightness),
                         ),
                   ),

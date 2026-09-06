@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
+import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -52,6 +54,9 @@ class ReaderPage extends StatefulWidget {
   State<ReaderPage> createState() => _ReaderPageState();
 }
 
+/// 阅读器右键菜单动作。
+enum _ReaderMenuAction { catalog, chapters, settings, download, bookmark }
+
 class _ReaderPageState extends State<ReaderPage> {
   List<String> _urls = [];
   bool _loading = true;
@@ -69,7 +74,11 @@ class _ReaderPageState extends State<ReaderPage> {
   Timer? _autoPageTimer;
 
   /// 章节图片列表缓存：key=chapterId，已加载/预取的章节直接用，避免连读重复拉取。
+  /// 连读时缓存的章节图片列表（避免重复打开免网络请求）。
+  /// 章末预取会把整话 URL 列表拉进来，连读几十话时只增不减，
+  /// 加上限防无限增长：超过 40 话时淘汰最旧（LinkedHashMap 迭代序 = 插入序）。
   final Map<String, List<String>> _chapterPicCache = {};
+  static const int _chapterPicCacheMax = 40;
 
   /// 阅读时长统计：累计本次阅读秒数，每 5s flush 一次。
   final Stopwatch _readWatch = Stopwatch();
@@ -81,6 +90,9 @@ class _ReaderPageState extends State<ReaderPage> {
   /// 当前章节索引（-1 表示不在章节列表中，不启用连读）。
   late int _chapterIndex;
 
+  /// 章末预取出的下一话标题（未预取到时为 null，过渡页回退到章节列表标题）。
+  String? _nextChapterTitle;
+
   /// 防误触：触摸锁、动画锁、二次返回退出
   bool _touchLocked = false; // 用户主动锁定触控（躺卧阅读）
   bool _pageAnimating = false; // 翻页动画进行中
@@ -89,6 +101,24 @@ class _ReaderPageState extends State<ReaderPage> {
   // 手动双击检测（不依赖 GestureDetector.onDoubleTap，因与子组件手势竞技场冲突）
   DateTime _lastTapTime = DateTime.fromMillisecondsSinceEpoch(0);
   Offset? _lastTapPos;
+
+  // 纵向模式双指缩放：用 raw Listener 采集原始指针事件，不走手势竞技场，
+  // 因此不会与列表滚动手势冲突。放大后：单指拖动平移、轻点复位。
+  final Map<int, Offset> _pinchPointers = {};
+  double _pinchScale = 1.0;
+  double _pinchBaseScale = 1.0;
+  double _pinchStartDist = 0;
+  Offset _pinchOffset = Offset.zero;
+  Offset _pinchFocal = Offset.zero;
+  String _pinchUrl = '';
+  bool _pinching = false; // 当前正有两指按下
+  bool _pinchMoved = false; // 放大态下单指是否产生过明显位移（区分轻点/拖动）
+  int? _panId; // 放大后单指拖动
+  Offset _panStartPos = Offset.zero;
+  Offset _panStartOffset = Offset.zero;
+
+  /// 缩放遮罩是否显示（超过 1.01 视为放大态）。
+  bool get _pinchActive => _pinchScale > 1.01 && _pinchUrl.isNotEmpty;
   // 双击阈值：时间 500ms（比系统 kDoubleTapTimeout=300ms 更宽容，适配低端机），
   // 距离 64px（系统 kDoubleTapSlop 物理像素，适配 DPI）。
   static const int _doubleTapMs = 500;
@@ -126,7 +156,43 @@ class _ReaderPageState extends State<ReaderPage> {
     LocalStore.gestureConfig().then((g) {
       if (mounted) setState(() => _gesture = g);
     });
+    // 桌面端键盘翻页：←/→ 或 Space 翻页、Esc 隐藏/显示工具栏。
+    // 仅桌面平台注册，避免移动端物理键盘冲突（蓝牙键盘误触发）。
+    if (DesktopUi.isDesktopPlatform) {
+      HardwareKeyboard.instance.addHandler(_keyHandler);
+    }
     _init();
+  }
+
+  /// 桌面键盘处理：←/→/空格翻页（RTL 反转），Esc 切换工具栏。
+  bool _keyHandler(KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
+    if (_loading || _pageAnimating) return false;
+    if (event.logicalKey == LogicalKeyboardKey.escape) {
+      setState(() => _overlay = !_overlay);
+      return true;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.arrowLeft ||
+        event.logicalKey == LogicalKeyboardKey.space) {
+      // RTL：← 表示下一页
+      if (_rtl) {
+        _nextPage();
+      } else if (event.logicalKey == LogicalKeyboardKey.space) {
+        _nextPage();
+      } else {
+        _prevPage();
+      }
+      return true;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+      if (_rtl) {
+        _prevPage();
+      } else {
+        _nextPage();
+      }
+      return true;
+    }
+    return false;
   }
 
   Future<void> _init() async {
@@ -135,6 +201,11 @@ class _ReaderPageState extends State<ReaderPage> {
     _resLevel = await LocalStore.resLevel();
     _autoPage = await LocalStore.autoPageTurn();
     _downloaded = await DownloadManager.isDownloaded(_book.key, widget.chapterId);
+    // 书签状态：横向看当前页，纵向看整章（页 0 代表章节级标记）。
+    _bookmarked = await LocalStore.isBookmarked(
+        widget.sourceId, widget.comicId, _activeChapterId,
+        _horizontal ? _curPage : 0);
+    if (mounted) setState(() {});
     _load();
   }
 
@@ -142,6 +213,8 @@ class _ReaderPageState extends State<ReaderPage> {
   Future<void> _openChapter(String chapterId, String chapterTitle,
       {int startPage = 0}) async {
     _hideTimer?.cancel();
+    _resetPinch();
+    _nextChapterTitle = null; // 换章后旧预取标题失效，重新按需拉取
     if (mounted) {
       setState(() {
         _loading = true;
@@ -171,7 +244,13 @@ class _ReaderPageState extends State<ReaderPage> {
         _downloaded = downloaded;
         _loading = false;
         if (_horizontal) {
-          if (_pageCtrl != null) _pageCtrl!.jumpToPage(target);
+          // 切章节时重置 PageController（复用旧的会带旧章节的页码偏移）。
+          // 新 controller 尚未 attach，jumpToPage 需在帧回调中执行。
+          _pageCtrl?.dispose();
+          _pageCtrl = PageController(initialPage: target);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _pageCtrl?.jumpToPage(target);
+          });
         } else if (_scrollCtrl != null && _scrollCtrl!.hasClients) {
           final offset = _indexOffsetCache[target] ?? 0.0;
           _scrollCtrl!.jumpTo(offset);
@@ -194,17 +273,27 @@ class _ReaderPageState extends State<ReaderPage> {
     if (cached != null) return cached;
     final urls =
         await SourceManager.byId(widget.sourceId).chapterPics(chapterId);
+    if (_chapterPicCache.length >= _chapterPicCacheMax) {
+      // 容量到顶：淘汰最旧一条，保持连读窗口内的章节不被清掉
+      final eldest = _chapterPicCache.keys.first;
+      _chapterPicCache.remove(eldest);
+    }
     _chapterPicCache[chapterId] = urls;
     return urls;
   }
 
   /// 沉浸式连读加速：预先拉取下一话的图片列表并预取前 2 页，连读时秒开。
+  /// 章末预取：剩余页数 ≤ 3 时预取下一话的图片列表和前 2 页字节，
+  /// 再在「下一话」过渡页上转成当前 chapterTitle 角标（连读时免白屏）。
   Future<void> _prefetchNextChapter() async {
+    final rem = _urls.length - _curPage;
+    if (rem > 3) return; // 离章末还远，不提前拉取
     if (!_canContinue) return;
     final next = widget.chapters[_chapterIndex + 1];
     if (_chapterPicCache.containsKey(next.id)) return;
     try {
       final urls = await _chapterUrls(next.id);
+      if (mounted) setState(() => _nextChapterTitle = next.title);
       // 预取下一话前 2 页图片字节（与 _prefetch 一致处理 JM 解扰）
       for (var i = 0; i < 2 && i < urls.length; i++) {
         final u = urls[i];
@@ -364,13 +453,18 @@ class _ReaderPageState extends State<ReaderPage> {
 
   Future<void> _download() async {
     if (_downloading || _urls.isEmpty) return;
+    DownloadManager.resetCancel();
     setState(() => _downloading = true);
     try {
+      final quality = await LocalStore.downloadQuality();
       final ok = await DownloadManager.downloadChapter(
         book: _book,
         chapterId: _activeChapterId,
         chapterTitle: _activeChapterTitle,
         urls: _urls,
+        quality: quality == 1
+            ? DownloadQuality.compact
+            : DownloadQuality.original,
         onProgress: (d, t) {
           if (!mounted) return;
           _downloadDone = d;
@@ -399,50 +493,71 @@ class _ReaderPageState extends State<ReaderPage> {
       // （顶部栏）收缩到极矮，导致 ListView 只有顶部一条、底部工具栏跑到顶部。
       // 用 SizedBox.expand 强制 Stack 铺满全屏。
       body: SizedBox.expand(
-        child: Stack(
-          children: [
-          Positioned.fill(child: _buildBody()),
-          // 亮度遮罩层（仅降级模式：桌面端/无权限时，用黑纱模拟亮度）
-          if (!_brightnessNative)
-            AnimatedOpacity(
-              duration: const Duration(milliseconds: 220),
-              opacity: (1.0 - _dim) * 0.75,
-              child: const ColoredBox(color: Colors.black),
-            ),
-          // 顶部工具栏（返回/标题/菜单）
-          _ReaderTopBar(
-            visible: _overlay,
-            title: _activeChapterTitle,
-            onBack: () {
-              HapticFeedback.selectionClick();
-              Navigator.maybePop(context);
-            },
-            onMenu: () => _showReaderSettings(),
-          ),
-          // 底部页码（横向翻页时显示 x / N，纵向整体显示 N 页）
-          _ReaderPageIndicator(
-            visible: _overlay && _horizontal,
-            label: _downloading && _downloadTotal > 0
-                ? '下载 $_downloadDone/$_downloadTotal'
-                : '${_curPage + 1} / ${_urls.length}',
-          ),
-          // 底部悬浮玻璃工具栏
-          _ReaderToolbar(
-            visible: _overlay,
-            downloaded: _downloaded,
-            horizontal: _horizontal,
-            onBrightness: () => _showReaderSettings(),
-            onCatalog: () => _showCatalog(),
-            onLayout: () {
-              setState(() => _horizontal = !_horizontal);
-              LocalStore.setHorizontalReader(_horizontal);
-            },
-            onDownload: _downloading ? null : _download,
-          ),
-        ],
-        ),
+        // Listener 放在 Stack 顶层：纵向模式下采集原始指针事件（不参与手势
+        // 竞技场）驱动双指缩放，横向模式不启用（已有 InteractiveViewer）。
+        child: !_horizontal
+            ? Listener(
+                onPointerDown: _onPinchPointerDown,
+                onPointerMove: _onPinchPointerMove,
+                onPointerUp: _onPinchPointerUp,
+                onPointerCancel: _onPinchPointerUp,
+                child: _buildReaderStack(),
+              )
+            : _buildReaderStack(),
       ),
     ),
+    );
+  }
+
+  /// 阅读器主体 Stack：正文 + 缩放遮罩 + 亮度遮罩 + 顶部/底部工具栏。
+  Widget _buildReaderStack() {
+    return Stack(
+      children: [
+        Positioned.fill(child: _buildBody()),
+        // 纵向模式双指缩放遮罩（放大当前页，覆盖在正文上方）
+        if (!_horizontal)
+          _buildVerticalZoomOverlay(Theme.of(context).colorScheme),
+        // 亮度遮罩层（仅降级模式：桌面端/无权限时，用黑纱模拟亮度）
+        if (!_brightnessNative)
+          AnimatedOpacity(
+            duration: const Duration(milliseconds: 220),
+            opacity: (1.0 - _dim) * 0.75,
+            child: const ColoredBox(color: Colors.black),
+          ),
+        // 顶部工具栏（返回/标题/菜单）
+        _ReaderTopBar(
+          visible: _overlay,
+          title: _activeChapterTitle,
+          onBack: () {
+            HapticFeedback.selectionClick();
+            Navigator.maybePop(context);
+          },
+          onMenu: () => _showReaderSettings(),
+        ),
+        // 底部页码（横向翻页时显示 x / N，纵向整体显示 N 页）
+        _ReaderPageIndicator(
+          visible: _overlay && _horizontal,
+          label: _downloading && _downloadTotal > 0
+              ? '下载 $_downloadDone/$_downloadTotal'
+              : '${_curPage + 1} / ${_urls.length}',
+        ),
+        // 底部悬浮玻璃工具栏
+        _ReaderToolbar(
+          visible: _overlay,
+          downloaded: _downloaded,
+          horizontal: _horizontal,
+          onBrightness: () => _showReaderSettings(),
+          onCatalog: () => _showCatalog(),
+          onLayout: () {
+            setState(() => _horizontal = !_horizontal);
+            LocalStore.setHorizontalReader(_horizontal);
+          },
+          onDownload: _downloading ? null : _download,
+          // 底部新增「下一章」：直接跳下一话，无需翻到章节末尾。
+          // 最后一章时传 null，按钮自动隐藏。
+          onNextChapter: _canContinue ? _continueToNextChapter : null,
+        ),
+      ],
     );
   }
 
@@ -457,6 +572,275 @@ class _ReaderPageState extends State<ReaderPage> {
     _hideTimer = Timer(const Duration(seconds: 3), () {
       if (mounted) setState(() => _overlay = false);
     });
+  }
+
+  // ─── 纵向模式双指缩放（raw pointer，不走手势竞技场）──────────────────────
+
+  /// 当前视口内正在展示的图片 url（纵向模式缩放对象）。
+  String _visibleImageUrl() {
+    if (_urls.isEmpty) return '';
+    final idx = _curPage.clamp(0, _urls.length - 1);
+    return _urls[idx];
+  }
+
+  void _onPinchPointerDown(PointerDownEvent e) {
+    // 只处理触屏/触控笔主按钮；鼠标右键菜单不受影响。
+    if (e.kind != PointerDeviceKind.touch &&
+        e.kind != PointerDeviceKind.stylus) {
+      return;
+    }
+    _pinchPointers[e.pointer] = e.localPosition;
+    if (_pinchPointers.length == 2) {
+      _pinching = true;
+      final pts = _pinchPointers.values.toList();
+      _pinchStartDist = (pts[0] - pts[1]).distance;
+      _pinchFocal = (pts[0] + pts[1]) / 2;
+      if (_pinchUrl.isEmpty) {
+        _pinchUrl = _visibleImageUrl();
+        // 两指间距 / 屏宽 ≈ 当前等效缩放：从该基线继续捏合
+        _pinchBaseScale = (_pinchStartDist /
+                max(MediaQuery.sizeOf(context).width, 1.0))
+            .clamp(1.0, 4.0);
+      } else {
+        _pinchBaseScale = _pinchScale <= 1.01 ? 1.0 : _pinchScale;
+      }
+    } else if (_pinchPointers.length == 1 && _pinchActive) {
+      // 放大态下重新落下单指 → 准备平移
+      _panId = e.pointer;
+      _panStartPos = e.localPosition;
+      _panStartOffset = _pinchOffset;
+      _pinchMoved = false;
+    }
+  }
+
+  void _onPinchPointerMove(PointerMoveEvent e) {
+    if (!_pinchPointers.containsKey(e.pointer)) return;
+    _pinchPointers[e.pointer] = e.localPosition;
+    if (_pinching && _pinchPointers.length == 2) {
+      final pts = _pinchPointers.values.toList();
+      final dist = (pts[0] - pts[1]).distance;
+      if (dist > 0 && _pinchStartDist > 0) {
+        setState(() {
+          _pinchScale = (_pinchBaseScale * dist / _pinchStartDist).clamp(1.0, 4.0);
+          _pinchFocal = (pts[0] + pts[1]) / 2;
+          _pinchOffset = _clampPinchOffset(_pinchOffset);
+        });
+      }
+    } else if (_pinchActive && e.pointer == _panId) {
+      final d = e.localPosition - _panStartPos;
+      if (d.distance > 8) _pinchMoved = true;
+      setState(() => _pinchOffset = _clampPinchOffset(_panStartOffset + d));
+    }
+  }
+
+  /// 放大态下限制平移范围：图片以 fitWidth 撑满宽度并等比缩放后，
+  /// 横向/纵向最多把多出的部分拖到边缘，不允许把内容拖出屏幕外。
+  Offset _clampPinchOffset(Offset o) {
+    final vw = MediaQuery.sizeOf(context).width;
+    final vh = MediaQuery.sizeOf(context).height;
+    // 缩放后内容尺寸（宽恒为视口宽，高按比例超出）
+    final s = _pinchScale;
+    final cw = vw * s;
+    final ch = vh * s; // fitWidth 下高也等比放大（近似，页高≈屏高时准确）
+    final maxX = (cw - vw) / 2;
+    final maxY = (ch - vh) / 2;
+    return Offset(
+      o.dx.clamp(-maxX, maxX),
+      o.dy.clamp(-maxY, maxY),
+    );
+  }
+
+  void _onPinchPointerUp(PointerEvent e) {
+    _pinchPointers.remove(e.pointer);
+    if (e.pointer == _panId) _panId = null;
+    if (_pinchPointers.length < 2) _pinching = false;
+    // 两指捏合中抬起一根：剩余单指接管平移（放大态下）
+    if (_pinchPointers.length == 1 && _pinchActive && _panId == null) {
+      _panId = _pinchPointers.keys.first;
+      _panStartPos = _pinchPointers.values.first;
+      _panStartOffset = _pinchOffset;
+      _pinchMoved = false;
+    }
+    // 轻点复位：放大态下单指按下后几乎未移动就抬起
+    if (_pinchPointers.isEmpty && _pinchActive) {
+      if (!_pinchMoved) _resetPinch();
+    } else if (_pinchPointers.isEmpty) {
+      // 全部手指抬起且未放大：清空状态，恢复列表滚动。
+      _pinchUrl = '';
+      _pinchOffset = Offset.zero;
+      _pinchFocal = Offset.zero;
+      setState(() {});
+    }
+  }
+
+  /// 复位缩放（轻点 / 切章时调用）。
+  void _resetPinch() {
+    setState(() {
+      _pinchScale = 1.0;
+      _pinchOffset = Offset.zero;
+      _pinchUrl = '';
+      _pinching = false;
+      _pinchMoved = false;
+    });
+  }
+
+  /// 纵向模式缩放遮罩：放大当前页（纯视觉，手势由顶层 Listener 采集）。
+  Widget _buildVerticalZoomOverlay(ColorScheme scheme) {
+    if (!_pinchActive) return const SizedBox.shrink();
+    return Positioned.fill(
+      child: ClipRect(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Transform(
+              transform: Matrix4.identity()
+                ..translateByDouble(_pinchOffset.dx, _pinchOffset.dy, 0.0, 1.0)
+                ..translateByDouble(_pinchFocal.dx, _pinchFocal.dy, 0.0, 1.0)
+                ..scaleByDouble(_pinchScale, _pinchScale, _pinchScale, 1.0)
+                ..translateByDouble(-_pinchFocal.dx, -_pinchFocal.dy, 0.0, 1.0),
+              child: SizedBox(
+                width: MediaQuery.sizeOf(context).width,
+                height: MediaQuery.sizeOf(context).height,
+                child: ColoredBox(
+                  color: Colors.black,
+                  child: _ImageView(
+                    _pinchUrl,
+                    pageIndex: 0,
+                    totalPages: 1,
+                    resLevel: _resLevel,
+                    sourceId: widget.sourceId,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 桌面右键菜单：目录 / 切换章节 / 设置 / 下载当前话。
+  /// 在阅读区任意位置右键弹出（onSecondaryTapDown 触发）。
+  void _showReaderMenu(Offset globalPos) {    _hideTimer?.cancel();
+    final scheme = Theme.of(context).colorScheme;
+    showMenu<_ReaderMenuAction>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+          globalPos.dx, globalPos.dy, globalPos.dx, globalPos.dy),
+      color: scheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.4)),
+      ),
+      items: [
+        PopupMenuItem(
+          value: _ReaderMenuAction.catalog,
+          child: ListTile(
+            leading: Icon(Icons.list_alt_rounded, size: 20),
+            title: const Text('目录', style: TextStyle(fontSize: 13.5)),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        if (widget.chapters.isNotEmpty)
+          PopupMenuItem(
+            value: _ReaderMenuAction.chapters,
+            child: ListTile(
+              leading: Icon(Icons.swap_horiz_rounded, size: 20),
+              title: const Text('切换章节', style: TextStyle(fontSize: 13.5)),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        PopupMenuItem(
+          value: _ReaderMenuAction.settings,
+          child: ListTile(
+            leading: Icon(Icons.tune_rounded, size: 20),
+            title: const Text('阅读设置', style: TextStyle(fontSize: 13.5)),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        if (!_downloading)
+          PopupMenuItem(
+            value: _ReaderMenuAction.download,
+            child: ListTile(
+              leading: Icon(Icons.download_rounded, size: 20),
+              title: Text(_downloaded ? '已下载' : '下载当前话',
+                  style: const TextStyle(fontSize: 13.5)),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        PopupMenuItem(
+          value: _ReaderMenuAction.bookmark,
+          child: ListTile(
+            leading: Icon(_bookmarked ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+                size: 20, color: _bookmarked ? Colors.amber : null),
+            title: Text(_bookmarked ? '取消书签' : '书签当前页',
+                style: const TextStyle(fontSize: 13.5)),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+      ],
+    ).then((action) {
+      if (action == null || !mounted) return;
+      switch (action) {
+        case _ReaderMenuAction.catalog:
+          _showCatalog();
+        case _ReaderMenuAction.chapters:
+          _showChapterList();
+        case _ReaderMenuAction.settings:
+          _showReaderSettings();
+        case _ReaderMenuAction.download:
+          if (!_downloading) _download();
+        case _ReaderMenuAction.bookmark:
+          _toggleBookmark();
+      }
+    });
+  }
+
+  /// 书签当前页（或取消）。仅横向模式有"当前页"概念；纵向模式标记当前章节。
+  bool _bookmarked = false;
+  void _toggleBookmark() async {
+    final s = widget.sourceId;
+    final c = widget.comicId;
+    final ch = _activeChapterId;
+    final page = _horizontal ? _curPage : 0; // 纵向整章标记，页固定 0
+    final all = await LocalStore.bookmarks();
+    final key = '$s::$c::$ch::$page';
+    if (_horizontal) {
+      if (all.any((b) => b.key == key)) {
+        await LocalStore.removeBookmark(s, c, ch, page);
+      } else {
+        await LocalStore.addBookmark(ComicBookmark(
+          book: _book, chapterId: ch, chapterTitle: _activeChapterTitle,
+          pageIndex: page, timestamp: DateTime.now().millisecondsSinceEpoch,
+        ));
+      }
+    } else {
+      // 纵向：章节级书签——该章已有任意页书签则整体取消
+      final match = all.where((b) => b.book.key == '$s::$c' && b.chapterId == ch).toList();
+      if (match.isEmpty) {
+        await LocalStore.addBookmark(ComicBookmark(
+          book: _book, chapterId: ch, chapterTitle: _activeChapterTitle,
+          pageIndex: 0, timestamp: DateTime.now().millisecondsSinceEpoch,
+        ));
+      } else {
+        for (final b in match) {
+          await LocalStore.removeBookmark(s, c, b.chapterId, b.pageIndex);
+        }
+      }
+    }
+    if (!mounted) return;
+    setState(() => _bookmarked = !_bookmarked);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(_bookmarked ? '已添加书签' : '已取消书签'),
+      behavior: SnackBarBehavior.floating,
+      width: 180,
+      duration: const Duration(milliseconds: 900),
+    ));
   }
 
   /// 阅读设置底部抽屉：亮度、夜间模式、翻页模式（对齐 S6）。
@@ -548,7 +932,11 @@ class _ReaderPageState extends State<ReaderPage> {
           Navigator.pop(context);
           setState(() => _curPage = i);
           if (_horizontal && _pageCtrl != null) {
-            _pageCtrl!.jumpToPage(i);
+            // controller 可能刚重建尚未 attach（切章节后立即开目录），
+            // 无 clients 时 jumpToPage 会抛异常，此时仅更新 _curPage。
+            if (_pageCtrl!.hasClients) {
+              _pageCtrl!.jumpToPage(i);
+            }
           } else {
             _scrollToIndex(i);
           }
@@ -672,6 +1060,13 @@ class _ReaderPageState extends State<ReaderPage> {
     final tapDt = now.difference(_lastTapTime).inMilliseconds;
     if (tapDt < _doubleTapMs && _lastTapPos != null &&
         (pos - _lastTapPos!).distance < _doubleTapDist) {
+      // 放大态下双击 = 复位缩放（纵向模式）
+      if (_pinchActive) {
+        _resetPinch();
+        _lastTapTime = DateTime.fromMillisecondsSinceEpoch(0);
+        _lastTapPos = null;
+        return;
+      }
       if (_touchLocked) {
         _toggleTouchLock();
       } else {
@@ -747,22 +1142,48 @@ class _ReaderPageState extends State<ReaderPage> {
     }
   }
 
+  /// 执行翻页动画并在完成后复位 _pageAnimating。
+  /// 动画被中断（如切章节 dispose controller）时 Future 会抛异常，
+  /// try/catch 保证标志一定能复位，避免后续翻页/点击被永久拒绝。
+  Future<void> _runPageAnim(Future<void> anim) async {
+    try {
+      await anim;
+    } catch (_) {
+      // 动画中断：不处理，兜底定时器会复位
+    }
+    _pageAnimating = false;
+  }
+
   void _prevPage() {
     _pageAnimating = true;
     if (_horizontal) {
       final c = _pageCtrl;
       if (c != null && c.hasClients) {
         final i = c.page?.round() ?? 0;
-        if (i > 0) c.animateToPage(i - 1, duration: const Duration(milliseconds: 240), curve: Curves.easeOut);
+        if (i > 0) {
+          _runPageAnim(c.animateToPage(i - 1,
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOut));
+        } else {
+          _pageAnimating = false;
+        }
+      } else {
+        _pageAnimating = false;
       }
     } else {
       final c = _scrollCtrl;
       if (c != null && c.hasClients) {
-        c.animateTo((c.offset - 400).clamp(0, c.position.maxScrollExtent),
-            duration: const Duration(milliseconds: 240), curve: Curves.easeOut);
+        _runPageAnim(c.animateTo(
+            (c.offset - 400).clamp(0, c.position.maxScrollExtent),
+            duration: const Duration(milliseconds: 240),
+            curve: Curves.easeOut));
+      } else {
+        _pageAnimating = false;
       }
     }
-    Future.delayed(const Duration(milliseconds: 280), () {
+    // 动画被中断（如切章节 dispose controller）时兜底复位，
+    // 避免 _pageAnimating 永久为 true 导致翻页/点击被拒绝。
+    Future.delayed(const Duration(milliseconds: 600), () {
       if (mounted) _pageAnimating = false;
     });
   }
@@ -774,29 +1195,46 @@ class _ReaderPageState extends State<ReaderPage> {
       if (c != null && c.hasClients) {
         final i = c.page?.round() ?? 0;
         if (i < (_urls.length + (_canContinue ? 1 : 0)) - 1) {
-          c.nextPage(duration: const Duration(milliseconds: 240), curve: Curves.easeOut);
+          _runPageAnim(c.nextPage(
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOut));
         } else if (_canContinue) {
+          _pageAnimating = false;
           _continueToNextChapter();
+        } else {
+          _pageAnimating = false;
         }
+      } else {
+        _pageAnimating = false;
       }
     } else {
       final c = _scrollCtrl;
       if (c != null && c.hasClients) {
         if ((_curPage >= _urls.length - 1) && _canContinue) {
+          _pageAnimating = false;
           _continueToNextChapter();
           return;
         }
-        c.animateTo((c.offset + 400).clamp(0, c.position.maxScrollExtent),
-            duration: const Duration(milliseconds: 240), curve: Curves.easeOut);
+        _runPageAnim(c.animateTo(
+            (c.offset + 400).clamp(0, c.position.maxScrollExtent),
+            duration: const Duration(milliseconds: 240),
+            curve: Curves.easeOut));
+      } else {
+        _pageAnimating = false;
       }
     }
-    Future.delayed(const Duration(milliseconds: 280), () {
+    // 动画被中断（如切章节 dispose controller）时兜底复位，
+    // 避免 _pageAnimating 永久为 true 导致翻页/点击被拒绝。
+    Future.delayed(const Duration(milliseconds: 600), () {
       if (mounted) _pageAnimating = false;
     });
   }
 
   @override
   void dispose() {
+    if (DesktopUi.isDesktopPlatform) {
+      HardwareKeyboard.instance.removeHandler(_keyHandler);
+    }
     WakelockPlus.disable(); // 退出阅读时恢复系统默认熄屏
     // 还原系统亮度
     if (_brightnessNative) {
@@ -819,7 +1257,9 @@ class _ReaderPageState extends State<ReaderPage> {
     final elapsed = _readWatch.elapsed.inSeconds;
     if (elapsed > 0) LocalStore.addReadingSeconds(elapsed);
     _pageCtrl?.dispose();
+    _pageCtrl = null;
     _scrollCtrl?.dispose();
+    _scrollCtrl = null;
     super.dispose();
   }
 
@@ -840,17 +1280,14 @@ class _ReaderPageState extends State<ReaderPage> {
       ));
     }
     if (_horizontal) {
-      _pageCtrl?.dispose();
-      final ctrl = PageController();
-      _pageCtrl = ctrl;
-      // 若续读页码 >0，先跳到对应页
-      if (widget.initialPage > 0 && _urls.isNotEmpty) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (_pageCtrl!.hasClients) {
-            _pageCtrl!.jumpToPage(
-                widget.initialPage.clamp(0, _urls.length - 1));
-          }
-        });
+      // PageController 只在首次/切章节时重建，避免每次 setState 重建
+      // 导致 PageView 重挂、翻页动画中断、页码跳变。
+      if (_pageCtrl == null) {
+        // 从纵向切到横向时以当前阅读页为初始页，避免被重置回第 0 页。
+        final start = widget.initialPage > 0
+            ? widget.initialPage.clamp(0, _urls.length - 1)
+            : _curPage.clamp(0, _urls.length - 1);
+        _pageCtrl = PageController(initialPage: start);
       }
       return Center(
         child: ConstrainedBox(
@@ -859,9 +1296,13 @@ class _ReaderPageState extends State<ReaderPage> {
           child: GestureDetector(
             behavior: HitTestBehavior.translucent,
             onTapDown: (d) => _onReaderTap(d.localPosition),
+            onSecondaryTapDown: (d) => _showReaderMenu(d.globalPosition),
             child: PageView.builder(
-              controller: ctrl,
+              controller: _pageCtrl,
               itemCount: _urls.length + (_canContinue ? 1 : 0),
+              // 翻页时预先保留前后页，避免滑动中销毁重建闪烁。
+              // keepAlive 已关闭（防 OOM），靠 cacheExtent 控制保留数量。
+              allowImplicitScrolling: true,
           onPageChanged: (idx) {
             _markScrolling();
             setState(() => _curPage = idx);
@@ -872,11 +1313,12 @@ class _ReaderPageState extends State<ReaderPage> {
               return;
             }
             _prefetch(idx + 1);
+            _prefetchNextChapter(); // 临近章末时预取下一话
           },
           itemBuilder: (c, i) {
             if (i >= _urls.length && _canContinue) {
               return _NextChapterFooter(
-                title: _nextChapter()?.title ?? '',
+                title: _nextChapterTitle ?? _nextChapter()?.title ?? '',
                 onTap: _continueToNextChapter,
               );
             }
@@ -889,11 +1331,14 @@ class _ReaderPageState extends State<ReaderPage> {
     ),
   );
   }
-    _scrollCtrl?.dispose();
-    final sctrl = ScrollController();
-    _scrollCtrl = sctrl;
+    // 纵向滚动：controller 同样只在首次/切章节时创建，避免位置丢失。
+    if (_scrollCtrl == null) {
+      final sctrl = ScrollController();
+      _scrollCtrl = sctrl;
+    }
     // 点击空白切换工具栏显隐。GestureDetector 放在 body 内层而非 Stack 顶层，
     // 否则会遮蔽顶部返回/底部工具栏按钮（hit test 自顶向下、命中即止）。
+    // 双指缩放由 Stack 顶层 Listener 采集原始指针事件驱动（不参与手势竞技场）。
     return Center(
       child: ConstrainedBox(
         constraints:
@@ -901,41 +1346,59 @@ class _ReaderPageState extends State<ReaderPage> {
         child: GestureDetector(
           behavior: HitTestBehavior.translucent,
           onTapDown: (d) => _onReaderTap(d.localPosition),
+          onSecondaryTapDown: (d) => _showReaderMenu(d.globalPosition),
           child: NotificationListener<ScrollNotification>(
-            onNotification: (n) {
-              if (n is ScrollStartNotification) {
-                _markScrolling();
-              } else if (n is ScrollEndNotification) {
-                _markScrollEnd();
-              }
-              return false;
-            },
-            child: ListView.builder(
-              controller: sctrl,
-              padding: EdgeInsets.zero,
-              // cacheExtent 在 Flutter 3.44 中已标记 deprecated（推荐 scrollCacheExtent），
-              // 但后者类型为 ScrollCacheExtent? 且未从 widgets 导出，
-              // widgets 层无法直接引用；此处保留旧 API 以维持构建通过。
-              cacheExtent: 900,
-              itemCount: _urls.length + (_canContinue ? 1 : 0),
-              itemBuilder: (c, i) {
-                if (i >= _urls.length && _canContinue) {
-                  return _NextChapterFooter(
-                    title: _nextChapter()?.title ?? '',
-                    onTap: _continueToNextChapter,
-                  );
+              onNotification: (n) {
+                if (n is ScrollStartNotification) {
+                  _markScrolling();
+                } else if (n is ScrollEndNotification) {
+                  _markScrollEnd();
+                } else if (n is ScrollUpdateNotification) {
+                  // 纵向模式：随滚动更新当前页索引（用于双指缩放的页面定位）
+                  final off = _scrollCtrl?.offset ?? 0.0;
+                  final visH = MediaQuery.sizeOf(context).height;
+                  var acc = 0.0;
+                  for (var k = 0; k < _layoutHeights.length; k++) {
+                    final h = _layoutHeights[k] ?? 0.0;
+                    acc += h;
+                    // 页顶已滚出视口且本页底仍可见 → 当前页
+                    if (off < acc && off + visH * 0.5 > acc - h) {
+                      final target = k;
+                      if (target != _curPage) {
+                        _curPage = target;
+                        _recordHistory();
+                        _prefetchNextChapter(); // 临近章末时预取下一话
+                      }
+                      break;
+                    }
+                  }
                 }
-                return _ImageView(_urls[i],
-                    pageIndex: i, totalPages: _urls.length, resLevel: _resLevel,
-                    onLayout: (h) => _observeLayout(i, h),
-                    sourceId: widget.sourceId);
+                return false;
               },
+              child: ListView.builder(
+                controller: _scrollCtrl,
+                padding: EdgeInsets.zero,
+                // 缓存前后各 900 逻辑像素高度的页面，保证快速回翻不重建。
+                scrollCacheExtent: const ScrollCacheExtent.pixels(900),
+                itemCount: _urls.length + (_canContinue ? 1 : 0),
+                itemBuilder: (c, i) {
+                  if (i >= _urls.length && _canContinue) {
+                    return _NextChapterFooter(
+                      title: _nextChapterTitle ?? _nextChapter()?.title ?? '',
+                      onTap: _continueToNextChapter,
+                    );
+                  }
+                  return _ImageView(_urls[i],
+                      pageIndex: i, totalPages: _urls.length, resLevel: _resLevel,
+                      onLayout: (h) => _observeLayout(i, h),
+                      sourceId: widget.sourceId);
+                },
+              ),
             ),
           ),
         ),
-      ),
-    );
-  }
+      );
+    }
 
   /// 是否可连读：当前章节在章节列表中且不是最后一话。
   bool get _canContinue => _chapterIndex >= 0 && _chapterIndex < widget.chapters.length - 1;
@@ -991,12 +1454,21 @@ class _ImageViewState extends State<_ImageView>
   bool _error = false;
   final GlobalKey _imgKey = GlobalKey();
 
+  /// 横向翻页：必须关闭 keepAlive——JM 长条图解码后单张可达数十 MB，
+  /// PageView 若把已读页全部保留在 Element 树中，翻十几页就 OOM 闪退。
+  /// 关闭后由 PageView 的 cacheExtent 保留前后有限页，翻走即销毁释放。
+  /// 纵向滚动：保留 keepAlive 但同样要防止无限累积——ListView 的
+  /// keepAlive 页面数受 cacheExtent(900px) 限制，超出即销毁，不会无限累积。
   @override
-  bool get wantKeepAlive => true;
+  bool get wantKeepAlive => !widget.horizontal;
 
   bool get _isJm => widget.sourceId == 'jm';
 
-  bool get _superResEnabled => widget.resLevel >= 2;
+  /// 是否启用超分。规则：
+  /// - 横向翻页禁用（每页提交到串行 Isolate 队列让低端机卡死，且 contain 视角放大有限）；
+  /// - JM 源禁用（图床已压缩，Lanczos-3 放大纯增开销、无观感收益，居中文本/网点反而更糊）。
+  bool get _superResEnabled =>
+      !widget.horizontal && !_isJm && widget.resLevel >= 2;
 
   FilterQuality _filterLevel() {
     switch (widget.resLevel) {
@@ -1085,6 +1557,7 @@ class _ImageViewState extends State<_ImageView>
           url: widget.url,
           fit: fit,
           filterQuality: _filterLevel(),
+          horizontal: widget.horizontal,
         ),
       );
     } else {
@@ -1096,6 +1569,7 @@ class _ImageViewState extends State<_ImageView>
           filterQuality: _filterLevel(),
           sourceId: widget.sourceId,
           superRes: _superResEnabled,
+          horizontal: widget.horizontal,
           onError: () {
             Future.microtask(() {
               if (mounted) setState(() => _error = true);
@@ -1127,8 +1601,12 @@ class _ImageViewState extends State<_ImageView>
             ),
           Expanded(
               child: InteractiveViewer(
-                minScale: 0.5,
+                minScale: 1.0,
                 maxScale: 4.0,
+                panEnabled: true,
+                scaleEnabled: true,
+                // 放大后可在页面内平移查看细节；缩放小于 1 无意义（横向本来就是 contain 适配）。
+                boundaryMargin: const EdgeInsets.all(80),
                 child: img,
               ),
             ),
@@ -1174,6 +1652,7 @@ class _CachedReaderImage extends StatefulWidget {
   final FilterQuality filterQuality;
   final String sourceId;
   final bool superRes;
+  final bool horizontal;
   final VoidCallback onError;
   const _CachedReaderImage({
     required this.url,
@@ -1181,6 +1660,7 @@ class _CachedReaderImage extends StatefulWidget {
     required this.filterQuality,
     required this.sourceId,
     required this.superRes,
+    this.horizontal = false,
     required this.onError,
   });
 
@@ -1193,8 +1673,10 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
   Uint8List? _bytes;
   bool _failed = false;
 
+  /// 与 _ImageView 一致：横向翻页关闭 keepAlive，翻走即销毁释放内存，
+  /// 避免长条图在 PageView 中累积导致 OOM。
   @override
-  bool get wantKeepAlive => true;
+  bool get wantKeepAlive => !widget.horizontal;
 
   @override
   void initState() {
@@ -1402,7 +1884,7 @@ class _ReaderPageIndicator extends StatelessWidget {
   }
 }
 
-/// 底部悬浮玻璃工具栏（S5：亮度 / 目录 / 翻页模式 / 下载）。
+/// 底部悬浮玻璃工具栏（S5：亮度 / 目录 / 翻页模式 / 下载 / 下一章）。
 class _ReaderToolbar extends StatelessWidget {
   final bool visible;
   final bool downloaded;
@@ -1411,6 +1893,8 @@ class _ReaderToolbar extends StatelessWidget {
   final VoidCallback onCatalog;
   final VoidCallback onLayout;
   final VoidCallback? onDownload;
+  /// 下一章回调；null = 已到最后一章（按钮置灰禁用）。
+  final VoidCallback? onNextChapter;
   const _ReaderToolbar({
     required this.visible,
     required this.downloaded,
@@ -1419,6 +1903,7 @@ class _ReaderToolbar extends StatelessWidget {
     required this.onCatalog,
     required this.onLayout,
     this.onDownload,
+    this.onNextChapter,
   });
 
   @override
@@ -1482,6 +1967,13 @@ class _ReaderToolbar extends StatelessWidget {
                         active: downloaded,
                         onTap: onDownload,
                       ),
+                      if (onNextChapter != null) ...[
+                        _sep(),
+                        _ToolBtn(
+                          icon: Icons.skip_next_rounded,
+                          onTap: onNextChapter,
+                        ),
+                      ],
                     ],
                   ),
                 ),

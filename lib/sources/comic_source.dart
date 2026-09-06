@@ -72,6 +72,9 @@ class ComicDetail {
   String? area;
   String? type;
   String? status;
+  /// 所属源 id。书架统一视图由 BookshelfStore 填充（存储里每本书自带 sourceId），
+  /// UI 直接用它定位源，不要用 comicId 全局反查——跨源同名 id 会取错源。
+  String? sourceId;
   ComicDetail(
     this.comic,
     this.chapters, {
@@ -80,6 +83,7 @@ class ComicDetail {
     this.area,
     this.type,
     this.status,
+    this.sourceId,
   });
 
   String get id => comic.id;

@@ -38,6 +38,9 @@ class _DetailPageState extends State<DetailPage> {
   bool _descending = false; // 章节倒序（最新在顶部）
   List<Chapter>? _sortedCache; // 按 _descending 缓存的章节列表
 
+  /// 正在打开章节（防止 await 历史记录期间连点并发 push 多个阅读器页）。
+  bool _openingChapter = false;
+
   static const double _heroHeight = 260;
 
   @override
@@ -747,6 +750,13 @@ class _DetailPageState extends State<DetailPage> {
 
   /// 批量下载选章弹窗：多选章节 → 批量下载。
   void _showBatchDownload() {
+    _loadCachedChapters().then((_) {
+      if (!mounted) return;
+      _openBatchDownloadSheet();
+    });
+  }
+
+  void _openBatchDownloadSheet() {
     final chapters = _sortedChapters();
     if (chapters.isEmpty) return;
     final selected = <int>{};
@@ -754,6 +764,19 @@ class _DetailPageState extends State<DetailPage> {
     var currentIdx = -1;
     var currentDone = 0;
     var currentTotal = 0;
+    var quality = DownloadQuality.original;
+    // 未下载章节的索引（全选只选这些；已下载的显示 ✓ 且不可勾选）
+    final selectableChapters = <int>[
+      for (var i = 0; i < chapters.length; i++)
+        if (!_cachedChapters.contains(chapters[i].id)) i,
+    ];
+    // 记住上次选择的画质档位
+    LocalStore.downloadQuality().then((v) {
+      if (!mounted) return;
+      setState(() => quality = v == 1
+          ? DownloadQuality.compact
+          : DownloadQuality.original);
+    });
     showResponsiveBottomSheet<void>(
       context: context,
       backgroundColor: Theme.of(context).colorScheme.surface,
@@ -790,18 +813,71 @@ class _DetailPageState extends State<DetailPage> {
                           )
                         else
                           TextButton(
-                            onPressed: () => setS(
-                                () => selected.length == chapters.length
-                                    ? selected.clear()
-                                    : selected.addAll(List.generate(
-                                        chapters.length, (i) => i))),
-                            child: Text(selected.length == chapters.length
+                            onPressed: () => setS(() {
+                              if (selected.length ==
+                                  selectableChapters.length) {
+                                selected.clear();
+                              } else {
+                                // 全选 = 选中所有「未下载」章节
+                                selected
+                                  ..clear()
+                                  ..addAll(selectableChapters);
+                              }
+                            }),
+                            child: Text(selected.length ==
+                                    selectableChapters.length
                                 ? '取消全选'
-                                : '全选'),
+                                : '全选未下载'),
                           ),
                       ],
                     ),
                   ),
+                  // 画质档位选择：原画（保真）/ 省空间（宽边压到 1080 重新编码）
+                  if (!downloading)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
+                      child: Row(
+                        children: [
+                          Text('画质',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: scheme.onSurface
+                                      .withValues(alpha: 0.6))),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: SegmentedButton<DownloadQuality>(
+                              segments: const [
+                                ButtonSegment(
+                                  value: DownloadQuality.original,
+                                  label: Text('原画',
+                                      style: TextStyle(fontSize: 12)),
+                                  icon: Icon(Icons.hd_rounded, size: 16),
+                                ),
+                                ButtonSegment(
+                                  value: DownloadQuality.compact,
+                                  label: Text('省空间',
+                                      style: TextStyle(fontSize: 12)),
+                                  icon: Icon(Icons.photo_size_select_small_rounded,
+                                      size: 16),
+                                ),
+                              ],
+                              selected: {quality},
+                              showSelectedIcon: false,
+                              style: ButtonStyle(
+                                visualDensity: VisualDensity.compact,
+                                textStyle: WidgetStatePropertyAll(
+                                    TextStyle(fontSize: 12)),
+                              ),
+                              onSelectionChanged: (s) {
+                                setS(() => quality = s.first);
+                                LocalStore.setDownloadQuality(
+                                    quality == DownloadQuality.compact ? 1 : 0);
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   if (downloading)
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -829,14 +905,22 @@ class _DetailPageState extends State<DetailPage> {
                       itemCount: chapters.length,
                       itemBuilder: (_, i) {
                         final ch = chapters[i];
+                        final downloaded = _cachedChapters.contains(ch.id);
                         final sel = selected.contains(i);
                         return CheckboxListTile(
-                          value: sel,
-                          enabled: !downloading,
+                          value: downloaded || sel,
+                          enabled: !downloading && !downloaded,
                           onChanged: (v) => setS(() =>
                               v == true ? selected.add(i) : selected.remove(i)),
                           title: Text(ch.title,
                               style: TextStyle(fontSize: 13)),
+                          subtitle: downloaded
+                              ? Text('已下载',
+                                  style: TextStyle(
+                                      fontSize: 11,
+                                      color: scheme.primary
+                                          .withValues(alpha: 0.7)))
+                              : null,
                           dense: true,
                         );
                       },
@@ -855,6 +939,7 @@ class _DetailPageState extends State<DetailPage> {
                                       .toList()
                                     ..sort();
                                   setS(() => downloading = true);
+                                  DownloadManager.resetCancel();
                                   final book = Bookmark(
                                     sourceId: widget.sourceId,
                                     comicId: _detail!.id,
@@ -865,6 +950,7 @@ class _DetailPageState extends State<DetailPage> {
                                   var fail = 0;
                                   String? firstErr;
                                   for (final idx in picks) {
+                                    if (DownloadManager.isCancelled) break;
                                     final ch = chapters[idx];
                                     setS(() {
                                       currentIdx = idx;
@@ -877,17 +963,19 @@ class _DetailPageState extends State<DetailPage> {
                                                   widget.sourceId)
                                               .chapterPics(ch.id);
                                       setS(() => currentTotal = urls.length);
-                                      await DownloadManager.downloadChapter(
+                                      final okCh = await DownloadManager
+                                          .downloadChapter(
                                         book: book,
                                         chapterId: ch.id,
                                         chapterTitle: ch.title,
                                         urls: urls,
+                                        quality: quality,
                                         onProgress: (d, t) => setS(() {
                                           currentDone = d;
                                           currentTotal = t;
                                         }),
                                       );
-                                      ok++;
+                                      if (okCh) ok++;
                                     } catch (e) {
                                       fail++;
                                       firstErr ??= e.toString();
@@ -1039,37 +1127,43 @@ class _DetailPageState extends State<DetailPage> {
   }
 
   Future<void> _openChapter(Chapter ch) async {
-    final historyMatch = await _historyForChapter(ch);
-    if (!mounted) return;
-    Navigator.push(
-      context,
-      PageRouteBuilder(
-        pageBuilder: (_, __, ___) => ReaderPage(
-          sourceId: widget.sourceId,
-          comicId: _detail!.id,
-          chapterId: ch.id,
-          title: ch.title,
-          comicName: _detail!.name,
-          comicPic: _detail!.pic ?? '',
-          comicAuthor: _detail!.author ?? '',
-          chapters: _detail!.chapters,
-          initialPage: historyMatch,
+    if (_openingChapter) return;
+    _openingChapter = true;
+    try {
+      final historyMatch = await _historyForChapter(ch);
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        PageRouteBuilder(
+          pageBuilder: (_, __, ___) => ReaderPage(
+            sourceId: widget.sourceId,
+            comicId: _detail!.id,
+            chapterId: ch.id,
+            title: ch.title,
+            comicName: _detail!.name,
+            comicPic: _detail!.pic ?? '',
+            comicAuthor: _detail!.author ?? '',
+            chapters: _detail!.chapters,
+            initialPage: historyMatch,
+          ),
+          transitionDuration: const Duration(milliseconds: 320),
+          transitionsBuilder: (_, anim, __, child) {
+            return FadeTransition(
+              opacity: anim,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, 0.05),
+                  end: Offset.zero,
+                ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOut)),
+                child: child,
+              ),
+            );
+          },
         ),
-        transitionDuration: const Duration(milliseconds: 320),
-        transitionsBuilder: (_, anim, __, child) {
-          return FadeTransition(
-            opacity: anim,
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(0, 0.05),
-                end: Offset.zero,
-              ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOut)),
-              child: child,
-            ),
-          );
-        },
-      ),
-    );
+      );
+    } finally {
+      _openingChapter = false;
+    }
   }
 
   /// 从历史记录里查当前章节最后读到的页码（无则 -1 从第一页开始）。

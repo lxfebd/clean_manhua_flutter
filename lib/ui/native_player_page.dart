@@ -82,6 +82,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 平板分栏右侧控制面板宽度（与 anime_player_page.dart 统一）。
   static const double _panelWidth = kPlayerPanelWidth;
 
+  /// 控制面板宽度：大屏（>=1200dp）加宽 80dp 容纳更多控件，窄平板保持默认。
+  static double _controlPanelWidth(BuildContext context) =>
+      Responsive.isLarge(context) ? _panelWidth + 80 : _panelWidth;
+
   // ── 播放状态 ────────────────────────────────
   Duration _pos = Duration.zero;
   Duration _dur = Duration.zero;
@@ -139,6 +143,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   double _gestureStartValue = 0;
   Duration _seekStart = Duration.zero;
   Duration _seekTarget = Duration.zero;
+  // 横滑拖拽 seek 时是否曾处于播放态（用于松手续播）
+  bool _pauseBeforeSeek = false;
   Timer? _hudTimer;
   bool _hudVisible = false;
   bool _boosting = false;
@@ -851,6 +857,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
 
   void _onHorizontalStart(DragStartDetails d) {
     if (_locked || _dur <= Duration.zero) return;
+    // 拖拽 seek 时暂停播放，松手自动续播（避免拖拽中画面跳变/声音噪声）
+    _pauseBeforeSeek = _playing;
+    if (_pauseBeforeSeek) _player?.pause();
     _gesture = _Gesture.seek;
     _seekStart = _pos;
     _seekTarget = _pos;
@@ -870,7 +879,12 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   }
 
   void _onHorizontalEnd(DragEndDetails d) {
-    if (_gesture == _Gesture.seek) _seekTo(_seekTarget);
+    if (_gesture == _Gesture.seek) {
+      _seekTo(_seekTarget);
+      // 拖拽前在播放 → 松手续播
+      if (_pauseBeforeSeek) _player?.play();
+    }
+    _pauseBeforeSeek = false;
     _hideHud();
   }
 
@@ -888,17 +902,35 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   }
 
   Offset _lastTapPos = Offset.zero;
+  // 连点 seek：800ms 内同侧再次双击，seek 幅度翻倍（Aniyomi 式连点快进）
+  DateTime _lastDoubleTapAt = DateTime.fromMillisecondsSinceEpoch(0);
+  int _tapSide = 0; // 0=无, 1=左(回退), 2=右(快进)
+  int _tapStreak = 0;
 
   void _onDoubleTap(Size size) {
     if (_locked) return;
     final x = _lastTapPos.dx;
-    if (x < size.width * 0.35) {
-      _seekBy(-10);
-    } else if (x > size.width * 0.65) {
-      _seekBy(10);
-    } else {
+    final now = DateTime.now();
+    final side = x < size.width * 0.35
+        ? 1
+        : (x > size.width * 0.65 ? 2 : 0);
+    if (side == 0) {
       _togglePlay();
+      _tapStreak = 0;
+      _tapSide = 0;
+      return;
     }
+    if (side == _tapSide &&
+        now.difference(_lastDoubleTapAt).inMilliseconds <= 800) {
+      _tapStreak++;
+    } else {
+      _tapStreak = 1;
+      _tapSide = side;
+    }
+    _lastDoubleTapAt = now;
+    // 连点累计幅度：第 1 次 10s，之后每次 +10s，上限 60s
+    final amount = (_tapStreak * 10).clamp(10, 60);
+    _seekBy(side == 1 ? -amount : amount);
   }
 
   @override
@@ -972,7 +1004,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                       ),
                     ),
                     Container(
-                      width: _panelWidth,
+                      width: _controlPanelWidth(context),
                       decoration: const BoxDecoration(
                         border: Border(
                           left:
@@ -1075,7 +1107,11 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           Positioned.fill(
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTapUp: (_) => _toggleControls(),
+              onTapUp: (_) {
+                _tapStreak = 0;
+                _tapSide = 0;
+                _toggleControls();
+              },
               onDoubleTapDown: (d) => _lastTapPos = d.localPosition,
               onDoubleTap: () => _onDoubleTap(size),
               onLongPressStart: (_) => _onLongPressStart(),
@@ -1365,6 +1401,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                 position: _pos,
                 duration: _dur,
                 buffered: _buffer,
+                enabled: !_locked,
                 onSeek: _seekTo,
                 onDragStateChanged: (v) {
                   setState(() => _draggingBar = v);
@@ -1419,6 +1456,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                 position: _pos,
                 duration: _dur,
                 buffered: _buffer,
+                enabled: !_locked,
                 onSeek: _seekTo,
                 onDragStateChanged: (v) {
                   setState(() => _draggingBar = v);
@@ -1999,6 +2037,46 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         const speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0];
         return SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
+            // 速览 chips：点选即生效，不用再翻到底部
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: speeds.map((s) {
+                final sel = _speed == s;
+                return InkWell(
+                  onTap: () {
+                    _setSpeed(s);
+                    setSheet(() {});
+                  },
+                  borderRadius: BorderRadius.circular(18),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 18, vertical: 9),
+                    decoration: BoxDecoration(
+                      color: sel
+                          ? PlayerColors.accent.withValues(alpha: 0.22)
+                          : Colors.white10,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: sel
+                            ? PlayerColors.accent
+                            : Colors.white24,
+                        width: sel ? 1.4 : 1,
+                      ),
+                    ),
+                    child: Text(
+                      '${_trimSpeed(s)}x',
+                      style: TextStyle(
+                        color: sel ? PlayerColors.accent : Colors.white,
+                        fontSize: 13,
+                        fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 14),
             ...speeds.map((s) => PanelOptionTile(
                   title: '${_trimSpeed(s)}x',
                   subtitle: s == 1.0 ? '正常速度' : null,

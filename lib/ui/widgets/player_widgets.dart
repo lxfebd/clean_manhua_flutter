@@ -35,6 +35,9 @@ class PlayerProgressBar extends StatefulWidget {
   final ValueChanged<Duration>? onDragUpdate;
   final ValueChanged<bool>? onDragStateChanged;
 
+  /// 是否可交互（播放器锁定时置 false，进度条仍显示但不响应拖动）。
+  final bool enabled;
+
   const PlayerProgressBar({
     super.key,
     required this.position,
@@ -43,6 +46,7 @@ class PlayerProgressBar extends StatefulWidget {
     required this.onSeek,
     this.onDragUpdate,
     this.onDragStateChanged,
+    this.enabled = true,
   });
 
   @override
@@ -78,23 +82,31 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, box) {
       final width = box.maxWidth;
+      final enabled = widget.enabled;
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTapDown: (d) {
-          _updateFromDx(d.localPosition.dx, width);
-          widget.onSeek(widget.duration * _dragValue);
-        },
-        onHorizontalDragStart: (d) {
-          setState(() => _dragging = true);
-          widget.onDragStateChanged?.call(true);
-          _updateFromDx(d.localPosition.dx, width);
-        },
-        onHorizontalDragUpdate: (d) => _updateFromDx(d.localPosition.dx, width),
-        onHorizontalDragEnd: (_) {
-          widget.onSeek(widget.duration * _dragValue);
-          setState(() => _dragging = false);
-          widget.onDragStateChanged?.call(false);
-        },
+        onTapDown: enabled
+            ? (d) {
+                _updateFromDx(d.localPosition.dx, width);
+                widget.onSeek(widget.duration * _dragValue);
+              }
+            : null,
+        onHorizontalDragStart: enabled
+            ? (d) {
+                setState(() => _dragging = true);
+                widget.onDragStateChanged?.call(true);
+                _updateFromDx(d.localPosition.dx, width);
+              }
+            : null,
+        onHorizontalDragUpdate:
+            enabled ? (d) => _updateFromDx(d.localPosition.dx, width) : null,
+        onHorizontalDragEnd: enabled
+            ? (_) {
+                widget.onSeek(widget.duration * _dragValue);
+                setState(() => _dragging = false);
+                widget.onDragStateChanged?.call(false);
+              }
+            : null,
         child: SizedBox(
           height: 26,
           child: CustomPaint(

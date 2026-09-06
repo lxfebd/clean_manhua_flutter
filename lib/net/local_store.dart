@@ -92,6 +92,42 @@ class HistoryEntry {
   String get key => book.key;
 }
 
+/// 手动书签：用户主动收藏漫画的某一页（区别于自动历史记录）。
+/// 同书可存多条（不同章节/页码），按时间倒序。
+class ComicBookmark {
+  final Bookmark book;
+  final String chapterId;
+  final String chapterTitle;
+  final int pageIndex;
+  final int timestamp;
+
+  const ComicBookmark({
+    required this.book,
+    required this.chapterId,
+    required this.chapterTitle,
+    required this.pageIndex,
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toMap() => {
+        ...book.toMap(),
+        'chapterId': chapterId,
+        'chapterTitle': chapterTitle,
+        'pageIndex': pageIndex,
+        'timestamp': timestamp,
+      };
+
+  factory ComicBookmark.fromMap(Map<String, dynamic> m) => ComicBookmark(
+        book: Bookmark.fromMap(m),
+        chapterId: (m['chapterId'] as String?) ?? '',
+        chapterTitle: (m['chapterTitle'] as String?) ?? '',
+        pageIndex: (m['pageIndex'] as num?)?.toInt() ?? 0,
+        timestamp: (m['timestamp'] as num?)?.toInt() ?? 0,
+      );
+
+  String get key => '${book.key}::$chapterId::$pageIndex';
+}
+
 /// 动画观看记录：记录看到哪部剧、哪一集、播到第几秒。
 class VideoRecord {
   /// 播放源 id（VideoSource.id）。
@@ -202,6 +238,11 @@ class DownloadRecord {
 class LocalStore {
   static Directory? _dir;
 
+  /// 每文件的串行写盘队列（文件名 -> 尾链）。
+  /// "读-改-写"复合操作（如 addReadingSeconds / recordHistory）并发时会互相覆盖，
+  /// 这里保证对同一文件的 writeAsString 严格依序执行。
+  static final Map<String, Future<void>> _writeQueues = {};
+
   /// 初始化（应用启动时调用一次）。
   static Future<void> init() async {
     await _dirAsync();
@@ -222,7 +263,15 @@ class LocalStore {
   }
 
   // ---- 通用读写 ----
-  static Future<void> _write(String name, Object data) async {
+  static Future<void> _write(String name, Object data) {
+    final prev = _writeQueues[name] ?? Future.value();
+    final next = prev.then((_) => _writeNow(name, data));
+    // 让队列保留链上的最后一个 future；忽略错误避免链断裂（错误已在 _writeNow 内部消化）
+    _writeQueues[name] = next.catchError((_) {});
+    return next;
+  }
+
+  static Future<void> _writeNow(String name, Object data) async {
     try {
       final f = await _fileAsync(name);
       final json = jsonEncode(data);
@@ -299,6 +348,40 @@ class LocalStore {
 
   static Future<void> clearHistory() async => _write('history', []);
 
+  // ---- 手动书签 ----
+  static Future<List<ComicBookmark>> bookmarks() async {
+    final list = (await _read('bookmarks') as List?) ?? [];
+    final out = list
+        .map((e) => ComicBookmark.fromMap(e as Map<String, dynamic>))
+        .toList();
+    out.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return out;
+  }
+
+  /// 新增一条书签（同书同章同页已存在则更新时间，避免重复）。
+  static Future<void> addBookmark(ComicBookmark b) async {
+    final list =
+        (await bookmarks()).where((x) => x.key != b.key).toList();
+    list.insert(0, b);
+    if (list.length > 500) list.removeRange(500, list.length);
+    await _write('bookmarks', list.map((e) => e.toMap()).toList());
+  }
+
+  /// 删除一条书签（同书同章同页）。
+  static Future<void> removeBookmark(
+      String sourceId, String comicId, String chapterId, int pageIndex) async {
+    final key = '$sourceId::$comicId::$chapterId::$pageIndex';
+    final list = (await bookmarks()).where((x) => x.key != key).toList();
+    await _write('bookmarks', list.map((e) => e.toMap()).toList());
+  }
+
+  /// 某书某章某页是否已加书签。
+  static Future<bool> isBookmarked(
+      String sourceId, String comicId, String chapterId, int pageIndex) async {
+    final key = '$sourceId::$comicId::$chapterId::$pageIndex';
+    return (await bookmarks()).any((x) => x.key == key);
+  }
+
   // ---- 动画观看记录 ----
   static Future<List<VideoRecord>> videoRecords() async {
     final list = (await _read('video_records') as List?) ?? [];
@@ -331,14 +414,7 @@ class LocalStore {
   static Future<int> themeId() async =>
       ((await _read('settings')) as Map?)?['themeId'] as int? ?? 0;
 
-  static Future<void> setThemeId(int v) async => _write('settings', {
-        'dark': await darkMode(),
-        'horizontal': await horizontalReader(),
-        'rtl': await rtlReader(),
-        'themeId': v,
-        'resLevel': await resLevel(),
-        'autoPageTurn': await autoPageTurn(),
-      });
+  static Future<void> setThemeId(int v) async => _updateSetting('themeId', v);
 
   static Future<bool> horizontalReader() async =>
       ((await _read('settings')) as Map?)?['horizontal'] as bool? ?? false;
@@ -350,49 +426,28 @@ class LocalStore {
   static Future<int> resLevel() async =>
       ((await _read('settings')) as Map?)?['resLevel'] as int? ?? 0;
 
-  static Future<void> setDarkMode(bool v) async => _write('settings', {
-        'dark': v,
-        'horizontal': await horizontalReader(),
-        'rtl': await rtlReader(),
-        'resLevel': await resLevel(),
-        'autoPageTurn': await autoPageTurn(),
-      });
+  /// 下载画质偏好（0=原画，1=省空间压缩）。由批量下载弹窗选择，跨会话记住。
+  static Future<int> downloadQuality() async =>
+      ((await _read('settings')) as Map?)?['downloadQuality'] as int? ?? 0;
 
-  static Future<void> setHorizontalReader(bool v) async => _write('settings', {
-        'dark': await darkMode(),
-        'horizontal': v,
-        'rtl': await rtlReader(),
-        'resLevel': await resLevel(),
-        'autoPageTurn': await autoPageTurn(),
-      });
+  static Future<void> setDownloadQuality(int v) async =>
+      _updateSetting('downloadQuality', v);
 
-  static Future<void> setRtlReader(bool v) async => _write('settings', {
-        'dark': await darkMode(),
-        'horizontal': await horizontalReader(),
-        'rtl': v,
-        'resLevel': await resLevel(),
-        'autoPageTurn': await autoPageTurn(),
-      });
+  static Future<void> setDarkMode(bool v) async => _updateSetting('dark', v);
 
-  static Future<void> setResLevel(int v) async => _write('settings', {
-        'dark': await darkMode(),
-        'horizontal': await horizontalReader(),
-        'rtl': await rtlReader(),
-        'resLevel': v,
-        'autoPageTurn': await autoPageTurn(),
-      });
+  static Future<void> setHorizontalReader(bool v) async =>
+      _updateSetting('horizontal', v);
+
+  static Future<void> setRtlReader(bool v) async => _updateSetting('rtl', v);
+
+  static Future<void> setResLevel(int v) async => _updateSetting('resLevel', v);
 
   /// 自动翻页间隔（秒）；0 = 关闭。
   static Future<int> autoPageTurn() async =>
       ((await _read('settings')) as Map?)?['autoPageTurn'] as int? ?? 0;
 
-  static Future<void> setAutoPageTurn(int seconds) async => _write('settings', {
-        'dark': await darkMode(),
-        'horizontal': await horizontalReader(),
-        'rtl': await rtlReader(),
-        'resLevel': await resLevel(),
-        'autoPageTurn': seconds,
-      });
+  static Future<void> setAutoPageTurn(int seconds) async =>
+      _updateSetting('autoPageTurn', seconds);
 
   /// 只更新单个设置键，其余设置保持不变（避免全量覆盖丢字段）。
   static Future<void> _updateSetting(String key, Object? value) async {
@@ -448,9 +503,15 @@ class LocalStore {
   static Future<void> addReadingSeconds(int seconds) async {
     if (seconds <= 0) return;
     final day = _todayKey();
-    final m = (await _read('reading_stats')) as Map? ?? {};
-    m[day] = ((m[day] as num?) ?? 0).toInt() + seconds;
-    await _write('reading_stats', m);
+    // 读-改-写放入写队列，避免 _flushStats 与 dispose flush 并发时互相覆盖丢秒数。
+    final prev = _writeQueues['reading_stats'] ?? Future.value();
+    final next = prev.then((_) async {
+      final m = (await _read('reading_stats')) as Map? ?? {};
+      m[day] = ((m[day] as num?) ?? 0).toInt() + seconds;
+      await _writeNow('reading_stats', m);
+    });
+    _writeQueues['reading_stats'] = next.catchError((_) {});
+    return next;
   }
 
   /// 读取某天的阅读秒数。

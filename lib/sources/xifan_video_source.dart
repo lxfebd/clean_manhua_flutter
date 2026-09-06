@@ -180,7 +180,9 @@ class XifanVideoSource implements VideoSource {
 
   // 直链缓存：播放页每次返回 moedot.net 的 302 签名直链，重复请求浪费。
   // 同一集缓存 30 分钟（约等于 pan.wo.cn 签名有效期），过期重新解析播放页。
+  // 最多保留 100 条，超限先清过期，仍超则移除最旧，防止长期追番内存只增不减。
   static final Map<String, _CachedUrl> _urlCache = {};
+  static const int _maxUrlCache = 100;
 
   @override
   Future<String> playUrl(String videoId, int season, int episode) async {
@@ -210,6 +212,18 @@ class XifanVideoSource implements VideoSource {
       throw Exception('稀饭：未找到播放直链');
     }
     final url = m.group(0)!;
+    // 超限清理：先清已过期，仍超则逐出最早的条目
+    if (_urlCache.length >= _maxUrlCache) {
+      _urlCache.removeWhere((_, c) => c.expired);
+    }
+    if (_urlCache.length >= _maxUrlCache) {
+      final oldest = _urlCache.entries
+          .toList()
+        ..sort((a, b) => a.value.fetched.compareTo(b.value.fetched));
+      for (var i = 0; i < oldest.length && _urlCache.length >= _maxUrlCache; i++) {
+        _urlCache.remove(oldest[i].key);
+      }
+    }
     _urlCache[key] = _CachedUrl(url);
     return url;
   }

@@ -36,6 +36,13 @@ class AgedMVideoSource implements VideoSource {
   static final RegExp _catalogCardRe = RegExp(
       r'<h[45][^>]*>\s*<a[^>]*href="[^"]*?/detail/(\d+)"[^>]*>\s*([^<]+?)\s*</a>',
       dotAll: true);
+  /// 目录页封面锚点：封面链接自带 title 属性，<img> 紧随其后。
+  /// data-original 是真实封面（src 字段才是全卡统一的占位图），
+  /// 锚定 "class=\"d-block\" title=" 防止跨卡片误配到下一张的封面。
+  static final RegExp _catalogCoverRe = RegExp(
+      r'<a href="(?:https?://(?:www\.)?agedm\.io)?/detail/(\d+)"'
+      r'\s+class="d-block"\s+title="([^"]*)"[^>]*>\s*<img[^>]*data-original="([^"]+)"',
+      dotAll: true);
   /// 目录页非标题链接（资源详情/在线播放等），解析时过滤
   static const _catalogNoise = {
     '资源详情', '在线播放', '继续播放', '播放', '详情', '展开', '收起'
@@ -58,19 +65,30 @@ class AgedMVideoSource implements VideoSource {
 
   @override
   Future<List<ComicItem>> listByCategory(String categoryId, int page) async {
-    // 首页仅精选分区、无分页；第 1 页用首页（真实封面）。
+    // 第 1 页 = 首页精选（真实封面） + 目录页第 1 页（去重合并）。
+    // 若第 1 页只返回精选而第 2 页从目录第 2 页起，目录第 1 页的条目会被跳过。
+    final out = <ComicItem>[];
+    final seen = <String>{};
     if (page == 1) {
-      final html =
-          await Net.get(_base, headers: const {'Cookie': 'adult=1'});
-      final home = _parseCards(html);
-      if (home.isNotEmpty) return home;
+      try {
+        final html =
+            await Net.get(_base, headers: const {'Cookie': 'adult=1'});
+        for (final it in _parseCards(html)) {
+          if (seen.add(it.id)) out.add(it);
+        }
+      } catch (_) {
+        // 首页失败不阻塞目录页数据
+      }
     }
     // 目录页支持翻页：categoryId 末段即页码（all-all-all-all-all-time-1），
     // 替换为当前 page 后请求 /catalog/ 分页列表，避免第 2 页起返回空。
     final cat = _pageCategory(categoryId, page);
     final html =
         await Net.get('$_base/catalog/$cat', headers: const {'Cookie': 'adult=1'});
-    return _parseCatalog(html);
+    for (final it in _parseCatalog(html)) {
+      if (seen.add(it.id)) out.add(it);
+    }
+    return out;
   }
 
   /// 替换 categoryId 末段页码为当前页：all-all-all-all-all-time-1 → ...-time-2
@@ -187,10 +205,19 @@ class AgedMVideoSource implements VideoSource {
     return out;
   }
 
-  /// 目录页解析：仅标题+ID（目录列表封面为通用占位图，不提取）。
+  /// 目录页解析：优先取封面锚点（真实封面 + title 属性标题），
+  /// 拿不到封面的条目回退到 h4/h5 标题解析（封面留空，UI 显示占位）。
   List<ComicItem> _parseCatalog(String html) {
     final out = <ComicItem>[];
     final seen = <String>{};
+    for (final m in _catalogCoverRe.allMatches(html)) {
+      final id = m.group(1)!;
+      if (!seen.add(id)) continue;
+      final raw = _unescape(m.group(2) ?? '').trim();
+      if (raw.isEmpty || _catalogNoise.contains(raw)) continue;
+      out.add(ComicItem(id, raw, _resolveCover(m.group(3)!)));
+    }
+    // 回退：无封面锚点的条目（结构变化时仍保住标题+ID）
     for (final m in _catalogCardRe.allMatches(html)) {
       final id = m.group(1)!;
       if (!seen.add(id)) continue;

@@ -40,8 +40,31 @@ class ImageSuperRes {
 
   static const int _maxSourceEdge = 1400;
 
+  /// 轻量预检：只解析图片文件头（不完整解码）判断长边是否值得超分。
+  /// 已清晰的图（长边 > 屏宽阈值）直接返回 null，避免把整图字节
+  /// 传进 Isolate 又原样返回的无谓开销（iOS 低端机尤其敏感）。
+  static Future<int?> maxEdgeOf(Uint8List bytes) async {
+    try {
+      final decoder = img.findDecoderForData(bytes);
+      if (decoder == null) return null;
+      final info = decoder.startDecode(bytes);
+      if (info == null) return null;
+      final w = info.width;
+      final h = info.height;
+      return w > h ? w : h;
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<Uint8List> upscale2x(Uint8List bytes,
       {int quality = 88}) async {
+    // 预检：长边超过 _maxSourceEdge 的图原本就会在 Isolate 内短路返回，
+    // 这里提前拦下，省掉一次跨 Isolate 的整图字节传输。
+    try {
+      final edge = await maxEdgeOf(bytes);
+      if (edge != null && edge > _maxSourceEdge) return bytes;
+    } catch (_) {}
     await _acquire();
     try {
       return await compute(_upscaleEntry, _Args(bytes, quality, _maxSourceEdge))

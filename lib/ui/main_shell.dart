@@ -1,5 +1,4 @@
-import 'dart:io';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -66,7 +65,9 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
     if (!_shortcutsEnabled) return false;
 
     // Ctrl/Cmd + 数字键切换标签页
-    final isModifier = Platform.isMacOS
+    // 用 defaultTargetPlatform 而非 dart:io Platform：widget 测试里
+    // dart:io 恒报宿主平台，无法覆盖 macOS 分支。
+    final isModifier = defaultTargetPlatform == TargetPlatform.macOS
         ? HardwareKeyboard.instance.isMetaPressed
         : HardwareKeyboard.instance.isControlPressed;
 
