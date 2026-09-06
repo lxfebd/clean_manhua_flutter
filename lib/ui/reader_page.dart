@@ -85,6 +85,9 @@ class _ReaderPageState extends State<ReaderPage> {
   /// 当前章节索引（-1 表示不在章节列表中，不启用连读）。
   late int _chapterIndex;
 
+  /// 章末预取出的下一话标题（未预取到时为 null，过渡页回退到章节列表标题）。
+  String? _nextChapterTitle;
+
   /// 防误触：触摸锁、动画锁、二次返回退出
   bool _touchLocked = false; // 用户主动锁定触控（躺卧阅读）
   bool _pageAnimating = false; // 翻页动画进行中
@@ -206,6 +209,7 @@ class _ReaderPageState extends State<ReaderPage> {
       {int startPage = 0}) async {
     _hideTimer?.cancel();
     _resetPinch();
+    _nextChapterTitle = null; // 换章后旧预取标题失效，重新按需拉取
     if (mounted) {
       setState(() {
         _loading = true;
@@ -269,12 +273,17 @@ class _ReaderPageState extends State<ReaderPage> {
   }
 
   /// 沉浸式连读加速：预先拉取下一话的图片列表并预取前 2 页，连读时秒开。
+  /// 章末预取：剩余页数 ≤ 3 时预取下一话的图片列表和前 2 页字节，
+  /// 再在「下一话」过渡页上转成当前 chapterTitle 角标（连读时免白屏）。
   Future<void> _prefetchNextChapter() async {
+    final rem = _urls.length - _curPage;
+    if (rem > 3) return; // 离章末还远，不提前拉取
     if (!_canContinue) return;
     final next = widget.chapters[_chapterIndex + 1];
     if (_chapterPicCache.containsKey(next.id)) return;
     try {
       final urls = await _chapterUrls(next.id);
+      if (mounted) setState(() => _nextChapterTitle = next.title);
       // 预取下一话前 2 页图片字节（与 _prefetch 一致处理 JM 解扰）
       for (var i = 0; i < 2 && i < urls.length; i++) {
         final u = urls[i];
@@ -1294,11 +1303,12 @@ class _ReaderPageState extends State<ReaderPage> {
               return;
             }
             _prefetch(idx + 1);
+            _prefetchNextChapter(); // 临近章末时预取下一话
           },
           itemBuilder: (c, i) {
             if (i >= _urls.length && _canContinue) {
               return _NextChapterFooter(
-                title: _nextChapter()?.title ?? '',
+                title: _nextChapterTitle ?? _nextChapter()?.title ?? '',
                 onTap: _continueToNextChapter,
               );
             }
@@ -1347,6 +1357,7 @@ class _ReaderPageState extends State<ReaderPage> {
                       if (target != _curPage) {
                         _curPage = target;
                         _recordHistory();
+                        _prefetchNextChapter(); // 临近章末时预取下一话
                       }
                       break;
                     }
@@ -1366,7 +1377,7 @@ class _ReaderPageState extends State<ReaderPage> {
                 itemBuilder: (c, i) {
                   if (i >= _urls.length && _canContinue) {
                     return _NextChapterFooter(
-                      title: _nextChapter()?.title ?? '',
+                      title: _nextChapterTitle ?? _nextChapter()?.title ?? '',
                       onTap: _continueToNextChapter,
                     );
                   }
