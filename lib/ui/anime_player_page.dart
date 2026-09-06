@@ -246,6 +246,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   /// （Anime4K 超分 + 硬解），仅在拿到真实 m3u8/mp4 直链时生效。
   Future<void> _onVideoSrcCaptured(String src) async {
     if (src.isEmpty || !isDirectMediaUrl(src)) return;
+    // blob URL 是页面内 WASM 解密出的 MSE 流，原生播放器取不到字节，
+    // 无法直接播放；保留 WebView 走网页播放器（AGE 等源）。
+    if (src.startsWith('blob:')) return;
     // Anime1 的 CDN 直链（.v.anime1.me）需携带签名 Cookie(h/p/e) 才能访问，
     // 原生播放器无法携带 Cookie，保留 WebView 由站点播放器播放（同域自动带）。
     if (widget.sourceId == 'anime1' && src.contains('anime1.me')) return;
@@ -355,6 +358,19 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     _videoPollTimer?.cancel();
     _videoPollTimer = Timer.periodic(const Duration(milliseconds: 900), (_) async {
       if (!mounted) return;
+      // 1) 播完检测：video.ended → 自动切下一集
+      if (!_autoNextFired && _hasNext) {
+        String ended = '';
+        try {
+          ended = (await _evalJs(_autoNextJs)) ?? '';
+        } catch (_) {}
+        if (ended == 'ENDED') {
+          _autoNextFired = true; // 去重：切集前置位，防止轮询重复触发
+          _goToAdjacent(1);
+          return;
+        }
+      }
+      // 2) 直链捕获：解析到视频 src → 交原生播放器
       String? src;
       try {
         final r = await _evalJs(_videoPollJs);
@@ -595,6 +611,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     final resolver = widget.resolveUrl;
     if (resolver == null) return;
     if (!mounted) return;
+    _autoNextFired = false; // 新一集允许重新自动连播
     setState(() {
       _curSeason = season;
       _curEpisode = episode;
@@ -945,6 +962,25 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       _controller.reload();
     }
   }
+
+  /// 巡逻已注入的 video 是否播完（ended 监听），播完且有下一集 → 切集。
+  /// 放轮询里做：页面每次加载/重载后 JS 都会重挂，且不用等事件冒泡。
+  static const String _autoNextJs = '''
+    (function(){
+      var v = (function(doc){
+        var v = doc && doc.querySelector('video');
+        if (v) return v;
+        var f = doc && doc.querySelector('iframe');
+        if (f) { try { return f.contentDocument ? f.contentDocument.querySelector('video') : null; } catch(e){} }
+        return null;
+      })(document);
+      if (!v) return '';
+      return v.ended ? 'ENDED' : '';
+    })()
+  ''';
+
+  /// 在轮询回调里检测播完状态；触发后去重，避免每秒重复切集。
+  bool _autoNextFired = false;
 
   /// 统一全屏入口：无论用户点击页面内任何位置进入全屏，
   /// 都转成 app 级横屏全屏（而非 WebView 自带的竖屏全屏），

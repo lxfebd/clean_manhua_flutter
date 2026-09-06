@@ -73,7 +73,11 @@ class _ReaderPageState extends State<ReaderPage> {
   Timer? _autoPageTimer;
 
   /// 章节图片列表缓存：key=chapterId，已加载/预取的章节直接用，避免连读重复拉取。
+  /// 连读时缓存的章节图片列表（避免重复打开免网络请求）。
+  /// 章末预取会把整话 URL 列表拉进来，连读几十话时只增不减，
+  /// 加上限防无限增长：超过 40 话时淘汰最旧（LinkedHashMap 迭代序 = 插入序）。
   final Map<String, List<String>> _chapterPicCache = {};
+  static const int _chapterPicCacheMax = 40;
 
   /// 阅读时长统计：累计本次阅读秒数，每 5s flush 一次。
   final Stopwatch _readWatch = Stopwatch();
@@ -268,6 +272,11 @@ class _ReaderPageState extends State<ReaderPage> {
     if (cached != null) return cached;
     final urls =
         await SourceManager.byId(widget.sourceId).chapterPics(chapterId);
+    if (_chapterPicCache.length >= _chapterPicCacheMax) {
+      // 容量到顶：淘汰最旧一条，保持连读窗口内的章节不被清掉
+      final eldest = _chapterPicCache.keys.first;
+      _chapterPicCache.remove(eldest);
+    }
     _chapterPicCache[chapterId] = urls;
     return urls;
   }

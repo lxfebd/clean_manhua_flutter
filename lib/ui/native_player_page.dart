@@ -1401,6 +1401,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                 position: _pos,
                 duration: _dur,
                 buffered: _buffer,
+                enabled: !_locked,
                 onSeek: _seekTo,
                 onDragStateChanged: (v) {
                   setState(() => _draggingBar = v);
@@ -1455,6 +1456,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                 position: _pos,
                 duration: _dur,
                 buffered: _buffer,
+                enabled: !_locked,
                 onSeek: _seekTo,
                 onDragStateChanged: (v) {
                   setState(() => _draggingBar = v);
