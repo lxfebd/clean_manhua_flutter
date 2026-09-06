@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
@@ -119,13 +120,41 @@ class JmScramble {
     return descramble(args[0] as Uint8List, args[1] as String);
   }
 
+  /// 解扰互斥锁：预取 3 页会并发 spawn 3 个 Isolate 跑纯 Dart 解码+重编码，
+  /// 低端机滑动时多个 Isolate 并发抢占 CPU 反而更卡。串行化让它们排队执行。
+  static Completer<void>? _mutex;
+
+  static Future<void> _acquire() async {
+    while (_mutex != null) {
+      try {
+        await _mutex!.future.timeout(const Duration(seconds: 30));
+      } catch (_) {
+        break; // 超时强制释放，防 Isolate 异常导致锁永不释放
+      }
+    }
+    _mutex = Completer<void>();
+  }
+
+  static void _release() {
+    final m = _mutex;
+    _mutex = null;
+    m?.complete();
+  }
+
   /// 在独立 Isolate 中执行解扰，避免 200-800ms 的 CPU 密集操作阻塞 UI 线程。
   /// 若 [bytes] 无需还原（aid < 220980 或解析失败），原样返回。
-  static Future<Uint8List> descrambleAsync(Uint8List bytes, String url) {
+  /// 全局串行化：多页并发解扰在低端机上会挤占 UI 线程，排队更顺滑。
+  static Future<Uint8List> descrambleAsync(Uint8List bytes, String url) async {
     final aid = parseAid(url);
-    if (aid == null) return Future.value(bytes);
+    if (aid == null) return bytes;
     final num = getNum(aid, fileName(url));
-    if (num <= 1) return Future.value(bytes);
-    return compute(_descrambleEntry, <dynamic>[bytes, url]);
+    if (num <= 1) return bytes;
+    await _acquire();
+    try {
+      return await compute(_descrambleEntry, <dynamic>[bytes, url])
+          .timeout(const Duration(minutes: 2), onTimeout: () => bytes);
+    } finally {
+      _release();
+    }
   }
 }

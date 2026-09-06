@@ -32,7 +32,9 @@ class Anime1VideoSource implements VideoSource {
 
   /// 剧集页 URL 映射缓存：key=catId，value=episode(1 基) -> epId。
   /// detail() 解析后填充，playUrl 直接复用，避免重复拉取番剧页。
+  /// 上限 60 部，超限时移除最旧条目，避免无限增长占用内存。
   static final Map<String, Map<int, String>> _epIdCache = {};
+  static const int _maxEpIdEntries = 60;
 
   static final RegExp _epLinkRe = RegExp(
       r'href="(?:https?://(?:www\.)?anime1\.me)?/(\d+)"[^>]*>[^<]*\[(\d+)\][^<]*</a>');
@@ -172,6 +174,10 @@ class Anime1VideoSource implements VideoSource {
       }
     }
     episodes.sort((a, b) => a.episode.compareTo(b.episode));
+    // 超限移除最旧条目（Map 迭代序 = 插入序），保证缓存有界
+    if (_epIdCache.length >= _maxEpIdEntries) {
+      _epIdCache.remove(_epIdCache.keys.first);
+    }
     _epIdCache[catId] = epId;
 
     // 用目录元信息补全年份/类型/季度

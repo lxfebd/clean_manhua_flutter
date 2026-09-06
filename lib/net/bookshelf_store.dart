@@ -14,6 +14,9 @@ class BookshelfStore {
   static Map<String, dynamic> _cache = {};
   static Timer? _saveTimer;
   static Map<String, String> _idIndex = {};
+  /// 串行写盘队列：防抖触发后只允许一个 writeAsString 在途，
+  /// 连点收藏/移出时不会并发写坏文件。
+  static Future<void> _writeTail = Future.value();
 
   static void bindFile(File file) {
     _file = file;
@@ -55,13 +58,14 @@ class BookshelfStore {
   }
 
   /// 防抖异步写盘：300ms 内多次调用合并为一次写入。
+  /// 写入通过 [_writeTail] 串行排队，杜绝并发 writeAsString 交错。
   static void _save() {
     _saveTimer?.cancel();
     _saveTimer = Timer(const Duration(milliseconds: 300), () {
       final f = _file;
       if (f == null) return;
       final snapshot = jsonEncode(_cache);
-      _writeAsync(f, snapshot);
+      _writeTail = _writeTail.then((_) => _writeAsync(f, snapshot));
     });
   }
 
@@ -231,6 +235,7 @@ class BookshelfStore {
       chapters,
       author: (m['author'] as String?) ?? '',
       description: (m['description'] as String?) ?? '',
+      sourceId: (m['sourceId'] as String?) ?? '',
     );
   }
 }

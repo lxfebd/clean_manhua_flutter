@@ -30,6 +30,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
   String _categoryId = '';
   String _keyword = '';
   String? _error;
+
   final _scrollCtrl = ScrollController();
   final _searchCtrl = TextEditingController();
   late VideoSource _source;
@@ -639,7 +640,12 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
     );
   }
 
+  /// 正在打开详情（防止 detail 请求期间重复点击并发 push 多个选集页）。
+  String? _openingId;
+
   void _openDetail(ComicItem it) async {
+    if (_openingId != null) return;
+    _openingId = it.id;
     HapticFeedback.selectionClick();
     final source = _source;
     try {
@@ -656,6 +662,8 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
           SnackBar(content: Text('打开失败：$e')),
         );
       }
+    } finally {
+      _openingId = null;
     }
   }
 

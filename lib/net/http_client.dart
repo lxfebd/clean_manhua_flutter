@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -5,6 +6,15 @@ import 'package:cronet_http/cronet_http.dart' as cronet;
 import 'package:http/http.dart' as http;
 
 import 'local_store.dart';
+
+/// 带状态码的 HTTP 异常：让重试逻辑能区分 5xx/429（可重试）与 4xx（不可重试）。
+class HttpStatusException implements Exception {
+  final int statusCode;
+  final String body;
+  HttpStatusException(this.statusCode, this.body);
+  @override
+  String toString() => 'HTTP $statusCode: $body';
+}
 
 /// 零第三方依赖 HTTP 客户端（基于 dart:io HttpClient）。
 /// 注意：类名用 Net，避免与 dart:io 的 HttpClient 冲突。
@@ -110,8 +120,32 @@ class Net {
   }
 
   /// GET 请求，返回响应体字符串（UTF-8）。
+  /// 瞬态失败（超时/连接重置/5xx/429）自动重试 1 次（指数退避 600ms），
+  /// 解决部分源站（如 xbiquge）间歇性超时/连接被重置导致的假性失败。
+  /// 4xx 与确定性失败不重试，避免拖长错误反馈。
   static Future<String> get(String urlStr,
       {Map<String, String>? headers, Duration? timeout}) async {
+    try {
+      return await _getOnce(urlStr, headers, timeout);
+    } catch (e) {
+      if (!_retryable(e)) rethrow;
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      return _getOnce(urlStr, headers, timeout);
+    }
+  }
+
+  /// 判断异常是否值得重试：网络层瞬态错误或服务器端错误。
+  static bool _retryable(Object e) {
+    if (e is HttpStatusException) {
+      return e.statusCode >= 500 || e.statusCode == 429;
+    }
+    return e is SocketException ||
+        e is TimeoutException ||
+        e is HandshakeException;
+  }
+
+  static Future<String> _getOnce(String urlStr, Map<String, String>? headers,
+      Duration? timeout) async {
     final t = timeout ?? _timeout;
     final client = _client(Uri.parse(urlStr).host);
     try {
@@ -236,9 +270,10 @@ class Net {
   /// 读取响应字节，自动处理 gzip/deflate 压缩。
   static Future<List<int>> _readBytes(HttpClientResponse res, Duration t) async {
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      // 读取错误体用于抛出
+      // 读取错误体用于抛出（带状态码，供重试逻辑判断可重试性）
       final errBytes = await res.fold<List<int>>(<int>[], (a, b) => a..addAll(b)).timeout(t);
-      throw Exception('HTTP ${res.statusCode}: ${utf8.decode(errBytes, allowMalformed: true)}');
+      throw HttpStatusException(
+          res.statusCode, utf8.decode(errBytes, allowMalformed: true));
     }
     final enc = res.headers.value('Content-Encoding') ?? '';
     if (enc.contains('gzip')) {

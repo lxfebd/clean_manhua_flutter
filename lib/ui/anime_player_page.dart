@@ -257,23 +257,30 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     _videoPollTimer?.cancel();
     // 用 pushReplacement 替换当前网页播放器，避免栈里叠两层播放器：
     // 选集页 → 网页播放器 → 原生播放器。返回时直接回到选集页。
-    Navigator.of(context).pushReplacement(MaterialPageRoute(
-      builder: (_) => NativePlayerPage(
-        url: src,
-        title: widget.title,
-        cover: widget.cover,
-        episodes: widget.episodes,
-        season: _curSeason,
-        episode: _curEpisode,
-        resolveUrl: widget.resolveUrl,
-        sourceNames: widget.sourceNames,
-        sourceId: widget.sourceId,
-        videoId: widget.videoId,
-        historyKey: widget.sourceId != null && widget.videoId != null
-            ? '${widget.sourceId}::$widget.videoId::$_curSeason-$_curEpisode'
-            : '${widget.title}::${_curSeason}_$_curEpisode',
+    // 用纯淡入转场：当前页是黑屏 loading，切到同为黑底的原生播放器
+    // 时几乎无感，不出现"先跳一个页面再跳一个页面"的闪烁。
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => NativePlayerPage(
+          url: src,
+          title: widget.title,
+          cover: widget.cover,
+          episodes: widget.episodes,
+          season: _curSeason,
+          episode: _curEpisode,
+          resolveUrl: widget.resolveUrl,
+          sourceNames: widget.sourceNames,
+          sourceId: widget.sourceId,
+          videoId: widget.videoId,
+          historyKey: widget.sourceId != null && widget.videoId != null
+              ? '${widget.sourceId}::$widget.videoId::$_curSeason-$_curEpisode'
+              : '${widget.title}::${_curSeason}_$_curEpisode',
+        ),
+        transitionDuration: const Duration(milliseconds: 260),
+        transitionsBuilder: (_, anim, __, child) =>
+            FadeTransition(opacity: anim, child: child),
       ),
-    ));
+    );
   }
 
   /// 监听 WebView 内 HTML5 video 的真实直链（m3u8/mp4/flv）。
@@ -609,7 +616,6 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   }
 
   @override
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
       // 降级页跟随应用主题；WebView 播放器保持纯黑影院底。
@@ -749,20 +755,25 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       final url = await resolver(season, episode);
       if (!mounted) return;
       if (isDirectMediaUrl(url)) {
-        Navigator.of(context).pushReplacement(MaterialPageRoute(
-          builder: (_) => NativePlayerPage(
-            url: url,
-            title: widget.title,
-            cover: widget.cover,
-            episodes: widget.episodes,
-            season: season,
-            episode: episode,
-            resolveUrl: widget.resolveUrl,
-            sourceNames: widget.sourceNames,
-            sourceId: widget.sourceId,
-            videoId: widget.videoId,
+        Navigator.of(context).pushReplacement(
+          PageRouteBuilder(
+            pageBuilder: (_, __, ___) => NativePlayerPage(
+              url: url,
+              title: widget.title,
+              cover: widget.cover,
+              episodes: widget.episodes,
+              season: season,
+              episode: episode,
+              resolveUrl: widget.resolveUrl,
+              sourceNames: widget.sourceNames,
+              sourceId: widget.sourceId,
+              videoId: widget.videoId,
+            ),
+            transitionDuration: const Duration(milliseconds: 260),
+            transitionsBuilder: (_, anim, __, child) =>
+                FadeTransition(opacity: anim, child: child),
           ),
-        ));
+        );
       } else {
         setState(() {
           _curSeason = season;
@@ -1798,6 +1809,7 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
       widget.source.playUrl(widget.detail.video.id, season, episode);
 
   Future<void> _play(int season, int episode, int idx) async {
+    if (_openingMsg != null) return;
     setState(() {
       _curSeason = season;
       _curEpisode = episode;
@@ -2008,7 +2020,7 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                 ],
                 const SizedBox(height: 12),
                 FilledButton.icon(
-                  onPressed: d.episodes.isEmpty
+                  onPressed: d.episodes.isEmpty || _openingMsg != null
                       ? null
                       : () {
                           final t = _playTarget();

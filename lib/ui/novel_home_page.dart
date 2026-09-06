@@ -253,7 +253,8 @@ class _NovelCard extends StatelessWidget {
   const _NovelCard({required this.item, required this.scheme, required this.onTap});
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    // HoverEffect 自带 hover 微缩放 + 点击（桌面悬停反馈，移动端无感知）。
+    return HoverEffect(
       onTap: onTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -283,7 +284,9 @@ class _ShelfCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
-        final sourceId = d.id.contains('|') ? d.id.split('|').first : '';
+        // 用条目自带的 sourceId 定位源（listAll 返回解包后的纯 id，
+        // 从 id 里拆复合 key 会解析成空串导致点不开书架）
+        final sourceId = d.sourceId ?? '';
         if (sourceId.isEmpty) return;
         Navigator.push(
           context,

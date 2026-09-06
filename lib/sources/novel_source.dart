@@ -81,6 +81,9 @@ class NovelDetail {
   String? area;
   String? type;
   String? status;
+  /// 所属源 id。书架统一视图由 NovelShelfStore 填充（存储里每本自带 sourceId），
+  /// UI 直接用它定位源，不要从 id 拆复合 key——listAll 返回的是解包后的纯 id。
+  String? sourceId;
   NovelDetail(
     this.comic,
     this.chapters, {
@@ -89,6 +92,7 @@ class NovelDetail {
     this.area,
     this.type,
     this.status,
+    this.sourceId,
   });
 
   String get id => comic.id;

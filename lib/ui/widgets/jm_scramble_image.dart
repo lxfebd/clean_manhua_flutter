@@ -10,12 +10,14 @@ class JmScrambleImageWidget extends StatefulWidget {
   final String url;
   final BoxFit fit;
   final FilterQuality filterQuality;
+  final bool horizontal;
 
   const JmScrambleImageWidget({
     super.key,
     required this.url,
     required this.fit,
     required this.filterQuality,
+    this.horizontal = false,
   });
 
   @override
@@ -131,12 +133,17 @@ class _JmScrambleImageWidgetState extends State<JmScrambleImageWidget> {
     }
     final dpr = MediaQuery.of(context).devicePixelRatio;
     final cw = (MediaQuery.sizeOf(context).width * dpr).toInt();
+    // 横向 contain：长条图在屏上只显示一屏高，按屏高限位解码，
+    // 避免整张按原始几千像素高解码导致 OOM 卡死。
+    final ch =
+        widget.horizontal ? (MediaQuery.sizeOf(context).height * dpr).toInt() : null;
     return Image.memory(
       _bytes!,
       width: double.infinity,
       fit: widget.fit,
       filterQuality: widget.filterQuality,
       cacheWidth: cw,
+      cacheHeight: ch,
       errorBuilder: (_, __, ___) => GestureDetector(
         onTap: _load,
         behavior: HitTestBehavior.opaque,

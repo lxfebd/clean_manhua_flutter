@@ -1,4 +1,3 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -269,6 +268,11 @@ class AppTheme {
         builders: {
           TargetPlatform.android: ZoomPageTransitionsBuilder(),
           TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          // 桌面平台（Windows/macOS/Linux）默认 Zoom 转场偏"缩放跳变"，
+          // 改为 FadeUpwards，导航更贴合桌面应用平顺切换的观感。
+          TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.macOS: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
         },
       ),
     );

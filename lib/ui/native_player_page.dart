@@ -82,6 +82,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 平板分栏右侧控制面板宽度（与 anime_player_page.dart 统一）。
   static const double _panelWidth = kPlayerPanelWidth;
 
+  /// 控制面板宽度：大屏（>=1200dp）加宽 80dp 容纳更多控件，窄平板保持默认。
+  static double _controlPanelWidth(BuildContext context) =>
+      Responsive.isLarge(context) ? _panelWidth + 80 : _panelWidth;
+
   // ── 播放状态 ────────────────────────────────
   Duration _pos = Duration.zero;
   Duration _dur = Duration.zero;
@@ -972,7 +976,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                       ),
                     ),
                     Container(
-                      width: _panelWidth,
+                      width: _controlPanelWidth(context),
                       decoration: const BoxDecoration(
                         border: Border(
                           left:

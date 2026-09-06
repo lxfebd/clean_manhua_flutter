@@ -4,6 +4,7 @@
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #endif
+#include <gdk-pixbuf/gdk-pixbuf.h>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -48,6 +49,27 @@ static void my_application_activate(GApplication* application) {
   }
 
   gtk_window_set_default_size(window, 1280, 720);
+
+  // 应用图标：从可执行文件同级的 data/icon_256.png 加载（dev/install 通用）。
+  g_autofree gchar* exe_path = g_file_read_link("/proc/self/exe", nullptr);
+  if (exe_path != nullptr) {
+    g_autofree gchar* exe_dir = g_path_get_dirname(exe_path);
+    g_autofree gchar* icon_path =
+        g_build_filename(exe_dir, "data", "icon_256.png", nullptr);
+    if (g_file_test(icon_path, G_FILE_TEST_EXISTS)) {
+      GError* err = nullptr;
+      GdkPixbuf* icon = gdk_pixbuf_new_from_file_at_scale(
+          icon_path, 256, 256, TRUE, &err);
+      if (icon != nullptr) {
+        gtk_window_set_icon(window, icon);
+        g_object_unref(icon);
+      } else {
+        g_warning("Failed to load window icon: %s", err->message);
+        g_error_free(err);
+      }
+    }
+  }
+
   gtk_widget_show(GTK_WIDGET(window));
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();

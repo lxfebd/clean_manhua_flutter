@@ -41,8 +41,13 @@ class VideoDownloadTask {
     this.headers = const {},
   }) : key = '$sourceId::$videoId::$season-$episode';
 
-  bool get isM3u8 =>
-      url.contains('.m3u8') || url.contains('.m3u8?') || url.contains('m3u8');
+  bool get isM3u8 {
+    final u = url;
+    // 用 URL 路径扩展名判断，避免把 /api/play?url=xxx 里恰好含 m3u8 的
+    // query 参数误判成流媒体（走 mp4 直链逻辑更稳）。
+    final path = u.contains('?') ? u.substring(0, u.indexOf('?')) : u;
+    return path.toLowerCase().endsWith('.m3u8');
+  }
 
   bool get isRunning => state == 'downloading';
 
@@ -109,6 +114,12 @@ class VideoDownloadManager {
   final Set<String> _canceled = {};
   final ValueNotifier<Map<String, VideoDownloadTask>> notifier =
       ValueNotifier(const {});
+
+  /// 同时进行的下载任务数上限：低端机多任务并发会耗尽磁盘 IO 与带宽，
+  /// 导致下载互相拖慢、进度跳动。超过上限的任务排队等待。
+  static const int _maxConcurrent = 2;
+  final Set<String> _queue = {};
+  final Set<String> _running = {};
 
   File _indexFile = File('');
   bool _ready = false;
@@ -183,16 +194,57 @@ class VideoDownloadManager {
       _canceled.remove(task.key);
       _tasks[task.key] = task;
     } else {
+      // 新建任务分支同样清理取消标记：删除任务后重新 start 同一集时，
+      // 若此前 cancel() 留下的标记未清，新任务会被误判为已取消（缺陷修复）。
+      _canceled.remove(task.key);
       _tasks[task.key] = task;
     }
     _notify();
     _persist();
-    unawaited(_run(task));
+    _schedule(task);
     return task;
+  }
+
+  /// 排队调度：在途任务未达上限则立即运行，否则进入等待队列。
+  /// 任务完成后由 [_run] 末尾的 [_drain] 拉起下一个排队任务。
+  void _schedule(VideoDownloadTask t) {
+    if (_running.length < _maxConcurrent) {
+      _running.add(t.key);
+      unawaited(_run(t));
+    } else {
+      _queue.add(t.key);
+    }
+  }
+
+  /// 任务结束时释放槽位，并启动下一个排队任务。
+  void _drain() {
+    if (_queue.isEmpty) return;
+    for (final k in _queue.toList()) {
+      if (_running.length >= _maxConcurrent) break;
+      if (_canceled.contains(k)) {
+        // 排队期间被取消：跳过，任务状态已在 cancel() 处理
+        _queue.remove(k);
+        continue;
+      }
+      _queue.remove(k);
+      _running.add(k);
+      final t = _tasks[k];
+      if (t != null) unawaited(_run(t));
+    }
   }
 
   void cancel(String key) {
     _canceled.add(key);
+    // 排队中的任务直接标记取消态（还未开始下载）
+    if (_queue.remove(key)) {
+      final t = _tasks[key];
+      if (t != null) {
+        t.state = 'canceled';
+        _notify();
+        _persist();
+      }
+    }
+    _drain();
   }
 
   /// 重试一个失败/已取消的任务。返回是否真的启动了重试。
@@ -213,7 +265,7 @@ class VideoDownloadManager {
     t.segmentsTotal = 0;
     t.localPath = null;
     _notify();
-    unawaited(_run(t));
+    _schedule(t);
     return true;
   }
 
@@ -221,7 +273,10 @@ class VideoDownloadManager {
   Future<bool> remove(String key) async {
     final t = _tasks.remove(key);
     if (t == null) return false;
-    _canceled.add(key);
+    // 从队列/在途集合移除，清理取消标记避免与后续重试同名任务串扰
+    _queue.remove(key);
+    _running.remove(key);
+    _canceled.remove(key);
     if (t.localPath != null) {
       try {
         final f = File(t.localPath!);
@@ -230,6 +285,7 @@ class VideoDownloadManager {
         debugPrint('删除下载文件失败 ${t.localPath}: $e');
       }
     }
+    _drain();
     _notify();
     _persist();
     return true;
@@ -253,8 +309,10 @@ class VideoDownloadManager {
       t.state = _canceled.contains(t.key) ? 'canceled' : 'failed';
       _cleanupPartFile(t);
     }
+    _running.remove(t.key);
     _notify();
     _persist();
+    _drain();
   }
 
   // ---------------- mp4 直链 ----------------
@@ -417,13 +475,19 @@ class VideoDownloadManager {
     return _M3u8Playlist(segments, keyUri, keyIvHex, mediaSeq, initSegment);
   }
 
+  /// 计算分片 IV。m3u8 协议规定：IV 不足 16 字节时右侧补零（RFC 8216）。
+  /// 早前实现直接截取前 16 字节，缩短 IV 时解密会错位，这里先解析后补零。
   Uint8List _segIv(String? hex, int mediaSeq) {
     if (hex != null && hex.isNotEmpty) {
-      final bytes = Uint8List(hex.length ~/ 2);
-      for (var i = 0; i < bytes.length; i++) {
-        bytes[i] = int.parse(hex.substring(i * 2, i * 2 + 2), radix: 16);
+      final iv = <int>[];
+      for (var i = 0; i + 1 < hex.length; i += 2) {
+        iv.add(int.tryParse(hex.substring(i, i + 2), radix: 16) ?? 0);
+        if (iv.length == 16) break; // 只要前 16 字节
       }
-      return bytes;
+      while (iv.length < 16) {
+        iv.add(0); // 右侧补零对齐 16 字节
+      }
+      return Uint8List.fromList(iv);
     }
     // 默认 IV = 媒体序号 big-endian 128 位（序号占低 64 位，与 ffmpeg AV_WB64 一致）
     final iv = Uint8List(16);
