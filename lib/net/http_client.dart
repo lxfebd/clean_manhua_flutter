@@ -292,7 +292,9 @@ class Net {
     try {
       final req = await _request(client, 'POST', Uri.parse(urlStr), headers);
       if (body != null) {
-        req.write(body);
+        // 显式 UTF-8：http 包默认按 platformEncoding 编码，中文 JSON body
+        // 会被错误编码（如弹幕匹配的"番名 第N集"）导致服务端拒绝
+        req.write(utf8.encode(body));
       }
       final res = await req.close().timeout(_timeout);
       final bytes = await _readBytes(res, _timeout);
@@ -310,7 +312,14 @@ class Net {
         await (method == 'POST' ? client.postUrl(uri) : client.getUrl(uri));
     req.headers.set('User-Agent', defaultUA);
     req.headers.set('Accept', '*/*');
-    headers?.forEach((k, v) => req.headers.set(k, v));
+    final h = <String, String>{...?headers};
+    if (method == 'POST' &&
+        (h['Content-Type'] ?? '').isNotEmpty &&
+        !h['Content-Type']!.toLowerCase().contains('charset')) {
+      // POST 与 JSON body 配套时补 UTF-8 声明，否则服务端按默认编码解析乱码
+      h['Content-Type'] = '${h['Content-Type']}; charset=utf-8';
+    }
+    h.forEach((k, v) => req.headers.set(k, v));
     return req;
   }
 
