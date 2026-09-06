@@ -4,6 +4,7 @@ import 'dart:math';
 import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -1378,10 +1379,7 @@ class _ReaderPageState extends State<ReaderPage> {
                 controller: _scrollCtrl,
                 padding: EdgeInsets.zero,
                 // 缓存前后各 900 逻辑像素高度的页面，保证快速回翻不重建。
-                // 注：Flutter 3.44 新增了 ScrollCacheExtent.pixels 封装，但本机 SDK
-                // 3.41.9 只有 double 形参；3.44 下传 double 仍可用（弃用仅为 info），
-                // 为兼容两端统一用 double。
-                cacheExtent: 900,
+                scrollCacheExtent: const ScrollCacheExtent.pixels(900),
                 itemCount: _urls.length + (_canContinue ? 1 : 0),
                 itemBuilder: (c, i) {
                   if (i >= _urls.length && _canContinue) {

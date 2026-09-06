@@ -39,6 +39,20 @@ flutter build apk --debug       # 全 ABI（含 x86_64，模拟器可跑）
 
 ## 更新日志
 
+### v1.4.1（2026-09-06）
+- 📚 **书架书签 Tab**：书架新增第 5 个 Tab「书签」（封面/书名/章节/页码/收藏时间），点击直达阅读器书签页；修复跨源同名作品的错源反查 bug（书架存储改自带 `sourceId`，移出删错书 / 打开进错源根治）
+- 🔍 **统一搜索双栏 + 分页**：≥840dp 左结果 + 右详情预览面板（封面/作者/类型/简介，悬停选中 + 打开/开始阅读按钮）；滚动到底自动加载下一页、所有启用源并发拉取、按 id 跨页去重，列表尾部「加载中/已经到底啦」
+- 🔎 **阅读器缩放**：纵向 webtoon 模式双指捏合 1~4x（以焦点为中心、单指平移、轻点复位、放大态双击复位）；横向模式 `InteractiveViewer` 补平移边界，缩放下限 1.0
+- ⬇️ **下载画质选择**：批量下载弹窗新增「原画 / 省空间」SegmentedButton（省空间档宽边 >1080 等比压缩重编码，解码失败原样落盘不中断），记忆上次选择，单话下载同样跟随；批量弹窗已下载章节标 ✓ 不可勾选，「全选」改「全选未下载」避免重下
+- ⏭️ **章末预取 + 跨章过渡页标题**：剩余 ≤3 页时预取下一话图片列表 + 前 2 页字节，连读过渡页显示下话标题不再白屏；章节图片 URL 缓存加上限 40 话防内存泄漏
+- 🎬 **播放器操作打磨**：双击连点 seek 幅度递增（10s→20s→…上限 60s）、横滑拖动中自动暂停+松手续播、倍速面板顶部速览 chips（0.5x–3x）点选即生效、锁定升级（锁定时进度条不再响应点按/拖动）
+- 🌐 **Web 兜底自动连播**：900ms 轮询检测播放结束（含 iframe 内 video）自动切下一集；修复 `blob:` 直链误投原生播放器导致黑屏（blob 流保留网页播放）
+- 🐛 **弹幕请求 UTF-8 编码修复**：dart:io 默认按 latin-1 编码 body 导致中文标题请求异常，改为显式 `utf8` + `charset=utf-8`（dandanplay 匹配请求从编码错误 → 外部 403 静默降级，不打断播放）
+- 🎨 **全平台图标统一**：项目徽章重绘 Windows ico（7 尺寸）/ iOS AppIcon（19 尺寸）/ macOS / Linux 窗口图标；Windows WebView2 兼容新版 MSVC（VS18/STL1011）编译
+- 🗂️ **播放入口防重入**：封面连点 / 选集连点 / 全部异步导航 push 双开防护（`_openingId` / `_openingMsg` guard）
+- 🖼️ **AGE 动漫目录页封面修复**：`data-original` 真实封面提取 + gimg `src` 参数解码，翻页断层修复
+- ⚙️ **兼容层**：Flutter 3.44 下 `CupertinoPageTransitionsBuilder` 补显式 import、`cacheExtent` → `ScrollCacheExtent.pixels`（analyze 0 issue）；CI tag 发布时把 Windows 电脑端打包 zip 挂到 Release
+
 ### v1.4.0（2026-09-04）
 - 📱 **手机/平板字号分档（TypeScale）**：手机（<600dp）保留设计稿原字号（display 19 / title 17 / micro 9），平板/桌面走桌面档（display 22 / title 17 / micro 11）；修复"改平板连带着手机字号一块放大"问题；新增 `test/design_tokens_test.dart` 设计 token 门禁（WCAG AA 对比度 + 字面量棘轮 + 两档字号守卫）
 - 🖥️ **桌面端窗口管理（Windows/macOS/Linux）**：window_manager 限定最小尺寸、记忆并恢复上次窗口位置/尺寸、窗口标题"星漫匣"
