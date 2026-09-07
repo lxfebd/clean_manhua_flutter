@@ -224,6 +224,8 @@ class _ReaderPageState extends State<ReaderPage> {
   }
 
   /// 桌面键盘处理：←/→/空格翻页（RTL 反转），Esc 切换工具栏。
+  /// 扩展：+/- 缩放、0 复位、B 书签、G 目录、C 章节、S 设置、L 放大镜、
+  /// Home/End 首尾页。
   bool _keyHandler(KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
     if (_loading || _pageAnimating) return false;
@@ -231,27 +233,130 @@ class _ReaderPageState extends State<ReaderPage> {
       setState(() => _overlay = !_overlay);
       return true;
     }
-    if (event.logicalKey == LogicalKeyboardKey.arrowLeft ||
-        event.logicalKey == LogicalKeyboardKey.space) {
-      // RTL：← 表示下一页
-      if (_rtl) {
-        _nextPage();
-      } else if (event.logicalKey == LogicalKeyboardKey.space) {
-        _nextPage();
-      } else {
-        _prevPage();
-      }
-      return true;
-    }
-    if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-      if (_rtl) {
-        _prevPage();
-      } else {
-        _nextPage();
-      }
-      return true;
+    switch (event.logicalKey) {
+      case LogicalKeyboardKey.arrowLeft:
+      case LogicalKeyboardKey.space:
+        // RTL：← 表示下一页
+        if (_rtl && event.logicalKey != LogicalKeyboardKey.space) {
+          _nextPage();
+        } else if (event.logicalKey == LogicalKeyboardKey.space) {
+          _nextPage();
+        } else {
+          _prevPage();
+        }
+        return true;
+      case LogicalKeyboardKey.arrowRight:
+        if (_rtl) {
+          _prevPage();
+        } else {
+          _nextPage();
+        }
+        return true;
+      case LogicalKeyboardKey.equal:
+      case LogicalKeyboardKey.numpadAdd:
+        _keyboardZoom(1);
+        return true;
+      case LogicalKeyboardKey.minus:
+      case LogicalKeyboardKey.numpadSubtract:
+        _keyboardZoom(-1);
+        return true;
+      case LogicalKeyboardKey.digit0:
+        _keyboardZoom(0);
+        return true;
+      case LogicalKeyboardKey.keyB:
+        _toggleBookmark();
+        return true;
+      case LogicalKeyboardKey.keyG:
+        _showCatalog();
+        return true;
+      case LogicalKeyboardKey.keyC:
+        if (widget.chapters.isNotEmpty) _showChapterList();
+        return true;
+      case LogicalKeyboardKey.keyS:
+        _showReaderSettings();
+        return true;
+      case LogicalKeyboardKey.keyL:
+        _toggleLoupe();
+        return true;
+      case LogicalKeyboardKey.home:
+        _jumpToEdge(true);
+        return true;
+      case LogicalKeyboardKey.end:
+        _jumpToEdge(false);
+        return true;
     }
     return false;
+  }
+
+  /// 键盘缩放：1 放大一档、-1 缩小一档、0 复位。纵向模式走双指缩放状态，
+  /// 横向模式退化到画质档位切换（放大镜/双指缩放仅纵向可用）。
+  void _keyboardZoom(int dir) {
+    if (!_horizontal) {
+      if (dir > 0) {
+        _pinchScale = (_pinchScale + 0.2).clamp(1.0, 3.0);
+        setState(() {});
+      } else if (dir < 0) {
+        _pinchScale = (_pinchScale - 0.2).clamp(1.0, 3.0);
+        setState(() {});
+      } else {
+        _pinchScale = 1.0;
+        setState(() {});
+      }
+      // 纵向变换矩阵以 _pinchActive（需 _pinchUrl 非空）为开关，
+      // 键盘缩放也要锚定当前可见图片，否则改了 _pinchScale 不生效。
+      if (_pinchUrl.isEmpty && _urls.isNotEmpty) {
+        _pinchUrl = _urls[_curPage.clamp(0, _urls.length - 1)];
+      }
+      return;
+    }
+    // 横向：无缩放状态，快捷键降级为画质档位（0=无,1=性能,2=质量）。
+    final v = (_resLevel + (dir > 0 ? 1 : (dir < 0 ? -1 : 0))).clamp(0, 2);
+    setState(() => _resLevel = v);
+    LocalStore.setResLevel(v);
+  }
+
+  /// 键盘 Home/End：跳到本章第一页 / 最后一页。
+  void _jumpToEdge(bool first) {
+    if (_horizontal) {
+      final c = _pageCtrl;
+      if (c != null && c.hasClients) {
+        final target = first ? 0 : (viewCountOf(_urls.length, _readerMode) - 1);
+        _runPageAnim(c.animateToPage(target,
+            duration: const Duration(milliseconds: 240),
+            curve: Curves.easeOut));
+      }
+    } else {
+      if (first) {
+        _scrollCtrl?.animateTo(0,
+            duration: const Duration(milliseconds: 240),
+            curve: Curves.easeOut);
+      } else {
+        final c = _scrollCtrl;
+        if (c != null && c.hasClients) {
+          c.animateTo(c.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOut);
+        }
+      }
+    }
+  }
+
+  /// 键盘 L：纵向模式开启/关闭放大镜；横向无放大镜概念，忽略。
+  void _toggleLoupe() {
+    if (_horizontal) return;
+    if (_loupeVisible) {
+      _cancelLoupe();
+    } else {
+      // 无真实触点：以屏幕中心为放大点。
+      final size = MediaQuery.of(context).size;
+      final center = Offset(size.width / 2, size.height / 2);
+      setState(() {
+        _loupePos = center;
+        _loupeAnchorPos = center;
+        _loupeUrl = _urls.isNotEmpty ? _urls[_curPage] : '';
+        _loupeVisible = _loupeUrl.isNotEmpty;
+      });
+    }
   }
 
   Future<void> _init() async {

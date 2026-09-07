@@ -743,6 +743,33 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   /// 空格 播放/暂停、←/→ ±10s、M 静音、F 全屏、Esc 返回。
   bool _keyHandler(KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
+    // 数字键：按百分比跳转（网页 video 无精确时长时用 0/50/100 三档，
+    // 有 duration 时按 10% 步进）。
+    // LogicalKeyboardKey 重写了 ==/hashCode，不能作 const map key。
+    final d = switch (event.logicalKey) {
+      LogicalKeyboardKey.digit0 => 0,
+      LogicalKeyboardKey.digit1 => 1,
+      LogicalKeyboardKey.digit2 => 2,
+      LogicalKeyboardKey.digit3 => 3,
+      LogicalKeyboardKey.digit4 => 4,
+      LogicalKeyboardKey.digit5 => 5,
+      LogicalKeyboardKey.digit6 => 6,
+      LogicalKeyboardKey.digit7 => 7,
+      LogicalKeyboardKey.digit8 => 8,
+      LogicalKeyboardKey.digit9 => 9,
+      _ => null,
+    };
+    if (d != null) {
+      _runJs('''
+        (function(){
+          var v = document.querySelector('video');
+          if(!v) return;
+          var dur = v.duration || 0;
+          v.currentTime = dur > 0 ? dur * $d / 10 : 0;
+        })();
+      ''');
+      return true;
+    }
     switch (event.logicalKey) {
       case LogicalKeyboardKey.space:
         _runJs('''
@@ -769,11 +796,39 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           })();
         ''');
         return true;
+      case LogicalKeyboardKey.arrowUp:
+        _runJs('''
+          (function(){
+            var v = document.querySelector('video');
+            if(v) v.volume = Math.min(1, (v.volume||0) + 0.1);
+          })();
+        ''');
+        return true;
+      case LogicalKeyboardKey.arrowDown:
+        _runJs('''
+          (function(){
+            var v = document.querySelector('video');
+            if(v) v.volume = Math.max(0, (v.volume||0) - 0.1);
+          })();
+        ''');
+        return true;
       case LogicalKeyboardKey.keyM:
         _toggleMute();
         return true;
       case LogicalKeyboardKey.keyF:
         _toggleFullscreen();
+        return true;
+      case LogicalKeyboardKey.keyN:
+        if (_hasNext) _goToAdjacent(1);
+        return true;
+      case LogicalKeyboardKey.keyP:
+        if (_hasPrev) _goToAdjacent(-1);
+        return true;
+      case LogicalKeyboardKey.bracketLeft:
+        _setSpeed((_speed - 0.25).clamp(0.25, 4.0));
+        return true;
+      case LogicalKeyboardKey.bracketRight:
+        _setSpeed((_speed + 0.25).clamp(0.25, 4.0));
         return true;
       case LogicalKeyboardKey.escape:
         Navigator.of(context).maybePop();

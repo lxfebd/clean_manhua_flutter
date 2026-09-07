@@ -56,6 +56,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   TtsPlayState _ttsState = TtsPlayState.idle;
   int _ttsRateIdx = 2; // NovelTtsService.rates 下标，默认 1.0x
   int _ttsSentence = -1; // 当前朗读中的段落下标（-1 = 未朗读）
+  bool _bookmarked = false; // 当前章是否已加书签（B 键/目录可切换）
 
   static const _themes = [
     (name: '跟随', bg: '0xFF111215', text: '0xFFE8EAF0', isDark: true),
@@ -75,10 +76,125 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     _loadSettings();
     _initTts();
     _load(widget.chapterId);
+    _initBookmark();
     // 桌面端键盘：←/→ 翻章、Esc 返回。仅桌面注册，避免移动端蓝牙键盘误触。
     if (DesktopUi.isDesktopPlatform) {
       HardwareKeyboard.instance.addHandler(_keyHandler);
     }
+  }
+
+  /// 读取当前章书签状态（B 键/目录高亮用）。
+  Future<void> _initBookmark() async {
+    final marked = await LocalStore.isBookmarked(
+        widget.sourceId, widget.novelId, _curChapterId, 0);
+    if (mounted) setState(() => _bookmarked = marked);
+  }
+
+  /// 书签当前章：复用漫画书签存储（pageIndex 固定 0），书架"书签"栏统一展示。
+  Future<void> _toggleBookmark() async {
+    if (_content == null) return;
+    final b = Bookmark(
+      sourceId: widget.sourceId,
+      comicId: widget.novelId,
+      name: widget.novelName,
+      pic: widget.novelPic,
+      author: widget.novelAuthor,
+    );
+    if (_bookmarked) {
+      await LocalStore.removeBookmark(
+          widget.sourceId, widget.novelId, _curChapterId, 0);
+    } else {
+      await LocalStore.addBookmark(ComicBookmark(
+        book: b,
+        chapterId: _curChapterId,
+        chapterTitle: _content!.title,
+        pageIndex: 0,
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+      ));
+    }
+    if (!mounted) return;
+    setState(() => _bookmarked = !_bookmarked);
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(
+        content: Text(_bookmarked ? '已添加书签' : '已取消书签'),
+        duration: const Duration(seconds: 1),
+      ));
+  }
+
+  /// 章节目录：拉取全本目录（detail），点选跳章。
+  Future<void> _showToc() async {
+    final s = SourceManager.novelById(widget.sourceId);
+    if (s == null) return;
+    List<NovelChapter> chapters = [];
+    try {
+      final d = await s.detail(widget.novelId).timeout(const Duration(seconds: 15));
+      chapters = d.chapters;
+    } catch (_) {
+      // 目录拉取失败时静默：无目录可展示。
+    }
+    if (!mounted) return;
+    showResponsiveBottomSheet<void>(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      barrierColor: Colors.black.withValues(alpha: 0.3),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SizedBox(
+        height: MediaQuery.of(ctx).size.height * 0.7,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
+              child: Row(
+                children: [
+                  Text('章节目录',
+                      style: Theme.of(ctx).textTheme.titleMedium),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(Icons.close_rounded, size: 20),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: chapters.isEmpty
+                  ? const Center(child: Text('目录加载失败'))
+                  : ListView.builder(
+                      itemCount: chapters.length,
+                      itemBuilder: (ctx, i) {
+                        final ch = chapters[i];
+                        final cur = ch.id == _curChapterId;
+                        return ListTile(
+                          dense: true,
+                          selected: cur,
+                          title: Text(
+                            ch.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13.5,
+                              color: cur
+                                  ? Theme.of(ctx).colorScheme.primary
+                                  : null,
+                            ),
+                          ),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            _go(ch.id);
+                          },
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _initTts() async {
@@ -176,6 +292,8 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         // 换章后刷新朗读队列：内容加载期间朗读自然停在旧章末尾。
         _tts.reset();
         _tts.loadChapter(c.paragraphs);
+        // 换章后刷新书签状态（B 键/目录高亮跟随当前章）。
+        _initBookmark();
       }
     } catch (e) {
       if (mounted) _error = '加载失败：$e';
@@ -209,7 +327,8 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     _load(chapterId);
   }
 
-  /// 桌面端键盘：←/→ 翻章、Esc 返回。
+  /// 桌面端键盘：←/→ 翻章、Esc 返回、B 书签、G 目录、S 设置、
+  /// T 朗读、+/- 字号。
   bool _keyHandler(KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
     if (_loading) return false;
@@ -225,8 +344,38 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       _go(_content?.nextChapterId);
       return true;
     }
+    switch (event.logicalKey) {
+      case LogicalKeyboardKey.keyB:
+        _toggleBookmark();
+        return true;
+      case LogicalKeyboardKey.keyG:
+        _showToc();
+        return true;
+      case LogicalKeyboardKey.keyS:
+        _showSettings();
+        return true;
+      case LogicalKeyboardKey.keyT:
+        _ttsToggle();
+        return true;
+      case LogicalKeyboardKey.equal:
+      case LogicalKeyboardKey.numpadAdd:
+        _adjustFontSize(1);
+        return true;
+      case LogicalKeyboardKey.minus:
+      case LogicalKeyboardKey.numpadSubtract:
+        _adjustFontSize(-1);
+        return true;
+    }
     // PageUp/PageDown/空格 滚动正文（移动到 ListView 滚动事件处理）。
     return false;
+  }
+
+  /// 键盘 +/- 字号。
+  void _adjustFontSize(int dir) {
+    final v = (_fontSize + dir).clamp(13, 28);
+    if (v == _fontSize) return;
+    setState(() => _fontSize = v);
+    LocalStore.setNovelReadSettings(fontSize: v);
   }
 
   /// 打开阅读设置底部抽屉。

@@ -252,6 +252,85 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     _toast(v ? '已开启弹幕' : '已关闭弹幕');
   }
 
+  /// 弹幕设置面板：字号 / 速度 / 透明度 / 开关（快捷键 C 呼出）。
+  void _showDanmakuPanel() {
+    _hideTimer?.cancel();
+    showPlayerPanel(
+      context: context,
+      title: '弹幕设置',
+      fromRight: _fullscreen,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+        Widget slider(String label, String display, double value, double min,
+            double max, int divisions, ValueChanged<double> onChanged) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Text(label,
+                    style: const TextStyle(
+                        color: Colors.white, fontSize: 13)),
+                const Spacer(),
+                Text(display,
+                    style: const TextStyle(
+                        color: Colors.white38, fontSize: 12)),
+              ]),
+              Slider(
+                value: value.clamp(min, max),
+                min: min,
+                max: max,
+                divisions: divisions,
+                activeColor: PlayerColors.accent,
+                onChanged: (v) {
+                  onChanged(v);
+                  setSheet(() {});
+                },
+              ),
+            ],
+          );
+        }
+
+        return SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            PanelOptionTile(
+              title: '弹幕开关',
+              subtitle: _danmakuSet.on ? '已开启 · 数据源：弹弹 play' : '当前关闭',
+              selected: _danmakuSet.on,
+              trailing: Switch(
+                value: _danmakuSet.on,
+                activeTrackColor: PlayerColors.accent,
+                onChanged: (v) async {
+                  final next = _danmakuSet.copyWith(on: v);
+                  setState(() => _danmakuSet = next);
+                  await LocalStore.setDanmaku(next);
+                  setSheet(() {});
+                },
+              ),
+              onTap: () {},
+            ),
+            slider('字号', '${_danmakuSet.fontSize.round()}',
+                _danmakuSet.fontSize, 12, 22, 10, (v) {
+              final next = _danmakuSet.copyWith(fontSize: v);
+              setState(() => _danmakuSet = next);
+              LocalStore.setDanmaku(next);
+            }),
+            slider('速度', '${_danmakuSet.speed.toStringAsFixed(1)}x',
+                _danmakuSet.speed, 1.0, 3.0, 20, (v) {
+              final next = _danmakuSet.copyWith(speed: v);
+              setState(() => _danmakuSet = next);
+              LocalStore.setDanmaku(next);
+            }),
+            slider('透明度', '${(_danmakuSet.opacity * 100).round()}%',
+                _danmakuSet.opacity, 0.2, 1.0, 8, (v) {
+              final next = _danmakuSet.copyWith(opacity: v);
+              setState(() => _danmakuSet = next);
+              LocalStore.setDanmaku(next);
+            }),
+          ]),
+        );
+      }),
+    ).then((_) => _scheduleHide());
+  }
+
   /// 接管设备音量与屏幕亮度。
   ///
   /// 任一平台不支持（桌面端、缺权限）就自动退回：音量退回播放器内部音量，
@@ -1058,8 +1137,35 @@ class _NativePlayerPageState extends State<NativePlayerPage>
 
   /// 桌面端播放快捷键：空格 播放/暂停、←/→ 快退/快进 10s、
   /// ↑/↓ 音量、M 静音、F 全屏、Esc 隐藏/显示控制层。
+  /// 扩展：0-9 跳转进度、[ / ] 倍速、N/P 切集、T 音轨、B 弹幕开关、
+  /// C 弹幕设置、I 画中画。
   bool _keyHandler(KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
+    if (event.logicalKey == LogicalKeyboardKey.escape) {
+      _toggleControls();
+      return true;
+    }
+    // 数字键：跳转进度 0%…90%（按集时长折算秒数）。
+    // LogicalKeyboardKey 重写了 ==/hashCode，不能作 const map key。
+    final d = switch (event.logicalKey) {
+      LogicalKeyboardKey.digit0 => 0,
+      LogicalKeyboardKey.digit1 => 1,
+      LogicalKeyboardKey.digit2 => 2,
+      LogicalKeyboardKey.digit3 => 3,
+      LogicalKeyboardKey.digit4 => 4,
+      LogicalKeyboardKey.digit5 => 5,
+      LogicalKeyboardKey.digit6 => 6,
+      LogicalKeyboardKey.digit7 => 7,
+      LogicalKeyboardKey.digit8 => 8,
+      LogicalKeyboardKey.digit9 => 9,
+      _ => null,
+    };
+    if (d != null) {
+      if (_dur > Duration.zero) {
+        _seekTo(Duration(seconds: (_dur.inSeconds * d ~/ 10)));
+      }
+      return true;
+    }
     switch (event.logicalKey) {
       case LogicalKeyboardKey.space:
         _togglePlay();
@@ -1082,8 +1188,29 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       case LogicalKeyboardKey.keyF:
         _toggleFullscreen();
         return true;
-      case LogicalKeyboardKey.escape:
-        _toggleControls();
+      case LogicalKeyboardKey.keyB:
+        _toggleDanmaku();
+        return true;
+      case LogicalKeyboardKey.keyC:
+        _showDanmakuPanel();
+        return true;
+      case LogicalKeyboardKey.keyT:
+        if (_audioTracks.length > 2) _showAudioTrackPanel();
+        return true;
+      case LogicalKeyboardKey.keyP:
+        if (_hasPrev) _goRelative(-1);
+        return true;
+      case LogicalKeyboardKey.keyN:
+        if (_hasNext) _goRelative(1);
+        return true;
+      case LogicalKeyboardKey.keyI:
+        _minimizeToPip();
+        return true;
+      case LogicalKeyboardKey.bracketLeft:
+        _setSpeed((_speed - 0.25).clamp(0.25, 4.0));
+        return true;
+      case LogicalKeyboardKey.bracketRight:
+        _setSpeed((_speed + 0.25).clamp(0.25, 4.0));
         return true;
       default:
         return false;

@@ -9,11 +9,13 @@ import 'widgets/update_download_dialog.dart';
 import 'anime_home_page.dart';
 import 'bookshelf_page.dart';
 import 'home_page.dart';
+import 'keyboard_shortcuts.dart';
 import 'native_player_page.dart';
 import 'novel_home_page.dart';
 import 'profile_page.dart';
 import 'responsive.dart';
 import 'toolbox_page.dart';
+import 'unified_search_page.dart';
 import 'widgets/mini_player.dart';
 import 'widgets/motion.dart';
 
@@ -97,6 +99,19 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
         case LogicalKeyboardKey.digit7:
           _onTab(6);
           return true;
+        case LogicalKeyboardKey.keyF:
+          _openGlobalSearch();
+          return true;
+        case LogicalKeyboardKey.keyR:
+          _refreshCurrentTab();
+          return true;
+        case LogicalKeyboardKey.arrowLeft:
+          // 后退
+          if (Navigator.canPop(context)) Navigator.pop(context);
+          return true;
+        case LogicalKeyboardKey.arrowRight:
+          // 前进（无前进栈，忽略）
+          return true;
       }
     }
 
@@ -114,7 +129,54 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
       }
     }
 
+    // `?` 打开快捷键面板
+    if (event.logicalKey == LogicalKeyboardKey.slash &&
+        HardwareKeyboard.instance.isShiftPressed) {
+      _showShortcutHelp();
+      return true;
+    }
+
     return false;
+  }
+
+  /// 全局搜索：打开统一搜索页。
+  void _openGlobalSearch() {
+    // 统一搜索页未接入主壳 Tab，用路由推入，自然叠加在内容区之上。
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+          builder: (_) => const UnifiedSearchPage(keyword: '')),
+    );
+  }
+
+  /// 刷新当前标签页内容。
+  void _refreshCurrentTab() {
+    switch (_index) {
+      case 0:
+        // MangaAnimeTabs 内部自带刷新；首页数据在首次加载后缓存，
+        // 这里通过重建触发重拉。
+        setState(() {});
+        break;
+      case 4:
+        _shelfKey.currentState?.reload();
+        break;
+      case 5:
+        _toolboxKey.currentState?.refresh();
+        break;
+      case 6:
+        _profileKey.currentState?.refresh();
+        break;
+    }
+  }
+
+  /// 快捷键面板：半透明遮罩弹层。
+  void _showShortcutHelp() {
+    Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        opaque: false,
+        barrierColor: Colors.transparent,
+        pageBuilder: (_, __, ___) => const ShortcutHelpOverlay(),
+      ),
+    );
   }
 
   bool _shortcutsEnabled = false;
