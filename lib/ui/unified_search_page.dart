@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/comic_item.dart';
+import '../net/local_store.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
 import 'detail_page.dart';
@@ -35,12 +36,19 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
   bool _detailLoading = false;
   String _fetchKey = ''; // 防竞态：只采纳最后一次请求的返回
   Timer? _selectDebounce;
+  List<String> _history = []; // 搜索历史（空状态展示）
 
   @override
   void initState() {
     super.initState();
     _searchCtrl.text = widget.keyword;
+    _loadHistory();
     _search();
+  }
+
+  Future<void> _loadHistory() async {
+    final h = await LocalStore.searchHistory();
+    if (mounted) setState(() => _history = h);
   }
 
   @override
@@ -74,6 +82,7 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
         }
       }
       _fetchKey = ''; // 新搜索作废旧预览请求
+      LocalStore.addSearchHistory(kw); // 记录搜索历史（失败也记录，便于重试）
       setState(() {
         _results = list;
         _loading = false;
@@ -84,6 +93,7 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
         _selectedDetail = null;
         _detailLoading = false;
       });
+      _loadHistory(); // 刷新历史列表（若在展示）
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
@@ -260,6 +270,59 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
       return const Center(child: CircularProgressIndicator(strokeWidth: 2));
     }
     if (_results.isEmpty) {
+      // 空状态：有历史展示历史（可点击重搜/清空），无历史展示空提示。
+      if (_history.isNotEmpty) {
+        return ListView(
+          padding: EdgeInsets.fromLTRB(
+              Responsive.pagePadding(context), 12,
+              Responsive.pagePadding(context), 24),
+          children: [
+            Row(
+              children: [
+                Text('搜索历史',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: scheme.onSurface.withValues(alpha: 0.7))),
+                const Spacer(),
+                InkWell(
+                  onTap: () async {
+                    await LocalStore.clearSearchHistory();
+                    if (mounted) setState(() => _history = []);
+                  },
+                  borderRadius: BorderRadius.circular(6),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 4),
+                    child: Text('清空',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: scheme.error.withValues(alpha: 0.9))),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final h in _history)
+                  ActionChip(
+                    label: Text(h, style: const TextStyle(fontSize: 12.5)),
+                    avatar: Icon(Icons.history_rounded,
+                        size: 15,
+                        color: scheme.onSurface.withValues(alpha: 0.5)),
+                    onPressed: () {
+                      _searchCtrl.text = h;
+                      _search();
+                    },
+                  ),
+              ],
+            ),
+          ],
+        );
+      }
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,

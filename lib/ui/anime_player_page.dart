@@ -127,6 +127,11 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     WidgetsBinding.instance.addObserver(this);
     _curSeason = widget.initialSeason;
     _curEpisode = widget.initialEpisode;
+    // 桌面端播放快捷键：空格 播放/暂停、←/→ 快退/快进、M 静音、
+    // F 全屏、Esc 返回。仅桌面注册，避免移动端蓝牙键盘误触。
+    if (DesktopUi.isDesktopPlatform) {
+      HardwareKeyboard.instance.addHandler(_keyHandler);
+    }
     if (isWindowsWebView2) {
       // Windows：内嵌 WebView2 解析直链 → 切内置原生播放器（mpv 硬解 + Anime4K 超分）。
       // 网页只做“拿直链”的中间层，绝不让用户离开内置播放器。
@@ -402,6 +407,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
 
   @override
   void dispose() {
+    if (DesktopUi.isDesktopPlatform) {
+      HardwareKeyboard.instance.removeHandler(_keyHandler);
+    }
     _videoPollTimer?.cancel();
     _resolveTimer?.cancel();
     for (final s in _desktopSubs) {
@@ -577,6 +585,50 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
         if(v) v.muted = ${_muted ? 'true' : 'false'};
       })();
     ''');
+  }
+
+  /// 桌面端播放快捷键（WebView 层通过 JS 控制 video 元素）：
+  /// 空格 播放/暂停、←/→ ±10s、M 静音、F 全屏、Esc 返回。
+  bool _keyHandler(KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
+    switch (event.logicalKey) {
+      case LogicalKeyboardKey.space:
+        _runJs('''
+          (function(){
+            var v = document.querySelector('video');
+            if(!v) return;
+            if(v.paused) v.play(); else v.pause();
+          })();
+        ''');
+        return true;
+      case LogicalKeyboardKey.arrowLeft:
+        _runJs('''
+          (function(){
+            var v = document.querySelector('video');
+            if(v) v.currentTime = Math.max(0, (v.currentTime||0) - 10);
+          })();
+        ''');
+        return true;
+      case LogicalKeyboardKey.arrowRight:
+        _runJs('''
+          (function(){
+            var v = document.querySelector('video');
+            if(v) v.currentTime = (v.currentTime||0) + 10;
+          })();
+        ''');
+        return true;
+      case LogicalKeyboardKey.keyM:
+        _toggleMute();
+        return true;
+      case LogicalKeyboardKey.keyF:
+        _toggleFullscreen();
+        return true;
+      case LogicalKeyboardKey.escape:
+        Navigator.of(context).maybePop();
+        return true;
+      default:
+        return false;
+    }
   }
 
   void _toggleFullscreen() {

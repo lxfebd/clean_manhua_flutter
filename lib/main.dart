@@ -10,6 +10,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'net/bookshelf_store.dart';
 import 'net/http_client.dart';
+import 'net/image_cache.dart';
 import 'net/local_store.dart';
 import 'net/novel_shelf_store.dart';
 import 'net/update_checker.dart';
@@ -98,6 +99,12 @@ Future<void> _postFirstFrameInit() async {
     await Net.restoreProxy();
   } catch (e) {
     debugPrint('restoreProxy failed: $e');
+  }
+  try {
+    // 设备内存分档：低端机收紧图片缓存防 OOM，高端机放开提升连读流畅度
+    await ImageCacheManager.probeDeviceMemory();
+  } catch (e) {
+    debugPrint('probeDeviceMemory failed: $e');
   }
   // 桌面端（Windows/macOS/Linux）：初始化窗口管理（最小尺寸 / 标题 / 尺寸记忆）。
   if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {

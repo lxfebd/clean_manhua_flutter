@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -13,10 +14,40 @@ class ImageCacheManager {
   static final Map<String, Future<Uint8List>> _inflight = {};
   static int _memBytes = 0;
 
-  /// 内存缓存预算（字节）。按平台取不同值：桌面内存宽裕可多缓存，
-  /// 移动端（尤其 iOS 老设备）收紧防 OOM。
+  /// 设备内存分档探测结果；null=未探测（用平台默认档）。
+  /// 仅移动端有意义，桌面端内存宽裕不主动收紧。
+  static int? _deviceMemBytes;
+
+  /// 按设备总内存探测图片缓存预算（启动时调用一次，异步）。
+  /// 低端机收紧防 OOM，高端机放开提升连读流畅度。
+  static Future<void> probeDeviceMemory() async {
+    try {
+      if (kIsWeb) return;
+      final info = DeviceInfoPlugin();
+      switch (defaultTargetPlatform) {
+        case TargetPlatform.android:
+          final a = await info.androidInfo;
+          // isLowRamDevice 是系统判定（如 go_rogue 低内存设备），优先采纳
+          if (a.isLowRamDevice) {
+            _deviceMemBytes = 20 * 1024 * 1024;
+            return;
+          }
+          _deviceMemBytes = debugTierForRamMb(a.physicalRamSize >> 20);
+        case TargetPlatform.iOS:
+          _deviceMemBytes =
+              debugTierForRamMb((await info.iosInfo).physicalRamSize >> 20);
+        default:
+          return; // 桌面端沿用平台默认，不收紧
+      }
+    } catch (_) {
+      // 探测失败沿用平台默认档
+    }
+  }
+
+  /// 内存缓存预算（字节）。优先设备分档，其次平台默认。
   /// 图片字节数：JM 长条图单张可达十几 MB，预算本质是"能同时保留几张"。
   static int get _maxMemBytes {
+    if (_deviceMemBytes != null) return _deviceMemBytes!;
     if (kIsWeb) return 40 * 1024 * 1024;
     return switch (defaultTargetPlatform) {
       TargetPlatform.windows ||
@@ -25,6 +56,18 @@ class ImageCacheManager {
       _ => 40 * 1024 * 1024,
     };
   }
+
+  /// 按总内存（MB）给出缓存预算档位，供单元测试直接校验分档逻辑。
+  @visibleForTesting
+  static int debugTierForRamMb(int ramMb) => switch (ramMb) {
+        < 3072 => 24 * 1024 * 1024, // 低端 <3GB
+        <= 6144 => 40 * 1024 * 1024, // 中端 3-6GB（原默认）
+        _ => 64 * 1024 * 1024, // 高端 >6GB
+      };
+
+  /// 当前生效的内存缓存预算（字节），供测试/诊断读取。
+  @visibleForTesting
+  static int debugMemBudget() => _maxMemBytes;
 
   static const int _maxMemCount = 24;
   static Directory? _dir;

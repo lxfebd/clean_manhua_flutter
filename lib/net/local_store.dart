@@ -310,6 +310,31 @@ class LocalStore {
         .toList();
   }
 
+  /// 搜索历史（最近 10 条，去重保留最新）。空列表表示无历史。
+  static const int _searchHistoryMax = 10;
+  static Future<List<String>> searchHistory() async {
+    final v = await _read('search_history');
+    final list = (v is List) ? v.whereType<String>().toList() : <String>[];
+    return list;
+  }
+
+  /// 记录一次搜索关键词：去重后插到最前，截断到 10 条上限。
+  static Future<void> addSearchHistory(String kw) async {
+    final t = kw.trim();
+    if (t.isEmpty) return;
+    final list = await searchHistory();
+    list.removeWhere((e) => e == t);
+    list.insert(0, t);
+    if (list.length > _searchHistoryMax) {
+      list.removeRange(_searchHistoryMax, list.length);
+    }
+    await _write('search_history', list);
+  }
+
+  /// 清空全部搜索历史。
+  static Future<void> clearSearchHistory() async =>
+      _write('search_history', <String>[]);
+
   static Future<bool> isFavorite(String key) async =>
       (await favorites()).any((b) => b.key == key);
 

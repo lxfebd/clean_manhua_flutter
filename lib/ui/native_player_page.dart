@@ -213,6 +213,11 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     _initSystemLevels();
     _boot();
     _loadDanmaku();
+    // 桌面端播放快捷键：空格 播放/暂停、←/→ 快退/快进、↑/↓ 音量、
+    // M 静音、F 全屏、Esc 隐藏控制层。仅桌面注册，避免蓝牙键盘误触。
+    if (DesktopUi.isDesktopPlatform) {
+      HardwareKeyboard.instance.addHandler(_keyHandler);
+    }
   }
 
   /// 加载弹幕设置并拉取当前集的弹幕（在线失败静默，不影响播放）。
@@ -959,7 +964,44 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     _player?.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _unlockOrientation();
+    if (DesktopUi.isDesktopPlatform) {
+      HardwareKeyboard.instance.removeHandler(_keyHandler);
+    }
     super.dispose();
+  }
+
+  /// 桌面端播放快捷键：空格 播放/暂停、←/→ 快退/快进 10s、
+  /// ↑/↓ 音量、M 静音、F 全屏、Esc 隐藏/显示控制层。
+  bool _keyHandler(KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
+    switch (event.logicalKey) {
+      case LogicalKeyboardKey.space:
+        _togglePlay();
+        return true;
+      case LogicalKeyboardKey.arrowLeft:
+        _seekBy(-10);
+        return true;
+      case LogicalKeyboardKey.arrowRight:
+        _seekBy(10);
+        return true;
+      case LogicalKeyboardKey.arrowUp:
+        _applyVolume((_volume + 0.1).clamp(0.0, 1.0));
+        return true;
+      case LogicalKeyboardKey.arrowDown:
+        _applyVolume((_volume - 0.1).clamp(0.0, 1.0));
+        return true;
+      case LogicalKeyboardKey.keyM:
+        _applyVolume(_volume > 0 ? 0 : 1);
+        return true;
+      case LogicalKeyboardKey.keyF:
+        _toggleFullscreen();
+        return true;
+      case LogicalKeyboardKey.escape:
+        _toggleControls();
+        return true;
+      default:
+        return false;
+    }
   }
 
   /// 退出全屏/离开播放页时恢复方向：平板解锁跟随设备（横屏填满），
