@@ -4,14 +4,17 @@ import 'package:flutter/services.dart';
 
 import '../net/local_store.dart';
 import '../net/update_checker.dart';
+import '../services/player_registry.dart';
 import 'widgets/update_download_dialog.dart';
 import 'anime_home_page.dart';
 import 'bookshelf_page.dart';
 import 'home_page.dart';
+import 'native_player_page.dart';
 import 'novel_home_page.dart';
 import 'profile_page.dart';
 import 'responsive.dart';
 import 'toolbox_page.dart';
+import 'widgets/mini_player.dart';
 import 'widgets/motion.dart';
 
 /// 主框架：底部 Tab 导航（首页 / 书架 / 工具 / 我的）。
@@ -225,11 +228,14 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
 
     final screenSize = Responsive.screenSize(context);
 
+    // 画中画底部浮层：全屏播放器最小化后在这里以小窗继续播放。
+    final miniOverlay = _buildMiniOverlay();
+
     // compact（手机）：底部导航栏
     if (screenSize == ScreenSize.compact) {
       return Scaffold(
         extendBody: false,
-        body: body,
+        body: Stack(children: [body, miniOverlay]),
         bottomNavigationBar: _MinimalBottomBar(
           currentIndex: _index,
           onTap: _onTab,
@@ -242,18 +248,77 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
     // 仅 4 个入口时用文字宽栏必然空旷，图标-only 让留白读作"有意为之"；
     // 标签通过悬停 tooltip / 长按提示提供。
     return Scaffold(
-      body: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _AdaptiveNavigationRail(
-            currentIndex: _index,
-            onTap: _onTab,
-            isDark: isDark,
-          ),
-          // 主内容区：大屏（≥1200dp）收到 1200/1400dp 并居中，
-          // 避免列表与卡片被拉到屏幕边缘（M3 大屏准则 LS-U1）。
-          Expanded(child: MaxWidthContainer(child: body)),
-        ],
+      body: Stack(children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _AdaptiveNavigationRail(
+              currentIndex: _index,
+              onTap: _onTab,
+              isDark: isDark,
+            ),
+            // 主内容区：大屏（≥1200dp）收到 1200/1400dp 并居中，
+            // 避免列表与卡片被拉到屏幕边缘（M3 大屏准则 LS-U1）。
+            Expanded(child: MaxWidthContainer(child: body)),
+          ],
+        ),
+        miniOverlay,
+      ]),
+    );
+  }
+
+  /// 画中画浮层（Positioned 底部居中）。
+  ///
+  /// 状态来自 [PlayerRegistry]，Home 内直接以 ValueListenableBuilder 呈现，
+  /// 无需单独状态管理：发布/取回/关闭都只是改 notifier.value。
+  Widget _buildMiniOverlay() {
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: ValueListenableBuilder<PlayerHandoff?>(
+        valueListenable: PlayerRegistry.notifier,
+        builder: (context, handoff, _) {
+          if (handoff == null) return const SizedBox.shrink();
+          return SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: MiniPlayer(
+                  handoff: handoff,
+                  onResume: () => _resumeFromMini(handoff),
+                  onClose: () => PlayerRegistry.retire(),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// 小窗 → 回到原生播放页：取回 Player 并复用它重建同一播放会话。
+  void _resumeFromMini(PlayerHandoff handoff) {
+    final taken = PlayerRegistry.resumePlayer();
+    if (taken == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => NativePlayerPage(
+          url: taken.url,
+          title: taken.title,
+          cover: taken.cover,
+          episodes: taken.episodes,
+          season: taken.season,
+          episode: taken.episode,
+          resolveUrl: taken.resolveUrl,
+          sourceNames: taken.sourceNames,
+          sourceId: taken.sourceId,
+          videoId: taken.videoId,
+          historyKey: taken.historyKey,
+          take: taken,
+        ),
       ),
     );
   }

@@ -9,6 +9,7 @@ import 'package:volume_controller/volume_controller.dart';
 
 import '../net/local_store.dart';
 import '../net/video_download_manager.dart';
+import '../services/player_registry.dart';
 import '../sources/video_source.dart';
 import '../utils/anime4k.dart';
 import '../utils/danmaku.dart';
@@ -54,6 +55,10 @@ class NativePlayerPage extends StatefulWidget {
   /// 番剧 id。与 [sourceId] 一起用于书架续播重新解析播放链。
   final String? videoId;
 
+  /// 画中画恢复：由迷你播放器取回的 [PlayerHandoff]，播放器直接接管该
+  /// Player 继续播放（不新建），实现"全屏 → 小窗 → 全屏"无缝续播。
+  final PlayerHandoff? take;
+
   const NativePlayerPage({
     super.key,
     required this.url,
@@ -67,6 +72,7 @@ class NativePlayerPage extends StatefulWidget {
     this.historyKey,
     this.sourceId,
     this.videoId,
+    this.take,
   });
 
   @override
@@ -110,6 +116,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   int _fitIndex = 0;
   static const _fits = [BoxFit.contain, BoxFit.cover, BoxFit.fill];
   static const _fitNames = ['适应屏幕', '裁剪填充', '拉伸铺满'];
+
+  /// 画中画移交后跳过 Player 释放（Player 已归迷你播放器所有）。
+  bool _skipPlayerDispose = false;
 
   // ── 界面状态 ────────────────────────────────
   bool _fullscreen = false;
@@ -334,10 +343,22 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     await _loadPrefs();
     if (!mounted) return;
     try {
-      final p = Player(configuration: const PlayerConfiguration(
-        // 需要收到 shader 编译的 warn 级日志用于失败诊断
-        logLevel: MPVLogLevel.warn,
-      ));
+      // 画中画恢复：直接接管迷你播放器移交的 Player，不再新建实例。
+      final PlayerHandoff? taken = widget.take;
+      final Player p;
+      if (taken != null) {
+        p = taken.player;
+        // 恢复语速/音量等会跟随 handoff 快照的偏好
+        _speed = taken.speed;
+        _volume = (taken.volume / 100).clamp(0.0, 1.0);
+        _curSeason = taken.season;
+        _curEpisode = taken.episode;
+      } else {
+        p = Player(configuration: const PlayerConfiguration(
+          // 需要收到 shader 编译的 warn 级日志用于失败诊断
+          logLevel: MPVLogLevel.warn,
+        ));
+      }
       _player = p;
       _controller = VideoController(p);
       if (_volumeNative) {
@@ -410,13 +431,13 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         }
       }));
 
-      await _open(widget.url);
+      await _open(widget.url, adopted: taken != null);
     } catch (e) {
       if (mounted) setState(() => _failed = true);
     }
   }
 
-  Future<void> _open(String url) async {
+  Future<void> _open(String url, {bool adopted = false}) async {
     final p = _player;
     if (p == null) return;
     try {
@@ -425,21 +446,33 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       await _applyEnhance();
       await _applySr(silent: true);
       await p.setRate(_speed);
-      await p.open(Media(url), play: true);
-      // Android 上 VideoController 会在拿到 wid 后把 vo=null→gpu 重建，
-      // 提前塞的 glsl-shaders 可能被清掉。等首帧真正渲染完再补挂一次最稳。
-      if (_sr.enabled) {
-        try {
-          await _controller?.waitUntilFirstFrameRendered
-              .timeout(const Duration(seconds: 10));
-        } catch (_) {}
-        await _applySr(silent: true);
-      }
-      if (mounted) {
-        setState(() {
-          _ready = true;
-          _completedHandled = false;
-        });
+      if (adopted) {
+        // 画中画恢复：Player 已在播放同一直链，仅需同步界面状态，不再重开。
+        if (mounted) {
+          setState(() {
+            _pos = p.state.position;
+            _dur = p.state.duration;
+            _ready = true;
+            _completedHandled = false;
+          });
+        }
+      } else {
+        await p.open(Media(url), play: true);
+        // Android 上 VideoController 会在拿到 wid 后把 vo=null→gpu 重建，
+        // 提前塞的 glsl-shaders 可能被清掉。等首帧真正渲染完再补挂一次最稳。
+        if (_sr.enabled) {
+          try {
+            await _controller?.waitUntilFirstFrameRendered
+                .timeout(const Duration(seconds: 10));
+          } catch (_) {}
+          await _applySr(silent: true);
+        }
+        if (mounted) {
+          setState(() {
+            _ready = true;
+            _completedHandled = false;
+          });
+        }
       }
       await _prepareResume();
       _scheduleHide();
@@ -796,6 +829,47 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     _bumpControls();
   }
 
+  /// 画中画：把当前 Player 移交迷你播放器并退出本页。
+  ///
+  /// 所有权转移：Player 仍持有真实播放（声音不中断），本页 dispose 不再
+  /// 销毁它（_skipPlayerDispose 置位）；恢复时由 MainShell 取回重建页面。
+  void _minimizeToPip() {
+    final p = _player;
+    if (p == null) return;
+    // 保存当前快照，供小窗重建/续播使用。
+    final h = widget.take;
+    final histKey = widget.historyKey ??
+        (widget.sourceId != null && widget.videoId != null
+            ? '${widget.sourceId}::${widget.videoId}::$_curSeason-$_curEpisode'
+            : '${widget.title}::${_curSeason}_$_curEpisode');
+    _skipPlayerDispose = true;
+    PlayerRegistry.publish(PlayerHandoff(
+      player: p,
+      url: h?.url ?? widget.url,
+      title: widget.title,
+      cover: widget.cover,
+      position: _pos,
+      speed: _speed,
+      season: _curSeason,
+      episode: _curEpisode,
+      episodes: widget.episodes,
+      sourceNames: widget.sourceNames,
+      resolveUrl: widget.resolveUrl,
+      sourceId: widget.sourceId,
+      videoId: widget.videoId,
+      historyKey: histKey,
+      volume: (p.state.volume).round(),
+      muted: _volume <= 0,
+    ));
+    // 全屏 → 竖屏回主界面悬停小窗
+    if (_fullscreen) {
+      _fullscreen = false;
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      _unlockOrientation();
+    }
+    Navigator.of(context, rootNavigator: true).maybePop();
+  }
+
   // ── 手势 ────────────────────────────────────
   void _showHud(_Gesture g, {bool keep = true}) {
     setState(() {
@@ -961,7 +1035,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         ScreenBrightness.instance.resetApplicationScreenBrightness();
       } catch (_) {}
     }
-    _player?.dispose();
+    // 画中画移交后 Player 归迷你播放器所有，本页不再销毁（避免声音中断）。
+    if (!_skipPlayerDispose) {
+      _player?.dispose();
+    }
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _unlockOrientation();
     if (DesktopUi.isDesktopPlatform) {
@@ -1357,6 +1434,13 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                     fontSize: 12,
                     fontWeight: FontWeight.w600)),
             const SizedBox(width: 6),
+            // 画中画：缩小到悬浮小窗继续播放（全屏时更靠前，号角清晰）
+            _barBtn(
+              Icons.picture_in_picture_alt_rounded,
+              _minimizeToPip,
+              active: true,
+            ),
+            const SizedBox(width: 2),
           ],
           // 弹幕开关（竖屏小窗也显示，方便快速开/关）
           _barBtn(
@@ -2349,6 +2433,15 @@ class _NativePlayerPageState extends State<NativePlayerPage>
               onTap: () {
                 Navigator.of(ctx).pop();
                 _startDownload();
+              },
+            ),
+            PanelOptionTile(
+              title: '画中画',
+              subtitle: '缩小为悬浮小窗继续播放',
+              selected: false,
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _minimizeToPip();
               },
             ),
             const Divider(color: Colors.white12, height: 20),
