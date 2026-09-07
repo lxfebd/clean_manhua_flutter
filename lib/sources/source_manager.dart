@@ -5,6 +5,7 @@ import 'comic_source.dart';
 import 'dm5_source.dart';
 import 'doubao_source.dart';
 import 'jm_source.dart';
+import 'local_novel_source.dart';
 import 'mangadex_source.dart';
 import 'novel_source.dart';
 import 'source_config.dart';
@@ -39,10 +40,12 @@ class SourceManager {
     return null;
   }
 
-  /// 小说源：笔趣阁（tobiquge.com）+ 新笔趣阁（xbiquge.bz），两套独立书库互为补充。
+  /// 小说源：笔趣阁（tobiquge.com）+ 新笔趣阁（xbiquge.bz）+ 本地导入。
+  /// 本地源放最后：不参与网络列表，仅在书架/导入入口展示。
   static final List<NovelSource> novelSources = [
     BiqugeNovelSource(),
     XbiqugeNovelSource(),
+    LocalNovelSource(),
   ];
 
   /// tier 排序权重：primary 优先，其次 fallback，disabled 最后（且不展示）。

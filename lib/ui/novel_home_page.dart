@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'novel_detail_page.dart';
+import 'novel_import_page.dart';
 import 'responsive.dart';
 
 import '../models/comic_item.dart';
+import '../sources/local_novel_source.dart';
 import '../sources/novel_source.dart';
 import '../sources/source_manager.dart';
 import '../net/novel_shelf_store.dart';
@@ -94,11 +96,29 @@ class _NovelHomePageState extends State<NovelHomePage> {
             child: Padding(
               padding: EdgeInsets.symmetric(
                   horizontal: Responsive.pagePadding(context), vertical: 8),
-              child: Text('我的小说书架',
-                  style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: scheme.onSurface)),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text('我的小说书架',
+                        style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: scheme.onSurface)),
+                  ),
+                  TextButton.icon(
+                    onPressed: () {
+                      Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const NovelImportPage()));
+                    },
+                    icon: const Icon(Icons.file_open_outlined, size: 17),
+                    label: const Text('本地导入'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: scheme.primary,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           _shelfGrid(scheme),
@@ -121,19 +141,42 @@ class _NovelHomePageState extends State<NovelHomePage> {
   }
 
   Widget _shelfGrid(scheme) {
-    if (_shelf.isEmpty) {
+    // 本地导入的书架（独立于在线收藏 NovelShelfStore）
+    final localBooks = LocalNovelSource.store.listAll();
+    final hasLocal = localBooks.isNotEmpty;
+    final shelfEmpty = _shelf.isEmpty && !hasLocal;
+    if (shelfEmpty) {
       return SliverToBoxAdapter(
         child: Padding(
           padding: EdgeInsets.symmetric(
               horizontal: Responsive.pagePadding(context), vertical: 8),
-          child: const EmptyStateView(
+          child: EmptyStateView(
             icon: Icons.menu_book_outlined,
             title: '书架还是空的',
-            subtitle: '去添加喜欢的小说吧～',
+            subtitle: '去添加喜欢的小说，或导入本地 TXT/EPUB 吧～',
+            action: OutlinedButton.icon(
+              onPressed: () {
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const NovelImportPage()));
+              },
+              icon: const Icon(Icons.file_open_outlined, size: 18),
+              label: const Text('本地导入'),
+            ),
           ),
         ),
       );
     }
+    // 本地导入书 + 在线收藏合并展示（本地在前）。
+    final cards = <Widget>[
+      for (final b in localBooks)
+        _LocalShelfCard(meta: b, scheme: scheme),
+      for (final d in _shelf)
+        FadeSlideIn(
+          delay: const Duration(milliseconds: 40),
+          offset: 16,
+          child: _ShelfCard(d: d, scheme: scheme),
+        ),
+    ];
     return SliverPadding(
       padding: EdgeInsets.symmetric(horizontal: Responsive.pagePadding(context)),
       sliver: SliverGrid(
@@ -144,15 +187,8 @@ class _NovelHomePageState extends State<NovelHomePage> {
           childAspectRatio: 0.62,
         ),
         delegate: SliverChildBuilderDelegate(
-          (ctx, i) {
-            final d = _shelf[i];
-            return FadeSlideIn(
-              delay: Duration(milliseconds: 40 * (i % 12)),
-              offset: 16,
-              child: _ShelfCard(d: d, scheme: scheme),
-            );
-          },
-          childCount: _shelf.length,
+          (ctx, i) => cards[i],
+          childCount: cards.length,
         ),
       ),
     );
@@ -330,6 +366,62 @@ class _EmptySource extends StatelessWidget {
         icon: Icons.menu_book_rounded,
         title: '小说源即将接入',
         subtitle: '具体小说源（笔趣阁类等）随后接入，书架已就绪。',
+      ),
+    );
+  }
+}
+
+/// 本地导入书卡片：数据来自 LocalNovelStore（无封面图，用图标占位）。
+class _LocalShelfCard extends StatelessWidget {
+  final Map<String, dynamic> meta;
+  final ColorScheme scheme;
+  const _LocalShelfCard({required this.meta, required this.scheme});
+
+  @override
+  Widget build(BuildContext context) {
+    final name = (meta['name'] as String?) ?? '';
+    final chapters = (meta['chapters'] as List? ?? []).length;
+    return HoverEffect(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => NovelDetailPageLocal(bookId: meta['id'] as String),
+          ),
+        );
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Container(
+              decoration: BoxDecoration(
+                color: scheme.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.menu_book_rounded,
+                        size: 36, color: scheme.primary),
+                    const SizedBox(height: 6),
+                    Text('$chapters 章',
+                        style: TextStyle(
+                            fontSize: 11,
+                            color: scheme.onSurface.withValues(alpha: 0.5))),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12.5, color: scheme.onSurface)),
+        ],
       ),
     );
   }

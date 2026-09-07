@@ -940,11 +940,14 @@ class EmptyStateView extends StatelessWidget {
   final IconData icon;
   final String title;
   final String? subtitle;
+  /// 图标与文案之下的可选操作按钮（如导入入口）。
+  final Widget? action;
   const EmptyStateView({
     super.key,
     required this.icon,
     required this.title,
     this.subtitle,
+    this.action,
   });
   @override
   Widget build(BuildContext context) {
@@ -981,6 +984,10 @@ class EmptyStateView extends StatelessWidget {
                 style: TextStyle(
                     fontSize: subSize,
                     color: scheme.onSurface.withValues(alpha: 0.45))),
+          ],
+          if (action != null) ...[
+            SizedBox(height: AdaptiveValue.of<double>(context, compact: 16, medium: 22)),
+            action!,
           ],
         ],
       ),

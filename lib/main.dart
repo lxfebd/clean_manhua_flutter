@@ -17,6 +17,7 @@ import 'net/shelf_updater.dart';
 import 'net/update_checker.dart';
 import 'net/video_download_manager.dart';
 import 'net/webdav_sync.dart';
+import 'sources/local_novel_source.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'theme.dart';
 import 'ui/main_shell.dart';
@@ -132,6 +133,8 @@ Future<void> _postFirstFrameInit() async {
     final dir = await getApplicationSupportDirectory();
     BookshelfStore.bindFile(File('${dir.path}/bookshelf.json'));
     NovelShelfStore.bindFile(File('${dir.path}/novel_shelf.json'));
+    // 本地导入小说正文存独立目录，避免混入全局 JSON 大文本。
+    LocalNovelSource.setStoreDir('${dir.path}${Platform.pathSeparator}novel_imports');
   } catch (e) {
     debugPrint('shelf bind failed: $e');
   }
