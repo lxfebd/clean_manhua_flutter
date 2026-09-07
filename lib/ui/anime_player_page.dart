@@ -105,6 +105,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   Timer? _resolveTimer;
   // WebView 主页面加载失败（断网/超时/服务器错误）时记录，优先展示错误态而非黑屏。
   String? _webError;
+  // 已从视图树物理移除 WebView（切原生播放器/退出页时置位），
+  // 置位后 WebView 不再渲染，其音频来源被同步切断，杜绝双音轨残留。
+  bool _webViewRemoved = false;
 
   static const ua = 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
@@ -263,8 +266,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     // 取消解析定时器，防止 pushReplacement 后定时器触发 setState
     _resolveTimer?.cancel();
     _videoPollTimer?.cancel();
-    // 先杀掉网页播放器（暂停+清空 src+about:blank），再切原生播放器，
-    // 确保转场期间与 WebView2 异步释放期间都不会残留网页音频（双音轨）。
+    // 先杀掉网页播放器（暂停+清空 src+about:blank）并同步物理移除 WebView，
+    // 再切原生播放器。WebView 从视图树移除后不可能再渲染或出声，
+    // 转场期间与 WebView2 异步释放期间都不会残留网页音频（双音轨）。
     await _killWebMedia();
     if (!mounted) return;
     // 用 pushReplacement 替换当前网页播放器，避免栈里叠两层播放器：
@@ -421,8 +425,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     _videoPollTimer?.cancel();
     _resolveTimer?.cancel();
     // 兜底：离开播放页时若网页播放器仍在播放（如未捕获直链直接退出），
-    // 立即静音停播，避免页面销毁后音频残留（同步发起的 JS 已排队执行）。
-    _muteWebMedia();
+    // 立即静音停播并同步移除 WebView，避免页面销毁后音频残留。
+    if (!_webViewRemoved) _muteWebMedia();
+    _webViewRemoved = true;
     for (final s in _desktopSubs) {
       s.cancel();
     }
@@ -566,14 +571,17 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     ''');
   }
 
-  /// 切到原生播放器前杀掉网页媒体：暂停全部 video/audio、清空 src 并
-  /// 导航 about:blank。pushReplacement 的转场动画期间旧页仍挂载，
-  /// 不主动杀掉会让网页播放器在动画期间（甚至 WebView2 异步释放期间）
-  /// 继续出声，与原生播放器叠音。
+  /// 切原生播放器/退出页前杀掉网页媒体：先停 WebView2、JS 暂停并清空
+  /// src（含跨域 iframe 尽力而为），再同步把 WebView 从视图树移除。
+  /// 物理移除后旧页不再渲染，转场期间及之后都不会再有网页音频残留，
+  /// 彻底杜绝「两个播放器叠音」。
   Future<void> _killWebMedia() async {
     final d = _desktop;
     if (d != null) {
       await _muteWebMedia();
+      try {
+        await d.stop(); // WebView2 立即停止页面活动（含音频）
+      } catch (_) {}
       try {
         await d.loadUrl('about:blank');
       } catch (_) {}
@@ -603,6 +611,10 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       try {
         await _controller.loadRequest(Uri.parse('about:blank'));
       } catch (_) {}
+    }
+    // 同步物理移除 WebView：此后不再渲染、不再出声。
+    if (mounted && !_webViewRemoved) {
+      setState(() => _webViewRemoved = true);
     }
   }
 
@@ -749,6 +761,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     // 杀掉旧页媒体，避免加载新集期间旧集继续出声（双音轨）
     await _killWebMedia();
     if (!mounted) return;
+    // 复位 WebView 挂载：新集要重新用 WebView 解析直链，
+    // 否则上一步的物理移除会让新集一直黑屏。
+    if (_webViewRemoved) setState(() => _webViewRemoved = false);
     try {
       final url = await resolver(season, episode);
       if (!mounted) return;
@@ -1011,6 +1026,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   }
 
   Widget _webView() {
+    // 已物理移除（切原生播放器/退出页）：不再渲染 WebView，防止其
+    // 在转场动画期间继续播放/出声（双播放器叠音）。
+    if (_webViewRemoved) return const SizedBox.shrink();
     final d = _desktop;
     return Stack(children: [
       d != null ? d.buildView() : WebViewWidget(controller: _controller),

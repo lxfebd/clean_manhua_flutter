@@ -86,6 +86,15 @@ class DesktopWebview {
     await controller.reload();
   }
 
+  /// 停止当前页面一切活动（媒体播放/网络/脚本）。切原生播放器前调用，
+  /// 保证 WebView2 即使随后异步释放，也绝不会残留网页音频。
+  Future<void> stop() async {
+    if (!_ready) return;
+    try {
+      await controller.stop();
+    } catch (_) {}
+  }
+
   /// 注入“文档创建时执行”的脚本（早于页面任何脚本），
   /// 用于拦截 fetch/XHR 的 resolve API，确保直链不丢。
   Future<void> injectOnDocumentCreated(String script) async {
