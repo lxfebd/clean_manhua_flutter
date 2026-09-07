@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/comic_item.dart';
 import '../sources/comic_source.dart';
+import 'local_store.dart';
 
 /// 通用本地书架：所有漫画源统一保存在一个 JSON 文件中，
 /// 按 sourceId 维度分组，避免每个源各自实现。
@@ -93,6 +94,8 @@ class BookshelfStore {
       'pic': d.pic ?? '',
       'author': d.author ?? d.comic.author ?? '',
       'description': d.description ?? '',
+      'type': d.type ?? '',
+      'status': d.status ?? '',
       'chapters': d.chapters
           .map((c) => {'id': c.id, 'title': c.title})
           .toList(),
@@ -235,7 +238,31 @@ class BookshelfStore {
       chapters,
       author: (m['author'] as String?) ?? '',
       description: (m['description'] as String?) ?? '',
+      type: (m['type'] as String?) ?? '',
+      status: (m['status'] as String?) ?? '',
       sourceId: (m['sourceId'] as String?) ?? '',
     );
+  }
+
+  /// 书架的「最近更新时间」：优先取阅读历史里该作品的最后阅读时间，
+  /// 无阅读记录时回退到收藏时间（addedAt）。供排序/展示用。
+  static int updateTimeOf(ComicDetail d, List<HistoryEntry> history) {
+    final sid = d.sourceId ?? '';
+    final key = '$sid::${d.id}';
+    for (final h in history) {
+      if (h.book.key == key) return h.timestamp;
+    }
+    // 兜底：同 comicId 跨源也可能命中（历史 key 含源 id，此处放宽）
+    for (final h in history) {
+      if (h.book.comicId == d.id) return h.timestamp;
+    }
+    return addedAtOf(d);
+  }
+
+  /// 读取某本书的收藏时间（addedAt），无记录返回 0。
+  static int addedAtOf(ComicDetail d) {
+    final sid = d.sourceId ?? '';
+    final v = _cache[_key(sid, d.id)]?['addedAt'];
+    return (v as int?) ?? 0;
   }
 }

@@ -8,7 +8,9 @@ import '../main.dart';
 import '../net/bookshelf_store.dart';
 import '../net/local_store.dart';
 import '../net/novel_shelf_store.dart';
+import '../net/shelf_updater.dart';
 import '../net/update_checker.dart';
+import '../net/webdav_sync.dart';
 import '../theme.dart';
 import '../utils/danmaku.dart';
 import 'responsive.dart';
@@ -32,6 +34,14 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _loaded = false;
   bool _checking = false;
   DanmakuSettings _danmaku = const DanmakuSettings();
+  UpdateFreq _updateFreq = UpdateFreq.off;
+
+  String get _updateFreqLabel => switch (_updateFreq) {
+        UpdateFreq.off => '关闭',
+        UpdateFreq.every6h => '每 6 小时检查一次',
+        UpdateFreq.every12h => '每 12 小时检查一次',
+        UpdateFreq.daily => '每天检查一次',
+      };
 
   @override
   void initState() {
@@ -45,6 +55,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final rtl = await LocalStore.rtlReader();
     final tid = await LocalStore.themeId();
     final dm = await LocalStore.danmakuSettings();
+    final freq = await ShelfUpdater.frequency();
     if (mounted) {
       setState(() {
         _dark = d;
@@ -52,6 +63,7 @@ class _SettingsPageState extends State<SettingsPage> {
         _rtl = rtl;
         _themeId = tid;
         _danmaku = dm;
+        _updateFreq = freq;
         _loaded = true;
       });
     }
@@ -338,6 +350,17 @@ class _SettingsPageState extends State<SettingsPage> {
                         : null,
                     onTap: _checkUpdate,
                   ),
+                  Container(
+                    height: 0.5,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  ),
+                  _SettingTile(
+                    icon: Icons.notifications_active_outlined,
+                    title: '收藏更新提醒',
+                    subtitle: _updateFreqLabel,
+                    trailing: const Icon(Icons.chevron_right_rounded, size: 18),
+                    onTap: _pickUpdateFreq,
+                  ),
                 ],
               ),
             ),
@@ -366,6 +389,18 @@ class _SettingsPageState extends State<SettingsPage> {
                     title: '导入备份',
                     subtitle: '从 JSON 文件恢复数据',
                     onTap: _importBackup,
+                  ),
+                  Container(
+                    height: 0.5,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  ),
+                  _SettingTile(
+                    icon: Icons.cloud_sync_rounded,
+                    title: 'WebDAV 同步',
+                    subtitle: WebDavSync.hasConfig
+                        ? '已配置 ${WebDavSync.config!['url']}'
+                        : '多端同步书架 / 进度 / 设置',
+                    onTap: _openWebDav,
                   ),
                   Container(
                     height: 0.5,
@@ -597,6 +632,54 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+    /// 收藏更新提醒频率选择。
+  Future<void> _pickUpdateFreq() async {
+    final v = await showDialog<UpdateFreq>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Text('收藏更新提醒'),
+        children: [
+          for (final f in UpdateFreq.values)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(ctx).pop(f),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  children: [
+                    Icon(
+                      _updateFreq == f
+                          ? Icons.radio_button_checked_rounded
+                          : Icons.radio_button_off_rounded,
+                      size: 18,
+                      color: _updateFreq == f
+                          ? Theme.of(ctx).colorScheme.primary
+                          : Theme.of(ctx).colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 12),
+                    Text(f.label, style: const TextStyle(fontSize: 14)),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (v == null || !mounted) return;
+    await ShelfUpdater.setFrequency(v);
+    if (!mounted) return;
+    ShelfUpdater.instance.applyFrequency(v);
+    setState(() => _updateFreq = v);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(v == UpdateFreq.off
+            ? '已关闭收藏更新提醒'
+            : '已开启：${v.label}自动检查收藏更新'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   Future<void> _checkUpdate() async {
     if (_checking) return;
     setState(() => _checking = true);
@@ -618,6 +701,22 @@ class _SettingsPageState extends State<SettingsPage> {
     } finally {
       if (mounted) setState(() => _checking = false);
     }
+  }
+
+  /// 打开 WebDAV 同步配置面板。
+  Future<void> _openWebDav() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      barrierColor: Colors.black.withValues(alpha: 0.3),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _WebDavSheet(
+        onChanged: () => setState(() {}), // 刷新「已配置」副标题
+      ),
+    );
   }
 
   void _showUpdateDialog(UpdateInfo info) {
@@ -1214,5 +1313,300 @@ class _GestureSettingsSheetState extends State<_GestureSettingsSheet> {
         ),
       ),
     );
+  }
+}
+
+/// WebDAV 同步配置面板：服务器地址 / 账号 / 目录 / 加密开关 / 上传下载。
+class _WebDavSheet extends StatefulWidget {
+  final VoidCallback onChanged;
+  const _WebDavSheet({required this.onChanged});
+
+  @override
+  State<_WebDavSheet> createState() => _WebDavSheetState();
+}
+
+class _WebDavSheetState extends State<_WebDavSheet> {
+  final _urlCtrl = TextEditingController();
+  final _userCtrl = TextEditingController();
+  final _passCtrl = TextEditingController();
+  final _dirCtrl = TextEditingController();
+  bool _encrypt = true;
+  bool _busy = false;
+  String? _status;
+  bool _statusOk = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final c = WebDavSync.config;
+    if (c != null) {
+      _urlCtrl.text = c['url'] as String? ?? '';
+      _userCtrl.text = c['username'] as String? ?? '';
+      _passCtrl.text = c['password'] as String? ?? ''; // hasPassword 占位时为空
+      _dirCtrl.text = c['dir'] as String? ?? '';
+      _encrypt = (c['encrypt'] as bool?) ?? true;
+    }
+  }
+
+  @override
+  void dispose() {
+    _urlCtrl.dispose();
+    _userCtrl.dispose();
+    _passCtrl.dispose();
+    _dirCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _run(String label, Future<void> Function() fn,
+      {String ok = ''}) async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _status = null;
+    });
+    try {
+      await fn();
+      if (mounted) {
+        setState(() {
+          _status = ok.isEmpty ? '完成' : ok;
+          _statusOk = true;
+        });
+      }
+      widget.onChanged();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _status = '$label失败：$e';
+          _statusOk = false;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _save() {
+    final url = _urlCtrl.text.trim();
+    if (url.isEmpty) {
+      setState(() {
+        _status = '请填写 WebDAV 服务器地址';
+        _statusOk = false;
+      });
+      return;
+    }
+    WebDavSync.saveConfig(
+      url: url,
+      username: _userCtrl.text.trim(),
+      password: _passCtrl.text,
+      dir: _dirCtrl.text.trim(),
+      encrypt: _encrypt,
+    );
+    widget.onChanged();
+    Navigator.of(context).maybePop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 18,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.cloud_sync_rounded, size: 20, color: scheme.primary),
+                const SizedBox(width: 8),
+                Text(
+                  'WebDAV 同步',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: scheme.onSurface,
+                  ),
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => Navigator.of(context).maybePop(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '把收藏、阅读进度、设置同步到你的 WebDAV 网盘\n'
+              '（坚果云 / Nextcloud / 群晖 WebDAV 等），实现多端同步。',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.5,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _urlCtrl,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(
+                labelText: '服务器地址',
+                hintText: 'https://dav.jianguoyun.com/dav/',
+                prefixIcon: Icon(Icons.link_rounded, size: 20),
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _userCtrl,
+                    decoration: const InputDecoration(
+                      labelText: '账号',
+                      prefixIcon: Icon(Icons.person_outline_rounded, size: 20),
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    controller: _passCtrl,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: '密码 / 应用密码',
+                      prefixIcon: Icon(Icons.key_rounded, size: 20),
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _dirCtrl,
+              decoration: const InputDecoration(
+                labelText: '保存目录（可选）',
+                hintText: 'Apps/星漫匣',
+                prefixIcon: Icon(Icons.folder_outlined, size: 20),
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '加密同步文件（AES-256-GCM，口令不落盘）',
+                    style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
+                  ),
+                ),
+                Switch(
+                  value: _encrypt,
+                  onChanged: (v) => setState(() => _encrypt = v),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _busy ? null : _save,
+                    icon: const Icon(Icons.save_outlined, size: 18),
+                    label: const Text('保存配置'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _busy ? null : () => _run('上传',
+                        () => WebDavSync.push(),
+                        ok: '已上传到 WebDAV'),
+                    icon: const Icon(Icons.upload_rounded, size: 18),
+                    label: const Text('上传同步'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _busy
+                    ? null
+                    : () => _confirmPull(),
+                icon: const Icon(Icons.download_rounded, size: 18),
+                label: const Text('从 WebDAV 拉取并覆盖本地'),
+              ),
+            ),
+            if (_status != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: (_statusOk ? scheme.primary : scheme.error)
+                      .withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _statusOk ? Icons.check_circle_outline : Icons.error_outline,
+                      size: 18,
+                      color: _statusOk ? scheme.primary : scheme.error,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _status!,
+                        style: TextStyle(fontSize: 12.5, color: scheme.onSurface),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmPull() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Text('拉取远端数据'),
+        content: const Text('将用 WebDAV 上的数据覆盖本地的收藏、历史、进度和设置。'
+            '本地上传之后的新改动会被覆盖，确定继续？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('拉取并覆盖'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _run('拉取', () async {
+      await WebDavSync.pull();
+      await WebDavSync.recordPull();
+    }, ok: '已从 WebDAV 恢复数据');
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 
 import '../net/bookshelf_store.dart';
+import '../net/shelf_updater.dart';
 import '../net/download_manager.dart';
 import '../net/video_download_manager.dart';
 import '../net/local_store.dart';
@@ -48,6 +49,12 @@ class BookshelfPageState extends State<BookshelfPage>
   bool _editing = false;
   String? _tagFilter;
   List<String> _allTags = [];
+  // 收藏 Tab 内搜索 + 筛选 + 排序。
+  final _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+  String? _statusFilter;
+  List<String> _allStatuses = [];
+  int _sortMode = 0; // 0=最近更新 1=最近收藏 2=名称
   int _updateCount = 0;
   bool _checkingUpdate = false;
 
@@ -60,6 +67,27 @@ class BookshelfPageState extends State<BookshelfPage>
   @override
   void initState() {
     super.initState();
+    // 后台定时检查发现新更新时弹出提示（应用内横幅）。
+    ShelfUpdater.instance.onUpdatesFound = (names) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('收藏有更新：${names.take(3).join('、')}${names.length > 3 ? ' 等' : ''}'),
+          duration: const Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
+          action: SnackBarAction(
+            label: '查看',
+            onPressed: () {
+              setState(() {
+                _tab = 1;
+                _updateCount = names.length;
+                _applyFilters();
+              });
+            },
+          ),
+        ),
+      );
+    };
     reload();
   }
 
@@ -80,19 +108,15 @@ class BookshelfPageState extends State<BookshelfPage>
       if (mounted) {
         setState(() {
           _items = list;
-          _filtered = _tagFilter == null
-              ? list
-              : list.where((d) {
-                  final sid = d.sourceId ?? BookshelfStore.sourceIdOf(d.id) ?? '';
-                  return BookshelfStore.tagsOf(sid, d.id).contains(_tagFilter);
-                }).toList();
           _allTags = BookshelfStore.allTags();
+          _allStatuses = _collectStatuses(list);
           _recent = hist;
           _videos = videos;
           _bookmarks = marks;
           _mangaDownloads = dl;
           _animeDownloads = ani;
           _loading = false;
+          _applyFilters();
         });
       }
     } catch (_) {
@@ -104,6 +128,76 @@ class BookshelfPageState extends State<BookshelfPage>
     setState(() => _refreshing = true);
     await reload();
     if (mounted) setState(() => _refreshing = false);
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  /// 从书架条目收集所有出现过的「状态」值（连载中/已完结/…），保序去重。
+  List<String> _collectStatuses(List<ComicDetail> list) {
+    final seen = <String>[];
+    for (final d in list) {
+      final s = (d.status ?? '').trim();
+      if (s.isNotEmpty && !seen.contains(s)) seen.add(s);
+    }
+    return seen;
+  }
+
+  /// 统一过滤管线：标签 + 搜索 + 状态筛选 + 排序，结果写入 [_filtered]。
+  void _applyFilters() {
+    final q = _searchQuery.trim().toLowerCase();
+    var out = _items.where((d) {
+      if (_tagFilter != null) {
+        final sid = d.sourceId ?? BookshelfStore.sourceIdOf(d.id) ?? '';
+        if (!BookshelfStore.tagsOf(sid, d.id).contains(_tagFilter)) {
+          return false;
+        }
+      }
+      if (_statusFilter != null && (d.status ?? '') != _statusFilter) {
+        return false;
+      }
+      if (q.isNotEmpty) {
+        final name = d.name.toLowerCase();
+        final author = (d.author ?? '').toLowerCase();
+        if (!name.contains(q) && !author.contains(q)) return false;
+      }
+      return true;
+    }).toList();
+
+    switch (_sortMode) {
+      case 1:
+        out.sort((a, b) =>
+            BookshelfStore.addedAtOf(b).compareTo(BookshelfStore.addedAtOf(a)));
+      case 2:
+        out.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      default:
+        out.sort((a, b) => BookshelfStore.updateTimeOf(b, _recent)
+            .compareTo(BookshelfStore.updateTimeOf(a, _recent)));
+    }
+    _filtered = out;
+  }
+
+  /// 搜索/筛选/排序任一变化时调用（需要 setState 刷新 UI）。
+  void _onFilterChanged() {
+    setState(_applyFilters);
+  }
+
+  String _emptyFilterText() {
+    final q = _searchQuery.trim();
+    if (q.isNotEmpty) return '没有找到「$q」';
+    if (_statusFilter != null) return '没有「$_statusFilter」状态的作品';
+    if (_tagFilter != null) return '没有匹配「$_tagFilter」标签的作品';
+    return '没有匹配的作品';
+  }
+
+  String _emptyFilterSubtitle() {
+    if (_searchQuery.trim().isNotEmpty) {
+      return '换个关键词，或试试标题 / 作者名';
+    }
+    return '试试清除筛选条件';
   }
 
   @override
@@ -232,8 +326,8 @@ class BookshelfPageState extends State<BookshelfPage>
               ),
             // 横向 Tab（最近阅读/我的收藏/动画记录/下载）
             _tabBar(),
-            // 标签筛选（仅收藏 Tab）
-            if (_tab == 1 && _allTags.isNotEmpty) _tagChips(),
+            // 收藏 Tab：搜索 + 标签/状态筛选 + 排序
+            if (_tab == 1 && _items.isNotEmpty) _shelfFilterBar(),
             Expanded(child: _buildTabletContent(scheme)),
           ],
         ),
@@ -345,8 +439,8 @@ class BookshelfPageState extends State<BookshelfPage>
           padding: const EdgeInsets.only(top: 120),
           child: _TabEmpty(
             icon: Icons.filter_alt_off_rounded,
-            text: '没有匹配「$_tagFilter」标签的作品',
-            subtitle: '试试切换到其他标签分类',
+            text: _emptyFilterText(),
+            subtitle: _emptyFilterSubtitle(),
           ),
         ),
       );
@@ -1109,8 +1203,8 @@ class BookshelfPageState extends State<BookshelfPage>
               ),
             )
         else if (_tab == 1) ...[
-          if (_items.isNotEmpty && _allTags.isNotEmpty)
-            SliverToBoxAdapter(child: _tagChips()),
+          if (_items.isNotEmpty)
+            SliverToBoxAdapter(child: _shelfFilterBar()),
           if (_items.isEmpty)
             const SliverToBoxAdapter(
               child: Padding(
@@ -1128,8 +1222,8 @@ class BookshelfPageState extends State<BookshelfPage>
                 padding: const EdgeInsets.only(top: 80),
                 child: _TabEmpty(
                   icon: Icons.filter_alt_off_rounded,
-                  text: '没有匹配「$_tagFilter」标签的作品',
-                  subtitle: '试试切换到其他标签分类',
+                  text: _emptyFilterText(),
+                  subtitle: _emptyFilterSubtitle(),
                 ),
               ),
             )
@@ -1590,21 +1684,32 @@ class BookshelfPageState extends State<BookshelfPage>
   Future<void> _checkUpdates() async {
     if (_checkingUpdate) return;
     setState(() => _checkingUpdate = true);
-    var count = 0;
-    for (final d in _items) {
-      final sid = d.sourceId ?? BookshelfStore.sourceIdOf(d.id);
-      if (sid == null) continue;
-      try {
-        final detail = await SourceManager.byId(sid).detail(d.id);
-        if (detail.chapters.length > d.chapters.length) count++;
-      } catch (_) {}
+    try {
+      final updated = await ShelfUpdater.checkNow();
+      if (mounted) {
+        setState(() {
+          _updateCount = updated.length;
+          _checkingUpdate = false;
+        });
+        if (updated.isEmpty || _updateCount == 0) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${updated.length} 部作品有更新${_newNames(updated)}'),
+            duration: const Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) setState(() => _checkingUpdate = false);
     }
-    if (mounted) {
-      setState(() {
-        _updateCount = count;
-        _checkingUpdate = false;
-      });
-    }
+  }
+
+  String _newNames(List<String> names) {
+    if (names.isEmpty) return '';
+    var preview = names.take(3).join('、');
+    if (names.length > 3) preview += ' 等';
+    return '：$preview';
   }
 
   // ─── Tab Bar ────────────────────────────────────────────────────────────
@@ -1679,90 +1784,218 @@ class BookshelfPageState extends State<BookshelfPage>
     );
   }
 
-  // ─── Tag Chips ──────────────────────────────────────────────────────────
+  // ─── 收藏筛选栏（搜索 + 标签/状态 + 排序） ─────────────────────────────
 
-  Widget _tagChips() {
+  Widget _shelfFilterBar() {
     final scheme = Theme.of(context).colorScheme;
-    return SizedBox(
-      height: 42,
-      child: ListView.separated(
-        padding: EdgeInsets.symmetric(
-            horizontal: Responsive.pagePadding(context), vertical: 8),
-        scrollDirection: Axis.horizontal,
-        itemCount: _allTags.length + 1,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (_, i) {
-          if (i == 0) {
-            final sel = _tagFilter == null;
-            return GestureDetector(
-              onTap: () => setState(() => _tagFilter = null),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                decoration: BoxDecoration(
-                  color: sel
-                      ? scheme.primary.withValues(alpha: 0.16)
-                      : scheme.surface,
-                  borderRadius: BorderRadius.circular(R.pill),
-                  border: Border.all(
-                    color: sel
-                        ? scheme.primary.withValues(alpha: 0.3)
-                        : T.color(scheme.onSurface, TextTier.hairline,
-                            brightness: scheme.brightness),
-                  ),
-                ),
-                child: Text(
-                  '全部',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight:
-                            sel ? FontWeight.w700 : FontWeight.w500,
-                        color: sel
-                            ? scheme.primary
-                            : T.color(scheme.onSurface, TextTier.low,
-                                brightness: scheme.brightness),
+    final pad = Responsive.pagePadding(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(pad, 4, pad, 0),
+          child: SizedBox(
+            height: 38,
+            child: TextField(
+              controller: _searchCtrl,
+              onChanged: (v) {
+                _searchQuery = v;
+                _onFilterChanged();
+              },
+              style: const TextStyle(fontSize: 13.5),
+              decoration: InputDecoration(
+                hintText: '搜索收藏（标题 / 作者）',
+                prefixIcon:
+                    const Icon(Icons.search_rounded, size: 18),
+                suffixIcon: _searchQuery.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.clear_rounded, size: 16),
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          _searchQuery = '';
+                          _onFilterChanged();
+                        },
                       ),
+                isDense: true,
+                filled: true,
+                fillColor: scheme.surface,
+                contentPadding:
+                    const EdgeInsets.symmetric(vertical: 8),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(R.pill),
+                  borderSide: BorderSide(
+                      color: scheme.onSurface.withValues(alpha: 0.08)),
                 ),
-              ),
-            );
-          }
-          final tag = _allTags[i - 1];
-          final sel = _tagFilter == tag;
-          return GestureDetector(
-            onTap: () => setState(() => _tagFilter = tag),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-              decoration: BoxDecoration(
-                color: sel
-                    ? scheme.primary.withValues(alpha: 0.16)
-                    : scheme.surface,
-                borderRadius: BorderRadius.circular(R.pill),
-                border: Border.all(
-                  color: sel
-                      ? scheme.primary.withValues(alpha: 0.3)
-                      : T.color(scheme.onSurface, TextTier.hairline,
-                          brightness: scheme.brightness),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(R.pill),
+                  borderSide: BorderSide(
+                      color: scheme.onSurface.withValues(alpha: 0.08)),
                 ),
-              ),
-              child: Text(
-                tag,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontWeight:
-                          sel ? FontWeight.w700 : FontWeight.w500,
-                      color: sel
-                          ? scheme.primary
-                          : T.color(scheme.onSurface, TextTier.low,
-                              brightness: scheme.brightness),
-                    ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(R.pill),
+                  borderSide: BorderSide(color: scheme.primary, width: 1.2),
+                ),
               ),
             ),
-          );
-        },
+          ),
+        ),
+        SizedBox(
+          height: 42,
+          child: ListView.separated(
+            padding:
+                EdgeInsets.symmetric(horizontal: pad, vertical: 8),
+            scrollDirection: Axis.horizontal,
+            itemCount: _chipCount(),
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (_, i) => _filterChipAt(i),
+          ),
+        ),
+      ],
+    );
+  }
+
+  int _chipCount() {
+    // 排序 + 状态 + 全部 + 标签
+    return 1 + (_allStatuses.isNotEmpty ? 1 : 0) + 1 + _allTags.length;
+  }
+
+  Widget _filterChipAt(int i) {
+    var idx = 0;
+    // 排序
+    if (i == idx++) return _sortChip();
+    // 状态
+    if (_allStatuses.isNotEmpty) {
+      if (i == idx++) {
+        return _statusChip();
+      }
+    }
+    // 全部标签
+    if (i == idx++) {
+      final sel = _tagFilter == null;
+      return _chip('全部', sel, () => setState(() {
+        _tagFilter = null;
+        _applyFilters();
+      }));
+    }
+    // 标签
+    final tag = _allTags[i - idx];
+    final sel = _tagFilter == tag;
+    return _chip(tag, sel, () => setState(() {
+      _tagFilter = tag;
+      _applyFilters();
+    }));
+  }
+
+  Widget _chip(String label, bool sel, VoidCallback onTap) {
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          color: sel ? scheme.primary.withValues(alpha: 0.16) : scheme.surface,
+          borderRadius: BorderRadius.circular(R.pill),
+          border: Border.all(
+            color: sel
+                ? scheme.primary.withValues(alpha: 0.3)
+                : T.color(scheme.onSurface, TextTier.hairline,
+                    brightness: scheme.brightness),
+          ),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
+                  color: sel
+                      ? scheme.primary
+                      : T.color(scheme.onSurface, TextTier.low,
+                          brightness: scheme.brightness),
+                ),
+          ),
+        ),
       ),
     );
   }
+
+  /// 排序下拉（最近更新 / 最近收藏 / 名称）。
+  Widget _sortChip() {
+    final scheme = Theme.of(context).colorScheme;
+    final labels = ['最近更新', '最近收藏', '名称'];
+    return PopupMenuButton<int>(
+      tooltip: '排序方式',
+      initialValue: _sortMode,
+      onSelected: (v) => setState(() {
+        _sortMode = v;
+        _applyFilters();
+      }),
+      itemBuilder: (_) => [
+        for (var i = 0; i < labels.length; i++)
+          PopupMenuItem<int>(
+            value: i,
+            child: Row(
+              children: [
+                Icon(
+                  _sortMode == i
+                      ? Icons.check_rounded
+                      : Icons.sort_rounded,
+                  size: 16,
+                  color: _sortMode == i
+                      ? scheme.primary
+                      : scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 8),
+                Text(labels[i], style: const TextStyle(fontSize: 13)),
+              ],
+            ),
+          ),
+      ],
+      child: _chip('排序：${labels[_sortMode]}', false, () {}),
+    );
+  }
+
+  /// 状态筛选下拉（连载中 / 已完结 / …）。
+  Widget _statusChip() {
+    final scheme = Theme.of(context).colorScheme;
+    final items = <String>['不限', ..._allStatuses];
+    return PopupMenuButton<int>(
+      tooltip: '按状态筛选',
+      initialValue: _statusFilter == null ? 0 : _allStatuses.indexOf(_statusFilter!) + 1,
+      onSelected: (v) => setState(() {
+        _statusFilter = v == 0 ? null : _allStatuses[v - 1];
+        _applyFilters();
+      }),
+      itemBuilder: (_) => [
+        for (var i = 0; i < items.length; i++)
+          PopupMenuItem<int>(
+            value: i,
+            child: Row(
+              children: [
+                Icon(
+                  (_statusFilter == null && i == 0) ||
+                          (_statusFilter != null &&
+                              _allStatuses[i - 1] == _statusFilter)
+                      ? Icons.check_rounded
+                      : Icons.radio_button_unchecked_rounded,
+                  size: 16,
+                  color: scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 8),
+                Text(items[i], style: const TextStyle(fontSize: 13)),
+              ],
+            ),
+          ),
+      ],
+      child: _chip(
+        _statusFilter == null ? '状态：不限' : '状态：$_statusFilter',
+        _statusFilter != null,
+        () {},
+      ),
+    );
+  }
+
 }
 
 // ─── 子组件 ──────────────────────────────────────────────────────────────

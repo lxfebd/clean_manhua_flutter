@@ -97,6 +97,12 @@ class Net {
     await LocalStore.writeJson('global_proxy', proxy ?? '');
   }
 
+  /// WebDAV 等自定义协议层读取：当前是否启用了全局代理。
+  static bool get proxyEnabled => _proxyEnabled;
+
+  /// WebDAV 等自定义协议层读取：findProxy 用的 PAC 指令；未启用代理返回 null。
+  static String? get proxyDirective => _effectiveProxy;
+
   static void _applyProxy() {
     _effectiveProxy = _proxyDirective(proxy);
     _proxyEnabled = _effectiveProxy != null;

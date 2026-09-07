@@ -13,8 +13,10 @@ import 'net/http_client.dart';
 import 'net/image_cache.dart';
 import 'net/local_store.dart';
 import 'net/novel_shelf_store.dart';
+import 'net/shelf_updater.dart';
 import 'net/update_checker.dart';
 import 'net/video_download_manager.dart';
+import 'net/webdav_sync.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'theme.dart';
 import 'ui/main_shell.dart';
@@ -99,6 +101,18 @@ Future<void> _postFirstFrameInit() async {
     await Net.restoreProxy();
   } catch (e) {
     debugPrint('restoreProxy failed: $e');
+  }
+  try {
+    // WebDAV 同步配置恢复（服务器/账号/加密标记），密码仅恢复占位
+    await WebDavSync.restore();
+  } catch (e) {
+    debugPrint('webdav restore failed: $e');
+  }
+  try {
+    // 收藏更新检查：恢复频率设置并启动/停止后台轮询
+    await ShelfUpdater.instance.restore();
+  } catch (e) {
+    debugPrint('shelf updater restore failed: $e');
   }
   try {
     // 设备内存分档：低端机收紧图片缓存防 OOM，高端机放开提升连读流畅度
