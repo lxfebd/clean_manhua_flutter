@@ -263,6 +263,10 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     // 取消解析定时器，防止 pushReplacement 后定时器触发 setState
     _resolveTimer?.cancel();
     _videoPollTimer?.cancel();
+    // 先杀掉网页播放器（暂停+清空 src+about:blank），再切原生播放器，
+    // 确保转场期间与 WebView2 异步释放期间都不会残留网页音频（双音轨）。
+    await _killWebMedia();
+    if (!mounted) return;
     // 用 pushReplacement 替换当前网页播放器，避免栈里叠两层播放器：
     // 选集页 → 网页播放器 → 原生播放器。返回时直接回到选集页。
     // 用纯淡入转场：当前页是黑屏 loading，切到同为黑底的原生播放器
@@ -363,6 +367,10 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     _videoPollTimer?.cancel();
     _videoPollTimer = Timer.periodic(const Duration(milliseconds: 900), (_) async {
       if (!mounted) return;
+      // 0) 解析直链期间持续压制网页播放器音量，防止站点抢先出声
+      if (_resolving) {
+        await _muteWebMedia();
+      }
       // 1) 播完检测：video.ended → 自动切下一集
       if (!_autoNextFired && _hasNext) {
         String ended = '';
@@ -412,6 +420,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     }
     _videoPollTimer?.cancel();
     _resolveTimer?.cancel();
+    // 兜底：离开播放页时若网页播放器仍在播放（如未捕获直链直接退出），
+    // 立即静音停播，避免页面销毁后音频残留（同步发起的 JS 已排队执行）。
+    _muteWebMedia();
     for (final s in _desktopSubs) {
       s.cancel();
     }
@@ -536,15 +547,80 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   bool _played = false;
   int _srLevel = 0; // 0=关, 1=性能, 2=质量
 
+  /// 解析直链期间压制网页播放器音量：站点自动播放/点击播放都被静音，
+  /// 防止直链未捕获前网页抢先出声（双音轨）。
+  Future<void> _muteWebMedia() async {
+    await _runJs('''
+      (function(){
+        var kill = function(doc){
+          if(!doc) return;
+          var v = doc.querySelector('video');
+          if(v){ v.muted = true; try{ v.pause(); }catch(e){} }
+          var a = doc.querySelector('audio');
+          if(a){ a.muted = true; try{ a.pause(); }catch(e){} }
+        };
+        kill(document);
+        var f = document.querySelector('iframe');
+        if(f){ try{ kill(f.contentDocument || f.contentWindow.document); }catch(e){} }
+      })();
+    ''');
+  }
+
+  /// 切到原生播放器前杀掉网页媒体：暂停全部 video/audio、清空 src 并
+  /// 导航 about:blank。pushReplacement 的转场动画期间旧页仍挂载，
+  /// 不主动杀掉会让网页播放器在动画期间（甚至 WebView2 异步释放期间）
+  /// 继续出声，与原生播放器叠音。
+  Future<void> _killWebMedia() async {
+    final d = _desktop;
+    if (d != null) {
+      await _muteWebMedia();
+      try {
+        await d.loadUrl('about:blank');
+      } catch (_) {}
+    } else {
+      await _runJs('''
+        (function(){
+          var kill = function(doc){
+            if(!doc) return;
+            var v = doc.querySelector('video');
+            if(v){
+              try{ v.pause(); }catch(e){}
+              try{ v.removeAttribute('src'); v.load(); }catch(e){}
+              v.muted = true;
+            }
+            var a = doc.querySelector('audio');
+            if(a){
+              try{ a.pause(); }catch(e){}
+              try{ a.removeAttribute('src'); a.load(); }catch(e){}
+              a.muted = true;
+            }
+          };
+          kill(document);
+          var f = document.querySelector('iframe');
+          if(f){ try{ kill(f.contentDocument || f.contentWindow.document); }catch(e){} }
+        })();
+      ''');
+      try {
+        await _controller.loadRequest(Uri.parse('about:blank'));
+      } catch (_) {}
+    }
+  }
+
+  /// 自动播放网页播放器：
+  /// * 解析直链中（_resolving）：强制静音预载，画面仍被黑屏遮住，
+  ///   出声只在原生播放器，杜绝"两个播放器叠音"。
+  /// * 解析超时降级为网页播放（_resolving 已为 false）：解除静音出声，
+  ///   并收起播放/暂停的按钮遮挡。
   void _triggerAutoPlay() async {
     if (_played) return;
     _played = true;
     await Future.delayed(const Duration(seconds: 2));
     await _applyWebViewSR();
+    final muted = _resolving;
     await _runJs('''
       (function(){
         var v = document.querySelector('video');
-        if(v){ v.muted=false; v.play().catch(function(){}); return 'video'; }
+        if(v){ v.muted = ${muted ? 'true' : 'false'}; v.play().catch(function(){}); return 'video'; }
         var b = document.querySelector('.artplayer-app video,.art-video video,[class*="play"],[id*="play"],.play-btn,button');
         if(b){ b.click(); return 'click'; }
         return 'none';
@@ -668,7 +744,11 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       _curSeason = season;
       _curEpisode = episode;
       _loading = true;
+      _resolving = true; // 新一集重新进入"静音解析"状态，防止旧页残留出声
     });
+    // 杀掉旧页媒体，避免加载新集期间旧集继续出声（双音轨）
+    await _killWebMedia();
+    if (!mounted) return;
     try {
       final url = await resolver(season, episode);
       if (!mounted) return;
@@ -1007,6 +1087,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     });
     _hookVideoSource();
     _injectApiInterceptor();
+    // 重试期间保持静音解析：先杀旧页媒体，再重新加载（防止旧页残留出声）
+    _muteWebMedia();
     final d = _desktop;
     if (d != null) {
       d.reload();
