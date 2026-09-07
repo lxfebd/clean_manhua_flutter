@@ -14,6 +14,7 @@ import '../net/http_client.dart';
 import '../net/image_cache.dart';
 import '../net/jm_scramble.dart';
 import '../net/local_store.dart';
+import '../net/smart_prefetch.dart';
 import 'responsive.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
@@ -147,6 +148,8 @@ class _ReaderPageState extends State<ReaderPage> {
     super.initState();
     WakelockPlus.enable(); // 阅读时保持屏幕常亮
     _initBrightness(); // 接管系统亮度
+    // 预热网络类型探测：让后续翻页的智能预取深度能同步读取快照
+    SmartPrefetch.warmUp();
     _chapterIndex =
         widget.chapters.indexWhere((c) => c.id == widget.chapterId);
     _activeChapterId = widget.chapterId;
@@ -294,31 +297,9 @@ class _ReaderPageState extends State<ReaderPage> {
     try {
       final urls = await _chapterUrls(next.id);
       if (mounted) setState(() => _nextChapterTitle = next.title);
-      // 预取下一话前 2 页图片字节（与 _prefetch 一致处理 JM 解扰）
-      for (var i = 0; i < 2 && i < urls.length; i++) {
-        final u = urls[i];
-        if (u.startsWith('/')) continue;
-        if (u.contains('@') || widget.sourceId == 'jm') {
-          ImageCacheManager.load(u, fetch: () async {
-            final split = JmScramble.splitUrl(u);
-            final referer = _jmReferer(split.url);
-            var raw = Uint8List.fromList(await Net.getBytesCronet(
-              split.url,
-              headers: {
-                'User-Agent': Net.defaultUA,
-                'Referer': referer,
-                'Accept': 'image/webp,image/*,*/*',
-              },
-            ));
-            if (JmScramble.parseAid(u) != null) {
-              raw = await JmScramble.descrambleAsync(raw, u);
-            }
-            return raw;
-          });
-        } else {
-          ImageCacheManager.preload(u, headers: _headersForUrl(u));
-        }
-      }
+      // 网络自适应：Wi-Fi 预取 5 页、蜂窝 2 页、无网 0 页
+      _prefetchRange(urls, 0,
+          SmartPrefetch.nextChapterDepth(SmartPrefetch.cachedNetwork()));
     } catch (_) {}
   }
 
@@ -390,33 +371,47 @@ class _ReaderPageState extends State<ReaderPage> {
     }
   }
 
-  /// 预取后续 3 页字节到缓存（本地已下载 / JM 解扰图跳过）。
+  /// 预取后续页字节到缓存（本地已下载 / JM 解扰图跳过）。
+  /// 深度按网络类型自适应：Wi-Fi 5 页、蜂窝 2 页、无网/未知 0 页。
   /// 注意：headers 必须与 _ImageView 一致（部分 CDN 无 Referer 返回 404，
   /// 若 preload 用无头请求启动 in-flight，后续正式加载会复用该失败 future）。
   void _prefetch(int from) {
-    for (var k = from; k < from + 3 && k < _urls.length; k++) {
-      final u = _urls[k];
-      if (u.startsWith('/')) continue;
-      if (u.contains('@') || widget.sourceId == 'jm') {
-        ImageCacheManager.load(u, fetch: () async {
-          final split = JmScramble.splitUrl(u);
-          final referer = _jmReferer(split.url);
-          var raw = Uint8List.fromList(await Net.getBytesCronet(
-            split.url,
-            headers: {
-              'User-Agent': Net.defaultUA,
-              'Referer': referer,
-              'Accept': 'image/webp,image/*,*/*',
-            },
-          ));
-          if (JmScramble.parseAid(u) != null) {
-            raw = await JmScramble.descrambleAsync(raw, u);
-          }
-          return raw;
-        });
-      } else {
-        ImageCacheManager.preload(u, headers: _headersForUrl(u));
-      }
+    _prefetchRange(_urls, from, null);
+  }
+
+  /// 预取 [urls] 中 [from, from+count) 区间（count 为 null 时按网络自适应）。
+  /// 共享 JM 解扰/本地已下载跳过逻辑，供当前章与下一章预取复用。
+  void _prefetchRange(List<String> urls, int from, int? count) {
+    final depth =
+        (count ?? SmartPrefetch.chapterDepth(SmartPrefetch.cachedNetwork()))
+            .clamp(0, 12);
+    for (var k = from; k < from + depth && k < urls.length; k++) {
+      _preloadOne(urls[k]);
+    }
+  }
+
+  /// 预载单张图片字节到缓存（重复逻辑内聚，JM 解扰走 fetch 回调）。
+  void _preloadOne(String u) {
+    if (u.startsWith('/')) return;
+    if (u.contains('@') || widget.sourceId == 'jm') {
+      ImageCacheManager.load(u, fetch: () async {
+        final split = JmScramble.splitUrl(u);
+        final referer = _jmReferer(split.url);
+        var raw = Uint8List.fromList(await Net.getBytesCronet(
+          split.url,
+          headers: {
+            'User-Agent': Net.defaultUA,
+            'Referer': referer,
+            'Accept': 'image/webp,image/*,*/*',
+          },
+        ));
+        if (JmScramble.parseAid(u) != null) {
+          raw = await JmScramble.descrambleAsync(raw, u);
+        }
+        return raw;
+      });
+    } else {
+      ImageCacheManager.preload(u, headers: _headersForUrl(u));
     }
   }
 
