@@ -1635,7 +1635,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       title: '播放速度',
       fromRight: _fullscreen,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
-        const speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0];
+        const speeds = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 3.5, 4.0];
         return SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             ...speeds.map((s) => PanelOptionTile(

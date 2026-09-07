@@ -42,6 +42,9 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   int _fontSize = 17;
   int _lineHeight = 180;
   int _theme = 0;
+  int _paragraphGap = 18; // 段间距（px）
+  bool _firstIndent = true; // 首行缩进 2 字符
+  int _colorTemp = 0; // 色温 0~100（0 = 无色温滤镜）
 
   final Stopwatch _readWatch = Stopwatch();
   Timer? _statsTimer;
@@ -94,11 +97,17 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     final fs = await LocalStore.novelFontSize();
     final lh = await LocalStore.novelLineHeight();
     final th = await LocalStore.novelTheme();
+    final gap = await LocalStore.novelParagraphGap();
+    final indent = await LocalStore.novelFirstIndent();
+    final ct = await LocalStore.novelColorTemp();
     if (mounted) {
       setState(() {
         _fontSize = fs;
         _lineHeight = lh;
         _theme = th;
+        _paragraphGap = gap;
+        _firstIndent = indent;
+        _colorTemp = ct;
       });
     }
   }
@@ -192,6 +201,9 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         fontSize: _fontSize,
         lineHeight: _lineHeight,
         theme: _theme,
+        paragraphGap: _paragraphGap,
+        firstIndent: _firstIndent,
+        colorTemp: _colorTemp,
         onFontSize: (v) async {
           setState(() => _fontSize = v);
           await LocalStore.setNovelReadSettings(fontSize: v);
@@ -203,6 +215,18 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         onTheme: (v) async {
           setState(() => _theme = v);
           await LocalStore.setNovelReadSettings(theme: v);
+        },
+        onParagraphGap: (v) async {
+          setState(() => _paragraphGap = v);
+          await LocalStore.setNovelReadSettings(paragraphGap: v);
+        },
+        onFirstIndent: (v) async {
+          setState(() => _firstIndent = v);
+          await LocalStore.setNovelReadSettings(firstIndent: v);
+        },
+        onColorTemp: (v) async {
+          setState(() => _colorTemp = v);
+          await LocalStore.setNovelReadSettings(colorTemp: v);
         },
       ),
     );
@@ -230,27 +254,43 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-          : _error != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(_error!,
-                          style: TextStyle(
-                              color: scheme.onSurface.withValues(alpha: 0.6))),
-                      const SizedBox(height: 12),
-                      FilledButton(
-                          onPressed: () {
-                            setState(() => _loading = true);
-                            _load(_curChapterId);
-                          },
-                          child: const Text('重试')),
-                    ],
-                  ),
-                )
-              : _reader(scheme),
+      // 色温护眼：正文区叠加暖色半透明滤镜（纯图层，无额外解码开销）。
+      // 0 = 无色温，100 = 最暖（约 3000K），透明度随档位线性增强。
+      body: Stack(
+        children: [
+          _loading
+              ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+              : _error != null
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(_error!,
+                              style: TextStyle(
+                                  color: scheme.onSurface
+                                      .withValues(alpha: 0.6))),
+                          const SizedBox(height: 12),
+                          FilledButton(
+                              onPressed: () {
+                                setState(() => _loading = true);
+                                _load(_curChapterId);
+                              },
+                              child: const Text('重试')),
+                        ],
+                      ),
+                    )
+                  : _reader(scheme),
+          if (_colorTemp > 0)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: ColoredBox(
+                  color: const Color(0xFFFF9E4D).withValues(
+                      alpha: _colorTemp / 100 * 0.25),
+                ),
+              ),
+            ),
+        ],
+      ),
       bottomNavigationBar: _content == null
           ? null
           : SafeArea(
@@ -294,24 +334,31 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     final textColor = useCustomBg
         ? Color(int.parse(_themes[_theme.clamp(0, _themes.length - 1)].text))
         : scheme.onSurface.withValues(alpha: 0.92);
-    // 桌面端：包裹 Focus + 键盘滚动，使空格/PageUp/PageDown 可直接滚动正文；
-    // 仅在桌面启用，移动端物理键盘不影响触摸滚动。
+
+    Widget para(int i) => Text(
+          // 首行缩进 2 字符：全角空格前缀是中文排版最稳的实现方式
+          // （TextIndent 对跨平台字体/缩放兼容性差，文本前缀永远正确）。
+          _firstIndent ? '　　${paras[i]}' : paras[i],
+          textAlign: TextAlign.justify,
+          style: TextStyle(
+            fontSize: _fontSize.toDouble(),
+            height: _lineHeight / 100,
+            color: textColor,
+          ),
+        );
+
+    // 单一 ListView：挂 _listController（翻章回顶、桌面键滚动都依赖它），
+    // 段间距独立可调（不再跟行距耦合）。
     Widget list = ListView.separated(
       controller: _listController,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       itemCount: paras.length,
       separatorBuilder: (_, __) =>
-          SizedBox(height: (_lineHeight / 100 * 10).clamp(6.0, 20.0)),
-      itemBuilder: (ctx, i) => Text(
-        paras[i],
-        textAlign: TextAlign.justify,
-        style: TextStyle(
-          fontSize: _fontSize.toDouble(),
-          height: _lineHeight / 100,
-          color: textColor,
-        ),
-      ),
+          SizedBox(height: _paragraphGap.toDouble()),
+      itemBuilder: (ctx, i) => para(i),
     );
+    // 桌面端：包裹 Focus + 键盘滚动，使空格/PageUp/PageDown 可直接滚动正文；
+    // 仅在桌面启用，移动端物理键盘不影响触摸滚动。
     if (DesktopUi.isDesktopPlatform) {
       list = Focus(
         autofocus: true,
@@ -355,21 +402,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
           constraints: BoxConstraints(
             maxWidth: Responsive.novelReaderMaxWidth(context),
           ),
-          child: ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            itemCount: paras.length,
-            separatorBuilder: (_, __) =>
-                SizedBox(height: (_lineHeight / 100 * 10).clamp(6.0, 20.0)),
-            itemBuilder: (ctx, i) => Text(
-              paras[i],
-              textAlign: TextAlign.justify,
-              style: TextStyle(
-                fontSize: _fontSize.toDouble(),
-                height: _lineHeight / 100,
-                color: textColor,
-              ),
-            ),
-          ),
+          child: list,
         ),
       ),
     );
@@ -381,16 +414,28 @@ class _NovelReaderSettingsSheet extends StatefulWidget {
   final int fontSize;
   final int lineHeight;
   final int theme;
+  final int paragraphGap;
+  final bool firstIndent;
+  final int colorTemp;
   final ValueChanged<int> onFontSize;
   final ValueChanged<int> onLineHeight;
   final ValueChanged<int> onTheme;
+  final ValueChanged<int> onParagraphGap;
+  final ValueChanged<bool> onFirstIndent;
+  final ValueChanged<int> onColorTemp;
   const _NovelReaderSettingsSheet({
     required this.fontSize,
     required this.lineHeight,
     required this.theme,
+    required this.paragraphGap,
+    required this.firstIndent,
+    required this.colorTemp,
     required this.onFontSize,
     required this.onLineHeight,
     required this.onTheme,
+    required this.onParagraphGap,
+    required this.onFirstIndent,
+    required this.onColorTemp,
   });
 
   @override
@@ -403,6 +448,7 @@ class _NovelReaderSettingsSheetState
   static const _sizes = [14, 16, 17, 18, 20, 22];
   static const _heights = [150, 160, 170, 180, 190, 200];
   static const _themeNames = ['跟随', '米白', '浅绿', '深青'];
+  static const _gaps = [8, 14, 18, 24, 30];
 
   @override
   Widget build(BuildContext context) {
@@ -461,6 +507,82 @@ class _NovelReaderSettingsSheetState
                       setState(() {});
                     }),
                 ]),
+            const SizedBox(height: 14),
+            _row('段间距',
+                children: [
+                  for (final g in _gaps)
+                    _opt('$g', g == widget.paragraphGap, () {
+                      widget.onParagraphGap(g);
+                      setState(() {});
+                    }),
+                ]),
+            const SizedBox(height: 14),
+            _row('首行缩进',
+                children: [
+                  _opt('关', !widget.firstIndent, () {
+                    widget.onFirstIndent(false);
+                    setState(() {});
+                  }),
+                  _opt('开（2字符）', widget.firstIndent, () {
+                    widget.onFirstIndent(true);
+                    setState(() {});
+                  }),
+                ]),
+            const SizedBox(height: 14),
+            // 色温无级调节：0 = 无色温，100 = 最暖（约 3000K）。
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text('色温',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withValues(alpha: 0.85))),
+                    const SizedBox(width: 8),
+                    Text(
+                      widget.colorTemp == 0
+                          ? '关闭'
+                          : '${(6500 - widget.colorTemp * 35)}K',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.5)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                SliderTheme(
+                  data: SliderThemeData(
+                    activeTrackColor:
+                        Theme.of(context).colorScheme.primary,
+                    inactiveTrackColor: Colors.white.withValues(alpha: 0.15),
+                    thumbColor: Theme.of(context).colorScheme.primary,
+                    trackHeight: 3,
+                    overlayShape: const RoundSliderOverlayShape(
+                        overlayRadius: 10),
+                  ),
+                  child: Slider(
+                    value: widget.colorTemp.toDouble(),
+                    max: 100,
+                    divisions: 20,
+                    label: widget.colorTemp == 0
+                        ? '关闭'
+                        : '${(6500 - widget.colorTemp * 35)}K',
+                    onChanged: (v) {
+                      widget.onColorTemp(v.round());
+                      setState(() {});
+                    },
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),

@@ -464,6 +464,13 @@ class LocalStore {
   static Future<void> setReaderMode(int v) async =>
       _updateSetting('readerMode', v);
 
+  /// 阅读器「自动裁边去白边」（true = 开启，默认关）。仅影响漫画页渲染。
+  static Future<bool> trimBorder() async =>
+      ((await _read('settings')) as Map?)?['trimBorder'] as bool? ?? false;
+
+  static Future<void> setTrimBorder(bool v) async =>
+      _updateSetting('trimBorder', v);
+
   /// 日漫 RTL 反向翻页（true = 从右往左，翻页方向取反）。
   static Future<bool> rtlReader() async =>
       ((await _read('settings')) as Map?)?['rtl'] as bool? ?? false;
@@ -529,16 +536,41 @@ class LocalStore {
   static Future<int> novelTheme() async =>
       ((await _read('novel_read_settings')) as Map?)?['theme'] as int? ?? 0;
 
+  /// 小说段间距（px，段落之间的空白高度）。
+  static Future<int> novelParagraphGap() async {
+    final v = ((await _read('novel_read_settings')) as Map?)?['paragraphGap'];
+    if (v is num) return v.round();
+    return 18;
+  }
+
+  /// 小说首行缩进（true = 段落开头缩进 2 字符）。
+  static Future<bool> novelFirstIndent() async =>
+      ((await _read('novel_read_settings')) as Map?)?['firstIndent'] as bool? ??
+      true;
+
+  /// 小说色温（0~100 无级，0 = 无色温滤镜，100 = 最暖 3000K）。
+  static Future<int> novelColorTemp() async {
+    final v = ((await _read('novel_read_settings')) as Map?)?['colorTemp'];
+    if (v is num) return v.round().clamp(0, 100);
+    return 0;
+  }
+
   static Future<void> setNovelReadSettings({
     int? fontSize,
     int? lineHeight,
     int? theme,
+    int? paragraphGap,
+    bool? firstIndent,
+    int? colorTemp,
   }) async {
     final cur = (await _read('novel_read_settings')) as Map? ?? {};
     await _write('novel_read_settings', {
       'fontSize': fontSize ?? cur['fontSize'] ?? 17,
       'lineHeight': lineHeight ?? cur['lineHeight'] ?? 180,
       'theme': theme ?? cur['theme'] ?? 0,
+      'paragraphGap': paragraphGap ?? cur['paragraphGap'] ?? 18,
+      'firstIndent': firstIndent ?? cur['firstIndent'] ?? true,
+      'colorTemp': colorTemp ?? cur['colorTemp'] ?? 0,
     });
   }
 

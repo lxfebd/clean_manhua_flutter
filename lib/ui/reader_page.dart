@@ -19,6 +19,7 @@ import 'responsive.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
 import '../utils/image_super_res.dart';
+import '../utils/image_trim.dart';
 import 'widgets/jm_scramble_image.dart';
 
 /// 阅读器（对齐 UI_v2 S5/S6）：沉浸式黑底 + 顶部返回/标题/菜单 +
@@ -109,6 +110,7 @@ class _ReaderPageState extends State<ReaderPage> {
   bool _downloading = false;
   int _curPage = 0;
   int _resLevel = 0; // 0=无, 1=性能, 2=质量
+  bool _trimBorder = false; // 自动裁边去白边（默认关，设置页/阅读设置可开）
   bool _overlay = true; // 顶部/底部工具栏是否显示
   double _dim = 1.0; // 亮度（1.0=最亮），真实接管系统亮度
   bool _brightnessNative = false; // 是否已接管系统亮度（false 时降级为遮罩）
@@ -258,6 +260,7 @@ class _ReaderPageState extends State<ReaderPage> {
     _rtl = await LocalStore.rtlReader();
     _resLevel = await LocalStore.resLevel();
     _autoPage = await LocalStore.autoPageTurn();
+    _trimBorder = await LocalStore.trimBorder();
     _downloaded = await DownloadManager.isDownloaded(_book.key, widget.chapterId);
     // 书签状态：横向看当前视图，纵向看整章（页 0 代表章节级标记）。
     _bookmarked = await LocalStore.isBookmarked(
@@ -869,6 +872,7 @@ class _ReaderPageState extends State<ReaderPage> {
                     totalPages: 1,
                     resLevel: _resLevel,
                     sourceId: widget.sourceId,
+                    trimBorder: _trimBorder,
                   ),
                 ),
               ),
@@ -904,6 +908,7 @@ class _ReaderPageState extends State<ReaderPage> {
                     totalPages: 1,
                     resLevel: _resLevel,
                     sourceId: widget.sourceId,
+                    trimBorder: _trimBorder,
                   ),
                 ),
               ),
@@ -1084,6 +1089,7 @@ class _ReaderPageState extends State<ReaderPage> {
         dim: _dim,
         resLevel: _resLevel,
         autoPage: _autoPage,
+        trimBorder: _trimBorder,
         onDimChanged: (v) {
           _setBrightness(v);
         },
@@ -1117,6 +1123,12 @@ class _ReaderPageState extends State<ReaderPage> {
           setState(() => _autoPage = v);
           LocalStore.setAutoPageTurn(v);
           _startAutoPage();
+        },
+        onTrimBorderChanged: (v) {
+          setState(() => _trimBorder = v);
+          LocalStore.setTrimBorder(v);
+          // 裁边影响图片渲染：setState 后 _CachedReaderImage.didUpdateWidget
+          // 检测到 trimBorder 变化会重新加载（缓存命中秒级生效）。
         },
         onCatalog: () {
           Navigator.pop(context);
@@ -1589,7 +1601,7 @@ class _ReaderPageState extends State<ReaderPage> {
                     child: _ImageView(_urls[left],
                         pageIndex: left, totalPages: _urls.length,
                         resLevel: _resLevel, horizontal: true,
-                        sourceId: widget.sourceId),
+                        sourceId: widget.sourceId, trimBorder: _trimBorder),
                   ),
                   const SizedBox(width: 2),
                   Expanded(
@@ -1597,7 +1609,7 @@ class _ReaderPageState extends State<ReaderPage> {
                         ? _ImageView(_urls[right],
                             pageIndex: right, totalPages: _urls.length,
                             resLevel: _resLevel, horizontal: true,
-                            sourceId: widget.sourceId)
+                            sourceId: widget.sourceId, trimBorder: _trimBorder)
                         : const ColoredBox(color: Colors.black),
                   ),
                 ],
@@ -1605,7 +1617,8 @@ class _ReaderPageState extends State<ReaderPage> {
             }
             return _ImageView(_urls[view],
                 pageIndex: view, totalPages: _urls.length, resLevel: _resLevel,
-                horizontal: true, sourceId: widget.sourceId);
+                horizontal: true, sourceId: widget.sourceId,
+                trimBorder: _trimBorder);
           },
         ),
       ),
@@ -1676,7 +1689,7 @@ class _ReaderPageState extends State<ReaderPage> {
                   return _ImageView(_urls[i],
                       pageIndex: i, totalPages: _urls.length, resLevel: _resLevel,
                       onLayout: (h) => _observeLayout(i, h),
-                      sourceId: widget.sourceId);
+                      sourceId: widget.sourceId, trimBorder: _trimBorder);
                 },
               ),
             ),
@@ -1723,12 +1736,14 @@ class _ImageView extends StatefulWidget {
   final int resLevel;
   final bool horizontal;
   final String sourceId;
+  final bool trimBorder;
 
   /// 图片加载完成后回调实际高度（纵向模式用于精确跳页）。
   final ValueChanged<double?>? onLayout;
   const _ImageView(this.url,
       {required this.pageIndex, required this.totalPages, required this.resLevel,
-      this.horizontal = false, this.sourceId = '', this.onLayout});
+      this.horizontal = false, this.sourceId = '', this.trimBorder = false,
+      this.onLayout});
 
   @override
   State<_ImageView> createState() => _ImageViewState();
@@ -1855,6 +1870,7 @@ class _ImageViewState extends State<_ImageView>
           sourceId: widget.sourceId,
           superRes: _superResEnabled,
           horizontal: widget.horizontal,
+          trimBorder: widget.trimBorder,
           onError: () {
             Future.microtask(() {
               if (mounted) setState(() => _error = true);
@@ -1938,6 +1954,10 @@ class _CachedReaderImage extends StatefulWidget {
   final String sourceId;
   final bool superRes;
   final bool horizontal;
+
+  /// 自动裁边去白边：开启后加载完成时在 Isolate 里扫描白边并裁剪，
+  /// 裁剪结果按独立缓存 key 持久化，二次打开直接命中。
+  final bool trimBorder;
   final VoidCallback onError;
   const _CachedReaderImage({
     required this.url,
@@ -1946,6 +1966,7 @@ class _CachedReaderImage extends StatefulWidget {
     required this.sourceId,
     required this.superRes,
     this.horizontal = false,
+    this.trimBorder = false,
     required this.onError,
   });
 
@@ -1972,7 +1993,9 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
   @override
   void didUpdateWidget(covariant _CachedReaderImage old) {
     super.didUpdateWidget(old);
-    if (old.url != widget.url || old.superRes != widget.superRes) {
+    if (old.url != widget.url ||
+        old.superRes != widget.superRes ||
+        old.trimBorder != widget.trimBorder) {
       _load();
     }
   }
@@ -1997,7 +2020,18 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
       // 第一步：先加载原图（快速显示）
       final raw = await ImageCacheManager.load(widget.url, headers: _headers());
       if (!mounted) return;
-      setState(() => _bytes = raw);
+
+      // 自动裁边去白边：裁边结果按独立缓存 key 持久化，
+      // 只计算一次，二次打开直接命中磁盘缓存（与原图缓存同机制）。
+      Uint8List display = raw;
+      if (widget.trimBorder) {
+        final trimKey = '${widget.url}|trim|${ImageTrim.algoVersion}';
+        display = await ImageCacheManager.load(trimKey,
+            headers: _headers(),
+            fetch: () async => trimAndCrop(raw));
+        if (!mounted) return;
+      }
+      setState(() => _bytes = display);
 
       if (!widget.superRes) return;
 
@@ -2005,10 +2039,14 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
       await _waitForScrollEnd();
       if (!mounted) return;
 
-      // 超分缓存命中则秒换；未命中则排队做 Lanczos-3（全局互斥锁串行化）
-      final sr = await ImageCacheManager.load(_srKey(),
+      // 超分缓存命中则秒换；未命中则排队做 Lanczos-3（全局互斥锁串行化）。
+      // 开启裁边时超分作用在裁边结果上，缓存 key 也要带上裁边标识避免串缓存。
+      final srKey = widget.trimBorder
+          ? '${_srKey()}|trim|${ImageTrim.algoVersion}'
+          : _srKey();
+      final sr = await ImageCacheManager.load(srKey,
           headers: _headers(),
-          fetch: () async => await ImageSuperRes.upscale2x(raw));
+          fetch: () async => await ImageSuperRes.upscale2x(display));
       if (mounted) {
         setState(() {
           _bytes = sr;
@@ -2311,10 +2349,12 @@ class _ReaderSettingsSheet extends StatefulWidget {
   final double dim;
   final int resLevel;
   final int autoPage;
+  final bool trimBorder;
   final ValueChanged<double> onDimChanged;
   final ValueChanged<ReaderMode> onModeChanged;
   final ValueChanged<int> onResLevelChanged;
   final ValueChanged<int> onAutoPageChanged;
+  final ValueChanged<bool> onTrimBorderChanged;
   final VoidCallback onCatalog;
 
   /// 章内切换章节（章节列表非空时才可用）。
@@ -2325,10 +2365,12 @@ class _ReaderSettingsSheet extends StatefulWidget {
     required this.dim,
     required this.resLevel,
     required this.autoPage,
+    required this.trimBorder,
     required this.onDimChanged,
     required this.onModeChanged,
     required this.onResLevelChanged,
     required this.onAutoPageChanged,
+    required this.onTrimBorderChanged,
     required this.onCatalog,
     this.onSelectChapter,
     this.onDownload,
@@ -2343,6 +2385,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
   late int _localResLevel;
   late ReaderMode _localMode;
   late int _localAutoPage;
+  late bool _localTrimBorder;
 
   @override
   void initState() {
@@ -2351,6 +2394,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
     _localResLevel = widget.resLevel;
     _localMode = widget.readerMode;
     _localAutoPage = widget.autoPage;
+    _localTrimBorder = widget.trimBorder;
   }
 
   @override
@@ -2360,6 +2404,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
     _localResLevel = widget.resLevel;
     _localMode = widget.readerMode;
     _localAutoPage = widget.autoPage;
+    _localTrimBorder = widget.trimBorder;
   }
 
   @override
@@ -2524,6 +2569,55 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
           const SizedBox(height: 4),
           Text(
             '开启后自动翻页，触摸屏幕或显示菜单时暂停',
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.white.withValues(alpha: 0.4),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // 自动裁边去白边
+          InkWell(
+            onTap: () {
+              setState(() => _localTrimBorder = !_localTrimBorder);
+              widget.onTrimBorderChanged(_localTrimBorder);
+            },
+            borderRadius: BorderRadius.circular(10),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  Icon(
+                    _localTrimBorder
+                        ? Icons.crop_free_rounded
+                        : Icons.crop_free_rounded,
+                    size: 17,
+                    color: _localTrimBorder
+                        ? scheme.primary
+                        : Colors.white70,
+                  ),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text('自动裁边去白边',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white)),
+                  ),
+                  Switch(
+                    value: _localTrimBorder,
+                    activeThumbColor: scheme.primary,
+                    onChanged: (v) {
+                      setState(() => _localTrimBorder = v);
+                      widget.onTrimBorderChanged(v);
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '开启后自动识别并去除漫画页四周白边，最大化内容显示面积',
             style: TextStyle(
               fontSize: 10,
               color: Colors.white.withValues(alpha: 0.4),
