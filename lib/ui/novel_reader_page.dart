@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../net/local_store.dart';
+import '../services/novel_tts_service.dart';
 import '../sources/novel_source.dart';
 import '../sources/source_manager.dart';
 import 'responsive.dart';
@@ -50,6 +51,12 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   Timer? _statsTimer;
   ScrollController? _listController;
 
+  // ---- 朗读（TTS） ----
+  final NovelTtsService _tts = NovelTtsService.instance;
+  TtsPlayState _ttsState = TtsPlayState.idle;
+  int _ttsRateIdx = 2; // NovelTtsService.rates 下标，默认 1.0x
+  int _ttsSentence = -1; // 当前朗读中的段落下标（-1 = 未朗读）
+
   static const _themes = [
     (name: '跟随', bg: '0xFF111215', text: '0xFFE8EAF0', isDark: true),
     (name: '米白', bg: '0xFFF5F0E8', text: '0xFF3A342C', isDark: false),
@@ -66,6 +73,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     _readWatch.start();
     _statsTimer = Timer.periodic(const Duration(seconds: 5), (_) => _flushStats());
     _loadSettings();
+    _initTts();
     _load(widget.chapterId);
     // 桌面端键盘：←/→ 翻章、Esc 返回。仅桌面注册，避免移动端蓝牙键盘误触。
     if (DesktopUi.isDesktopPlatform) {
@@ -73,8 +81,38 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     }
   }
 
+  Future<void> _initTts() async {
+    final saved = await LocalStore.ttsRate();
+    _ttsRateIdx = NovelTtsService.rates.indexWhere((r) => (r - saved).abs() < 0.01);
+    if (_ttsRateIdx < 0) _ttsRateIdx = 2;
+    _tts.onParagraph = (idx) {
+      if (!mounted) return;
+      setState(() => _ttsSentence = idx);
+      // 朗读到当前段时滚动跟随：仅当段在可视区外才滚（避免打断手动翻页）。
+      if (idx < 0) return;
+      final controller = _listController;
+      if (controller == null || !controller.hasClients) return;
+      // 段高估算：行高 * 行数 + 段间距，取下标即段落位置。
+      final estPos = idx * (_fontSize * (_lineHeight / 100) + _paragraphGap);
+      final view = MediaQuery.of(context).size.height * 0.7;
+      if ((estPos - controller.offset).abs() > view) {
+        controller.animateTo(
+          (estPos - view * 0.3).clamp(0.0, controller.position.maxScrollExtent),
+          duration: const Duration(milliseconds: 240),
+          curve: Curves.easeOut,
+        );
+      }
+    };
+    _tts.onStateChange = (s) {
+      if (!mounted) return;
+      setState(() => _ttsState = s);
+    };
+    await _tts.init(rate: NovelTtsService.rates[_ttsRateIdx]);
+  }
+
   @override
   void dispose() {
+    _tts.dispose();
     if (DesktopUi.isDesktopPlatform) {
       HardwareKeyboard.instance.removeHandler(_keyHandler);
     }
@@ -135,6 +173,9 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         _curChapterId = chapterId;
         _error = null;
         _recordHistory(c.title);
+        // 换章后刷新朗读队列：内容加载期间朗读自然停在旧章末尾。
+        _tts.reset();
+        _tts.loadChapter(c.paragraphs);
       }
     } catch (e) {
       if (mounted) _error = '加载失败：$e';
@@ -232,6 +273,43 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     );
   }
 
+  // ---- 朗读控制 ----
+  void _ttsToggle() async {
+    final paras = _content?.paragraphs;
+    if (paras == null || paras.isEmpty) return;
+    switch (_ttsState) {
+      case TtsPlayState.idle:
+        // 从头开始；若队列未载入（上章残留）则重新装载。
+        _tts.loadChapter(paras);
+        await _tts.play();
+      case TtsPlayState.speaking:
+        await _tts.pause();
+      case TtsPlayState.paused:
+        await _tts.play();
+    }
+  }
+
+  /// 朗读设置抽屉：语速档位 + 关闭朗读。
+  void _showTtsSettings() {
+    showResponsiveBottomSheet<void>(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      barrierColor: Colors.black.withValues(alpha: 0.3),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _NovelTtsSheet(
+        rateIdx: _ttsRateIdx,
+        onRate: (idx) {
+          setState(() => _ttsRateIdx = idx);
+          final r = NovelTtsService.rates[idx];
+          _tts.init(rate: r);
+          LocalStore.setTtsRate(r);
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -306,6 +384,32 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
                         maxWidth: Responsive.novelReaderMaxWidth(context)),
                     child: Row(
                       children: [
+                        // 朗读开关：首按钮常驻，让“听书”入口一眼可见。
+                        if (_ttsState == TtsPlayState.idle)
+                          IconButton(
+                            tooltip: '朗读本章',
+                            icon: const Icon(Icons.volume_up_rounded, size: 20),
+                            onPressed: _ttsToggle,
+                          )
+                        else
+                          IconButton(
+                            tooltip: _ttsState == TtsPlayState.paused
+                                ? '继续朗读'
+                                : '暂停朗读',
+                            icon: Icon(
+                              _ttsState == TtsPlayState.paused
+                                  ? Icons.play_arrow_rounded
+                                  : Icons.pause_rounded,
+                              size: 20,
+                            ),
+                            onPressed: _ttsToggle,
+                          ),
+                        IconButton(
+                          tooltip: '朗读设置',
+                          icon: const Icon(Icons.tune_rounded, size: 20),
+                          onPressed: _showTtsSettings,
+                        ),
+                        const SizedBox(width: 4),
                         Expanded(
                           child: OutlinedButton(
                             onPressed: () => _go(_content!.prevChapterId),
@@ -335,6 +439,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         ? Color(int.parse(_themes[_theme.clamp(0, _themes.length - 1)].text))
         : scheme.onSurface.withValues(alpha: 0.92);
 
+    final isSpeaking = _ttsState != TtsPlayState.idle && _ttsSentence >= 0;
     Widget para(int i) => Text(
           // 首行缩进 2 字符：全角空格前缀是中文排版最稳的实现方式
           // （TextIndent 对跨平台字体/缩放兼容性差，文本前缀永远正确）。
@@ -343,7 +448,9 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
           style: TextStyle(
             fontSize: _fontSize.toDouble(),
             height: _lineHeight / 100,
-            color: textColor,
+            color: isSpeaking && i == _ttsSentence
+                ? scheme.primary
+                : textColor,
           ),
         );
 
@@ -617,6 +724,119 @@ class _NovelReaderSettingsSheetState
       borderRadius: BorderRadius.circular(8),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: active
+              ? Theme.of(context).colorScheme.primary
+              : Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: active
+                ? Theme.of(context).colorScheme.primary
+                : Colors.white.withValues(alpha: 0.1),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+            color: active ? Colors.white : Colors.white70,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 朗读设置抽屉：语速档位（0.5x ~ 2x）。
+class _NovelTtsSheet extends StatelessWidget {
+  final int rateIdx;
+  final ValueChanged<int> onRate;
+  const _NovelTtsSheet({required this.rateIdx, required this.onRate});
+
+  @override
+  Widget build(BuildContext context) {
+    final rates = NovelTtsService.rates;
+    return SafeArea(
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(22, 16, 22, 28),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border(top: BorderSide(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.1))),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            const Text('朗读设置',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white)),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Text('语速',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.85))),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (var i = 0; i < rates.length; i++)
+                        _TtsRateChip(
+                          label: '${rates[i]}x',
+                          active: i == rateIdx,
+                          onTap: () => onRate(i),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TtsRateChip extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+  const _TtsRateChip({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
         decoration: BoxDecoration(
           color: active
               ? Theme.of(context).colorScheme.primary

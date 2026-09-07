@@ -65,5 +65,9 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="http" />
         </intent>
+        <intent>
+            <!-- 安卓 11+ 包可见性：声明 TTS 引擎查询，否则 flutter_tts 找不到引擎 -->
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
     </queries>
 </manifest>

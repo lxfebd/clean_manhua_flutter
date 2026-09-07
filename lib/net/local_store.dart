@@ -574,6 +574,21 @@ class LocalStore {
     });
   }
 
+  /// 朗读语速倍率（0.5x~2.0x，默认 1.0）。
+  static Future<double> ttsRate() async {
+    final v = ((await _read('novel_read_settings')) as Map?)?['ttsRate'];
+    if (v is num) return v.toDouble().clamp(0.5, 2.0);
+    return 1.0;
+  }
+
+  static Future<void> setTtsRate(double rate) async {
+    final cur = (await _read('novel_read_settings')) as Map? ?? {};
+    await _write('novel_read_settings', {
+      ...cur,
+      'ttsRate': rate.clamp(0.5, 2.0),
+    });
+  }
+
   // ---- 阅读统计 ----
   /// 累计一段阅读时长（秒）到当天。
   /// 存储结构：reading_stats -> { "2026-08-23": 3600, ... }（按天，秒）。
