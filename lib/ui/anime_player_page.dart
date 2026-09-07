@@ -109,6 +109,11 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   // 置位后 WebView 不再渲染，其音频来源被同步切断，杜绝双音轨残留。
   bool _webViewRemoved = false;
 
+  /// 等待「导航到 about:blank」真正完成的 Future。onPageFinished 时 complete。
+  /// about:blank 会连带卸载整个文档树（含跨域 iframe 里的 <video>），
+  /// 切原生播放器前必须等它完成，否则转场期间网页音频仍在播放（双音轨）。
+  Completer<void>? _pendingBlank;
+
   static const ua = 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
@@ -178,6 +183,11 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
             _triggerAutoPlay();
           }
         });
+        // about:blank 导航到位：放行等待它的切原生播放器流程。
+        if (!loading) {
+          final p = _pendingBlank;
+          if (p != null && !p.isCompleted) p.complete();
+        }
         if (loading) {
           _injectApiInterceptor();
         }
@@ -222,6 +232,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
         onPageFinished: (_) {
           setState(() => _loading = false);
           _triggerAutoPlay();
+          // about:blank 导航到位：放行等待它的切原生播放器流程。
+          final p = _pendingBlank;
+          if (p != null && !p.isCompleted) p.complete();
         },
         onWebResourceError: (err) {
           // 仅主框架加载失败（断网/超时/服务器错误）时展示错误态，
@@ -270,6 +283,13 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     // 再切原生播放器。WebView 从视图树移除后不可能再渲染或出声，
     // 转场期间与 WebView2 异步释放期间都不会残留网页音频（双音轨）。
     await _killWebMedia();
+    // about:blank 导航会连带卸载整个文档树（含跨域 iframe 里的 <video>），
+    // 必须等导航真正完成再推原生播放器，否则转场期间网页音频仍在播放（双音轨）。
+    if (!(_pendingBlank?.isCompleted ?? true)) {
+      try {
+        await _pendingBlank!.future.timeout(const Duration(milliseconds: 900));
+      } catch (_) {}
+    }
     if (!mounted) return;
     // 用 pushReplacement 替换当前网页播放器，避免栈里叠两层播放器：
     // 选集页 → 网页播放器 → 原生播放器。返回时直接回到选集页。
@@ -424,6 +444,10 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     }
     _videoPollTimer?.cancel();
     _resolveTimer?.cancel();
+    // 兜底：页面销毁时放行未完成的 about:blank 等待，避免 Completer 悬挂。
+    if (_pendingBlank != null && !_pendingBlank!.isCompleted) {
+      _pendingBlank!.complete();
+    }
     // 兜底：离开播放页时若网页播放器仍在播放（如未捕获直链直接退出），
     // 立即静音停播并同步移除 WebView，避免页面销毁后音频残留。
     if (!_webViewRemoved) _muteWebMedia();
@@ -552,65 +576,105 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   bool _played = false;
   int _srLevel = 0; // 0=关, 1=性能, 2=质量
 
-  /// 解析直链期间压制网页播放器音量：站点自动播放/点击播放都被静音，
-  /// 防止直链未捕获前网页抢先出声（双音轨）。
+  /// 硬销毁网页媒体的统一 JS：pause + muted + 清 srcObject + 清空 src +
+  /// 从 DOM 摘除 <video>/<audio>；同域 iframe 递归处理，跨域 iframe 取不到
+  /// document 时把 iframe 本身从父文档摘掉，其媒体随之失效。
+  ///
+  /// 旧实现只 `querySelector('video')` 单个元素且 `kill(iframe.contentDocument)`
+  /// 抛 SecurityError 被吞，跨域 iframe 里的播放器全程既不 pause 也不 mute，
+  /// 是「网页播放器 + 原生播放器双音轨」的根因。这里用 `querySelectorAll`
+  /// 处理多元素，并用 `srcObject = null` 掐断 MSE/blob 流（只 pause 不够）。
+  static const String _destroyWebMediaJs = '''
+    (function(){
+      var kill = function(doc){
+        if(!doc) return;
+        var nodes = doc.querySelectorAll ? doc.querySelectorAll('video,audio') : [];
+        for(var i=0;i<nodes.length;i++){
+          var m = nodes[i];
+          try{ m.muted = true; }catch(e){}
+          try{ m.pause(); }catch(e){}
+          try{ if(m.srcObject !== undefined){ m.srcObject = null; } }catch(e){}
+          try{ m.removeAttribute('src'); m.load(); }catch(e){}
+          try{ if(m.parentNode){ m.parentNode.removeChild(m); } }catch(e){}
+        }
+      };
+      kill(document);
+      var fs = document.querySelectorAll ? document.querySelectorAll('iframe') : [];
+      for(var j=0;j<fs.length;j++){
+        try{ var fd = fs[j].contentDocument; if(fd){ kill(fd); continue; } }catch(e){}
+        try{ kill(fs[j].contentWindow.document); }catch(e){}
+        try{ if(fs[j].parentNode){ fs[j].parentNode.removeChild(fs[j]); } }catch(e){}
+      }
+    })();
+  ''';
+
+  /// 解析期静音脚本：只 `muted` + `pause`，**不摘除**媒体元素与 iframe。
+  ///
+  /// 摘除会让「直链未捕获 → 超时降级网页播放」的站点播放器 iframe 从页面消失，
+  /// 降级后直接黑屏，故解析期只压音量、保持播放器在位。跨域 iframe 取不到
+  /// document 时无法静音（SecurityError），属平台限制，可接受——真正的双音轨
+  /// 发生在切原生播放器时，由 [_destroyWebMediaJs] 硬销毁兜住。
+  static const String _muteWebMediaJs = '''
+    (function(){
+      var mute = function(doc){
+        if(!doc || !doc.querySelectorAll) return;
+        var nodes = doc.querySelectorAll('video,audio');
+        for(var i=0;i<nodes.length;i++){
+          var m = nodes[i];
+          try{ m.muted = true; }catch(e){}
+          try{ m.pause(); }catch(e){}
+        }
+      };
+      mute(document);
+      var fs = document.querySelectorAll ? document.querySelectorAll('iframe') : [];
+      for(var j=0;j<fs.length;j++){
+        try{ var fd = fs[j].contentDocument; if(fd){ mute(fd); } }catch(e){}
+      }
+    })();
+  ''';
+
+  /// 解析直链期间压制网页播放器音量，防止直链未捕获前网页抢先出声（双音轨）。
   Future<void> _muteWebMedia() async {
-    await _runJs('''
-      (function(){
-        var kill = function(doc){
-          if(!doc) return;
-          var v = doc.querySelector('video');
-          if(v){ v.muted = true; try{ v.pause(); }catch(e){} }
-          var a = doc.querySelector('audio');
-          if(a){ a.muted = true; try{ a.pause(); }catch(e){} }
-        };
-        kill(document);
-        var f = document.querySelector('iframe');
-        if(f){ try{ kill(f.contentDocument || f.contentWindow.document); }catch(e){} }
-      })();
-    ''');
+    await _runJs(_muteWebMediaJs);
   }
 
-  /// 切原生播放器/退出页前杀掉网页媒体：先停 WebView2、JS 暂停并清空
-  /// src（含跨域 iframe 尽力而为），再同步把 WebView 从视图树移除。
-  /// 物理移除后旧页不再渲染，转场期间及之后都不会再有网页音频残留，
-  /// 彻底杜绝「两个播放器叠音」。
+  /// 切原生播放器/退出页前杀掉网页媒体：先跑 [_destroyWebMediaJs] 硬销毁
+  /// 顶层与同域 iframe 的媒体元素并把跨域 iframe 摘除，再停 WebView2、
+  /// 导航到 about:blank 卸载整个文档树，最后同步把 WebView 从视图树移除。
+  ///
+  /// 导航前创建 [_pendingBlank]，onPageFinished 触发时 complete，
+  /// 调用方可等文档树真正卸载完成再推原生播放器。
   Future<void> _killWebMedia() async {
     final d = _desktop;
+    // 统一硬销毁脚本：顶层 + 同域 iframe 摘元素，跨域 iframe 摘 iframe。
+    await _runJs(_destroyWebMediaJs);
     if (d != null) {
-      await _muteWebMedia();
       try {
         await d.stop(); // WebView2 立即停止页面活动（含音频）
       } catch (_) {}
+      // about:blank 连带卸载整个文档树（含跨域 iframe 里的 <video>），
+      // 导航完成前网页音频仍可能出声，故在此登记等待对象。
+      if (_pendingBlank == null || _pendingBlank!.isCompleted) {
+        _pendingBlank = Completer<void>();
+      }
       try {
         await d.loadUrl('about:blank');
       } catch (_) {}
     } else {
-      await _runJs('''
-        (function(){
-          var kill = function(doc){
-            if(!doc) return;
-            var v = doc.querySelector('video');
-            if(v){
-              try{ v.pause(); }catch(e){}
-              try{ v.removeAttribute('src'); v.load(); }catch(e){}
-              v.muted = true;
-            }
-            var a = doc.querySelector('audio');
-            if(a){
-              try{ a.pause(); }catch(e){}
-              try{ a.removeAttribute('src'); a.load(); }catch(e){}
-              a.muted = true;
-            }
-          };
-          kill(document);
-          var f = document.querySelector('iframe');
-          if(f){ try{ kill(f.contentDocument || f.contentWindow.document); }catch(e){} }
-        })();
-      ''');
+      if (_pendingBlank == null || _pendingBlank!.isCompleted) {
+        _pendingBlank = Completer<void>();
+      }
       try {
         await _controller.loadRequest(Uri.parse('about:blank'));
       } catch (_) {}
+    }
+    // 兜底：导航 API 不保证等文档真正卸载，给 onPageFinished 一个短暂窗口，
+    // 仍未到达则强制 complete，避免 Completer 永久悬挂。
+    final pending = _pendingBlank;
+    if (pending != null) {
+      Future.delayed(const Duration(milliseconds: 400), () {
+        if (!pending.isCompleted) pending.complete();
+      });
     }
     // 同步物理移除 WebView：此后不再渲染、不再出声。
     if (mounted && !_webViewRemoved) {
