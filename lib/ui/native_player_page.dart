@@ -117,6 +117,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   static const _fits = [BoxFit.contain, BoxFit.cover, BoxFit.fill];
   static const _fitNames = ['适应屏幕', '裁剪填充', '拉伸铺满'];
 
+  /// 当前可用的音轨列表（>2 条即多音轨，含 auto/no 保底两项）。
+  List<AudioTrack> _audioTracks = [];
+
   /// 画中画移交后跳过 Player 释放（Player 已归迷你播放器所有）。
   bool _skipPlayerDispose = false;
 
@@ -396,6 +399,12 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       }));
       _subs.add(p.stream.completed.listen((v) {
         if (v) _onCompleted();
+      }));
+      // 音轨列表：打开切换面板时展示；播放器随选集/直链自动带出多音轨。
+      _subs.add(p.stream.tracks.listen((t) {
+        if (mounted && t.audio.length > 2) {
+          setState(() => _audioTracks = t.audio);
+        }
       }));
       _subs.add(p.stream.error.listen((e) {
         if (mounted && !_ready) {
@@ -1621,6 +1630,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                   icon: Icons.auto_awesome_rounded, active: _sr.enabled),
               _textBtn(_fitNames[_fitIndex], _showFitPanel,
                   icon: Icons.aspect_ratio_rounded, active: _fitIndex != 0),
+              // 多音轨时展示音轨切换；单音轨不占位
+              if (_audioTracks.length > 2)
+                _textBtn('音轨', _showAudioTrackPanel,
+                    icon: Icons.music_note_rounded),
               if (widget.episodes.isNotEmpty)
                 _textBtn('选集', _showEpisodePanel,
                     icon: Icons.playlist_play_rounded),
@@ -2245,6 +2258,58 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     ).then((_) => _scheduleHide());
   }
 
+  /// 音轨切换面板：列出多音轨（语言/标题），点选即切换。
+  ///
+  /// 直链含多音轨时自动显示入口；单音轨（仅 auto/no）时面板仍可打开，
+  /// 展示"当前音轨"，无多余项时给出提示。
+  void _showAudioTrackPanel() {
+    _hideTimer?.cancel();
+    showPlayerPanel(
+      context: context,
+      title: '音轨切换',
+      fromRight: _fullscreen,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+        final p = _player;
+        final tracks = _audioTracks;
+        final current = p?.state.track.audio;
+        final list = tracks.isEmpty ? <AudioTrack>[] : tracks;
+        if (list.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.all(14),
+            child: Text('当前片源未提供多音轨',
+                style: TextStyle(color: Colors.white38, fontSize: 12)),
+          );
+        }
+        return Column(mainAxisSize: MainAxisSize.min, children: [
+          for (final t in list)
+            PanelOptionTile(
+              title: t.title ?? t.language ?? '音轨 ${t.id}',
+              subtitle: _audioTrackSubtitle(t),
+              selected: current?.id == t.id ||
+                  (current?.id == 'auto' && (t.isDefault ?? false)),
+              onTap: () {
+                if (p != null) p.setAudioTrack(t);
+                setSheet(() {});
+              },
+            ),
+        ]);
+      }),
+    ).then((_) => _scheduleHide());
+  }
+
+  static String? _audioTrackSubtitle(AudioTrack t) {
+    final parts = <String>[];
+    if (t.language != null && t.language!.isNotEmpty) {
+      parts.add('语言 ${t.language}');
+    }
+    if (t.codec != null) parts.add(t.codec!);
+    if (t.channels != null && t.channels!.isNotEmpty) {
+      parts.add(t.channels!);
+    }
+    if (t.isDefault ?? false) parts.add('默认');
+    return parts.isEmpty ? null : parts.join(' · ');
+  }
+
   void _showEpisodePanel() {
     if (widget.episodes.isEmpty) return;
     _hideTimer?.cancel();
@@ -2415,6 +2480,17 @@ class _NativePlayerPageState extends State<NativePlayerPage>
               onTap: () {
                 Navigator.of(ctx).pop();
                 _showSrPanel();
+              },
+            ),
+            PanelOptionTile(
+              title: '音轨切换',
+              subtitle: _audioTracks.length > 2
+                  ? '共 ${_audioTracks.length - 2} 条音轨可选'
+                  : '当前片源未提供多音轨',
+              selected: false,
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _showAudioTrackPanel();
               },
             ),
             PanelOptionTile(
