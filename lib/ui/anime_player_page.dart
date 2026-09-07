@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:screen_brightness/screen_brightness.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:volume_controller/volume_controller.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import '../net/local_store.dart';
@@ -65,6 +68,28 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   int _curEpisode = 1;
   double _speed = 1.0;
   bool _descExpanded = false;
+
+  /// 移动端单指手势：左半屏上下滑调亮度、右半屏上下滑调音量（仅非全屏/小窗
+  /// 下视频区域）。用 raw Listener 采集原始指针事件，不参与手势竞技场，
+  /// 与 WebView 内部滚动/点击互不抢占。
+  bool _gestureActive = false;
+  int? _gesturePointer;
+  bool _gestureVolume = false; // true=调音量，false=调亮度
+  double _gestureStartValue = 0; // 起手时的目标值（亮度或音量）
+  double _gestureAccum = 0; // 累计位移（未超阈值前不动作）
+  static const double _gestureSlop = 18.0;
+  static const double _gestureRef = 560.0;
+
+  /// 手势 HUD 状态：_hudVolume=true 显示音量条、false 显示亮度条。
+  bool _hudVisible = false;
+  bool _hudVolume = true;
+  double _hudValue = 0;
+  Timer? _hudTimer;
+  // 亮度：优先真实调系统亮度；无权限/桌面端降级为黑色遮罩（复用阅读器方式）。
+  bool _brightnessNative = false;
+  double _brightness = 1.0;
+  /// WebView 音量（0~1）。移动端手势实时写入 video.volume；桌面端同步音量。
+  double _volume = 1.0;
 
   /// WebView 是否真的初始化完成。桌面端异步 initialize，完成前显示加载态。
   bool _webviewInit = false;
@@ -135,6 +160,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     WidgetsBinding.instance.addObserver(this);
     _curSeason = widget.initialSeason;
     _curEpisode = widget.initialEpisode;
+    _initBrightness(); // 读取系统亮度；无权限时降级为遮罩
     // 桌面端播放快捷键：空格 播放/暂停、←/→ 快退/快进、M 静音、
     // F 全屏、Esc 返回。仅桌面注册，避免移动端蓝牙键盘误触。
     if (DesktopUi.isDesktopPlatform) {
@@ -739,6 +765,125 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     ''');
   }
 
+  // ── 移动端手势：左半屏亮度、右半屏音量 ────────────────────────────
+  void _initBrightness() async {
+    try {
+      final v = await ScreenBrightness.instance.application;
+      if (v >= 0 && v <= 1.0) {
+        _brightnessNative = true;
+        _brightness = v;
+      }
+    } catch (_) {
+      _brightnessNative = false;
+    }
+    if (mounted) setState(() {});
+  }
+
+  void _onGestureDown(PointerDownEvent e) {
+    if (e.kind != PointerDeviceKind.touch &&
+        e.kind != PointerDeviceKind.stylus) {
+      return;
+    }
+    if (_gestureActive) return;
+    final w = MediaQuery.sizeOf(context).width;
+    _gestureActive = true;
+    _gesturePointer = e.pointer;
+    // 全屏/小窗：以屏宽二分左右半屏
+    _gestureVolume = e.localPosition.dx >= w / 2;
+    _gestureStartValue = _gestureVolume ? _volume : _brightness;
+    _gestureAccum = 0;
+  }
+
+  void _onGestureMove(PointerMoveEvent e) {
+    if (!_gestureActive || e.pointer != _gesturePointer) return;
+    _gestureAccum += e.delta.dy;
+    if (_gestureAccum.abs() < _gestureSlop) return;
+    final delta = -_gestureAccum / _gestureRef;
+    if (_gestureVolume) {
+      final nv = (_gestureStartValue + delta).clamp(0.0, 1.0);
+      setState(() => _volume = nv);
+      _applyVolume(nv);
+      _showHud(volume: true, value: nv);
+    } else {
+      final nv = (_gestureStartValue + delta).clamp(0.0, 1.0);
+      setState(() => _brightness = nv);
+      _applyBrightness(nv);
+      _showHud(volume: false, value: nv);
+    }
+  }
+
+  void _onGestureUp(PointerEvent e) {
+    if (!_gestureActive || e.pointer != _gesturePointer) return;
+    _gestureActive = false;
+    _gesturePointer = null;
+    _gestureAccum = 0;
+    _hideHud();
+  }
+
+  void _applyVolume(double v) {
+    _runJs('''
+      (function(){
+        var vid = document.querySelector('video');
+        if(vid) vid.volume = $v;
+      })();
+    ''');
+    // 同步系统媒体音量（走音量键/系统 UI 时保持一致）
+    try {
+      VolumeController.instance.setVolume(v * 100);
+    } catch (_) {}
+  }
+
+  void _applyBrightness(double v) {
+    if (_brightnessNative) {
+      try {
+        ScreenBrightness.instance.setApplicationScreenBrightness(v);
+      } catch (_) {
+        _brightnessNative = false;
+        if (mounted) setState(() {});
+      }
+    }
+  }
+
+  void _showHud({required bool volume, required double value}) {
+    if (!mounted) return;
+    setState(() {
+      _hudVisible = true;
+      _hudVolume = volume;
+      _hudValue = value;
+    });
+    _hudTimer?.cancel();
+    _hudTimer = Timer(const Duration(milliseconds: 700), () {
+      if (mounted) setState(() => _hudVisible = false);
+    });
+  }
+
+  void _hideHud() {
+    _hudTimer?.cancel();
+    _hudTimer = Timer(const Duration(milliseconds: 400), () {
+      if (mounted) setState(() => _hudVisible = false);
+    });
+  }
+
+  Widget _gestureHud() {
+    if (!_hudVisible) return const SizedBox.shrink();
+    return SideLevelHud(
+      left: !_hudVolume,
+      icon: _hudVolume
+          ? (_hudValue <= 0.001
+              ? Icons.volume_off_rounded
+              : (_hudValue < 0.5
+                  ? Icons.volume_down_rounded
+                  : Icons.volume_up_rounded))
+          : (_hudValue > 0.6
+              ? Icons.brightness_high_rounded
+              : (_hudValue > 0.25
+                  ? Icons.brightness_medium_rounded
+                  : Icons.brightness_low_rounded)),
+      value: _hudValue,
+      tint: _hudVolume ? Colors.white : const Color(0xFFFFD54F),
+    );
+  }
+
   /// 桌面端播放快捷键（WebView 层通过 JS 控制 video 元素）：
   /// 空格 播放/暂停、←/→ ±10s、M 静音、F 全屏、Esc 返回。
   bool _keyHandler(KeyEvent event) {
@@ -1149,64 +1294,83 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     // 在转场动画期间继续播放/出声（双播放器叠音）。
     if (_webViewRemoved) return const SizedBox.shrink();
     final d = _desktop;
-    return Stack(children: [
-      d != null ? d.buildView() : WebViewWidget(controller: _controller),
-      if (_webError != null)
-        // 主框架加载失败：错误态 + 重试（替代黑屏/白屏）
-        Container(
-          color: Colors.black,
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.wifi_off_rounded,
-                    color: Colors.white54, size: 34),
-                const SizedBox(height: 12),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 32),
-                  child: Text(
-                    _webError!,
-                    textAlign: TextAlign.center,
+    // 移动端：视频区外包 raw Listener 采集单指上下滑手势（亮度/音量），
+    // 不参与手势竞技场，与 WebView 内部滚动/点击互不抢占。
+    return Listener(
+      onPointerDown: _onGestureDown,
+      onPointerMove: _onGestureMove,
+      onPointerUp: _onGestureUp,
+      onPointerCancel: _onGestureUp,
+      child: Stack(children: [
+        d != null ? d.buildView() : WebViewWidget(controller: _controller),
+        // 亮度降级遮罩（无系统亮度权限时模拟变暗）
+        if (!_brightnessNative)
+          IgnorePointer(
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 220),
+              opacity: (1.0 - _brightness) * 0.75,
+              child: const ColoredBox(color: Colors.black),
+            ),
+          ),
+        // 手势 HUD（音量/亮度条）：放在视频区内部，随视频区域定位
+        _gestureHud(),
+        if (_webError != null)
+          // 主框架加载失败：错误态 + 重试（替代黑屏/白屏）
+          Container(
+            color: Colors.black,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.wifi_off_rounded,
+                      color: Colors.white54, size: 34),
+                  const SizedBox(height: 12),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 32),
+                    child: Text(
+                      _webError!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white54, fontSize: 12),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: _reloadWebView,
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: const Text('重试'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.primary,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else if (_loading || _resolving)
+          // 解析中或加载中：黑屏 + loading，隐藏网页内容防止"两层壳"闪烁
+          Container(
+            color: Colors.black,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    _resolving ? '解析直链中…' : '加载中…',
                     style: const TextStyle(color: Colors.white54, fontSize: 12),
                   ),
-                ),
-                const SizedBox(height: 16),
-                FilledButton.icon(
-                  onPressed: _reloadWebView,
-                  icon: const Icon(Icons.refresh, size: 16),
-                  label: const Text('重试'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-        )
-      else if (_loading || _resolving)
-        // 解析中或加载中：黑屏 + loading，隐藏网页内容防止"两层壳"闪烁
-        Container(
-          color: Colors.black,
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(
-                  width: 28,
-                  height: 28,
-                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  _resolving ? '解析直链中…' : '加载中…',
-                  style: const TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-        ),
-    ]);
+      ]),
+    );
   }
 
   /// 错误态重试：重置解析状态、重启直链捕获，重新加载当前播放页。

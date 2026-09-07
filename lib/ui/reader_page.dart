@@ -147,6 +147,17 @@ class _ReaderPageState extends State<ReaderPage> {
   DateTime _lastTapTime = DateTime.fromMillisecondsSinceEpoch(0);
   Offset? _lastTapPos;
 
+  // 单指垂直滑动：屏幕最左/最右起手 → 切换上一/下一话；
+  // 其余位置起手 → 调节阅读亮度。用 raw Listener 采集原始指针事件，
+  // 不参与手势竞技场，避免与列表滚动/PageView 翻页抢手势。
+  bool _vEdgeActive = false; // 是否在边缘起手（切章节模式）
+  int? _vGesturePointer; // 当前参与垂直手势的指针 id
+  double _vGestureStart = 0; // 起手时的累计偏移（用于增量调节）
+  double _vBrightnessStart = 0; // 起手时的亮度值
+  static const double _vEdgeWidth = 26.0; // 边缘起手判定宽度
+  static const double _vSlop = 18.0; // 垂直手势生效阈值（防误触）
+  static const double _vRef = 560.0; // 亮度/切章以固定 560 逻辑像素为标尺
+
   // 纵向模式双指缩放：用 raw Listener 采集原始指针事件，不走手势竞技场，
   // 因此不会与列表滚动手势冲突。放大后：单指拖动平移、轻点复位。
   final Map<int, Offset> _pinchPointers = {};
@@ -675,17 +686,24 @@ class _ReaderPageState extends State<ReaderPage> {
       // （顶部栏）收缩到极矮，导致 ListView 只有顶部一条、底部工具栏跑到顶部。
       // 用 SizedBox.expand 强制 Stack 铺满全屏。
       body: SizedBox.expand(
-        // Listener 放在 Stack 顶层：纵向模式下采集原始指针事件（不参与手势
-        // 竞技场）驱动双指缩放，横向模式不启用（已有 InteractiveViewer）。
-        child: !_horizontal
-            ? Listener(
-                onPointerDown: _onPinchPointerDown,
-                onPointerMove: _onPinchPointerMove,
-                onPointerUp: _onPinchPointerUp,
-                onPointerCancel: _onPinchPointerUp,
-                child: _buildReaderStack(),
-              )
-            : _buildReaderStack(),
+        // 整页最外层 raw Listener：驱动双指缩放（纵向）+ 单指垂直手势
+        // （边缘起手切章/中部起手调亮度）。不参与手势竞技场，
+        // 与列表滚动、PageView 翻页、底部工具栏按钮互不抢占。
+        child: Listener(
+          onPointerDown: _onRawPointerDown,
+          onPointerMove: _onRawPointerMove,
+          onPointerUp: _onRawPointerUp,
+          onPointerCancel: _onRawPointerUp,
+          child: !_horizontal
+              ? Listener(
+                  onPointerDown: _onPinchPointerDown,
+                  onPointerMove: _onPinchPointerMove,
+                  onPointerUp: _onPinchPointerUp,
+                  onPointerCancel: _onPinchPointerUp,
+                  child: _buildReaderStack(),
+                )
+              : _buildReaderStack(),
+        ),
       ),
     ),
     );
@@ -765,6 +783,69 @@ class _ReaderPageState extends State<ReaderPage> {
     if (_urls.isEmpty) return '';
     final idx = _curPage.clamp(0, _urls.length - 1);
     return _urls[idx];
+  }
+
+  // ─── 单指垂直手势：边缘起手切章节 / 中部起手调亮度 ─────────────────────
+  // 用整页最外层 raw Listener 采集，不参与手势竞技场：
+  // - 屏幕最左/最右 26px 内起手的上下滑 → 切换上一/下一话；
+  // - 其余位置起手的上下滑 → 调节阅读亮度（真实系统亮度，降级为遮罩）。
+  // 双指按下时放弃（交给双指缩放），横向模式用 PageView 交互不变。
+
+  void _onRawPointerDown(PointerDownEvent e) {
+    if (e.kind != PointerDeviceKind.touch &&
+        e.kind != PointerDeviceKind.stylus) {
+      return;
+    }
+    // 双指缩放进行中：单指垂直手势不参与，避免两个手势状态互相覆盖。
+    if (_pinching || _pinchPointers.isNotEmpty) return;
+    if (_pageAnimating || _touchLocked) return;
+    _vGesturePointer = e.pointer;
+    final pos = e.localPosition;
+    final w = MediaQuery.sizeOf(context).width;
+    _vEdgeActive = pos.dx < _vEdgeWidth || pos.dx > w - _vEdgeWidth;
+    _vGestureStart = 0;
+    _vBrightnessStart = _dim;
+  }
+
+  void _onRawPointerMove(PointerMoveEvent e) {
+    if (e.pointer != _vGesturePointer) return;
+    if (_pinching || _pinchPointers.isNotEmpty) return;
+    if (_loading || _pageAnimating) return;
+    _vGestureStart += e.delta.dy;
+    // 未超阈值不动作（防误触）；一旦越过阈值，本次手势就锁定方向
+    if (_vGestureStart.abs() < _vSlop) return;
+    if (_vEdgeActive) {
+      if (_canContinue && _vGestureStart <= -_vSlop) {
+        // 边缘上滑 → 下一话（连读方向与翻页一致）
+        _vGestureStart = 0;
+        _continueToNextChapter();
+      } else if (_chapterIndex > 0 && _vGestureStart >= _vSlop) {
+        // 边缘下滑 → 上一话
+        _vGestureStart = 0;
+        _goPrevChapter();
+      }
+    } else {
+      // 中部上滑调亮、下滑调暗：增量为手势累计值，标尺固定 560px
+      final delta = -_vGestureStart / _vRef;
+      _setBrightness(_vBrightnessStart + delta);
+    }
+  }
+
+  void _onRawPointerUp(PointerEvent e) {
+    if (e.pointer != _vGesturePointer) return;
+    _vGesturePointer = null;
+    _vEdgeActive = false;
+    _vGestureStart = 0;
+  }
+
+  /// 上一话：非首章时加载前一章并跳到第一页（与连读对称）。
+  Future<void> _goPrevChapter() async {
+    if (_chapterIndex <= 0) return;
+    final prev = widget.chapters[_chapterIndex - 1];
+    _chapterIndex--;
+    _indexOffsetCache.clear();
+    _layoutHeights.clear();
+    await _openChapter(prev.id, prev.title, startPage: 0);
   }
 
   void _onPinchPointerDown(PointerDownEvent e) {
