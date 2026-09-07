@@ -45,6 +45,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
 
   final Stopwatch _readWatch = Stopwatch();
   Timer? _statsTimer;
+  ScrollController? _listController;
 
   static const _themes = [
     (name: '跟随', bg: '0xFF111215', text: '0xFFE8EAF0', isDark: true),
@@ -63,10 +64,17 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     _statsTimer = Timer.periodic(const Duration(seconds: 5), (_) => _flushStats());
     _loadSettings();
     _load(widget.chapterId);
+    // 桌面端键盘：←/→ 翻章、Esc 返回。仅桌面注册，避免移动端蓝牙键盘误触。
+    if (DesktopUi.isDesktopPlatform) {
+      HardwareKeyboard.instance.addHandler(_keyHandler);
+    }
   }
 
   @override
   void dispose() {
+    if (DesktopUi.isDesktopPlatform) {
+      HardwareKeyboard.instance.removeHandler(_keyHandler);
+    }
     _statsTimer?.cancel();
     _readWatch.stop();
     final elapsed = _readWatch.elapsed.inSeconds;
@@ -109,6 +117,8 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     if (mounted) {
       setState(() => _loading = true);
     }
+    // 复用同一 controller：翻章时已由 _go 跳回顶部，卸载不清除以便重建 Focus。
+    _listController ??= ScrollController();
     try {
       final c = await s.chapterContent(chapterId).timeout(const Duration(seconds: 15));
       if (mounted) {
@@ -142,7 +152,31 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   void _go(String? chapterId) {
     if (chapterId == null) return;
     HapticFeedback.lightImpact();
+    // 翻章时新章节从顶部开始读。
+    if (_listController != null && _listController!.hasClients) {
+      _listController!.jumpTo(0);
+    }
     _load(chapterId);
+  }
+
+  /// 桌面端键盘：←/→ 翻章、Esc 返回。
+  bool _keyHandler(KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
+    if (_loading) return false;
+    if (event.logicalKey == LogicalKeyboardKey.escape) {
+      Navigator.of(context).maybePop();
+      return true;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+      _go(_content?.prevChapterId);
+      return true;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+      _go(_content?.nextChapterId);
+      return true;
+    }
+    // PageUp/PageDown/空格 滚动正文（移动到 ListView 滚动事件处理）。
+    return false;
   }
 
   /// 打开阅读设置底部抽屉。
@@ -260,6 +294,58 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     final textColor = useCustomBg
         ? Color(int.parse(_themes[_theme.clamp(0, _themes.length - 1)].text))
         : scheme.onSurface.withValues(alpha: 0.92);
+    // 桌面端：包裹 Focus + 键盘滚动，使空格/PageUp/PageDown 可直接滚动正文；
+    // 仅在桌面启用，移动端物理键盘不影响触摸滚动。
+    Widget list = ListView.separated(
+      controller: _listController,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      itemCount: paras.length,
+      separatorBuilder: (_, __) =>
+          SizedBox(height: (_lineHeight / 100 * 10).clamp(6.0, 20.0)),
+      itemBuilder: (ctx, i) => Text(
+        paras[i],
+        textAlign: TextAlign.justify,
+        style: TextStyle(
+          fontSize: _fontSize.toDouble(),
+          height: _lineHeight / 100,
+          color: textColor,
+        ),
+      ),
+    );
+    if (DesktopUi.isDesktopPlatform) {
+      list = Focus(
+        autofocus: true,
+        onKeyEvent: (node, event) {
+          if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+            return KeyEventResult.ignored;
+          }
+          final controller = _listController;
+          if (controller == null || !controller.hasClients) {
+            return KeyEventResult.ignored;
+          }
+          final step = MediaQuery.of(context).size.height * 0.85;
+          if (event.logicalKey == LogicalKeyboardKey.pageDown ||
+              event.logicalKey == LogicalKeyboardKey.space) {
+            controller.animateTo(
+              (controller.offset + step).clamp(0.0, controller.position.maxScrollExtent),
+              duration: const Duration(milliseconds: 160),
+              curve: Curves.easeOut,
+            );
+            return KeyEventResult.handled;
+          }
+          if (event.logicalKey == LogicalKeyboardKey.pageUp) {
+            controller.animateTo(
+              (controller.offset - step).clamp(0.0, controller.position.maxScrollExtent),
+              duration: const Duration(milliseconds: 160),
+              curve: Curves.easeOut,
+            );
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: list,
+      );
+    }
     return Container(
       color: useCustomBg
           ? Color(int.parse(_themes[_theme.clamp(0, _themes.length - 1)].bg))

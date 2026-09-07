@@ -36,10 +36,11 @@ class _NetworkToolsPageState extends State<NetworkToolsPage>
   String _weatherOut = '';
   bool _busyWeather = false;
 
+  /// 全局代理状态（读取/清空实时刷新）。
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 6, vsync: this);
+    _tab = TabController(length: 7, vsync: this);
   }
 
   @override
@@ -200,6 +201,7 @@ class _NetworkToolsPageState extends State<NetworkToolsPage>
             Tab(text: 'Ping'),
             Tab(text: 'IP 归属地'),
             Tab(text: '天气'),
+            Tab(text: '代理'),
             Tab(text: '优选IP'),
             Tab(text: '源检测'),
           ],
@@ -214,6 +216,7 @@ class _NetworkToolsPageState extends State<NetworkToolsPage>
             _buildPing(scheme),
             _buildIp(scheme),
             _buildWeather(scheme),
+            _ProxyTab(proxy: Net.proxy, onChanged: _onProxyChanged),
             const _CfPickerTab(),
             const _SourceCheckTab(),
           ],
@@ -363,6 +366,139 @@ class _NetworkToolsPageState extends State<NetworkToolsPage>
             height: 1.5,
             color: scheme.onSurface.withValues(alpha: 0.85)),
       ),
+    );
+  }
+
+  Future<void> _onProxyChanged(String? v) async {
+    await Net.setProxy(v);
+    if (mounted) setState(() {});
+  }
+}
+
+/// 全局代理设置：dart:io 请求（源/图片/下载）统一走代理；启用后 Android 上
+/// 自动跳过 Cronet（默认引擎不读代理），确保代理不被绕过。
+class _ProxyTab extends StatefulWidget {
+  final String? proxy;
+  final ValueChanged<String?> onChanged;
+  const _ProxyTab({required this.proxy, required this.onChanged});
+
+  @override
+  State<_ProxyTab> createState() => _ProxyTabState();
+}
+
+class _ProxyTabState extends State<_ProxyTab> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.proxy ?? '');
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final active = (widget.proxy ?? '').isNotEmpty;
+    return ListView(
+      padding: EdgeInsets.fromLTRB(
+          Responsive.pagePadding(context), 16,
+          Responsive.pagePadding(context), (Responsive.isTablet(context) ? 24 : 110)),
+      children: [
+        Text(
+          '为全部网络请求设置代理（漫画/小说/视频/图片/下载）。'
+          '格式：http://127.0.0.1:7890 或 socks5://127.0.0.1:1080。'
+          '启用代理后 Android 端自动跳过 Cronet 快速路径，保证代理生效。',
+          style: TextStyle(
+              fontSize: 12.5,
+              height: 1.5,
+              color: scheme.onSurface.withValues(alpha: 0.6)),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _ctrl,
+          decoration: InputDecoration(
+            hintText: 'http://127.0.0.1:7890',
+            isDense: true,
+            border: const OutlineInputBorder(),
+            suffixIcon: active
+                ? IconButton(
+                    tooltip: '清除',
+                    icon: const Icon(Icons.clear_rounded, size: 18),
+                    onPressed: () {
+                      _ctrl.clear();
+                      widget.onChanged(null);
+                    },
+                  )
+                : null,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  final v = _ctrl.text.trim();
+                  if (v.isEmpty) return;
+                  widget.onChanged(v);
+                },
+                icon: const Icon(Icons.save_outlined, size: 18),
+                label: const Text('应用代理'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  _ctrl.clear();
+                  widget.onChanged(null);
+                },
+                icon: const Icon(Icons.remove_circle_outline, size: 18),
+                label: const Text('直连'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+                color: active
+                    ? scheme.primary.withValues(alpha: 0.35)
+                    : scheme.onSurface.withValues(alpha: 0.06)),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                active ? Icons.vpn_key_rounded : Icons.link_off_rounded,
+                size: 16,
+                color:
+                    active ? scheme.primary : scheme.onSurface.withValues(alpha: 0.4),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  active ? '代理已启用：${widget.proxy}' : '当前直连（未启用代理）',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: scheme.onSurface.withValues(alpha: 0.85)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

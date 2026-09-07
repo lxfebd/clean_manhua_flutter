@@ -406,6 +406,35 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const SizedBox(height: 28),
             FadeSlideIn(
+              delay: const Duration(milliseconds: 220),
+              child: _SectionLabel(label: '关于'),
+            ),
+            const SizedBox(height: 6),
+            FadeSlideIn(
+              delay: const Duration(milliseconds: 280),
+              child: _SettingsCard(
+                children: [
+                  _SettingTile(
+                    icon: Icons.article_outlined,
+                    title: '免责声明',
+                    subtitle: '内容来源与版权说明',
+                    onTap: _showDisclaimer,
+                  ),
+                  Container(
+                    height: 0.5,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  ),
+                  _SettingTile(
+                    icon: Icons.privacy_tip_outlined,
+                    title: '隐私说明',
+                    subtitle: '本地存储与网络请求',
+                    onTap: _showPrivacy,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 28),
+            FadeSlideIn(
               delay: const Duration(milliseconds: 500),
               child: Center(
                 child: Column(
@@ -671,6 +700,73 @@ class _SettingsPageState extends State<SettingsPage> {
         );
       }
     }
+  }
+
+  void _showDisclaimer() {
+    showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Text('免责声明'),
+        content: SingleChildScrollView(
+          child: Text(
+            '1. 本应用为开源学习项目，仅用于技术交流与个人学习，不提供任何影视、'
+            '漫画、小说等内容的制作、上传或存储服务。\n\n'
+            '2. 应用内所有内容（含图片、文字、视频链接等）均来自互联网公开站点，'
+            '由多个第三方数据源自动抓取聚合呈现，版权归原作者/权利人所有。\n\n'
+            '3. 应用不拥有、不控制、不审核任何第三方源站的内容，也不对源站内容'
+            '的合法性、准确性、完整性作任何保证。\n\n'
+            '4. 请勿使用本应用从事任何商业用途或侵犯他人合法权益的行为。'
+            '因使用本应用或其聚合内容产生的任何纠纷与损失，应用开发者不承担任何责任。\n\n'
+            '5. 如认为任何内容侵犯了您的合法权益，请通过源站渠道联系权利人下架，'
+            '应用开发者会尽力配合处理。',
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.6,
+              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.85),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('我知道了'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPrivacy() {
+    showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Text('隐私说明'),
+        content: SingleChildScrollView(
+          child: Text(
+            '1. 书架、阅读历史、偏好设置等数据均只保存在本机，不上传任何服务器，'
+            '支持随时导出/导入备份（JSON 文件由您自行保管）。\n\n'
+            '2. 应用仅向您浏览的第三方内容源站发起网络请求，应用自身不收集'
+            '您的任何个人信息。\n\n'
+            '3. 更新检查仅向 GitHub Releases 请求版本信息，不发送任何个人数据。\n\n'
+            '4. 若您在「网络工具」中配置了代理，之后的所有网络请求将通过该代理'
+            '转发，请确保您的代理环境安全可信。',
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.6,
+              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.85),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('我知道了'),
+          ),
+        ],
+      ),
+    );
   }
 }
 

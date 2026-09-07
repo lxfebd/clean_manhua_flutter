@@ -44,6 +44,64 @@ class Net {
     ],
   };
 
+  /// 全局代理（`socks5://host:port` / `http://host:port` / `https://host:port`）。
+  /// 空串/null 表示直连。仅对 dart:io 路径生效；配置代理后 Cronet 路径自动跳过
+  /// （Cronet 默认引擎不读代理配置，避免 Android 上代理被绕过）。
+  static String? proxy;
+
+  /// 将代理解析为 dart:io findProxy 返回的 PAC 风格指令；null 表示直连。
+  /// 仅支持 host:port（不带 scheme）时按 http 代理处理。
+  static String? _proxyDirective(String? p) {
+    if (p == null || p.trim().isEmpty) return null;
+    final s = p.trim();
+    var scheme = 'http';
+    var rest = s;
+    final i = s.indexOf('://');
+    if (i > 0) {
+      scheme = s.substring(0, i).toLowerCase();
+      rest = s.substring(i + 3);
+    }
+    switch (scheme) {
+      case 'socks5':
+      case 'socks5h':
+        return 'SOCKS5 $rest';
+      case 'socks4':
+        return 'SOCKS4 $rest';
+      default:
+        return 'PROXY $rest';
+    }
+  }
+
+  /// 是否全局代理已启用（避免每次请求都解析字符串）。
+  static bool _proxyEnabled = false;
+  static String? _effectiveProxy;
+
+  /// 从本地持久化恢复全局代理（用户在网络工具页配置后写入本地）。
+  /// 应用启动时调用一次。
+  static Future<void> restoreProxy() async {
+    try {
+      final v = await LocalStore.readJson('global_proxy');
+      if (v is String) {
+        proxy = v.isEmpty ? null : v;
+        _applyProxy();
+      }
+    } catch (_) {
+      // 恢复失败保留直连
+    }
+  }
+
+  /// 设置并持久化全局代理；传入空串/仅空白则清空代理恢复直连。
+  static Future<void> setProxy(String? p) async {
+    proxy = (p == null || p.trim().isEmpty) ? null : p.trim();
+    _applyProxy();
+    await LocalStore.writeJson('global_proxy', proxy ?? '');
+  }
+
+  static void _applyProxy() {
+    _effectiveProxy = _proxyDirective(proxy);
+    _proxyEnabled = _effectiveProxy != null;
+  }
+
   /// 从本地持久化恢复用户自选的优选 IP（覆盖内置默认）。
   /// 应用启动时调用一次；工具页「优选 IP」扫描应用后会写入本地。
   static Future<void> restorePreferredHostIps() async {
@@ -75,11 +133,17 @@ class Net {
 
   /// 构造 HttpClient；若该 host 配置了优选 IP，则通过 connectionFactory 强制直连。
   /// 优选 IP 全部失败时，自动回退到系统 DNS 解析，避免整源因写死 IP 失效而挂死。
+  /// 全局代理启用时优先走代理（findProxy 自动处理 CONNECT 隧道），
+  /// 与 connectionFactory 互斥——代理模式下不设 connectionFactory。
   static HttpClient _client(String host) {
     final client = HttpClient()
       ..connectionTimeout = _timeout
       ..autoUncompress = false
       ..badCertificateCallback = (cert, h, port) => true; // 允许自签证书，兼容部分源
+    if (_proxyEnabled && _effectiveProxy != null) {
+      client.findProxy = (url) => _effectiveProxy!;
+      return client;
+    }
     final ips = preferredHostIps[host];
     if (ips != null && ips.isNotEmpty) {
       client.connectionFactory = (url, proxyHost, proxyPort) async {
@@ -168,7 +232,7 @@ class Net {
   /// 就把 [_cronetUsable] 置为 false，后续请求直接走 dart:io，不再反复消耗超时预算。
   static Future<String> getCronet(String urlStr,
       {Map<String, String>? headers, Duration? timeout}) async {
-    if (_cronetUsable == false) {
+    if (_cronetUsable == false || _proxyEnabled) {
       return get(urlStr, headers: headers, timeout: timeout);
     }
     final t = timeout ?? _timeout;
@@ -191,7 +255,7 @@ class Net {
   /// 非 Android 或 Cronet 初始化失败时自动回退到 [getBytes]。
   static Future<List<int>> getBytesCronet(String urlStr,
       {Map<String, String>? headers, Duration? timeout}) async {
-    if (_cronetUsable == false) {
+    if (_cronetUsable == false || _proxyEnabled) {
       return getBytes(urlStr, headers: headers);
     }
     final t = timeout ?? _timeout;

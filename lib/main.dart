@@ -94,6 +94,11 @@ Future<void> _postFirstFrameInit() async {
   } catch (e) {
     debugPrint('restorePreferredHostIps failed: $e');
   }
+  try {
+    await Net.restoreProxy();
+  } catch (e) {
+    debugPrint('restoreProxy failed: $e');
+  }
   // 桌面端（Windows/macOS/Linux）：初始化窗口管理（最小尺寸 / 标题 / 尺寸记忆）。
   if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
     try {

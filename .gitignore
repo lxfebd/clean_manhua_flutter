@@ -119,3 +119,6 @@ PROJECT_MEMORY.md
 /test_out.txt
 *.bak_ndk
 
+
+# ===== Mimosa 安全插件运行状态（勿入库）=====
+/.mimosa/
