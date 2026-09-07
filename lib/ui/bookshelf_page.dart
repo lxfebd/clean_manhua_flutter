@@ -1435,6 +1435,15 @@ class BookshelfPageState extends State<BookshelfPage>
               },
             ),
             ListTile(
+              leading: const Icon(Icons.label_outline),
+              title: const Text('编辑标签'),
+              subtitle: const Text('分类整理书架'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showTagEditor(d);
+              },
+            ),
+            ListTile(
               leading: Icon(Icons.delete_outline,
                   color: Theme.of(context).colorScheme.error),
               title: Text('移出书架',
@@ -1451,12 +1460,123 @@ class BookshelfPageState extends State<BookshelfPage>
     );
   }
 
-  /// 桌面右键菜单项：查看详情 / 移出书架（破坏性）。
+  /// 标签编辑弹窗：预设标签多选 + 自定义输入，写回书架存储并刷新筛选。
+  Future<void> _showTagEditor(ComicDetail d) async {
+    final sid = d.sourceId ?? BookshelfStore.sourceIdOf(d.id);
+    if (sid == null) return;
+    final selected = BookshelfStore.tagsOf(sid, d.id).toList();
+    final controller = TextEditingController();
+
+    await showResponsiveBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text('编辑标签',
+                        style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700)),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () {
+                        setSheetState(() => selected.clear());
+                      },
+                      child: const Text('清空'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: BookshelfStore.allTags()
+                      .map((tag) => FilterChip(
+                            label: Text(tag),
+                            selected: selected.contains(tag),
+                            onSelected: (on) => setSheetState(() {
+                              on ? selected.add(tag) : selected.remove(tag);
+                            }),
+                          ))
+                      .toList(),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: controller,
+                        decoration: const InputDecoration(
+                          hintText: '自定义标签',
+                          isDense: true,
+                          border: OutlineInputBorder(),
+                        ),
+                        onSubmitted: (v) {
+                          final t = v.trim();
+                          if (t.isEmpty) return;
+                          setSheetState(() {
+                            if (!selected.contains(t)) selected.add(t);
+                            controller.clear();
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton.tonal(
+                      onPressed: () {
+                        final t = controller.text.trim();
+                        if (t.isEmpty) return;
+                        setSheetState(() {
+                          if (!selected.contains(t)) selected.add(t);
+                          controller.clear();
+                        });
+                      },
+                      child: const Text('添加'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () {
+                      BookshelfStore.setTags(sid, d.id, selected);
+                      Navigator.pop(ctx);
+                      if (mounted) {
+                        setState(() => _allTags = BookshelfStore.allTags());
+                      }
+                    },
+                    child: const Text('保存'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    controller.dispose();
+  }
+
+  /// 桌面右键菜单项：查看详情 / 编辑标签 / 移出书架（破坏性）。
   List<CtxMenuItem> _shelfCardMenu(ComicDetail d) => [
         CtxMenuItem(
           label: '查看详情',
           icon: Icons.info_outline_rounded,
           onTap: () => _open(d),
+        ),
+        CtxMenuItem(
+          label: '编辑标签',
+          icon: Icons.label_outline_rounded,
+          onTap: () => _showTagEditor(d),
         ),
         const CtxMenuItem.separator(),
         CtxMenuItem(

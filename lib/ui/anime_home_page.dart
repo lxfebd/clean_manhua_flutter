@@ -740,7 +740,13 @@ class _AnimeCardState extends State<_AnimeCard> {
                                   scheme: scheme,
                                   remark: widget.item.remarks)
                               : CachedImage(widget.item.pic,
-                                  fit: BoxFit.cover, radius: 0),
+                                  fit: BoxFit.cover,
+                                  radius: 0,
+                                  fallbackUrls: [
+                                    if (widget.item.picFallback?.isNotEmpty ??
+                                        false)
+                                      widget.item.picFallback!,
+                                  ]),
                         ),
                         Positioned(
                           top: 0,

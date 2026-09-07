@@ -24,6 +24,11 @@ class CachedImage extends StatefulWidget {
   /// 是否启用真实超分辨率（2x Lanczos-3 重采样）。
   final bool superRes;
 
+  /// 降级 URL 链：主图 [url] 加载失败（超时/解码错误）后按顺序尝试这些
+  /// 备用地址（如 备用镜像 / 压缩图），全部失败才落到占位图。
+  /// 典型用法：原画 → 省空间压缩图 → 备用镜像。
+  final List<String> fallbackUrls;
+
   const CachedImage(
     this.url, {
     super.key,
@@ -32,6 +37,7 @@ class CachedImage extends StatefulWidget {
     this.width,
     this.height,
     this.superRes = false,
+    this.fallbackUrls = const [],
   });
 
   @override
@@ -59,8 +65,6 @@ class _CachedImageState extends State<CachedImage> {
     }
   }
 
-  String _superResKey() => '${widget.url}|${ImageSuperRes.algoVersion}';
-
   /// 图片请求加 Referer，避免部分 CDN（如 lain.bgm.tv）防盗链拒绝。
   static Map<String, String> _headersFor(String url) {
     final host = Uri.tryParse(url)?.host ?? '';
@@ -84,37 +88,42 @@ class _CachedImageState extends State<CachedImage> {
     _loading = true;
     if (mounted) setState(() => _failed = false);
     try {
-      final headers = _headersFor(widget.url);
-      if (widget.superRes) {
-        final sr = await ImageCacheManager.load(_superResKey(),
-            headers: headers,
-            fetch: () async {
-              final raw = await ImageCacheManager.load(widget.url,
-                  headers: headers);
-              return await ImageSuperRes.upscale2x(raw);
-            }).timeout(const Duration(seconds: 8));
-        if (mounted) {
-          setState(() {
-            _bytes = sr;
-            _failed = false;
-          });
-        }
-      } else {
-        final b = await ImageCacheManager.load(widget.url, headers: headers)
-            .timeout(const Duration(seconds: 8));
-        if (mounted) {
-          setState(() {
-            _bytes = b;
-            _failed = false;
-          });
+      // 降级链：主 URL + 备用 URL 按序尝试，全部失败才置 failed。
+      final urls = [widget.url, ...widget.fallbackUrls];
+      Uint8List? ok;
+      for (final u in urls) {
+        try {
+          final headers = _headersFor(u);
+          if (widget.superRes) {
+            final sr = await ImageCacheManager.load(_superResKeyFor(u),
+                headers: headers,
+                fetch: () async {
+                  final raw = await ImageCacheManager.load(u, headers: headers);
+                  return await ImageSuperRes.upscale2x(raw);
+                }).timeout(const Duration(seconds: 8));
+            ok = sr;
+          } else {
+            ok = await ImageCacheManager.load(u, headers: headers)
+                .timeout(const Duration(seconds: 8));
+          }
+          break;
+        } catch (_) {
+          // 尝试下一级
         }
       }
-    } catch (_) {
-      if (mounted) setState(() => _failed = true);
+      if (mounted) {
+        setState(() {
+          _bytes = ok;
+          _failed = ok == null;
+        });
+      }
     } finally {
       _loading = false;
     }
   }
+
+  String _superResKeyFor(String url) =>
+      '$url|${ImageSuperRes.algoVersion}';
 
   @override
   Widget build(BuildContext context) {

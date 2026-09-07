@@ -406,7 +406,13 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
             child: SizedBox(
               width: 132,
               height: 188,
-              child: CachedImage(sel.pic, fit: BoxFit.cover, radius: 0),
+              child: CachedImage(sel.pic,
+                  fit: BoxFit.cover,
+                  radius: 0,
+                  fallbackUrls: [
+                    if (sel.picFallback?.isNotEmpty ?? false)
+                      sel.picFallback!,
+                  ]),
             ),
           ),
         ),

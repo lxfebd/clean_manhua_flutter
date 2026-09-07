@@ -13,6 +13,8 @@ class ComicItem {
   String? remarks;
   /// 配音/语言（如「日语」「国语」），视频源详情展示用。
   String? lang;
+  /// 封面降级图 URL（如缩略图/备用镜像），主图 [pic] 加载失败时按序尝试。
+  String? picFallback;
 
   ComicItem(this.id, this.name, this.pic);
 
@@ -29,7 +31,8 @@ class ComicItem {
       ..author = _s(m['author'])
       ..content = _s(m['content'])
       ..remarks = _s(m['remarks'])
-      ..lang = _s(m['lang']);
+      ..lang = _s(m['lang'])
+      ..picFallback = _s(m['picFallback']);
   }
 
   static String _s(dynamic v) => v == null ? '' : v.toString();

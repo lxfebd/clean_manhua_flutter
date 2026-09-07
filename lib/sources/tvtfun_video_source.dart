@@ -219,7 +219,10 @@ class TvTfunVideoSource implements VideoSource {
       ..hits = hits?.toString()
       ..content = (v['content'] as String?) ?? ''
       ..remarks = (v['remarks'] as String?) ?? ''
-      ..lang = (v['lang'] as String?) ?? '';
+      ..lang = (v['lang'] as String?) ?? ''
+      // picThumb 是 QQ 图床（p.qpic.cn）缩略图，国内可达；
+      // 主图 lain.bgm.tv 被 DNS 污染时降级到它，避免封面纯色占位。
+      ..picFallback = (v['picThumb'] as String?) ?? '';
   }
 
   /// 解析剧集列表
