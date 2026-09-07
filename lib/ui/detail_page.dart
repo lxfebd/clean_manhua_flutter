@@ -1130,7 +1130,7 @@ class _DetailPageState extends State<DetailPage> {
     if (_openingChapter) return;
     _openingChapter = true;
     try {
-      final historyMatch = await _historyForChapter(ch);
+      final history = await _historyForChapter(ch);
       if (!mounted) return;
       Navigator.push(
         context,
@@ -1144,7 +1144,8 @@ class _DetailPageState extends State<DetailPage> {
             comicPic: _detail!.pic ?? '',
             comicAuthor: _detail!.author ?? '',
             chapters: _detail!.chapters,
-            initialPage: historyMatch,
+            initialPage: history.pageIndex,
+            initialOffset: history.scrollOffset,
           ),
           transitionDuration: const Duration(milliseconds: 320),
           transitionsBuilder: (_, anim, __, child) {
@@ -1166,17 +1167,24 @@ class _DetailPageState extends State<DetailPage> {
     }
   }
 
-  /// 从历史记录里查当前章节最后读到的页码（无则 -1 从第一页开始）。
-  Future<int> _historyForChapter(Chapter ch) async {
+  /// 从历史记录里查当前章节最后读到的位置（无则 pageIndex=-1 从第一页开始）。
+  /// 返回完整条目以同时提供页码与纵向滚动偏移（像素级续读）。
+  Future<HistoryEntry> _historyForChapter(Chapter ch) async {
     final hist = await LocalStore.history();
     final key = Bookmark(sourceId: widget.sourceId, comicId: _detail!.id,
         name: '', pic: '').key;
     for (final h in hist) {
       if (h.book.key == key && h.chapterId == ch.id && h.hasPage) {
-        return h.pageIndex;
+        return h;
       }
     }
-    return -1;
+    return HistoryEntry(
+        book: Bookmark(
+            sourceId: widget.sourceId, comicId: _detail!.id, name: '', pic: ''),
+        chapterId: ch.id,
+        chapterTitle: ch.title,
+        timestamp: 0,
+        pageIndex: -1);
   }
 }
 

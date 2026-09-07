@@ -60,6 +60,10 @@ class HistoryEntry {
   /// 该章节总页数（0 表示未知），用于书架进度条精确计算。
   final int chapterTotalPages;
 
+  /// 纵向滚动模式下的精确滚动偏移（像素），用于续读精确定位。
+  /// 仅纵向模式写入；横向模式为 0（页码已够用）。
+  final double scrollOffset;
+
   const HistoryEntry({
     required this.book,
     required this.chapterId,
@@ -67,6 +71,7 @@ class HistoryEntry {
     required this.timestamp,
     this.pageIndex = -1,
     this.chapterTotalPages = 0,
+    this.scrollOffset = 0,
   });
 
   bool get hasPage => pageIndex >= 0;
@@ -78,6 +83,7 @@ class HistoryEntry {
         'timestamp': timestamp,
         'pageIndex': pageIndex,
         'chapterTotalPages': chapterTotalPages,
+        'scrollOffset': scrollOffset,
       };
 
   factory HistoryEntry.fromMap(Map<String, dynamic> m) => HistoryEntry(
@@ -87,6 +93,7 @@ class HistoryEntry {
         timestamp: (m['timestamp'] as int?) ?? 0,
         pageIndex: (m['pageIndex'] as num?)?.toInt() ?? -1,
         chapterTotalPages: (m['chapterTotalPages'] as num?)?.toInt() ?? 0,
+        scrollOffset: (m['scrollOffset'] as num?)?.toDouble() ?? 0,
       );
 
   String get key => book.key;
@@ -443,6 +450,19 @@ class LocalStore {
 
   static Future<bool> horizontalReader() async =>
       ((await _read('settings')) as Map?)?['horizontal'] as bool? ?? false;
+
+  /// 阅读模式（0=纵向滚动，1=单页横向，2=双页横屏平板）。
+  /// 兼容迁移：未设置过 readerMode 的老用户，按旧的 horizontal 布尔映射。
+  static Future<int> readerMode() async {
+    final s = ((await _read('settings')) as Map?);
+    if (s == null) return 0;
+    final v = s['readerMode'];
+    if (v is int) return v;
+    return (s['horizontal'] as bool? ?? false) ? 1 : 0;
+  }
+
+  static Future<void> setReaderMode(int v) async =>
+      _updateSetting('readerMode', v);
 
   /// 日漫 RTL 反向翻页（true = 从右往左，翻页方向取反）。
   static Future<bool> rtlReader() async =>

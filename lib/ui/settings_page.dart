@@ -28,7 +28,7 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   bool _dark = false;
-  bool _horizontal = false;
+  int _readerMode = 1; // 0=纵向滚动，1=单页横向（默认），2=双页并排
   bool _rtl = false;
   int _themeId = 0;
   bool _loaded = false;
@@ -51,7 +51,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _load() async {
     final d = await LocalStore.darkMode();
-    final h = await LocalStore.horizontalReader();
+    final mode = await LocalStore.readerMode();
     final rtl = await LocalStore.rtlReader();
     final tid = await LocalStore.themeId();
     final dm = await LocalStore.danmakuSettings();
@@ -59,7 +59,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (mounted) {
       setState(() {
         _dark = d;
-        _horizontal = h;
+        _readerMode = mode;
         _rtl = rtl;
         _themeId = tid;
         _danmaku = dm;
@@ -206,14 +206,23 @@ class _SettingsPageState extends State<SettingsPage> {
                 children: [
                   _SettingTile(
                     icon: Icons.swipe_right_alt_rounded,
-                    title: '横向翻页模式',
-                    subtitle: '关闭则为纵向滚动逐页',
-                    trailing: Switch(
-                      value: _horizontal,
-                      onChanged: (v) async {
-                        await LocalStore.setHorizontalReader(v);
-                        if (mounted) setState(() => _horizontal = v);
+                    title: '翻页模式',
+                    subtitle: _readerMode == 0
+                        ? '纵向滚动逐页'
+                        : (_readerMode == 1 ? '单页横向翻页' : '双页并排（适合平板横屏）'),
+                    trailing: PopupMenuButton<int>(
+                      initialValue: _readerMode,
+                      icon: const Icon(Icons.unfold_more_rounded,
+                          color: Colors.white70),
+                      onSelected: (v) async {
+                        await LocalStore.setReaderMode(v);
+                        if (mounted) setState(() => _readerMode = v);
                       },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(value: 0, child: Text('纵向滚动')),
+                        PopupMenuItem(value: 1, child: Text('单页横向')),
+                        PopupMenuItem(value: 2, child: Text('双页并排')),
+                      ],
                     ),
                   ),
                   Container(
