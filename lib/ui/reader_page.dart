@@ -589,12 +589,14 @@ class _ReaderPageState extends State<ReaderPage> {
     }
   }
 
-  /// 预载单张图片字节到缓存（重复逻辑内聚，JM 解扰走 fetch 回调）。
+  /// 预载单张图片字节到缓存（重复逻辑内聚，JM 解扰走 loader）。
+  /// 走多级降级链：原画失败自动试压缩图/备用镜像，任一档位成功即入缓存，
+  /// 命中后阅读页直接秒开，不重复请求。
   void _preloadOne(String u) {
     if (u.startsWith('/')) return;
     if (u.contains('@') || widget.sourceId == 'jm') {
-      ImageCacheManager.load(u, fetch: () async {
-        final split = JmScramble.splitUrl(u);
+      ImageCacheManager.loadDegraded(u, engineId: 'jm', loader: (url, i) async {
+        final split = JmScramble.splitUrl(url);
         final referer = _jmReferer(split.url);
         var raw = Uint8List.fromList(await Net.getBytesCronet(
           split.url,
@@ -605,20 +607,20 @@ class _ReaderPageState extends State<ReaderPage> {
           },
           proxy: await SourceHttp.proxyFor(widget.sourceId),
         ));
-        if (JmScramble.parseAid(u) != null) {
-          raw = await JmScramble.descrambleAsync(raw, u);
+        if (JmScramble.parseAid(url) != null) {
+          raw = await JmScramble.descrambleAsync(raw, url);
         }
         return raw;
       });
     } else {
       final proxy = _pendingProxy();
-      ImageCacheManager.load(
+      ImageCacheManager.loadDegraded(
         u,
         headers: _headersForUrl(u),
-        fetch: () async {
+        loader: (url, i) async {
           // 预载图片与源同代理；无配置（null）走全局代理/直连
           return Uint8List.fromList(
-              await Net.getBytesAuto(u, headers: _headersForUrl(u), proxy: await proxy));
+              await Net.getBytesAuto(url, headers: _headersForUrl(url), proxy: await proxy));
         },
       );
     }
@@ -2223,9 +2225,16 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
       // 单源代理：阅读器图片与文本同源，走该源的代理配置（无则 null 走全局/直连）
       final proxy =
           widget.sourceId.isEmpty ? null : await SourceHttp.proxyFor(widget.sourceId);
-      // 第一步：先加载原图（快速显示）
-      final raw = await ImageCacheManager.load(widget.url,
-          headers: _headers(), proxy: proxy);
+      // 第一步：先加载原图（快速显示）。走多级降级链：
+      // 原画失败自动尝试省空间压缩图（mangadex data-saver）与备用镜像（jm CDN），
+      // 任一档位成功即显示；全部失败由 catch 落失败态。
+      // 全部失败时 loadDegraded 已抛异常（由下方 catch 落失败态），此处 bytes 必非空
+      final raw = await ImageCacheManager.loadDegraded(widget.url,
+          headers: _headers(),
+          proxy: proxy,
+          engineId: widget.sourceId,
+          useSaver: widget.sourceId == 'mangadex')
+          .then((r) => r.bytes!);
       if (!mounted) return;
 
       // 自动裁边去白边：裁边结果按独立缓存 key 持久化，

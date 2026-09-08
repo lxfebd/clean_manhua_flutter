@@ -18,6 +18,7 @@ import 'net/update_checker.dart';
 import 'net/video_download_manager.dart';
 import 'net/webdav_sync.dart';
 import 'sources/local_novel_source.dart';
+import 'sources/source_manager.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'theme.dart';
 import 'ui/main_shell.dart';
@@ -66,6 +67,9 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   PaintingBinding.instance.imageCache.maximumSize = 20;
   PaintingBinding.instance.imageCache.maximumSizeBytes = 30 * 1024 * 1024;
+  // 注册各源的图片降级链（原画→省空间→备用镜像），幂等；
+  // 必须在任何图片加载前完成，否则首张图加载时降级注册表为空。
+  SourceManager.init();
   try {
     MediaKit.ensureInitialized();
   } catch (e) {

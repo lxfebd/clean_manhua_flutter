@@ -53,32 +53,35 @@ class _JmScrambleImageWidgetState extends State<JmScrambleImageWidget> {
   Future<void> _load() async {
     if (_loading) return;
     if (mounted) setState(() => _loading = true);
-    final split = JmScramble.splitUrl(widget.url);
-    final referer = _refererFor(split.url);
     try {
-      final bytes = await ImageCacheManager.load(
+      // 多级降级：原画（带 @jm: 解扰标记的 URL）失败后自动尝试备用 CDN 镜像
+      // （注册表 jm 的镜像构建器保持同 CDN/Path，仅换域名）。缓存 key 一律按
+      // 归一化主 URL 计算——镜像档成功后，下次原画/CDN 抖动也直接命中。
+      final bytes = await ImageCacheManager.loadDegraded(
         widget.url,
-        fetch: () async {
+        engineId: 'jm',
+        loader: (u, i) async {
+          final split = JmScramble.splitUrl(u);
           var raw = Uint8List.fromList(await Net.getBytesCronet(
             split.url,
             headers: {
               'User-Agent': Net.defaultUA,
-              'Referer': referer,
+              'Referer': _refererFor(split.url),
               'Accept': 'image/webp,image/*,*/*',
             },
             proxy: widget.sourceId.isEmpty
                 ? null
                 : await SourceHttp.proxyFor(widget.sourceId),
           ));
-          if (JmScramble.parseAid(widget.url) != null) {
-            raw = await JmScramble.descrambleAsync(raw, widget.url);
+          if (JmScramble.parseAid(u) != null) {
+            raw = await JmScramble.descrambleAsync(raw, u);
           }
           return raw;
         },
       );
       if (mounted) {
         setState(() {
-          _bytes = bytes;
+          _bytes = bytes.bytes;
           _error = null;
           _loading = false;
         });

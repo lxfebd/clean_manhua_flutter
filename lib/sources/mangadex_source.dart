@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../models/comic_item.dart';
+import '../net/image_deg.dart';
 import 'comic_source.dart';
 import 'source_http.dart';
 
@@ -10,6 +11,8 @@ import 'source_http.dart';
 class MangaDexSource extends ComicSource {
   static const String _api = 'https://api.mangadex.org';
   static const String _coverBase = 'https://uploads.mangadex.org/covers';
+  static const String _dataBase = 'https://uploads.mangadex.org/data';
+  static const String _dataSaverBase = 'https://uploads.mangadex.org/data-saver';
   static const List<String> _fallbackHosts = [_api];
 
   static const _headers = {
@@ -22,6 +25,18 @@ class MangaDexSource extends ComicSource {
   String get id => 'mangadex';
   @override
   String get name => 'MangaDex';
+
+  /// 图片多级降级：原画（uploads/data）失败后自动切官方 data-saver 压缩图，
+  /// 流量减半、CDN 压力小，弱网下显著提高成功率。
+  static void registerDegradation() {
+    ImageDeg.registerSaver('mangadex', (String url) {
+      final data = '$_dataBase/';
+      if (url.startsWith(data)) {
+        return '$_dataSaverBase/${url.substring(data.length)}';
+      }
+      return null;
+    });
+  }
 
   static final _categories = <Category>[
     Category('trending', '热门'),

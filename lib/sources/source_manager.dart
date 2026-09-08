@@ -26,6 +26,16 @@ class SourceManager {
     MangaDexSource(), // MangaDex：英文/非 R18，兜底
   ];
 
+  /// 一次性注册各源的图片降级钩子（备用镜像/省空间压缩图）。
+  /// 幂等：多次调用只注册一次，避免热重载后重复挂链。
+  static bool _degradationRegistered = false;
+  static void init() {
+    if (_degradationRegistered) return;
+    _degradationRegistered = true;
+    JmSource.registerDegradation();
+    MangaDexSource.registerDegradation();
+  }
+
   static final List<VideoSource> videoSources = [
     AgedMVideoSource(),
     TvTfunVideoSource(),

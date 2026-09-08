@@ -8,10 +8,15 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'http_client.dart';
+import 'image_deg.dart';
 
 class ImageCacheManager {
   static final LinkedHashMap<String, Uint8List> _mem = LinkedHashMap();
   static final Map<String, Future<Uint8List>> _inflight = {};
+
+  /// 降级链专用 in-flight 去重（与 [_inflight] 分开，避免返回类型冲突；
+  /// 同 key 两条链并发时各跑各的，先完成者写盘，后续命中磁盘缓存）。
+  static final Map<String, Future<ImageDegResult>> _inflightDeg = {};
   static int _memBytes = 0;
 
   /// 设备内存分档探测结果；null=未探测（用平台默认档）。
@@ -81,7 +86,93 @@ class ImageCacheManager {
     return d;
   }
 
-  static String _key(String url) => md5.convert(utf8.encode(url)).toString();
+  static String _key(String url) =>
+      md5.convert(utf8.encode(ImageDeg.normalizeUrl(url))).toString();
+
+  /// 归一化后的主 URL（去 @jm: 解扰标记），供调用方区分降级档位。
+  /// 同图不同地址（原画/省空间/备用镜像）共享一个缓存槽，命中即算成功。
+  static String primaryUrl(String url) => ImageDeg.normalizeUrl(url);
+
+  /// 多级降级加载：先读主 URL 缓存（含磁盘），未命中时 fetch 内部自动按
+  /// 原画 → 省空间 → 备用镜像 降级；返回结果携带实际命中的档位。
+  ///
+  /// 与 [load] 的区别：后者只请求 [url] 一个地址，失败即抛；本方法在
+  /// 加载失败时继续尝试降级链（网络失败/解码失败均视为可降级），
+  /// 全部失败仍抛异常，由调用方落占位图。成功结果不区分档位落缓存，
+  /// 保证「任一档位成功即持久化」。
+  ///
+  /// [loader] 按链中每个具体 URL 调用（默认用 [Net.getBytesAuto] + 代理）；
+  /// 需要特殊处理的源（如 JM 的解扰）可传入自定义 loader。
+  static Future<ImageDegResult> loadDegraded(
+    String url, {
+    Map<String, String>? headers,
+    Future<Uint8List> Function(String url, int index)? loader,
+    String? proxy,
+    String engineId = '',
+    bool useSaver = false,
+  }) async {
+    final norm = primaryUrl(url);
+    final mem = _mem[norm];
+    if (mem != null) {
+      _mem.remove(norm);
+      _mem[norm] = mem;
+      return ImageDegResult.ok(mem, ImageDegStatus.original, 0);
+    }
+    final running = _inflightDeg[norm];
+    if (running != null) {
+      return running;
+    }
+    final chain = ImageDeg.chain(norm, engineId: engineId, useSaver: useSaver);
+    final future = _loadDegraded(
+      chain,
+      headers: headers,
+      loader: loader,
+      proxy: proxy,
+      engineId: engineId,
+      useSaver: useSaver,
+    );
+    _inflightDeg[norm] = future;
+    future.whenComplete(() => _inflightDeg.remove(norm));
+    return future;
+  }
+
+  static Future<ImageDegResult> _loadDegraded(
+    List<String> chain, {
+    Map<String, String>? headers,
+    Future<Uint8List> Function(String url, int index)? loader,
+    String? proxy,
+    String engineId = '',
+    bool useSaver = false,
+  }) async {
+    final norm = primaryUrl(chain.first);
+    final f = File('${(await _imagesDir()).path}/${_key(norm)}.img');
+    try {
+      if (f.existsSync()) {
+        final b = await f.readAsBytes();
+        _putMem(norm, b);
+        return ImageDegResult.ok(b, ImageDegStatus.original, 0);
+      }
+    } catch (_) {}
+    final res = await ImageDeg.loadWithChain(
+      chain,
+      engineId: engineId,
+      useSaver: useSaver,
+      loader: (u, i) async {
+        if (loader != null) return loader(u, i);
+        return Uint8List.fromList(
+            await Net.getBytesAuto(u, headers: headers, proxy: proxy));
+      },
+    );
+    if (res.bytes == null) {
+      throw Exception('图片降级链全部失败: ${chain.length} 个地址');
+    }
+    _putMem(norm, res.bytes!);
+    try {
+      await f.writeAsBytes(res.bytes!, flush: true);
+      _maybeTrimDisk();
+    } catch (_) {}
+    return res;
+  }
 
   static Future<Uint8List> load(
     String url, {
@@ -89,17 +180,18 @@ class ImageCacheManager {
     Future<Uint8List> Function()? fetch,
     String? proxy,
   }) {
-    final mem = _mem[url];
+    final norm = primaryUrl(url);
+    final mem = _mem[norm];
     if (mem != null) {
-      _mem.remove(url);
-      _mem[url] = mem;
+      _mem.remove(norm);
+      _mem[norm] = mem;
       return Future.value(mem);
     }
-    final running = _inflight[url];
+    final running = _inflight[norm];
     if (running != null) return running;
-    final future = _load(url, headers: headers, fetch: fetch, proxy: proxy);
-    _inflight[url] = future;
-    future.whenComplete(() => _inflight.remove(url));
+    final future = _load(norm, headers: headers, fetch: fetch, proxy: proxy);
+    _inflight[norm] = future;
+    future.whenComplete(() => _inflight.remove(norm));
     return future;
   }
 
@@ -144,6 +236,27 @@ class ImageCacheManager {
   static Future<void> preload(String url, {Map<String, String>? headers, String? proxy}) async {
     try {
       await load(url, headers: headers, proxy: proxy);
+    } catch (_) {}
+  }
+
+  /// 多级降级预加载：失败静默（不落占位图），供翻页/列表预取使用。
+  static Future<void> preloadDegraded(
+    String url, {
+    Map<String, String>? headers,
+    Future<Uint8List> Function(String url, int index)? loader,
+    String? proxy,
+    String engineId = '',
+    bool useSaver = false,
+  }) async {
+    try {
+      await loadDegraded(
+        url,
+        headers: headers,
+        loader: loader,
+        proxy: proxy,
+        engineId: engineId,
+        useSaver: useSaver,
+      );
     } catch (_) {}
   }
 

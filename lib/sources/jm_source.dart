@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../models/comic_item.dart';
 import '../net/circuit_breaker.dart';
 import '../net/http_client.dart';
+import '../net/image_deg.dart';
 import '../net/jm_crypto.dart';
 import 'comic_source.dart';
 import 'source_config.dart';
@@ -47,6 +48,28 @@ class JmSource extends ComicSource {
 
   static int _workingHostIndex = 0;
   static String? _currentHost;
+
+  /// 图片多级降级：注册备用 CDN 镜像构建器（把主 CDN 域名换成镜像域名）。
+  /// 与 [chapterPics] 共享 [SourceConfigStore.imageHostsFor] 的配置列表，
+  /// 用户在源管理页调整镜像后，降级链自动跟着走。
+  /// 注意：入参是带 `@jm:` 解扰标记的原 URL，返回值必须保留该标记，
+  /// 否则 [JmScramble.parseAid] 会拿不到 albumId 而无法还原。
+  static void registerDegradation() {
+    ImageDeg.registerMirror('jm', (String url) {
+      final path = ImageDeg.normalizeUrl(url);
+      final sep = path.indexOf('/media/');
+      if (sep <= 0) return url;
+      final origin = path.substring(0, sep);
+      final rest = path.substring(sep);
+      final hosts = _builtinImageHosts;
+      for (final h in hosts) {
+        if (h == origin) continue;
+        final marker = url.substring(path.length); // 保留 @jm:xxx 标记
+        return '$h$rest$marker';
+      }
+      return url;
+    });
+  }
 
   @override
   String get id => 'jm';
