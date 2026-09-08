@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:cronet_http/cronet_http.dart' as cronet;
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'local_store.dart';
@@ -14,6 +16,104 @@ class HttpStatusException implements Exception {
   HttpStatusException(this.statusCode, this.body);
   @override
   String toString() => 'HTTP $statusCode: $body';
+}
+
+/// 每域名令牌桶限流：控制对源站的请求频率与并发，避免对源站造成过大压力，
+/// 降低 IP 被封风险（爬虫礼仪）。默认每域名 3 req/s、并发 ≤5。
+class RateLimiter {
+  RateLimiter._();
+
+  static final RateLimiter instance = RateLimiter._();
+
+  /// 每域名每秒最大请求数（令牌桶速率）。
+  static const double _tokensPerSec = 3.0;
+
+  /// 桶容量（突发上限）。
+  static const double _burst = 5.0;
+
+  /// 每域名最大并发请求数。
+  static const int _maxConcurrent = 5;
+
+  /// 测试环境下跳过限流：widget 测试无真实网络流量（HttpClient 恒返回 400），
+  /// 且 fake-async 不允许测试结束时仍有挂起计时器。单元测试需用
+  /// [debugForceEnabled] 强制开启以验证限流语义。
+  static bool get _enabled =>
+      debugForceEnabled || !Platform.environment.containsKey('FLUTTER_TEST');
+
+  /// 测试辅助：强制开启限流（配合单元测试）。
+  @visibleForTesting
+  static bool debugForceEnabled = false;
+
+  static final Map<String, _Bucket> _buckets = {};
+  static final Map<String, int> _inflight = {};
+  static final Random _random = Random();
+
+  /// 请求开始前调用：等待令牌 + 并发槽位（限流排队，不丢请求）。
+  static Future<void> acquire(String host) async {
+    if (!_enabled) return;
+    final bucket = _bucketFor(host);
+    while (true) {
+      bucket.refill();
+      final inflight = _inflight[host] ?? 0;
+      if (inflight < _maxConcurrent && bucket.tokens >= 1.0) {
+        bucket.tokens -= 1.0;
+        _inflight[host] = inflight + 1;
+        return;
+      }
+      // 队列等待；并发满或令牌不足时让出事件循环
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+  }
+
+  /// 请求完成后调用：释放并发槽位。批量请求间可加随机小延迟错峰。
+  static void release(String host, {bool jitter = false}) {
+    if (!_enabled) return;
+    final inflight = _inflight[host] ?? 0;
+    _inflight[host] = inflight > 0 ? inflight - 1 : 0;
+    if (jitter && _random.nextDouble() < 0.3) {
+      // 30% 概率在释放后稍等 0~150ms，打散批量请求的节奏
+      Future<void>.delayed(Duration(
+          milliseconds: 50 + _random.nextInt(100))).ignore();
+    }
+  }
+
+  static _Bucket _bucketFor(String host) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final b = _buckets[host];
+    if (b != null) {
+      b.lastRefillMs = now;
+      return b;
+    }
+    final nb = _Bucket(now);
+    _buckets[host] = nb;
+    return nb;
+  }
+
+  /// 测试辅助：清空限流状态。
+  @visibleForTesting
+  static void reset() {
+    _buckets.clear();
+    _inflight.clear();
+  }
+
+  /// 测试辅助：当前某域名的并发数。
+  @visibleForTesting
+  static int debugInflight(String host) => _inflight[host] ?? 0;
+}
+
+class _Bucket {
+  double tokens;
+  int lastRefillMs;
+  _Bucket(this.lastRefillMs) : tokens = RateLimiter._burst;
+
+  /// 按经过时间补充令牌（1 秒 3 个）。
+  void refill() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final elapsed = now - lastRefillMs;
+    if (elapsed <= 0) return;
+    lastRefillMs = now;
+    tokens = min(RateLimiter._burst, tokens + elapsed * RateLimiter._tokensPerSec / 1000);
+  }
 }
 
 /// 零第三方依赖 HTTP 客户端（基于 dart:io HttpClient）。
@@ -260,7 +360,10 @@ class Net {
   static Future<String> _getOnce(String urlStr, Map<String, String>? headers,
       Duration? timeout, {String? proxy}) async {
     final t = timeout ?? _timeout;
-    final client = _client(Uri.parse(urlStr).host, proxy: proxy);
+    // 限流：等待令牌与并发槽位（降低对源站压力，避免被封）
+    final host = Uri.parse(urlStr).host;
+    await RateLimiter.acquire(host);
+    final client = _client(host, proxy: proxy);
     try {
       final req = await _request(client, 'GET', Uri.parse(urlStr), headers);
       final res = await req.close().timeout(t);
@@ -268,6 +371,7 @@ class Net {
       _onDone(res, urlStr);
       return utf8.decode(bytes);
     } finally {
+      RateLimiter.release(host, jitter: true);
       client.close(force: true);
     }
   }

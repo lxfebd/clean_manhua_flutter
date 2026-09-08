@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../main.dart';
+import '../net/backup_cipher.dart';
 import '../net/bookshelf_store.dart';
 import '../net/error_logger.dart';
 import '../net/local_store.dart';
@@ -617,6 +618,69 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  /// 备份口令输入框。allowSkip 时“跳过加密”返回空串（导出明文备份）；
+  /// 取消（或导入场景）返回 null。
+  Future<String?> _askBackupPassword(
+      {required String title, String? prompt, bool allowSkip = false}) async {
+    final controller = TextEditingController();
+    final messenger = ScaffoldMessenger.of(context);
+    final pwd = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: Text(title),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (prompt != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  prompt,
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(ctx).colorScheme.onSurfaceVariant),
+                ),
+              ),
+            TextField(
+              controller: controller,
+              obscureText: true,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: '密码',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          if (allowSkip)
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(''),
+              child: const Text('跳过加密'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (controller.text.trim().isEmpty) {
+                messenger
+                    .showSnackBar(const SnackBar(content: Text('密码不能为空')));
+                return;
+              }
+              Navigator.of(ctx).pop(controller.text);
+            },
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    return pwd;
+  }
+
   Future<void> _exportBackup() async {
     try {
       final data = await LocalStore.collectBackup(
@@ -624,14 +688,23 @@ class _SettingsPageState extends State<SettingsPage> {
         novelShelfData: NovelShelfStore.exportData(),
       );
       final json = const JsonEncoder.withIndent('  ').convert(data);
+      final password = await _askBackupPassword(
+        title: '备份加密（可选）',
+        prompt: '输入密码后导出的备份将被加密保存；密码丢失将无法恢复。也可跳过加密直接导出。',
+        allowSkip: true,
+      );
+      if (password == null) return; // 用户取消
+      final out = password.isEmpty ? json : BackupCipher.encrypt(json, password);
       final result = await FilePicker.saveFile(
         dialogTitle: '导出备份',
-        fileName: '星漫匣_备份_${DateTime.now().millisecondsSinceEpoch}.json',
+        fileName: password.isEmpty
+            ? '星漫匣_备份_${DateTime.now().millisecondsSinceEpoch}.json'
+            : '星漫匣_备份_${DateTime.now().millisecondsSinceEpoch}_enc.json',
         type: FileType.custom,
         allowedExtensions: ['json'],
       );
       if (result == null) return;
-      File(result).writeAsStringSync(json);
+      File(result).writeAsStringSync(out);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('已导出到 ${result.split('\\').last.split('/').last}')),
@@ -646,7 +719,7 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  /// 导入备份：从 JSON 文件恢复数据。
+  /// 导入备份：从 JSON 文件恢复数据。检测加密备份并提示输入密码。
   Future<void> _importBackup() async {
     final result = await FilePicker.pickFiles(
       dialogTitle: '选择备份文件',
@@ -655,7 +728,24 @@ class _SettingsPageState extends State<SettingsPage> {
     );
     if (result == null || result.files.single.path == null) return;
     try {
-      final json = File(result.files.single.path!).readAsStringSync();
+      var json = File(result.files.single.path!).readAsStringSync();
+      if (json.trimLeft().startsWith(BackupCipher.magic)) {
+        final password = await _askBackupPassword(
+          title: '备份已加密',
+          prompt: '该备份文件已用密码加密，请输入导出时设置的密码。',
+        );
+        if (password == null) return; // 取消导入
+        try {
+          json = BackupCipher.decrypt(json, password);
+        } catch (_) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('密码错误或文件已损坏')),
+            );
+          }
+          return;
+        }
+      }
       final data = jsonDecode(json) as Map<String, dynamic>;
       if (data['version'] == null) {
         if (mounted) {
