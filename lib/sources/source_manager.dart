@@ -9,6 +9,7 @@ import 'local_novel_source.dart';
 import 'mangadex_source.dart';
 import 'novel_source.dart';
 import 'source_config.dart';
+import 'source_plugin.dart';
 import 'tvtfun_video_source.dart';
 import 'video_source.dart';
 import 'xbiquge_novel_source.dart';
@@ -16,6 +17,10 @@ import 'xifan_video_source.dart';
 
 /// 多源聚合管理器：注册所有可用源，支持切换当前源。
 /// 源列表按推荐度排列（第一个是默认源）。
+///
+/// 插件化说明：内置源以静态列表形式存在（开箱即用、零异步注册成本）；
+/// 自定义源（JSON DSL 导入）通过 [SourcePlugin.bind] 动态 [add]/[remove]，
+/// 启用状态经 SourceConfigStore 统一持久化，两种来源对 UI 完全透明。
 class SourceManager {
   // 默认源（下标 0）放在最前：优先国内可用、已验证的源，MangaDex(英文/非 R18) 放最后。
   // 注：包子漫画(baozimh)因国内访问时命中"下载APP"落地页已移除；樱漫(YYFun)实为写真APP内容需登录已移除。
@@ -154,5 +159,60 @@ class SourceManager {
       return (_tierWeight[ta] ?? 1).compareTo(_tierWeight[tb] ?? 1);
     });
     return list;
+  }
+
+  // ---- 插件化源：动态增删（自定义源 DSL 经 SourcePlugin.bind/unbind 调用）----
+
+  /// 动态注册漫画源实现（幂等：同 id 已存在则忽略）。
+  static bool addSource(ComicSource src) {
+    if (sources.any((s) => s.id == src.id)) return false;
+    sources.add(src);
+    return true;
+  }
+
+  /// 移除漫画源实现（不可移除内置源；当前源被移除时回退到第一个）。
+  static bool removeSource(String id) {
+    final builtinIds = {
+      'dm5', 'doubao', 'jm', 'mangadex',
+    };
+    if (builtinIds.contains(id)) return false;
+    final idx = sources.indexWhere((s) => s.id == id);
+    if (idx < 0) return false;
+    sources.removeAt(idx);
+    if (_current >= sources.length) _current = 0;
+    return true;
+  }
+
+  /// 动态注册视频源实现（幂等）。
+  static bool addVideoSource(VideoSource src) {
+    if (videoSources.any((s) => s.id == src.id)) return false;
+    videoSources.add(src);
+    return true;
+  }
+
+  static bool removeVideoSource(String id) {
+    if (id == 'agedm' || id == 'tvtfun' || id == 'xifan' || id == 'anime1') {
+      return false;
+    }
+    final idx = videoSources.indexWhere((s) => s.id == id);
+    if (idx < 0) return false;
+    videoSources.removeAt(idx);
+    return true;
+  }
+
+  /// 动态注册小说源实现（幂等）。
+  static bool addNovelSource(NovelSource src) {
+    if (novelSources.any((s) => s.id == src.id)) return false;
+    novelSources.add(src);
+    return true;
+  }
+
+  static bool removeNovelSource(String id) {
+    if (id == 'biquge' || id == 'xbiquge' || id == 'local_novel') return false;
+    final idx = novelSources.indexWhere((s) => s.id == id);
+    if (idx < 0) return false;
+    novelSources.removeAt(idx);
+    if (_currentNovel >= novelSources.length) _currentNovel = 0;
+    return true;
   }
 }

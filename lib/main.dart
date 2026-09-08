@@ -14,11 +14,14 @@ import 'net/image_cache.dart';
 import 'net/local_store.dart';
 import 'net/novel_shelf_store.dart';
 import 'net/shelf_updater.dart';
+import 'net/source_health_monitor.dart';
 import 'net/update_checker.dart';
 import 'net/video_download_manager.dart';
 import 'net/webdav_sync.dart';
 import 'sources/local_novel_source.dart';
 import 'sources/source_manager.dart';
+import 'sources/source_plugin_manager.dart';
+import 'sources/dsl/custom_source_store.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'theme.dart';
 import 'ui/main_shell.dart';
@@ -86,6 +89,20 @@ Future<void> _postFirstFrameInit() async {
     await LocalStore.init();
   } catch (e) {
     debugPrint('LocalStore init failed: $e');
+  }
+  try {
+    // 插件注册表恢复（内置源元数据 + 禁用状态），LocalStore 就绪后执行。
+    await SourcePluginManager.instance.restore();
+    // 自定义源恢复：注册已导入的 DSL 源为插件（含実装正文进 SourceManager）。
+    await CustomSourceStore.restorePlugins();
+  } catch (e) {
+    debugPrint('SourcePluginManager restore failed: $e');
+  }
+  try {
+    // 源健康监控：启动快速检测 + 每 2 小时静默检测（连续失败熔断 30 分钟）。
+    await SourceHealthMonitor.instance.start();
+  } catch (e) {
+    debugPrint('SourceHealthMonitor start failed: $e');
   }
   try {
     await UpdateChecker.init();
