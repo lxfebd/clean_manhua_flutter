@@ -433,6 +433,28 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           return;
         }
       }
+      // 1.5) 下一集预热：剩余 ≤5 分钟时后台解析直链，连播/手动切集零等待。
+      // 预热失败 30 秒后重试一次；解析成功后切集直接复用，不再等源站。
+      if (_hasNext && !_autoNextFired &&
+          widget.resolveUrl != null &&
+          !_prefetchingNext &&
+          DateTime.now().isAfter(_prefetchRetryAt)) {
+        final next = widget.episodes[_nextIndex];
+        final key = '${next.season}-${next.episode}';
+        if (key != _prefetchKey) {
+          String remain = '';
+          if (!_resolving && !_webViewRemoved) {
+            try {
+              remain = (await _evalJs(_videoRemainJs)) ?? '';
+            } catch (_) {}
+          }
+          final remainSec = int.tryParse(remain) ?? -1;
+          // 取不到时长（爬虫/直播/页面未就绪）不反复试，防止高频请求源站
+          if (remainSec > 0 && remainSec <= 5 * 60) {
+            _prefetchNext(key);
+          }
+        }
+      }
       // 2) 直链捕获：解析到视频 src → 交原生播放器
       String? src;
       try {
@@ -1001,12 +1023,44 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   void _goToAdjacent(int delta) {
     final eps = widget.episodes;
     if (eps.isEmpty) return;
-    final idx =
-        eps.indexWhere((e) => e.season == _curSeason && e.episode == _curEpisode);
+    final idx = _currentIndex;
     final target = (idx < 0 ? 0 : idx) + delta;
     if (target < 0 || target >= eps.length) return;
     final ep = eps[target];
     _switchToEpisode(ep.season, ep.episode);
+  }
+
+  /// 当前集在 [widget.episodes] 中的下标；找不到返回 -1。
+  int get _currentIndex => widget.episodes.indexWhere(
+      (e) => e.season == _curSeason && e.episode == _curEpisode);
+
+  /// 下一集在 [widget.episodes] 中的下标；无下一集返回 -1。
+  int get _nextIndex {
+    final i = _currentIndex;
+    return (i >= 0 && i < widget.episodes.length - 1) ? i + 1 : -1;
+  }
+
+  /// 后台预热下一集直链（连播零等待）。失败 30 秒后重试一次，防源站接口抖动。
+  void _prefetchNext(String key) {
+    final resolver = widget.resolveUrl;
+    if (resolver == null) return;
+    final idx = _nextIndex;
+    if (idx < 0) return;
+    final ep = widget.episodes[idx];
+    if (ep.season == _curSeason && ep.episode == _curEpisode) return;
+    _prefetchKey = key;
+    _prefetchingNext = true;
+    resolver(ep.season, ep.episode).then((url) {
+      if (mounted && _prefetchKey == key) {
+        _prefetchedNextUrl = url;
+      }
+    }).catchError((Object e) {
+      // 预热失败不打断播放；30 秒后轮询会再试一次
+      _prefetchRetryAt =
+          DateTime.now().add(const Duration(seconds: 30));
+    }).whenComplete(() {
+      if (_prefetchKey == key) _prefetchingNext = false;
+    });
   }
 
   /// 真正切集：更新当前集状态，并让 WebView 重新加载新一集的播放页。
@@ -1028,10 +1082,19 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     // 复位 WebView 挂载：新集要重新用 WebView 解析直链，
     // 否则上一步的物理移除会让新集一直黑屏。
     if (_webViewRemoved) setState(() => _webViewRemoved = false);
+    final prefetchKey = '$season-$episode';
+    final cached = _prefetchedNextUrl;
+    final url = (prefetchKey == _prefetchKey && cached != null)
+        ? cached
+        : await _resolveWithRetry(resolver, season, episode);
+    // 已消费的预热缓存作废，防止手动切回旧集误用过期直链
+    if (prefetchKey == _prefetchKey) {
+      _prefetchedNextUrl = null;
+      _prefetchKey = '';
+    }
+    if (!mounted) return;
+    final d = _desktop;
     try {
-      final url = await resolver(season, episode);
-      if (!mounted) return;
-      final d = _desktop;
       if (d != null) {
         await d.loadUrl(url);
       } else {
@@ -1040,6 +1103,19 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       }
     } catch (e) {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// 解析直链：直接失败时静默重试一次（源站解析接口偶发 5xx/超时）。
+  Future<String> _resolveWithRetry(
+      Future<String> Function(int season, int episode) resolver,
+      int season,
+      int episode) async {
+    try {
+      return await resolver(season, episode);
+    } catch (e) {
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+      return resolver(season, episode);
     }
   }
 
@@ -1414,8 +1490,42 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     })()
   ''';
 
+  /// 巡逻 video 剩余时长（秒）。取不到或未播放返回空串；-1 表示未初始化。
+  /// 放轮询里做：每 900ms 回答一次当前集是否临近结尾，供下一集直链预热。
+  static const String _videoRemainJs = '''
+    (function(){
+      try {
+        var v = (function(doc){
+          var v = doc && doc.querySelector('video');
+          if (v) return v;
+          var f = doc && doc.querySelector('iframe');
+          if (f) { try { return f.contentDocument ? f.contentDocument.querySelector('video') : null; } catch(e){} }
+          return null;
+        })(document);
+        if (!v) return '';
+        if (v.seekable && v.seekable.length > 0) {
+          var d = v.seekable.end(v.seekable.length - 1);
+          if (isFinite(d) && isFinite(v.currentTime)) {
+            return Math.max(0, d - v.currentTime).toFixed(0);
+          }
+        }
+        if (isFinite(v.duration) && isFinite(v.currentTime)) {
+          return Math.max(0, v.duration - v.currentTime).toFixed(0);
+        }
+        return '';
+      } catch(e) { return ''; }
+    })()
+  ''';
+
   /// 在轮询回调里检测播完状态；触发后去重，避免每秒重复切集。
   bool _autoNextFired = false;
+
+  /// 下一集直链预热：剩余时长 ≤5 分钟时后台解析一次，连播/手动切集零等待。
+  /// [resolveUrl] 命中源站解析接口，冷切换通常要等 1~3 秒，预热后直接加载。
+  String? _prefetchedNextUrl;
+  String _prefetchKey = ''; // 已预热的目标集，形如 'season-episode'
+  bool _prefetchingNext = false;
+  DateTime _prefetchRetryAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// 统一全屏入口：无论用户点击页面内任何位置进入全屏，
   /// 都转成 app 级横屏全屏（而非 WebView 自带的竖屏全屏），
@@ -1955,9 +2065,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   bool get _hasNext {
     final eps = widget.episodes;
     if (eps.isEmpty) return false;
-    final idx =
-        eps.indexWhere((e) => e.season == _curSeason && e.episode == _curEpisode);
-    return idx >= 0 && idx < eps.length - 1;
+    return _nextIndex >= 0;
   }
 
   static String _trimSpeed(double s) =>

@@ -7,7 +7,6 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:window_manager/window_manager.dart';
-
 import 'net/bookshelf_store.dart';
 import 'net/http_client.dart';
 import 'net/image_cache.dart';
@@ -73,6 +72,16 @@ void main() async {
   // 注册各源的图片降级链（原画→省空间→备用镜像），幂等；
   // 必须在任何图片加载前完成，否则首张图加载时降级注册表为空。
   SourceManager.init();
+  // Android 低内存警告（onTrimMemory → MethodChannel）：收到后主动释放图片缓存，
+  // 降低被系统杀进程概率。通道在 Android 才存在，其他平台无副作用。
+  if (!kIsWeb && Platform.isAndroid) {
+    const MethodChannel('xingmanxia/low_memory').setMethodCallHandler(
+        (call) async {
+      if (call.method == 'onLowMemory') {
+        ImageCacheManager.onLowMemory();
+      }
+    });
+  }
   try {
     MediaKit.ensureInitialized();
   } catch (e) {
@@ -86,6 +95,14 @@ void main() async {
 Future<void> _postFirstFrameInit() async {
   await Future<void>.delayed(const Duration(milliseconds: 100));
   try {
+    // 设备内存分档提到启动链第一步：首帧后立刻探测，让首页/书架/阅读的首屏图片
+    // 第一时间拿到正确的缓存预算（低端机收紧防 OOM，高端机放开提升连读流畅度）。
+    // LocalStore 尚未初始化也能直接跑（DeviceInfoPlugin 不依赖磁盘）。
+    await ImageCacheManager.probeDeviceMemory();
+  } catch (e) {
+    debugPrint('probeDeviceMemory failed: $e');
+  }
+  try {
     await LocalStore.init();
   } catch (e) {
     debugPrint('LocalStore init failed: $e');
@@ -98,50 +115,17 @@ Future<void> _postFirstFrameInit() async {
   } catch (e) {
     debugPrint('SourcePluginManager restore failed: $e');
   }
-  try {
-    // 源健康监控：启动快速检测 + 每 2 小时静默检测（连续失败熔断 30 分钟）。
-    await SourceHealthMonitor.instance.start();
-  } catch (e) {
-    debugPrint('SourceHealthMonitor start failed: $e');
-  }
-  try {
-    await UpdateChecker.init();
-  } catch (e) {
-    debugPrint('UpdateChecker init failed: $e');
-  }
-  try {
-    await VideoDownloadManager.instance.init();
-  } catch (e) {
-    debugPrint('VideoDownloadManager init failed: $e');
-  }
-  try {
-    await Net.restorePreferredHostIps();
-  } catch (e) {
-    debugPrint('restorePreferredHostIps failed: $e');
-  }
-  try {
-    await Net.restoreProxy();
-  } catch (e) {
-    debugPrint('restoreProxy failed: $e');
-  }
-  try {
-    // WebDAV 同步配置恢复（服务器/账号/加密标记），密码仅恢复占位
-    await WebDavSync.restore();
-  } catch (e) {
-    debugPrint('webdav restore failed: $e');
-  }
-  try {
-    // 收藏更新检查：恢复频率设置并启动/停止后台轮询
-    await ShelfUpdater.instance.restore();
-  } catch (e) {
-    debugPrint('shelf updater restore failed: $e');
-  }
-  try {
-    // 设备内存分档：低端机收紧图片缓存防 OOM，高端机放开提升连读流畅度
-    await ImageCacheManager.probeDeviceMemory();
-  } catch (e) {
-    debugPrint('probeDeviceMemory failed: $e');
-  }
+  // 其余启动任务互不依赖，并行执行减少首屏后可交互前的串行等待：
+  // 每个任务内部自带 try/catch，单个失败不影响其他任务。
+  await Future.wait([
+    _safeInit('SourceHealthMonitor', () => SourceHealthMonitor.instance.start()),
+    _safeInit('UpdateChecker', UpdateChecker.init),
+    _safeInit('VideoDownloadManager', () => VideoDownloadManager.instance.init()),
+    _safeInit('Net.restorePreferredHostIps', Net.restorePreferredHostIps),
+    _safeInit('Net.restoreProxy', Net.restoreProxy),
+    _safeInit('WebDavSync', WebDavSync.restore),
+    _safeInit('ShelfUpdater', () => ShelfUpdater.instance.restore()),
+  ]);
   // 桌面端（Windows/macOS/Linux）：初始化窗口管理（最小尺寸 / 标题 / 尺寸记忆）。
   if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
     try {
@@ -158,6 +142,15 @@ Future<void> _postFirstFrameInit() async {
     LocalNovelSource.setStoreDir('${dir.path}${Platform.pathSeparator}novel_imports');
   } catch (e) {
     debugPrint('shelf bind failed: $e');
+  }
+}
+
+/// 单个启动任务的安全包装：异常只打日志，不影响并行组内其他任务。
+Future<void> _safeInit(String name, Future<void> Function() task) async {
+  try {
+    await task();
+  } catch (e) {
+    debugPrint('$name failed: $e');
   }
 }
 

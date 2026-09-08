@@ -36,4 +36,21 @@ class ComicItem {
   }
 
   static String _s(dynamic v) => v == null ? '' : v.toString();
+
+  /// 序列化为 Map（首页快照缓存等本地存储用）。与 [ComicItem.fromMap] 互逆。
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'name': name,
+        'pic': pic,
+        if (yname != null && yname!.isNotEmpty) 'yname': yname,
+        if (score != null && score!.isNotEmpty) 'score': score,
+        if (hits != null && hits!.isNotEmpty) 'hits': hits,
+        if (rank != null && rank!.isNotEmpty) 'rank': rank,
+        if (author != null && author!.isNotEmpty) 'author': author,
+        if (content != null && content!.isNotEmpty) 'content': content,
+        if (remarks != null && remarks!.isNotEmpty) 'remarks': remarks,
+        if (lang != null && lang!.isNotEmpty) 'lang': lang,
+        if (picFallback != null && picFallback!.isNotEmpty)
+          'picFallback': picFallback,
+      };
 }

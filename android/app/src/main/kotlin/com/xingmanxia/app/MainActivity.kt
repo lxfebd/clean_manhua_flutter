@@ -4,12 +4,14 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.ComponentCallbacks2
 import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
@@ -18,9 +20,15 @@ class MainActivity : FlutterActivity() {
     private val notifChannelIdHigh = "xingmanxia_install"
     private val notifId = 9527
 
+    /// 低内存警告转发：系统内存吃紧时主动通知 Dart 侧释放图片缓存（Kotlin→Dart 方向）
+    private val lowMemChannelName = "xingmanxia/low_memory"
+    private var lowMemChannel: MethodChannel? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         ensureChannel()
+        lowMemChannel =
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, lowMemChannelName)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "xingmanxia/install")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -77,6 +85,21 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    /// 系统内存吃紧时主动通知 Dart 侧释放图片缓存。
+    /// 只在进程前台运行且内存压力明显时转发（RUNNING_LOW=10 / RUNNING_CRITICAL=15），
+    /// 应用不可见（UI_HIDDEN 等后台级别）时系统自行回收，不打扰用户。
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        val channel = lowMemChannel ?: return
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW && !isDestroyed) {
+            // 低内存通知不阻塞主线程；Dart 侧未监听时失败静默
+            try {
+                channel.invokeMethod("onLowMemory", null, null)
+            } catch (_: Exception) {
+            }
+        }
     }
 
     private fun ensureChannel() {

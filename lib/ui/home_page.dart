@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/comic_item.dart';
+import '../net/local_store.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
 import 'detail_page.dart';
@@ -68,11 +69,64 @@ class _HomePageState extends State<HomePage> {
     _done = false;
     setState(() {});
     _loadCategories();
+    // 首屏本地快照打底：先渲染上次成功缓存的榜单，网络回来后覆盖。
+    // 弱网/离线时首页不再空白，且首帧内容立即可见。
+    if (_mode == 'rank' && _page == 1) {
+      await _loadCachedSnapshot();
+    }
     await _loadMore();
     // 若当前源在源管理里被禁用，回退到第一个启用源
     await SourceManager.ensureEnabledCurrent().then((_) {
       if (mounted) setState(() {});
     });
+  }
+
+  /// 首页本地快照：上次成功拉取的榜单（仅 rank 模式全新列表页第一页时打底）。
+  /// 读到即渲染；网络成功后由 [_saveSnapshot] 覆盖为新数据。
+  Future<void> _loadCachedSnapshot() async {
+    try {
+      final key = _snapshotKey;
+      final raw = await LocalStore.readJson(key);
+      if (raw is List && raw.isNotEmpty) {
+        final items = raw
+            .whereType<Map>()
+            .map((m) => ComicItem.fromMap(Map<String, dynamic>.from(m)))
+            .toList();
+        if (mounted && _items.isEmpty) {
+          setState(() {
+            _items.addAll(items);
+            _error = null;
+            _done = true;
+          });
+        }
+      }
+    } catch (e) {
+      // 快照损坏/缺失：静默忽略，走正常网络加载
+      debugPrint('loadCachedSnapshot failed: $e');
+    }
+  }
+
+  /// 网络拉取成功后将首页数据落盘，供下次启动打底。
+  Future<void> _saveSnapshot(List<ComicItem> items) async {
+    try {
+      await LocalStore.writeJson(
+          _snapshotKey, items.map((e) => e.toMap()).toList());
+    } catch (e) {
+      // 写快照失败不影响主流程
+      debugPrint('saveSnapshot failed: $e');
+    }
+  }
+
+  /// 首页榜单快照文件名：按模式+关键字区分，避免切换污染。
+  String get _snapshotKey {
+    switch (_mode) {
+      case 'category':
+        return 'home_snapshot_category_$_categoryId';
+      case 'search':
+        return 'home_snapshot_search_$_keyword';
+      default:
+        return 'home_snapshot_rank_${SourceManager.current.id}';
+    }
   }
 
   void _onScroll() {
@@ -106,6 +160,10 @@ class _HomePageState extends State<HomePage> {
           _page++;
           _error = null;
         });
+        // 首页第一页成功后更新快照（不阻塞主流程）
+        if (next == 1 && _mode == 'rank') {
+          _saveSnapshot(r);
+        }
       }
     } catch (e) {
       if (mounted && _items.isEmpty) {

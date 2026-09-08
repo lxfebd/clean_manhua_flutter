@@ -10,6 +10,12 @@
         android:name="${applicationName}"
         android:usesCleartextTraffic="true"
         android:icon="@mipmap/ic_launcher">
+        <!-- 渲染引擎：显式开启 Flutter Impeller（替代 Skia，降低内存占用、提升滚动流畅度）。
+             若部分低端 GPU 出现花屏/黑屏，将 android:value 改为 "false" 即可回退 Skia，
+             无需改代码（本应用 Android API 24+ 均支持）。 -->
+        <meta-data
+            android:name="io.flutter.embedding.android.ImpellerRenderer"
+            android:value="true" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

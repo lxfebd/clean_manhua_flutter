@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart' show PaintingBinding;
 import 'package:path_provider/path_provider.dart';
 
 import 'http_client.dart';
@@ -73,6 +74,10 @@ class ImageCacheManager {
   /// 当前生效的内存缓存预算（字节），供测试/诊断读取。
   @visibleForTesting
   static int debugMemBudget() => _maxMemBytes;
+
+  /// 当前生效的磁盘缓存预算（字节），供测试/诊断读取。
+  @visibleForTesting
+  static int debugDiskBudget() => _maxDiskBytes;
 
   static const int _maxMemCount = 24;
   static Directory? _dir;
@@ -260,9 +265,22 @@ class ImageCacheManager {
     } catch (_) {}
   }
 
-  /// 磁盘缓存容量上限（字节）。图片长期看会越积越多，
-  /// 超出时按文件修改时间从旧到新删除，直至低于上限。
-  static const int _maxDiskBytes = 512 * 1024 * 1024;
+  /// 磁盘缓存容量上限（字节）。低端机收紧（省存储），高端机放开（连读更顺）。
+  /// 设备分档后按内存档位缩放：低 128MB / 中 256MB / 高 512MB（原默认）。
+  static int get _maxDiskBytes {
+    final b = _deviceMemBytes;
+    if (b == null) return 512 * 1024 * 1024;
+    return debugDiskBudgetForTier(b);
+  }
+
+  /// 按内存预算档位（字节）给出磁盘预算，供测试/诊断直接校验缩放逻辑。
+  /// 档位边界与 [debugTierForRamMb] 一致：24MB→128MB，40MB→256MB，64MB→512MB。
+  @visibleForTesting
+  static int debugDiskBudgetForTier(int memBudgetBytes) {
+    if (memBudgetBytes <= 24 * 1024 * 1024) return 128 * 1024 * 1024;
+    if (memBudgetBytes <= 40 * 1024 * 1024) return 256 * 1024 * 1024;
+    return 512 * 1024 * 1024;
+  }
 
   /// 磁盘缓存文件数上限（防止海量小文件拖慢目录遍历）。
   static const int _maxDiskCount = 2000;
@@ -294,6 +312,21 @@ class ImageCacheManager {
 
   static int get memoryCount => _mem.length;
   static int get memoryBytes => _memBytes;
+
+  /// 系统发出低内存警告（Android onTrimMemory/onLowMemory）时调用：
+  /// 主动清空内存图片缓存（磁盘缓存保留，不会重复下载），
+  /// 同时收缩 Flutter 引擎层 imageCache 预算，避免 OOM 被系统杀进程。
+  static void onLowMemory() {
+    _mem.clear();
+    _memBytes = 0;
+    try {
+      final cache = PaintingBinding.instance.imageCache;
+      cache.clear();
+      cache.clearLiveImages();
+      cache.maximumSize = 8;
+      cache.maximumSizeBytes = 8 * 1024 * 1024;
+    } catch (_) {}
+  }
 
   static Future<List<File>> diskFiles() async {
     final d = await _imagesDir();
