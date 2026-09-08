@@ -17,6 +17,7 @@ import '../net/local_store.dart';
 import '../net/smart_prefetch.dart';
 import 'responsive.dart';
 import '../sources/comic_source.dart';
+import '../sources/source_http.dart';
 import '../sources/source_manager.dart';
 import '../utils/image_super_res.dart';
 import '../utils/image_trim.dart';
@@ -602,6 +603,7 @@ class _ReaderPageState extends State<ReaderPage> {
             'Referer': referer,
             'Accept': 'image/webp,image/*,*/*',
           },
+          proxy: await SourceHttp.proxyFor(widget.sourceId),
         ));
         if (JmScramble.parseAid(u) != null) {
           raw = await JmScramble.descrambleAsync(raw, u);
@@ -609,9 +611,23 @@ class _ReaderPageState extends State<ReaderPage> {
         return raw;
       });
     } else {
-      ImageCacheManager.preload(u, headers: _headersForUrl(u));
+      final proxy = _pendingProxy();
+      ImageCacheManager.load(
+        u,
+        headers: _headersForUrl(u),
+        fetch: () async {
+          // 预载图片与源同代理；无配置（null）走全局代理/直连
+          return Uint8List.fromList(
+              await Net.getBytesAuto(u, headers: _headersForUrl(u), proxy: await proxy));
+        },
+      );
     }
   }
+
+  /// 异步解析当前源的代理配置（缓存结果，避免每次预载重复读存储）。
+  Future<String?>? _proxyFuture;
+  Future<String?> _pendingProxy() => _proxyFuture ??=
+      SourceHttp.proxyFor(widget.sourceId);
 
   String _jmReferer(String url) {
     try {
@@ -2044,6 +2060,7 @@ class _ImageViewState extends State<_ImageView>
           fit: fit,
           filterQuality: _filterLevel(),
           horizontal: widget.horizontal,
+          sourceId: widget.sourceId,
         ),
       );
     } else {
@@ -2203,8 +2220,12 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
       _failed = false;
     }
     try {
+      // 单源代理：阅读器图片与文本同源，走该源的代理配置（无则 null 走全局/直连）
+      final proxy =
+          widget.sourceId.isEmpty ? null : await SourceHttp.proxyFor(widget.sourceId);
       // 第一步：先加载原图（快速显示）
-      final raw = await ImageCacheManager.load(widget.url, headers: _headers());
+      final raw = await ImageCacheManager.load(widget.url,
+          headers: _headers(), proxy: proxy);
       if (!mounted) return;
 
       // 自动裁边去白边：裁边结果按独立缓存 key 持久化，
@@ -2214,7 +2235,8 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
         final trimKey = '${widget.url}|trim|${ImageTrim.algoVersion}';
         display = await ImageCacheManager.load(trimKey,
             headers: _headers(),
-            fetch: () async => trimAndCrop(raw));
+            fetch: () async => trimAndCrop(raw),
+            proxy: proxy);
         if (!mounted) return;
       }
       setState(() => _bytes = display);
@@ -2232,7 +2254,8 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
           : _srKey();
       final sr = await ImageCacheManager.load(srKey,
           headers: _headers(),
-          fetch: () async => await ImageSuperRes.upscale2x(display));
+          fetch: () async => await ImageSuperRes.upscale2x(display),
+          proxy: proxy);
       if (mounted) {
         setState(() {
           _bytes = sr;

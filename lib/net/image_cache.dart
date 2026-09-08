@@ -87,6 +87,7 @@ class ImageCacheManager {
     String url, {
     Map<String, String>? headers,
     Future<Uint8List> Function()? fetch,
+    String? proxy,
   }) {
     final mem = _mem[url];
     if (mem != null) {
@@ -96,7 +97,7 @@ class ImageCacheManager {
     }
     final running = _inflight[url];
     if (running != null) return running;
-    final future = _load(url, headers: headers, fetch: fetch);
+    final future = _load(url, headers: headers, fetch: fetch, proxy: proxy);
     _inflight[url] = future;
     future.whenComplete(() => _inflight.remove(url));
     return future;
@@ -106,6 +107,7 @@ class ImageCacheManager {
     String url, {
     Map<String, String>? headers,
     Future<Uint8List> Function()? fetch,
+    String? proxy,
   }) async {
     final f = File('${(await _imagesDir()).path}/${_key(url)}.img');
     try {
@@ -117,7 +119,7 @@ class ImageCacheManager {
     } catch (_) {}
     final bytes = fetch != null
         ? await fetch()
-        : Uint8List.fromList(await Net.getBytesAuto(url, headers: headers));
+        : Uint8List.fromList(await Net.getBytesAuto(url, headers: headers, proxy: proxy));
     _putMem(url, bytes);
     try {
       await f.writeAsBytes(bytes, flush: true);
@@ -139,9 +141,9 @@ class ImageCacheManager {
     }
   }
 
-  static Future<void> preload(String url, {Map<String, String>? headers}) async {
+  static Future<void> preload(String url, {Map<String, String>? headers, String? proxy}) async {
     try {
-      await load(url, headers: headers);
+      await load(url, headers: headers, proxy: proxy);
     } catch (_) {}
   }
 

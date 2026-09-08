@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../net/http_client.dart';
 import '../../net/image_cache.dart';
 import '../../net/jm_scramble.dart';
+import '../../sources/source_http.dart';
 
 class JmScrambleImageWidget extends StatefulWidget {
   final String url;
@@ -12,12 +13,16 @@ class JmScrambleImageWidget extends StatefulWidget {
   final FilterQuality filterQuality;
   final bool horizontal;
 
+  /// 所属源 ID（空则走全局代理/直连），用于单源代理透传。
+  final String sourceId;
+
   const JmScrambleImageWidget({
     super.key,
     required this.url,
     required this.fit,
     required this.filterQuality,
     this.horizontal = false,
+    this.sourceId = '',
   });
 
   @override
@@ -61,6 +66,9 @@ class _JmScrambleImageWidgetState extends State<JmScrambleImageWidget> {
               'Referer': referer,
               'Accept': 'image/webp,image/*,*/*',
             },
+            proxy: widget.sourceId.isEmpty
+                ? null
+                : await SourceHttp.proxyFor(widget.sourceId),
           ));
           if (JmScramble.parseAid(widget.url) != null) {
             raw = await JmScramble.descrambleAsync(raw, widget.url);

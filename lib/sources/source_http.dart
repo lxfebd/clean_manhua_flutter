@@ -25,6 +25,18 @@ class SourceHttp {
         : (fallback.isNotEmpty ? fallback.first : '');
   }
 
+  /// 读取某源的代理配置（单源代理覆盖全局）；未配置返回 null。
+  static Future<String?> proxyFor(String engineId) async {
+    try {
+      final c = await SourceConfigStore.byEngine(engineId);
+      final p = c.proxy?.trim() ?? '';
+      return p.isEmpty ? null : p;
+    } catch (e) {
+      debugPrint('proxyFor($engineId) failed: $e');
+      return null;
+    }
+  }
+
   /// GET：host 由配置决定，path 拼接在 host 之后。
   static Future<String> get(
     String engineId,
@@ -34,7 +46,7 @@ class SourceHttp {
   }) async {
     return _unwrap(await withCircuit(engineId, () => withTransientRetry(() async {
       final host = await pickHost(engineId, fallbackHosts);
-      return Net.get('$host$path', headers: headers);
+      return Net.get('$host$path', headers: headers, proxy: await proxyFor(engineId));
     })));
   }
 
@@ -48,7 +60,8 @@ class SourceHttp {
   }) async {
     return _unwrap(await withCircuit(engineId, () => withTransientRetry(() async {
       final host = await pickHost(engineId, fallbackHosts);
-      return Net.post('$host$path', headers: headers, body: body);
+      return Net.post('$host$path',
+          headers: headers, body: body, proxy: await proxyFor(engineId));
     })));
   }
 
@@ -58,8 +71,9 @@ class SourceHttp {
     String url, {
     Map<String, String>? headers,
   }) async {
-    return _unwrap(
-        await withCircuit(engineId, () => withTransientRetry(() => Net.get(url, headers: headers))));
+    return _unwrap(await withCircuit(engineId,
+        () => withTransientRetry(() async =>
+            Net.get(url, headers: headers, proxy: await proxyFor(engineId)))));
   }
 
   /// POST 完整 URL。
@@ -69,8 +83,9 @@ class SourceHttp {
     Map<String, String>? headers,
     String? body,
   }) async {
-    return _unwrap(await withCircuit(
-        engineId, () => withTransientRetry(() => Net.post(url, headers: headers, body: body))));
+    return _unwrap(await withCircuit(engineId,
+        () => withTransientRetry(() async => Net.post(url,
+            headers: headers, body: body, proxy: await proxyFor(engineId)))));
   }
 
   /// GET 字节（图片等），带熔断。
@@ -80,7 +95,7 @@ class SourceHttp {
     Map<String, String>? headers,
   }) async {
     return _unwrap(await withCircuit(engineId, () => withTransientRetry(() async {
-      final b = await Net.getBytes(url, headers: headers);
+      final b = await Net.getBytes(url, headers: headers, proxy: await proxyFor(engineId));
       return Uint8List.fromList(b);
     })));
   }

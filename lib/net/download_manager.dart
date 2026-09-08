@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
 
+import '../sources/source_http.dart';
 import 'http_client.dart';
 import 'local_store.dart';
 
@@ -83,8 +84,13 @@ class DownloadManager {
       try {
         final path = await LocalStore.localImagePath(key, i);
         if (!File(path).existsSync()) {
-          final bytes = Uint8List.fromList(
-              await Net.getBytesAuto(urls[i]).timeout(_imageTimeout));
+          // 单源代理：图片下载与源同代理；无配置（null）走全局代理/直连
+          final proxy = book.sourceId.isEmpty
+              ? null
+              : await SourceHttp.proxyFor(book.sourceId);
+          final bytes = Uint8List.fromList(await Net.getBytesAuto(urls[i],
+                  proxy: proxy)
+              .timeout(_imageTimeout));
           if (quality == DownloadQuality.compact) {
             await File(path).writeAsBytes(
                 _compactBytes(bytes, compactMaxWidth));

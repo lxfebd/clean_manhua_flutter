@@ -72,6 +72,96 @@ class Net {
     }
   }
 
+  /// 单次请求是否走代理：proxy=null 走全局代理/直连；proxy='' 强制直连；
+  /// proxy=具体串 强制走该代理（单源代理覆盖全局）。
+
+  /// 构造 HttpClient；若该 host 配置了优选 IP，则通过 connectionFactory 强制直连。
+  /// 优选 IP 全部失败时，自动回退到系统 DNS 解析，避免整源因写死 IP 失效而挂死。
+  /// 代理启用时优先走代理（findProxy 自动处理 CONNECT 隧道），
+  /// 与 connectionFactory 互斥——代理模式下不设 connectionFactory。
+  static HttpClient _client(String host, {String? proxy}) {
+    final client = HttpClient()
+      ..connectionTimeout = _timeout
+      ..autoUncompress = false
+      ..badCertificateCallback = (cert, h, port) => true; // 允许自签证书，兼容部分源
+    // 单源代理（proxy != null 且非空）> 全局代理（_effectiveProxy）；空串表示直连
+    final p = (proxy == null) ? _effectiveProxy : (proxy.isEmpty ? null : proxy);
+    if (p != null) {
+      final directive = _proxyDirective(p);
+      if (directive != null) {
+        client.findProxy = (url) => directive;
+        return client;
+      }
+    }
+    final ips = preferredHostIps[host];
+    if (ips != null && ips.isNotEmpty) {
+      client.connectionFactory = (url, proxyHost, proxyPort) async {
+        final port = url.hasPort
+            ? url.port
+            : (url.scheme == 'https' ? 443 : 80);
+        // 依次尝试每个候选 IP
+        for (int attempt = 0; attempt < ips.length; attempt++) {
+          final idx = ((_ipIndex[host] ?? 0) + attempt) % ips.length;
+          final ip = ips[idx];
+          try {
+            final socket =
+                await Socket.connect(ip, port, timeout: _ipTryTimeout);
+            final secure = await SecureSocket.secure(socket,
+                host: url.host, onBadCertificate: (_) => true);
+            return ConnectionTask.fromSocket<SecureSocket>(
+                Future.value(secure), () {});
+          } catch (_) {
+            // 该 IP 不可用，尝试下一个
+          }
+        }
+        // 全部优选 IP 失败 → 回退系统 DNS
+        try {
+          final addr = (await InternetAddress.lookup(url.host)).first;
+          final socket =
+              await Socket.connect(addr, port, timeout: _ipTryTimeout);
+          final secure = await SecureSocket.secure(socket,
+              host: url.host, onBadCertificate: (_) => true);
+          return ConnectionTask.fromSocket<SecureSocket>(
+              Future.value(secure), () {});
+        } catch (_) {
+          // 回退也失败，抛出由上层捕获
+          rethrow;
+        }
+      };
+    }
+    return client;
+  }
+
+  /// 带代理失败回退的 GET：先用代理（若有），连接层异常/超时后自动换直连重试一次。
+  /// 避免代理节点故障导致整源不可用。
+  static Future<String> _getWithFallback(String urlStr,
+      Map<String, String>? headers, Duration? timeout, String? proxy) async {
+    if (proxy == null && _effectiveProxy == null) {
+      return _getOnce(urlStr, headers, timeout, proxy: null);
+    }
+    try {
+      return await _getOnce(urlStr, headers, timeout, proxy: proxy);
+    } catch (e) {
+      // 只有网络层失败才回退直连；HTTP 4xx/5xx 是源站响应，不是代理问题
+      if (!_retryable(e)) rethrow;
+      return _getOnce(urlStr, headers, timeout, proxy: '');
+    }
+  }
+
+  /// 带代理失败回退的字节 GET。
+  static Future<List<int>> _getBytesWithFallback(String urlStr,
+      Map<String, String>? headers, Duration? timeout, String? proxy) async {
+    if (proxy == null && _effectiveProxy == null) {
+      return _getBytesOnce(urlStr, headers, proxy: null);
+    }
+    try {
+      return await _getBytesOnce(urlStr, headers, proxy: proxy);
+    } catch (e) {
+      if (!_retryable(e)) rethrow;
+      return _getBytesOnce(urlStr, headers, proxy: '');
+    }
+  }
+
   /// 是否全局代理已启用（避免每次请求都解析字符串）。
   static bool _proxyEnabled = false;
   static String? _effectiveProxy;
@@ -137,71 +227,24 @@ class Net {
   /// 当前域名已尝试到的候选 IP 下标，失败时轮询切换。
   static final Map<String, int> _ipIndex = {};
 
-  /// 构造 HttpClient；若该 host 配置了优选 IP，则通过 connectionFactory 强制直连。
-  /// 优选 IP 全部失败时，自动回退到系统 DNS 解析，避免整源因写死 IP 失效而挂死。
-  /// 全局代理启用时优先走代理（findProxy 自动处理 CONNECT 隧道），
-  /// 与 connectionFactory 互斥——代理模式下不设 connectionFactory。
-  static HttpClient _client(String host) {
-    final client = HttpClient()
-      ..connectionTimeout = _timeout
-      ..autoUncompress = false
-      ..badCertificateCallback = (cert, h, port) => true; // 允许自签证书，兼容部分源
-    if (_proxyEnabled && _effectiveProxy != null) {
-      client.findProxy = (url) => _effectiveProxy!;
-      return client;
-    }
-    final ips = preferredHostIps[host];
-    if (ips != null && ips.isNotEmpty) {
-      client.connectionFactory = (url, proxyHost, proxyPort) async {
-        final port = url.hasPort
-            ? url.port
-            : (url.scheme == 'https' ? 443 : 80);
-        // 依次尝试每个候选 IP
-        for (int attempt = 0; attempt < ips.length; attempt++) {
-          final idx = ((_ipIndex[host] ?? 0) + attempt) % ips.length;
-          final ip = ips[idx];
-          try {
-            final socket =
-                await Socket.connect(ip, port, timeout: _ipTryTimeout);
-            final secure = await SecureSocket.secure(socket,
-                host: url.host, onBadCertificate: (_) => true);
-            return ConnectionTask.fromSocket<SecureSocket>(
-                Future.value(secure), () {});
-          } catch (_) {
-            // 该 IP 不可用，尝试下一个
-          }
-        }
-        // 全部优选 IP 失败 → 回退系统 DNS
-        try {
-          final addr = (await InternetAddress.lookup(url.host)).first;
-          final socket =
-              await Socket.connect(addr, port, timeout: _ipTryTimeout);
-          final secure = await SecureSocket.secure(socket,
-              host: url.host, onBadCertificate: (_) => true);
-          return ConnectionTask.fromSocket<SecureSocket>(
-              Future.value(secure), () {});
-        } catch (_) {
-          // 回退也失败，抛出由上层捕获
-          rethrow;
-        }
-      };
-    }
-    return client;
-  }
-
   /// GET 请求，返回响应体字符串（UTF-8）。
   /// 瞬态失败（超时/连接重置/5xx/429）自动重试 1 次（指数退避 600ms），
   /// 解决部分源站（如 xbiquge）间歇性超时/连接被重置导致的假性失败。
   /// 4xx 与确定性失败不重试，避免拖长错误反馈。
+  /// [proxy] 为单源代理覆盖：null=走全局代理/直连；''=强制直连；其余=强制走该代理。
   static Future<String> get(String urlStr,
-      {Map<String, String>? headers, Duration? timeout}) async {
-    try {
-      return await _getOnce(urlStr, headers, timeout);
-    } catch (e) {
-      if (!_retryable(e)) rethrow;
-      await Future<void>.delayed(const Duration(milliseconds: 600));
-      return _getOnce(urlStr, headers, timeout);
+      {Map<String, String>? headers, Duration? timeout, String? proxy}) async {
+    if (proxy == null) {
+      try {
+        return await _getOnce(urlStr, headers, timeout, proxy: null);
+      } catch (e) {
+        if (!_retryable(e)) rethrow;
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+        return _getOnce(urlStr, headers, timeout, proxy: null);
+      }
     }
+    // 单源代理：先走代理，网络层失败自动回退直连（代理节点故障不拖死整源）
+    return _getWithFallback(urlStr, headers, timeout, proxy);
   }
 
   /// 判断异常是否值得重试：网络层瞬态错误或服务器端错误。
@@ -215,9 +258,9 @@ class Net {
   }
 
   static Future<String> _getOnce(String urlStr, Map<String, String>? headers,
-      Duration? timeout) async {
+      Duration? timeout, {String? proxy}) async {
     final t = timeout ?? _timeout;
-    final client = _client(Uri.parse(urlStr).host);
+    final client = _client(Uri.parse(urlStr).host, proxy: proxy);
     try {
       final req = await _request(client, 'GET', Uri.parse(urlStr), headers);
       final res = await req.close().timeout(t);
@@ -259,10 +302,12 @@ class Net {
   /// 基于 Cronet 的 GET 请求，返回原始响应字节（Android 上使用 Chromium 网络栈，
   /// 规避对 dart:io HttpClient 指纹的 Cloudflare 质询拦截）。Cronet 自动解压 gzip。
   /// 非 Android 或 Cronet 初始化失败时自动回退到 [getBytes]。
+  /// [proxy] 为单源代理覆盖：非 null（含空串强制直连）时跳过 Cronet 走 dart:io——
+  /// Cronet 默认引擎不读代理配置，走它等于绕过代理，故代理场景必须走 [getBytes]。
   static Future<List<int>> getBytesCronet(String urlStr,
-      {Map<String, String>? headers, Duration? timeout}) async {
-    if (_cronetUsable == false || _proxyEnabled) {
-      return getBytes(urlStr, headers: headers);
+      {Map<String, String>? headers, Duration? timeout, String? proxy}) async {
+    if (proxy != null || _cronetUsable == false || _proxyEnabled) {
+      return getBytes(urlStr, headers: headers, proxy: proxy);
     }
     final t = timeout ?? _timeout;
     final probe = t < const Duration(seconds: 8)
@@ -273,10 +318,10 @@ class Net {
           urlStr, headers, t, probe,
           accept: 'image/webp,image/*,*/*', asBytes: true);
       if (b is List<int>) return b;
-      return getBytes(urlStr, headers: headers);
+      return getBytes(urlStr, headers: headers, proxy: proxy);
     } catch (_) {
       _cronetUsable = false;
-      return getBytes(urlStr, headers: headers);
+      return getBytes(urlStr, headers: headers, proxy: proxy);
     }
   }
 
@@ -313,19 +358,29 @@ class Net {
   /// 智能字节请求：优先 Cronet（类浏览器 TLS/HTTP2 指纹，规避 Cloudflare 质询）；
   /// 仅对配置了优选 IP 直连的 host（如 TvTFun）保留 dart:io 的 connectionFactory 优化。
   /// 供图片缓存等通用图片加载使用。
+  /// [proxy] 为单源代理覆盖：非 null 时强制走 dart:io（Cronet 不读代理配置）。
   static Future<List<int>> getBytesAuto(String urlStr,
-      {Map<String, String>? headers, Duration? timeout}) {
+      {Map<String, String>? headers, Duration? timeout, String? proxy}) async {
     final host = Uri.parse(urlStr).host;
-    if (preferredHostIps.containsKey(host)) {
-      return getBytes(urlStr, headers: headers);
+    if (proxy != null || preferredHostIps.containsKey(host)) {
+      return getBytes(urlStr, headers: headers, proxy: proxy);
     }
-    return getBytesCronet(urlStr, headers: headers, timeout: timeout);
+    return getBytesCronet(urlStr, headers: headers, timeout: timeout, proxy: proxy);
   }
 
   /// GET 请求，返回原始响应字节。
+  /// [proxy] 为单源代理覆盖：null=走全局代理/直连；''=强制直连；其余=强制走该代理。
   static Future<List<int>> getBytes(String urlStr,
-      {Map<String, String>? headers}) async {
-    final client = _client(Uri.parse(urlStr).host);
+      {Map<String, String>? headers, String? proxy}) async {
+    if (proxy == null) {
+      return _getBytesOnce(urlStr, headers, proxy: null);
+    }
+    return _getBytesWithFallback(urlStr, headers, null, proxy);
+  }
+
+  static Future<List<int>> _getBytesOnce(String urlStr,
+      Map<String, String>? headers, {String? proxy}) async {
+    final client = _client(Uri.parse(urlStr).host, proxy: proxy);
     try {
       final req = await _request(client, 'GET', Uri.parse(urlStr), headers);
       final res = await req.close().timeout(_timeout);
@@ -356,9 +411,24 @@ class Net {
   }
 
   /// POST 请求，body 为表单/JSON 字符串，返回响应体字符串（UTF-8）。
+  /// [proxy] 为单源代理覆盖：null=走全局代理/直连；''=强制直连；其余=强制走该代理。
   static Future<String> post(String urlStr,
-      {Map<String, String>? headers, String? body}) async {
-    final client = _client(Uri.parse(urlStr).host);
+      {Map<String, String>? headers, String? body, String? proxy}) async {
+    if (proxy == null) {
+      return _postOnce(urlStr, headers, body, proxy: null);
+    }
+    try {
+      return await _postOnce(urlStr, headers, body, proxy: proxy);
+    } catch (e) {
+      // 单源代理连接失败自动回退直连；强制直连（proxy=''）无需再回退
+      if (proxy.isEmpty || !_retryable(e)) rethrow;
+      return _postOnce(urlStr, headers, body, proxy: '');
+    }
+  }
+
+  static Future<String> _postOnce(String urlStr,
+      Map<String, String>? headers, String? body, {String? proxy}) async {
+    final client = _client(Uri.parse(urlStr).host, proxy: proxy);
     try {
       final req = await _request(client, 'POST', Uri.parse(urlStr), headers);
       if (body != null) {
