@@ -41,6 +41,9 @@ function(APPLY_STANDARD_SETTINGS TARGET)
   target_compile_features(${TARGET} PUBLIC cxx_std_17)
   target_compile_options(${TARGET} PRIVATE /W4 /WX /wd"4100")
   target_compile_options(${TARGET} PRIVATE /EHsc)
+  # /utf-8：统一按 UTF-8 解析源文件（中文系统代码页 936 下，插件源码里的
+  # 非 ASCII 注释如 connectivity_plus 的 em-dash 会触发 C4819 警告并被 /WX 当错误）。
+  target_compile_options(${TARGET} PRIVATE /utf-8)
   target_compile_definitions(${TARGET} PRIVATE "_HAS_EXCEPTIONS=0")
   target_compile_definitions(${TARGET} PRIVATE "$<$<CONFIG:Debug>:_DEBUG>")
   # webview_windows 仍用 <experimental/coroutine>，新版 MSVC（VS18/STL1011）

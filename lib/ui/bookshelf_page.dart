@@ -49,6 +49,9 @@ class BookshelfPageState extends State<BookshelfPage>
   bool _editing = false;
   String? _tagFilter;
   List<String> _allTags = [];
+  // 书架分类（文件夹）：'all' = 全部视图；null = 未启用分类筛选。
+  String? _folderFilter;
+  List<Map<String, dynamic>> _folders = [];
   // 收藏 Tab 内搜索 + 筛选 + 排序。
   final _searchCtrl = TextEditingController();
   String _searchQuery = '';
@@ -105,10 +108,18 @@ class BookshelfPageState extends State<BookshelfPage>
           .where((t) => t.state == 'done')
           .toList();
       final marks = await LocalStore.bookmarks();
+      // 分类列表（含「全部」与「默认分类」）；若当前选中的分类已不存在
+      // （被删除/备份还原），回落「全部」，避免过滤后空白。
+      final folders = await BookshelfStore.folders();
       if (mounted) {
         setState(() {
           _items = list;
           _allTags = BookshelfStore.allTags();
+          _folders = folders;
+          if (_folderFilter != null && _folderFilter != BookshelfStore.allFolderId &&
+              !folders.any((f) => f['id'] == _folderFilter)) {
+            _folderFilter = null;
+          }
           _allStatuses = _collectStatuses(list);
           _recent = hist;
           _videos = videos;
@@ -146,12 +157,18 @@ class BookshelfPageState extends State<BookshelfPage>
     return seen;
   }
 
-  /// 统一过滤管线：标签 + 搜索 + 状态筛选 + 排序，结果写入 [_filtered]。
+  /// 统一过滤管线：分类 + 标签 + 搜索 + 状态筛选 + 排序，结果写入 [_filtered]。
   void _applyFilters() {
     final q = _searchQuery.trim().toLowerCase();
     var out = _items.where((d) {
+      final sid = d.sourceId ?? BookshelfStore.sourceIdOf(d.id) ?? '';
+      // 分类过滤：选中「全部」或未选时不过滤；进分类后只看该分类的书。
+      if (_folderFilter != null && _folderFilter != BookshelfStore.allFolderId) {
+        if (BookshelfStore.folderIdOf(sid, d.id) != _folderFilter) {
+          return false;
+        }
+      }
       if (_tagFilter != null) {
-        final sid = d.sourceId ?? BookshelfStore.sourceIdOf(d.id) ?? '';
         if (!BookshelfStore.tagsOf(sid, d.id).contains(_tagFilter)) {
           return false;
         }
@@ -167,12 +184,15 @@ class BookshelfPageState extends State<BookshelfPage>
       return true;
     }).toList();
 
+    // 排序：各 case 必须 break，否则 case 1/2 会贯穿执行（历史 bug）。
     switch (_sortMode) {
       case 1:
         out.sort((a, b) =>
             BookshelfStore.addedAtOf(b).compareTo(BookshelfStore.addedAtOf(a)));
+        break;
       case 2:
         out.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+        break;
       default:
         out.sort((a, b) => BookshelfStore.updateTimeOf(b, _recent)
             .compareTo(BookshelfStore.updateTimeOf(a, _recent)));
@@ -1529,6 +1549,15 @@ class BookshelfPageState extends State<BookshelfPage>
               },
             ),
             ListTile(
+              leading: const Icon(Icons.drive_file_move_outline),
+              title: const Text('移入分类'),
+              subtitle: const Text('整理书架到文件夹'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showFolderPicker(d);
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.label_outline),
               title: const Text('编辑标签'),
               subtitle: const Text('分类整理书架'),
@@ -1552,6 +1581,245 @@ class BookshelfPageState extends State<BookshelfPage>
         ),
       ),
     );
+  }
+
+  /// 「移入分类」底部弹窗：列出全部自建分类，点选即移动并刷新。
+  /// 目标分类高亮当前所属；选中「默认分类」归位。
+  Future<void> _showFolderPicker(ComicDetail d) async {
+    final sid = d.sourceId ?? BookshelfStore.sourceIdOf(d.id);
+    if (sid == null) return;
+    final folders = await BookshelfStore.userFolders();
+    if (!mounted) return; // await 后使用 context，需保证 State 仍在树上
+    final current = BookshelfStore.folderIdOf(sid, d.id);
+
+    await showResponsiveBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('移入分类',
+                    style: Theme.of(ctx).textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                ...folders.map((f) {
+                  final id = f['id'] as String;
+                  final sel = current == id;
+                  return ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      sel
+                          ? Icons.check_circle_rounded
+                          : Icons.folder_outlined,
+                      size: 20,
+                      color: sel
+                          ? Theme.of(ctx).colorScheme.primary
+                          : Theme.of(ctx).colorScheme.onSurfaceVariant,
+                    ),
+                    title: Text(f['name'] as String,
+                        style: const TextStyle(fontSize: 14)),
+                    trailing: sel
+                        ? Icon(Icons.chevron_right_rounded,
+                            size: 18,
+                            color:
+                                Theme.of(ctx).colorScheme.onSurfaceVariant)
+                        : null,
+                    onTap: () {
+                      BookshelfStore.setFolderId(sid, d.id, id);
+                      Navigator.pop(ctx);
+                      if (mounted) {
+                        setState(() {
+                          // 若当前正筛着别的分类且书被移走，刷新后自动回落
+                          _applyFilters();
+                        });
+                      }
+                    },
+                  );
+                }),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 分类管理弹窗：新增 / 重命名 / 删除分类（「默认分类」不可删，删除后
+  /// 书籍自动归入默认分类）。操作后刷新书架筛选栏与列表。
+  Future<void> _showFolderManager() async {
+    final controller = TextEditingController();
+    var folders = await BookshelfStore.userFolders();
+    if (!mounted) return; // await 后使用 context，需保证 State 仍在树上
+
+    await showResponsiveBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          // 弹窗内分类列表 + 页面筛选栏的同步刷新（增删改后两处一起更新）。
+          Future<void> refresh() async {
+            final fs = await BookshelfStore.folders();
+            folders = fs;
+            setSheetState(() {});
+            if (mounted) {
+              setState(() {
+                _folders = fs;
+                if (_folderFilter != null &&
+                    _folderFilter != BookshelfStore.allFolderId &&
+                    !fs.any((f) => f['id'] == _folderFilter)) {
+                  _folderFilter = null;
+                }
+                _applyFilters();
+              });
+            }
+          }
+
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text('管理分类',
+                          style: Theme.of(ctx).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w700)),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('完成'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                // 新增分类
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: controller,
+                        decoration: const InputDecoration(
+                          hintText: '新分类名称',
+                          isDense: true,
+                          border: OutlineInputBorder(),
+                        ),
+                        onSubmitted: (v) async {
+                          final t = v.trim();
+                          if (t.isEmpty) return;
+                          await BookshelfStore.addFolder(t);
+                          controller.clear();
+                          await refresh();
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton.tonal(
+                      onPressed: () async {
+                        final t = controller.text.trim();
+                        if (t.isEmpty) return;
+                        await BookshelfStore.addFolder(t);
+                        controller.clear();
+                        await refresh();
+                      },
+                      child: const Text('新增'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                // 分类列表（仅自建分类，可删可改）
+                ...folders.map((f) {
+                  final id = f['id'] as String;
+                  return ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.folder_outlined,
+                        size: 20, color: Colors.amber),
+                    title: Text(f['name'] as String,
+                        style: const TextStyle(fontSize: 14)),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: '重命名',
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                          onPressed: () async {
+                            final name =
+                                await _promptFolderName(ctx, f['name'] as String);
+                            if (name == null || name.trim().isEmpty) return;
+                            await BookshelfStore.renameFolder(id, name);
+                            await refresh();
+                          },
+                        ),
+                        IconButton(
+                          tooltip: '删除',
+                          icon: Icon(Icons.delete_outline,
+                              size: 18,
+                              color: Theme.of(ctx).colorScheme.error),
+                          onPressed: () async {
+                            await BookshelfStore.deleteFolder(id);
+                            await refresh();
+                          },
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+                if (folders.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Text('还没有分类，输入名称创建一个吧',
+                        style: TextStyle(
+                            fontSize: 12.5,
+                            color: Theme.of(ctx).colorScheme.onSurfaceVariant)),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+      ),
+    );
+    controller.dispose();
+  }
+
+  /// 重命名输入弹窗，返回新名称（取消返回 null）。
+  Future<String?> _promptFolderName(BuildContext ctx, String current) async {
+    final ctrl = TextEditingController(text: current);
+    final v = await showDialog<String>(
+      context: ctx,
+      builder: (dctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.sheet)),
+        title: const Text('重命名分类'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '分类名称', isDense: true),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dctx),
+              child: const Text('取消')),
+          FilledButton(
+            onPressed: () => Navigator.pop(dctx, ctrl.text),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    return v;
   }
 
   /// 标签编辑弹窗：预设标签多选 + 自定义输入，写回书架存储并刷新筛选。
@@ -1660,12 +1928,17 @@ class BookshelfPageState extends State<BookshelfPage>
     controller.dispose();
   }
 
-  /// 桌面右键菜单项：查看详情 / 编辑标签 / 移出书架（破坏性）。
+  /// 桌面右键菜单项：查看详情 / 移入分类 / 编辑标签 / 移出书架（破坏性）。
   List<CtxMenuItem> _shelfCardMenu(ComicDetail d) => [
         CtxMenuItem(
           label: '查看详情',
           icon: Icons.info_outline_rounded,
           onTap: () => _open(d),
+        ),
+        CtxMenuItem(
+          label: '移入分类',
+          icon: Icons.drive_file_move_outlined,
+          onTap: () => _showFolderPicker(d),
         ),
         CtxMenuItem(
           label: '编辑标签',
@@ -1856,8 +2129,10 @@ class BookshelfPageState extends State<BookshelfPage>
   }
 
   int _chipCount() {
-    // 排序 + 状态 + 全部 + 标签
-    return 1 + (_allStatuses.isNotEmpty ? 1 : 0) + 1 + _allTags.length;
+    // 排序 + 状态 + 分类段（含「全部」+ 自建分类 + 管理入口）+ 标签段（全部 + 标签）
+    final folderCount = _folders.length + 1; // +1 = 管理入口
+    final tagCount = _allTags.length + 1; // +1 = 标签「全部」
+    return 1 + (_allStatuses.isNotEmpty ? 1 : 0) + folderCount + tagCount;
   }
 
   Widget _filterChipAt(int i) {
@@ -1865,12 +2140,22 @@ class BookshelfPageState extends State<BookshelfPage>
     // 排序
     if (i == idx++) return _sortChip();
     // 状态
-    if (_allStatuses.isNotEmpty) {
+    if (_allStatuses.isNotEmpty && i == idx++) return _statusChip();
+    // 分类段：全部 + 自建分类 + 管理入口
+    final folderSel = _folderFilter ?? BookshelfStore.allFolderId;
+    for (final f in _folders) {
+      final id = f['id'] as String;
       if (i == idx++) {
-        return _statusChip();
+        return _chip(f['name'] as String, folderSel == id, () {
+          setState(() {
+            _folderFilter = id == BookshelfStore.allFolderId ? null : id;
+            _applyFilters();
+          });
+        });
       }
     }
-    // 全部标签
+    if (i == idx++) return _manageFolderChip();
+    // 标签段：全部标签
     if (i == idx++) {
       final sel = _tagFilter == null;
       return _chip('全部', sel, () => setState(() {
@@ -1885,6 +2170,34 @@ class BookshelfPageState extends State<BookshelfPage>
       _tagFilter = tag;
       _applyFilters();
     }));
+  }
+
+  /// 「管理分类」入口 chip：打开分类管理弹窗；正在筛选中时带个小圆点提示。
+  Widget _manageFolderChip() {
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: _showFolderManager,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+          borderRadius: BorderRadius.circular(R.pill),
+          border: Border.all(
+              color: scheme.onSurface.withValues(alpha: 0.1)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.create_new_folder_outlined,
+                size: 14, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 5),
+            Text('管理分类',
+                style: TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant)),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _chip(String label, bool sel, VoidCallback onTap) {

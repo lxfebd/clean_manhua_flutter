@@ -775,6 +775,7 @@ class LocalStore {
 
   /// 收集所有用户数据（书架/小说书架/历史/动画记录/收藏/下载清单/设置/源配置），
   /// 返回可直接 JSON 序列化的结构。下载图片文件不包含在内。
+  /// 书架分类定义随备份一起导出（bookshelf 数据里的 folderId 依赖它才能还原）。
   static Future<Map<String, dynamic>> collectBackup({
     required dynamic bookshelfData,
     required dynamic novelShelfData,
@@ -789,6 +790,7 @@ class LocalStore {
       'settings': await _read('settings'),
       'sources_config': await _read('sources_config'),
       'bookshelf': bookshelfData,
+      'shelf_folders': await _read('shelf_folders'),
       'novel_shelf': novelShelfData,
     };
   }
@@ -808,6 +810,7 @@ class LocalStore {
     await put('downloads', data['downloads']);
     await put('settings', data['settings']);
     await put('sources_config', data['sources_config']);
+    await put('shelf_folders', data['shelf_folders']);
     return count;
   }
 

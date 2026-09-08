@@ -19,10 +19,165 @@ class BookshelfStore {
   /// 连点收藏/移出时不会并发写坏文件。
   static Future<void> _writeTail = Future.value();
 
+  // ---- 书架分类（文件夹） ----
+  /// 分类存储文件名（独立于 bookshelf.json：书籍是条目级数据，
+  /// 分类是集合级定义，混在一起会让导出备份把分类定义也按条目拷一份）。
+  static const String _foldersFileName = 'shelf_folders';
+
+  /// 分类 id 保留值：代表「全部」视图（不是真实分类，UI 过滤用）。
+  static const String allFolderId = 'all';
+
+  /// 旧数据兜底分类 id：书架里没有 folderId 的书籍归入它。
+  static const String defaultFolderId = 'default';
+
+  /// 分类显示名（id → name）。
+  static Map<String, String> _folderNames = {};
+
+  /// 分类排序（id → sort）。
+  static Map<String, int> _folderSort = {};
+
+  /// 内存缓存中是否已有分类数据（避免异步读取竞态）。
+  static bool _foldersLoaded = false;
+
+  /// 分类变更版本号（书架页 reload 用，避免每次变更后手动记。
+  /// 本质是「书架数据变了」的信号，供书架页在变更后主动刷新）。
+  static final ValueNotifier<int> foldersVersion = ValueNotifier(0);
+
+  /// 读取书架分类（同步返回内存缓存；首次调用先异步装载）。
+  /// 返回结构：`[{id, name, sort}]`。列表以内存合成的「全部」视图开头
+  /// （id = [allFolderId]，不落盘），其后是「默认分类」+ 自建分类，按 sort 升序。
+  static Future<List<Map<String, dynamic>>> folders() async {
+    await _ensureFoldersLoaded();
+    final list = _folderSort.keys
+        .map((id) => {'id': id, 'name': _folderNames[id] ?? id, 'sort': _folderSort[id] ?? 0})
+        .toList()
+      ..sort((a, b) {
+        // 「默认分类」恒排真实分类最前，其余按创建顺序（sort）升序。
+        final aw = a['id'] == defaultFolderId ? 0 : (a['sort'] as int) + 1;
+        final bw = b['id'] == defaultFolderId ? 0 : (b['sort'] as int) + 1;
+        return aw.compareTo(bw);
+      });
+    return [
+      {'id': allFolderId, 'name': '全部', 'sort': -1},
+      ...list,
+    ];
+  }
+
+  /// 读取全部用户自建分类（不含「全部」视图与「默认分类」——两者内置不可删）。
+  static Future<List<Map<String, dynamic>>> userFolders() async {
+    final all = await folders();
+    return all
+        .where((f) =>
+            f['id'] != allFolderId && f['id'] != defaultFolderId)
+        .toList();
+  }
+
+  static Future<void> _ensureFoldersLoaded() async {
+    if (_foldersLoaded) return;
+    _foldersLoaded = true;
+    try {
+      final raw = await LocalStore.readJson(_foldersFileName);
+      final list = (raw is List) ? raw.whereType<Map>().toList() : <Map>[];
+      final names = <String, String>{};
+      final sort = <String, int>{};
+      for (final m in list) {
+        final id = m['id'];
+        if (id is! String || id.isEmpty || id == allFolderId) continue;
+        names[id] = (m['name'] as String?)?.trim() ?? id;
+        sort[id] = (m['sort'] as int?) ?? 0;
+      }
+      _folderNames = names;
+      _folderSort = sort;
+    } catch (e) {
+      debugPrint('shelf_folders 解析失败（数据可能已损坏）: $e');
+      _folderNames = {};
+      _folderSort = {};
+    }
+    _ensureDefaultFolder();
+  }
+
+  /// 确保「默认分类」存在（幂等；仅在内存合成，「默认分类」不落盘——
+  /// 它是旧数据无 folderId 时的兜底概念，[folders] 每次读取时自动补上）。
+  static void _ensureDefaultFolder() {
+    if (!_folderSort.containsKey(defaultFolderId)) {
+      _folderNames[defaultFolderId] = '默认分类';
+      _folderSort[defaultFolderId] = 0;
+    }
+  }
+
+  /// 持久化分类定义：只写用户自建分类（「默认分类」由 [folders] 内存合成）。
+  static Future<void> _persistFolders() async {
+    final list = _folderSort.keys
+        .where((id) => id != defaultFolderId)
+        .map((id) =>
+            {'id': id, 'name': _folderNames[id] ?? id, 'sort': _folderSort[id] ?? 0})
+        .toList();
+    await LocalStore.writeJson(_foldersFileName, list);
+  }
+
+  /// 创建分类；重名时在名字后加序号避免歧义（用户可见，不静默去重）。
+  static Future<void> addFolder(String name) async {
+    await _ensureFoldersLoaded();
+    final t = name.trim();
+    if (t.isEmpty || t == allFolderId) return;
+    _ensureDefaultFolder();
+    final exists = _folderNames.values.any((n) => n == t);
+    final finalName = exists ? '$t ${_folderSort.length}' : t;
+    final id = 'f${DateTime.now().millisecondsSinceEpoch}';
+    _folderNames[id] = finalName;
+    _folderSort[id] = _folderSort.length;
+    await _persistFolders();
+    foldersVersion.value++;
+  }
+
+  /// 重命名分类（「默认分类」/「全部」不允许重命名）。
+  static Future<void> renameFolder(String id, String name) async {
+    await _ensureFoldersLoaded();
+    final t = name.trim();
+    if (t.isEmpty || id == allFolderId || id == defaultFolderId) return;
+    if (!_folderSort.containsKey(id)) return;
+    _folderNames[id] = t;
+    await _persistFolders();
+    foldersVersion.value++;
+  }
+
+  /// 删除分类：所属书籍回落到「默认分类」（不删书）。
+  static Future<void> deleteFolder(String id) async {
+    await _ensureFoldersLoaded();
+    if (id == allFolderId || id == defaultFolderId) return;
+    if (!_folderSort.containsKey(id)) return;
+    _folderSort.remove(id);
+    _folderNames.remove(id);
+    for (final m in _all()) {
+      if (m['folderId'] == id) m['folderId'] = defaultFolderId;
+    }
+    _save();
+    await _persistFolders();
+    foldersVersion.value++;
+  }
+
+  /// 读取某本书所属分类（id）。旧数据/未设置返回 [defaultFolderId]。
+  static String folderIdOf(String sourceId, String comicId) {
+    final v = _cache[_key(sourceId, comicId)]?['folderId'];
+    return (v is String && v.isNotEmpty) ? v : defaultFolderId;
+  }
+
+  /// 写入某本书所属分类（传 [defaultFolderId] 归入默认分类）。
+  static void setFolderId(String sourceId, String comicId, String folderId) {
+    final m = _cache[_key(sourceId, comicId)];
+    if (m == null) return;
+    m['folderId'] = folderId;
+    _save();
+  }
+
   static void bindFile(File file) {
     _file = file;
     _load();
     _rebuildIndex();
+    // 新文件范围：分类内存态作废，下次访问从该文件对应目录重读。
+    _foldersLoaded = false;
+    _folderNames = {};
+    _folderSort = {};
   }
 
   static void _load() {
@@ -100,6 +255,8 @@ class BookshelfStore {
           .map((c) => {'id': c.id, 'title': c.title})
           .toList(),
       'addedAt': DateTime.now().millisecondsSinceEpoch,
+      // 新收藏书籍默认归入「默认分类」（后续可在移入分类菜单调整）。
+      'folderId': defaultFolderId,
     };
     _idIndex[d.id] = sourceId;
     _save();
@@ -154,10 +311,15 @@ class BookshelfStore {
   /// 导出原始数据（用于备份）。
   static Map<String, dynamic> exportData() => Map.from(_cache);
 
-  /// 覆盖导入（用于恢复备份）。
+  /// 覆盖导入（用于恢复备份）。恢复后分类定义可能一并变化，
+  /// 清掉内存缓存标记，下次 [folders] 从磁盘重新读取。
   static void importData(Map<String, dynamic> data) {
     _cache = Map.from(data);
     _save();
+    _foldersLoaded = false;
+    _folderNames = {};
+    _folderSort = {};
+    foldersVersion.value++;
   }
 
   /// 预设标签。
