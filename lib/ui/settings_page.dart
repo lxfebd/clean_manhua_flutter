@@ -6,6 +6,7 @@ import 'dart:io';
 
 import '../main.dart';
 import '../net/bookshelf_store.dart';
+import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import '../net/novel_shelf_store.dart';
 import '../net/shelf_updater.dart';
@@ -474,6 +475,16 @@ class _SettingsPageState extends State<SettingsPage> {
                     subtitle: '本地存储与网络请求',
                     onTap: _showPrivacy,
                   ),
+                  Container(
+                    height: 0.5,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  ),
+                  _SettingTile(
+                    icon: Icons.bug_report_outlined,
+                    title: '导出错误日志',
+                    subtitle: '崩溃 / 网络 / 解析错误的本地记录',
+                    onTap: _exportLogs,
+                  ),
                 ],
               ),
             ),
@@ -552,6 +563,41 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
       ),
     );
+  }
+
+  /// 导出错误日志：合并本地日志为文本文件，供用户反馈问题时发送。
+  /// 日志仅含崩溃/网络/解析错误与设备信息，不含书架/历史等用户数据。
+  Future<void> _exportLogs() async {
+    try {
+      final path = await ErrorLogger.instance.exportLogs();
+      if (path == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('暂无日志可导出')),
+          );
+        }
+        return;
+      }
+      final result = await FilePicker.saveFile(
+        dialogTitle: '导出错误日志',
+        fileName: '星漫匣_日志_${DateTime.now().millisecondsSinceEpoch}.txt',
+        type: FileType.custom,
+        allowedExtensions: ['txt'],
+      );
+      if (result == null) return;
+      File(result).writeAsBytesSync(File(path).readAsBytesSync());
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已导出到 ${result.split('\\').last.split('/').last}')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('导出失败：$e')),
+        );
+      }
+    }
   }
 
   /// 导出备份：收集所有数据并保存为 JSON 文件。

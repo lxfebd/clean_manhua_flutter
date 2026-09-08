@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -8,6 +9,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:window_manager/window_manager.dart';
 import 'net/bookshelf_store.dart';
+import 'net/error_logger.dart';
 import 'net/http_client.dart';
 import 'net/image_cache.dart';
 import 'net/local_store.dart';
@@ -87,13 +89,27 @@ void main() async {
   } catch (e) {
     debugPrint('MediaKit init failed: $e');
   }
-  // 立即渲染首帧，避免用户看到灰色空窗
-  runApp(const YingManHeApp());
+  // 立即渲染首帧，避免用户看到灰色空窗；外层 Zone 捕获未处理的异步异常
+  // 写入本地日志（不改变既有行为，仅记录）。
+  runZonedGuarded(() {
+    runApp(const YingManHeApp());
+  }, (error, stack) {
+    try {
+      ErrorLogger.instance.logError('Uncaught: $error', stack: stack.toString());
+    } catch (_) {}
+  });
   _postFirstFrameInit();
 }
 
 Future<void> _postFirstFrameInit() async {
   await Future<void>.delayed(const Duration(milliseconds: 100));
+  try {
+    // 本地错误日志：尽早初始化，让后面的启动步骤与全局异常都能被记录。
+    // 内部自带 try/catch，失败不影响启动。
+    await ErrorLogger.instance.init();
+  } catch (e) {
+    debugPrint('ErrorLogger init failed: $e');
+  }
   try {
     // 设备内存分档提到启动链第一步：首帧后立刻探测，让首页/书架/阅读的首屏图片
     // 第一时间拿到正确的缓存预算（低端机收紧防 OOM，高端机放开提升连读流畅度）。
@@ -120,6 +136,8 @@ Future<void> _postFirstFrameInit() async {
   await Future.wait([
     _safeInit('SourceHealthMonitor', () => SourceHealthMonitor.instance.start()),
     _safeInit('UpdateChecker', UpdateChecker.init),
+    _safeInit('ErrorLogger.setAppVersion',
+        () async => ErrorLogger.instance.setAppVersion(UpdateChecker.currentVersion())),
     _safeInit('VideoDownloadManager', () => VideoDownloadManager.instance.init()),
     _safeInit('Net.restorePreferredHostIps', Net.restorePreferredHostIps),
     _safeInit('Net.restoreProxy', Net.restoreProxy),
