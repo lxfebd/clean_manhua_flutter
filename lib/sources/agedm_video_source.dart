@@ -154,31 +154,30 @@ class AgedMVideoSource implements VideoSource {
     // 带同源 Referer 降低反爬触发；若站点仍下发 CF 人机校验落地页，
     // 由播放页内嵌 WebView 执行 JS 质询，不走这里提取直链。
     const headers = {'Cookie': 'adult=1', 'Referer': '$_base/'};
-    String html;
+    final pageUrl = '$_base/play/$videoId/$season/$episode';
+    String? html;
     try {
       html = await Net.get(
-        '$_base/play/$videoId/$season/$episode',
+        pageUrl,
         headers: headers,
         timeout: const Duration(seconds: 20),
       );
     } catch (_) {
-      html = await Net.get(
-        '$_base/play/$videoId/$season/$episode',
-        headers: headers,
-        timeout: const Duration(seconds: 25),
-      );
+      try {
+        html = await Net.get(
+          pageUrl,
+          headers: headers,
+          timeout: const Duration(seconds: 25),
+        );
+      } catch (_) {}
     }
-    final m = _iframeRe.firstMatch(html);
-    if (m == null) {
-      // 检测反爬/人机校验，给出可操作提示而非笼统报错
-      if (html.contains('captcha') ||
-          html.contains('verify') ||
-          html.contains('cf-challenge')) {
-        throw Exception('AGE：该线路触发人机校验，请稍后重试或换线路');
-      }
-      throw Exception('未找到播放入口 iframe');
-    }
-    return m.group(1)!;
+    final m = html == null ? null : _iframeRe.firstMatch(html);
+    if (m != null) return m.group(1)!;
+    // 解析不出 iframe（CF 人机校验落地页 / 网络抖动 / 站点页面结构变化）：
+    // 不再抛异常打断流程，而是把播放页 URL 原样返回交由内嵌 WebView 通道
+    // 加载——WebView 具备完整浏览器指纹，可执行 JS 质询并通过后由站点播放器
+    // 自行渲染 iframe/video；若页面正常则直接捕获直链切回 mpv。
+    return pageUrl;
   }
 
   List<ComicItem> _parseCards(String html) {
