@@ -65,10 +65,9 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
     setState(() => _loading = true);
     try {
       final enabled = await SourceManager.enabledSources();
-      final futures = <Future<List<ComicItem>>>[];
-      for (final s in enabled) {
-        futures.add(s.search(kw, 1).timeout(const Duration(seconds: 15)));
-      }
+      final futures = <Future<List<ComicItem>>>[
+        for (final s in enabled) _safeSearch(s, kw, 1),
+      ];
       final all = await Future.wait(futures, eagerError: false);
       if (!mounted) return;
       final list = <_SourceResult>[];
@@ -109,12 +108,9 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
     if (kw.isEmpty || _results.isEmpty) return;
     setState(() => _loadingMore = true);
     try {
-      final futures = <Future<List<ComicItem>>>[];
-      for (final r in _results) {
-        futures.add(r.source
-            .search(kw, r.page + 1)
-            .timeout(const Duration(seconds: 15)));
-      }
+      final futures = <Future<List<ComicItem>>>[
+        for (final r in _results) _safeSearch(r.source, kw, r.page + 1),
+      ];
       final all = await Future.wait(futures, eagerError: false);
       if (!mounted) return;
       var anyMore = false;
@@ -143,6 +139,18 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
       });
     } catch (_) {
       if (mounted) setState(() => _loadingMore = false);
+    }
+  }
+
+  /// 单源搜索的容错包装：失败/超时返回空列表，绝不让一个源的异常
+  /// 拖垮 `Future.wait` 里的其他源结果（被墙/验证码/反爬都只是该源无结果）。
+  Future<List<ComicItem>> _safeSearch(
+      ComicSource src, String keyword, int page) async {
+    try {
+      return await src.search(keyword, page)
+          .timeout(const Duration(seconds: 15));
+    } catch (_) {
+      return const [];
     }
   }
 

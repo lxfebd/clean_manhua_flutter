@@ -368,7 +368,7 @@ String _extract(HtmlNode e, String field) {
         groups.add(g);
       }
       els = groups.map((g) {
-        final n = HtmlNode('', const {}, text: g.join('|'));
+        final n = HtmlNode('', {}, text: g.join('|'));
         for (var i = 0; i < g.length; i++) {
           n.attrs['r${i + 1}'] = g[i];
         }
