@@ -99,13 +99,17 @@ int viewOfPage(int page, ReaderMode mode) {
   return page ~/ 2;
 }
 
-class _ReaderPageState extends State<ReaderPage> {
+class _ReaderPageState extends State<ReaderPage>
+    with WidgetsBindingObserver {
   List<String> _urls = [];
   bool _loading = true;
   ReaderMode _readerMode = ReaderMode.single;
   bool get _horizontal =>
       _readerMode != ReaderMode.vertical; // 单页/双页共用横向 PageView 基础设施
   bool _doublePage = false; // 双页并排模式（平板横屏推荐）
+  // 自适应双页：宽屏（≥600dp）自动切双页，用户手动切过模式后不再自动干涉。
+  bool _autoDouble = false; // 当前是否处于自适应双页（未被用户手动覆盖）
+  bool _userModeLocked = false; // 用户手动切过模式（不再自动切换）
   bool _rtl = false; // 日漫 RTL 反向翻页（手势左右交换）
   bool _downloaded = false;
   bool _downloading = false;
@@ -214,6 +218,7 @@ class _ReaderPageState extends State<ReaderPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this); // 监听屏幕尺寸变化（旋转自适应双页）
     WakelockPlus.enable(); // 阅读时保持屏幕常亮
     _initBrightness(); // 接管系统亮度
     // 预热网络类型探测：让后续翻页的智能预取深度能同步读取快照
@@ -353,9 +358,8 @@ class _ReaderPageState extends State<ReaderPage> {
     }
   }
 
-  /// 键盘 L：纵向模式开启/关闭放大镜；横向无放大镜概念，忽略。
+  /// 键盘 L：开启/关闭放大镜（横向/纵向均支持；横向触发时以当前页中心为焦点）。
   void _toggleLoupe() {
-    if (_horizontal) return;
     if (_loupeVisible) {
       _cancelLoupe();
     } else {
@@ -365,8 +369,44 @@ class _ReaderPageState extends State<ReaderPage> {
       setState(() {
         _loupePos = center;
         _loupeAnchorPos = center;
-        _loupeUrl = _urls.isNotEmpty ? _urls[_curPage] : '';
+        _loupeUrl = _visibleImageUrl();
         _loupeVisible = _loupeUrl.isNotEmpty;
+      });
+    }
+  }
+
+  /// 屏幕尺寸变化（旋转/窗口缩放）：跨 600dp 断点时自动切双页/单页。
+  /// 仅在用户未手动覆盖模式时生效（_userModeLocked）；切换保留当前阅读位置。
+  @override
+  void didChangeMetrics() {
+    if (_userModeLocked) return;
+    if (_loading || _urls.isEmpty) return;
+    final wide = Responsive.widthOf(context) >= Responsive.compactBreakpoint;
+    final shouldDouble = wide && _autoDouble;
+    if (shouldDouble != _doublePage) {
+      _switchReaderMode(shouldDouble ? ReaderMode.double : ReaderMode.single);
+    }
+  }
+
+  /// 切换阅读模式并保留当前页位置（页→视图换算，旋转不丢进度）。
+  void _switchReaderMode(ReaderMode next) {
+    if (next == _readerMode) return;
+    final anchorPage = _curPage.clamp(0, _urls.length - 1);
+    _pageCtrl?.dispose();
+    _pageCtrl = null;
+    setState(() {
+      _readerMode = next;
+      _doublePage = next == ReaderMode.double;
+    });
+    if (next != ReaderMode.vertical) {
+      final v = viewOfPage(anchorPage, next);
+      _pageCtrl = PageController(initialPage: v);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _pageCtrl?.jumpToPage(v);
+      });
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToIndex(anchorPage);
       });
     }
   }
@@ -374,6 +414,16 @@ class _ReaderPageState extends State<ReaderPage> {
   Future<void> _init() async {
     _readerMode = ReaderMode.fromValue(await LocalStore.readerMode());
     _doublePage = _readerMode == ReaderMode.double;
+    if (!mounted) return;
+    // 自适应双页：宽屏（平板横屏/桌面宽窗 ≥600dp）且持久化模式为单页时，
+    // 初始自动切双页（用户手动切过模式后 _userModeLocked 置位，不再自动干涉）。
+    if (_doublePage) {
+      _autoDouble = true;
+    } else if (Responsive.widthOf(context) >= Responsive.compactBreakpoint) {
+      _autoDouble = true;
+      _readerMode = ReaderMode.double;
+      _doublePage = true;
+    }
     _rtl = await LocalStore.rtlReader();
     _resLevel = await LocalStore.resLevel();
     _autoPage = await LocalStore.autoPageTurn();
@@ -735,8 +785,8 @@ class _ReaderPageState extends State<ReaderPage> {
         // 纵向模式双指缩放遮罩（放大当前页，覆盖在正文上方）
         if (!_horizontal)
           _buildVerticalZoomOverlay(Theme.of(context).colorScheme),
-        // 放大镜（长按激活，2.2x 放大触点区域）
-        if (!_horizontal) _buildLoupe(),
+        // 放大镜（长按激活，2.2x 放大触点区域；横向/纵向均支持）
+        if (_loupeVisible) _buildLoupe(),
         // 亮度遮罩层（仅降级模式：桌面端/无权限时，用黑纱模拟亮度）
         if (!_brightnessNative)
           AnimatedOpacity(
@@ -797,8 +847,18 @@ class _ReaderPageState extends State<ReaderPage> {
   // ─── 纵向模式双指缩放（raw pointer，不走手势竞技场）──────────────────────
 
   /// 当前视口内正在展示的图片 url（纵向模式缩放对象）。
-  String _visibleImageUrl() {
+  /// 单页/纵向：当前阅读页；双页：触点所在半屏对应的页（左半→左页，右半→右页，
+  /// RTL 页序对调后仍按“左半屏=左页、右半屏=右页”取对应索引）。
+  String _visibleImageUrl([Offset? at]) {
     if (_urls.isEmpty) return '';
+    if (_doublePage) {
+      final vw = MediaQuery.sizeOf(context).width;
+      final onRight = at != null && at.dx >= vw / 2;
+      final lead = _curPage.clamp(0, _urls.length - 1);
+      // 与双页渲染一致：RTL 右屏=lead(奇数页)、左屏=lead+1；非 RTL 相反。
+      final idx = onRight ? (_rtl ? lead : lead + 1) : (_rtl ? lead + 1 : lead);
+      return _urls[idx.clamp(0, _urls.length - 1)];
+    }
     final idx = _curPage.clamp(0, _urls.length - 1);
     return _urls[idx];
   }
@@ -991,6 +1051,7 @@ class _ReaderPageState extends State<ReaderPage> {
     if (_loading || _pageAnimating || _touchLocked || _overlay) return;
     // 触点位置优先用按下时顶层 Listener 采集的栈坐标（与浮层 Positioned 对齐）。
     // 兜底：把全局坐标换算到当前 State 的 RenderBox（Stack 坐标系）。
+    // （横向模式无 raw Listener 采集 anchor，走此兜底，坐标即 Stack 坐标。）
     final anchor = _loupeAnchorPos;
     final box = context.findRenderObject() as RenderBox?;
     final Offset pos;
@@ -1001,7 +1062,8 @@ class _ReaderPageState extends State<ReaderPage> {
     } else {
       return;
     }
-    final url = _visibleImageUrl();
+    // 双页模式按触点落在左/右半屏选择对应的页（末视图右页越界则取左页）。
+    final url = _visibleImageUrl(pos);
     if (url.isEmpty) return;
     setState(() {
       _loupePos = pos;
@@ -1070,14 +1132,15 @@ class _ReaderPageState extends State<ReaderPage> {
                 height: vh,
                 child: ColoredBox(
                   color: Colors.black,
-                  child: _ImageView(
-                    _loupeUrl,
-                    pageIndex: 0,
-                    totalPages: 1,
-                    resLevel: _resLevel,
-                    sourceId: widget.sourceId,
-                    trimBorder: _trimBorder,
-                  ),
+                child: _ImageView(
+                  _loupeUrl,
+                  pageIndex: 0,
+                  totalPages: 1,
+                  resLevel: _resLevel,
+                  horizontal: _horizontal,
+                  sourceId: widget.sourceId,
+                  trimBorder: _trimBorder,
+                ),
                 ),
               ),
             ),
@@ -1255,27 +1318,8 @@ class _ReaderPageState extends State<ReaderPage> {
       ReaderMode.single => ReaderMode.double,
       ReaderMode.double => ReaderMode.vertical,
     };
-    // 以当前页为锚点换算新模式的初始视图，避免切换后跳回第 0 页。
-    final anchorPage = _curPage.clamp(0, _urls.length - 1);
-    final nextView = viewOfPage(anchorPage, next);
-    _pageCtrl?.dispose();
-    _pageCtrl = null;
-    setState(() {
-      _readerMode = next;
-      _doublePage = next == ReaderMode.double;
-    });
-    if (next != ReaderMode.vertical) {
-      // 横向：切模式后重建 controller，帧回调跳转到对应视图。
-      _pageCtrl = PageController(initialPage: nextView);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _pageCtrl?.jumpToPage(nextView);
-      });
-    } else {
-      // 纵向：滚动到该页对应偏移。
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToIndex(anchorPage);
-      });
-    }
+    _userModeLocked = true; // 用户手动切过模式，不再自动干涉
+    _switchReaderMode(next);
     LocalStore.setReaderMode(next.value);
   }
 
@@ -1298,25 +1342,9 @@ class _ReaderPageState extends State<ReaderPage> {
           _setBrightness(v);
         },
         onModeChanged: (m) {
-          // 保持当前阅读页不跳变
-          final anchorPage = _curPage.clamp(0, _urls.length - 1);
-          _pageCtrl?.dispose();
-          _pageCtrl = null;
-          setState(() {
-            _readerMode = m;
-            _doublePage = m == ReaderMode.double;
-          });
-          if (m != ReaderMode.vertical) {
-            final v = viewOfPage(anchorPage, m);
-            _pageCtrl = PageController(initialPage: v);
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              _pageCtrl?.jumpToPage(v);
-            });
-          } else {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              _scrollToIndex(anchorPage);
-            });
-          }
+          _userModeLocked = true; // 设置里手动选模式，不再自动干涉
+          // _switchReaderMode 内部按当前页锚点换算视图，保持阅读位置不跳变
+          _switchReaderMode(m);
           LocalStore.setReaderMode(m.value);
         },
         onResLevelChanged: (v) {
@@ -1696,6 +1724,7 @@ class _ReaderPageState extends State<ReaderPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (DesktopUi.isDesktopPlatform) {
       HardwareKeyboard.instance.removeHandler(_keyHandler);
     }
@@ -1764,6 +1793,9 @@ class _ReaderPageState extends State<ReaderPage> {
             behavior: HitTestBehavior.translucent,
             onTapDown: (d) => _onReaderTap(d.localPosition),
             onSecondaryTapDown: (d) => _showReaderMenu(d.globalPosition),
+            // 横向也支持长按放大镜（复用 _onLongPressStart：长按在竞技场
+            // 胜出会取消 tap，不误翻页；anchor 走 globalToLocal 兜底）。
+            onLongPressStart: _onLongPressStart,
             child: PageView.builder(
               controller: _pageCtrl,
               itemCount: views + (_canContinue ? 1 : 0),
@@ -1797,21 +1829,25 @@ class _ReaderPageState extends State<ReaderPage> {
             }
             if (_doublePage) {
               // 双页视图：左右两页并排，共用视口高度（各占一半宽）。
-              final left = view * 2;
-              final right = left + 1;
+              // RTL（日漫从右到左）：右页为奇数页（lead），左页为偶数页（lead+1）。
+              final lead = view * 2;
+              final lIdx = _rtl ? lead + 1 : lead;
+              final rIdx = _rtl ? lead : lead + 1;
               return Row(
                 children: [
                   Expanded(
-                    child: _ImageView(_urls[left],
-                        pageIndex: left, totalPages: _urls.length,
-                        resLevel: _resLevel, horizontal: true,
-                        sourceId: widget.sourceId, trimBorder: _trimBorder),
+                    child: lIdx < _urls.length
+                        ? _ImageView(_urls[lIdx],
+                            pageIndex: lIdx, totalPages: _urls.length,
+                            resLevel: _resLevel, horizontal: true,
+                            sourceId: widget.sourceId, trimBorder: _trimBorder)
+                        : const ColoredBox(color: Colors.black),
                   ),
                   const SizedBox(width: 2),
                   Expanded(
-                    child: right < _urls.length
-                        ? _ImageView(_urls[right],
-                            pageIndex: right, totalPages: _urls.length,
+                    child: rIdx < _urls.length
+                        ? _ImageView(_urls[rIdx],
+                            pageIndex: rIdx, totalPages: _urls.length,
                             resLevel: _resLevel, horizontal: true,
                             sourceId: widget.sourceId, trimBorder: _trimBorder)
                         : const ColoredBox(color: Colors.black),
@@ -1880,8 +1916,9 @@ class _ReaderPageState extends State<ReaderPage> {
               child: ListView.builder(
                 controller: _scrollCtrl,
                 padding: EdgeInsets.zero,
-                // 缓存前后各 900 逻辑像素高度的页面，保证快速回翻不重建。
-                scrollCacheExtent: const ScrollCacheExtent.pixels(900),
+                // 缓存前后页的高度按设备内存分级（低端机少缓存防 OOM，
+                // 高端机多缓存保证快速回翻不重建）。
+                scrollCacheExtent: ScrollCacheExtent.pixels(_verticalCacheExtent()),
                 itemCount: _urls.length + (_canContinue ? 1 : 0),
                 itemBuilder: (c, i) {
                   if (i >= _urls.length && _canContinue) {
@@ -1901,6 +1938,17 @@ class _ReaderPageState extends State<ReaderPage> {
         ),
       );
     }
+
+  /// 纵向连读缓存分级：按设备内存档位调整 ListView 缓存高度。
+  /// 条漫单张解码后可达数十 MB，低端机保留过多页会 OOM；高端机放宽
+  /// 缓存让快速回翻不重建。档位与 ImageCacheManager 的 RAM 分档对齐：
+  /// ≤24MB=低端(<3GB) → 300px；≤40MB=中端(3-6GB) → 600px；>40MB → 900px。
+  double _verticalCacheExtent() {
+    final budget = ImageCacheManager.memoryBudgetBytes;
+    if (budget <= 24 * 1024 * 1024) return 300;
+    if (budget <= 40 * 1024 * 1024) return 600;
+    return 900;
+  }
 
   /// 是否可连读：当前章节在章节列表中且不是最后一话。
   bool get _canContinue => _chapterIndex >= 0 && _chapterIndex < widget.chapters.length - 1;

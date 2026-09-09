@@ -71,9 +71,13 @@ class ImageCacheManager {
         _ => 64 * 1024 * 1024, // 高端 >6GB
       };
 
+  /// 当前生效的内存缓存预算（字节）。生产代码（阅读器连读缓存分级等）
+  /// 应使用本公开 getter；单元测试仍可用 [debugMemBudget] 兼容别名。
+  static int get memoryBudgetBytes => _maxMemBytes;
+
   /// 当前生效的内存缓存预算（字节），供测试/诊断读取。
   @visibleForTesting
-  static int debugMemBudget() => _maxMemBytes;
+  static int debugMemBudget() => memoryBudgetBytes;
 
   /// 当前生效的磁盘缓存预算（字节），供测试/诊断读取。
   @visibleForTesting
@@ -200,6 +204,9 @@ class ImageCacheManager {
     return future;
   }
 
+  /// 内存/磁盘缓存使用统一的归一化 key：调用方 [load] 已先过 [primaryUrl]，
+  /// 这里传入的 [url] 必为 norm（含 @jm: 等标记已被剥离），_putMem/_key 与
+  /// [_loadDegraded] 保持同一 key 空间，避免带标记 URL 写入后查不到。
   static Future<Uint8List> _load(
     String url, {
     Map<String, String>? headers,

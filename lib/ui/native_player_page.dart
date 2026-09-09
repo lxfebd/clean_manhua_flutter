@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
@@ -7,7 +9,9 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:volume_controller/volume_controller.dart';
 
+import '../net/error_logger.dart';
 import '../net/local_store.dart';
+import '../net/subtitle_srt.dart';
 import '../net/video_download_manager.dart';
 import '../services/player_registry.dart';
 import '../sources/video_source.dart';
@@ -17,6 +21,7 @@ import 'anime_player_page.dart';
 import 'responsive.dart';
 import 'widgets/danmaku_overlay.dart';
 import 'widgets/player_widgets.dart';
+import 'widgets/subtitle_overlay.dart';
 
 /// 手势类型。
 enum _Gesture { none, brightness, volume, seek }
@@ -116,6 +121,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   int _fitIndex = 0;
   static const _fits = [BoxFit.contain, BoxFit.cover, BoxFit.fill];
   static const _fitNames = ['适应屏幕', '裁剪填充', '拉伸铺满'];
+
+  // ── 本地字幕（SRT）───────────────────────────
+  SubtitleIndex? _subtitles; // null = 未加载字幕（层不渲染）
+  String _subtitleName = ''; // 已加载字幕的文件名（UI 展示）
 
   /// 当前可用的音轨列表（>2 条即多音轨，含 auto/no 保底两项）。
   List<AudioTrack> _audioTracks = [];
@@ -225,6 +234,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     _initSystemLevels();
     _boot();
     _loadDanmaku();
+    _autoMatchSubtitle(); // 本地播放自动匹配同目录同名 SRT
     // 桌面端播放快捷键：空格 播放/暂停、←/→ 快退/快进、↑/↓ 音量、
     // M 静音、F 全屏、Esc 隐藏控制层。仅桌面注册，避免蓝牙键盘误触。
     if (DesktopUi.isDesktopPlatform) {
@@ -607,19 +617,16 @@ class _NativePlayerPageState extends State<NativePlayerPage>
 
   Future<void> _prepareResume() async {
     try {
-      final raw = await LocalStore.readJson('video_progress');
-      if (raw is Map) {
-        final sec = (raw[_histKey] as num?)?.toInt() ?? 0;
-        if (sec > 20 && mounted) {
-          setState(() {
-            _resumeAt = Duration(seconds: sec);
-            _resumeTipVisible = true;
-          });
-          _resumeTipTimer?.cancel();
-          _resumeTipTimer = Timer(const Duration(seconds: 8), () {
-            if (mounted) setState(() => _resumeTipVisible = false);
-          });
-        }
+      final sec = await LocalStore.videoProgressOf(_histKey);
+      if (sec > 20 && mounted) {
+        setState(() {
+          _resumeAt = Duration(seconds: sec);
+          _resumeTipVisible = true;
+        });
+        _resumeTipTimer?.cancel();
+        _resumeTipTimer = Timer(const Duration(seconds: 8), () {
+          if (mounted) setState(() => _resumeTipVisible = false);
+        });
       }
     } catch (_) {}
   }
@@ -649,20 +656,11 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     }
     () async {
       try {
-        final raw = await LocalStore.readJson('video_progress');
-        final map = <String, dynamic>{};
-        if (raw is Map) {
-          raw.forEach((k, val) => map['$k'] = val);
-        }
-        if (done) {
-          map.remove(_histKey);
-        } else {
-          map[_histKey] = sec;
-        }
-        await LocalStore.writeJson('video_progress', map);
+        // 统一收口到 LocalStore：整体排队写 + 上限裁剪，与小窗并发不互踩。
+        await LocalStore.setVideoProgress(_histKey, done ? null : sec);
       } catch (e) {
         // 续播进度持久化失败需可观测，否则用户以为已保存实则丢失
-        debugPrint('save video progress failed: $e');
+        ErrorLogger.instance.warn('save video progress failed: $e');
       }
     }();
   }
@@ -1352,6 +1350,16 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                 settings: _danmakuSet,
               ),
             ),
+          // 本地字幕层（SRT）：随播放进度显示当前命中字幕
+          Positioned.fill(
+            child: IgnorePointer(
+              child: SubtitleOverlay(
+                index: _subtitles,
+                positionMs: _pos.inMilliseconds,
+                fontSize: _fullscreen ? 24 : 18,
+              ),
+            ),
+          ),
           // 亮度遮罩：只在拿不到系统亮度控制权时兜底
           if (!_brightnessNative && _brightness < 1.0)
             IgnorePointer(
@@ -1927,6 +1935,17 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                     () => _setEnhance(!_enhance),
                     active: _enhance)),
           ]),
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(
+                child: _miniCard(
+                    scheme,
+                    Icons.subtitles_rounded,
+                    '字幕',
+                    _subtitleName.isEmpty ? '未加载' : _subtitleName,
+                    _showSubtitlePanel,
+                    active: _subtitles != null)),
+          ]),
           if (widget.episodes.isNotEmpty) ...[
             const SizedBox(height: 18),
             Row(children: [
@@ -2287,6 +2306,134 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                 ),
               ),
             ]),
+          ]),
+        );
+      }),
+    ).then((_) => _scheduleHide());
+  }
+
+  /// 本地视频自动匹配同目录同名 SRT（如 a.mp4 → a.srt / a.zh.srt / a.zh-CN.srt）。
+  /// 仅本地 `file://` 播放生效，网络直链跳过。
+  Future<void> _autoMatchSubtitle() async {
+    final url = widget.url;
+    if (!url.startsWith('file://')) return;
+    final videoPath = url.replaceFirst('file://', '');
+    final dir = File(videoPath).parent;
+    if (!dir.existsSync()) return;
+    final base = File(videoPath).uri.pathSegments.last;
+    final stem = base.contains('.') ? base.substring(0, base.lastIndexOf('.')) : base;
+    final candidates = <String>[
+      '$stem.srt',
+      '$stem.zh.srt',
+      '$stem.zh-CN.srt',
+      '$stem.chs.srt',
+      '$stem.zh-Hans.srt',
+    ];
+    File? match;
+    for (final c in candidates) {
+      final f = File('${dir.path}${Platform.pathSeparator}$c');
+      if (f.existsSync()) {
+        match = f;
+        break;
+      }
+    }
+    if (match == null) return;
+    try {
+      final cues = SubtitleSrt.parseBytes(await match.readAsBytes());
+      if (cues == null || cues.isEmpty || !mounted) return;
+      setState(() {
+        _subtitles = SubtitleIndex(cues);
+        _subtitleName = match!.uri.pathSegments.last;
+      });
+    } catch (e) {
+      ErrorLogger.instance.warn('[subtitle] 自动匹配字幕解析失败: $e');
+    }
+  }
+
+  /// 选择/加载本地 SRT 字幕文件。
+  Future<void> _pickSubtitle() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        dialogTitle: '选择字幕文件（SRT）',
+        type: FileType.custom,
+        allowedExtensions: ['srt'],
+        allowMultiple: false,
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final f = result.files.single;
+      // 优先用内存字节（withData），否则读路径文件。
+      var bytes = f.bytes;
+      if (bytes == null) {
+        if (f.path == null) return;
+        final file = File(f.path!);
+        if (!file.existsSync()) return;
+        bytes = await file.readAsBytes();
+      }
+      final cues = SubtitleSrt.parseBytes(bytes);
+      if (cues == null || cues.isEmpty) {
+        _toast('字幕解析失败：不支持的编码或格式');
+        return;
+      }
+      setState(() {
+        _subtitles = SubtitleIndex(cues);
+        _subtitleName = f.name;
+      });
+      _toast('已加载字幕：${f.name}（${cues.length} 条）');
+    } catch (e) {
+      ErrorLogger.instance.warn('[subtitle] 加载字幕失败: $e');
+      _toast('加载字幕失败');
+    }
+  }
+
+  /// 清除当前字幕。
+  void _clearSubtitle() {
+    setState(() {
+      _subtitles = null;
+      _subtitleName = '';
+    });
+  }
+
+  /// 字幕面板：加载 / 已加载展示 / 清除。
+  void _showSubtitlePanel() {
+    _hideTimer?.cancel();
+    showPlayerPanel(
+      context: context,
+      title: '本地字幕',
+      fromRight: _fullscreen,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+        final has = _subtitles != null;
+        return SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            if (has)
+              PanelOptionTile(
+                title: '已加载：$_subtitleName',
+                subtitle: '${_subtitles!.cues.length} 条字幕',
+                selected: true,
+                onTap: () {},
+              ),
+            PanelOptionTile(
+              title: '加载 SRT 字幕…',
+              subtitle: '同目录同名 .srt 亦自动匹配',
+              selected: false,
+              onTap: () {
+                _pickSubtitle();
+                setSheet(() {});
+              },
+            ),
+            if (has)
+              PanelOptionTile(
+                title: '清除字幕',
+                subtitle: null,
+                selected: false,
+                onTap: () {
+                  _clearSubtitle();
+                  setSheet(() {});
+                },
+              ),
+            const SizedBox(height: 6),
+            const Text('支持 SRT 字幕（UTF-8 / UTF-16 编码），倍速下自动同步',
+                style: TextStyle(color: Colors.white30, fontSize: 11)),
           ]),
         );
       }),

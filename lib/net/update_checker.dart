@@ -42,11 +42,16 @@ class UpdateChecker {
   /// 本机版本号缓存（启动时从 PackageInfo 异步获取）。
   static String _cached = '';
 
+  /// init 幂等守卫：版本号取过一次就不再重复读 PackageInfo。
+  static bool _inited = false;
+
   /// 启动时调用：从系统 PackageInfo 读取真实版本号缓存起来。
   static Future<void> init() async {
+    if (_inited) return;
     try {
       final info = await PackageInfo.fromPlatform();
       _cached = info.version;
+      _inited = true;
     } catch (_) {}
   }
 

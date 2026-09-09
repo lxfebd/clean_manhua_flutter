@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import '../../net/error_logger.dart';
 import '../../net/local_store.dart';
 import '../../services/player_registry.dart';
 import 'player_widgets.dart';
@@ -91,19 +92,12 @@ class _MiniPlayerState extends State<MiniPlayer> {
     }
     () async {
       try {
-        final raw = await LocalStore.readJson('video_progress');
-        final map = <String, dynamic>{};
-        if (raw is Map) {
-          raw.forEach((k, val) => map['$k'] = val);
+        // 统一收口到 LocalStore：整体排队写 + 上限裁剪，与主播放器并发不互踩。
+        if (h.historyKey != null) {
+          await LocalStore.setVideoProgress(h.historyKey!, done ? null : sec);
         }
-        if (done && h.historyKey != null) {
-          map.remove(h.historyKey);
-        } else if (h.historyKey != null) {
-          map[h.historyKey!] = sec;
-        }
-        await LocalStore.writeJson('video_progress', map);
       } catch (e) {
-        debugPrint('save mini video progress failed: $e');
+        ErrorLogger.instance.warn('save mini video progress failed: $e');
       }
     }();
   }

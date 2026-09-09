@@ -197,7 +197,8 @@ class ProfilePageState extends State<ProfilePage> {
                           onFavorites: () => widget.onSwitchTab?.call(4),
                           onHistory: _showHistory,
                           onDownloads: () => widget.onSwitchTab?.call(4),
-                          onHelp: _showHelp)),
+                          onHelp: _showHelp,
+                          onExportBooklist: _exportBooklist)),
                 ],
               ),
             ),
@@ -288,6 +289,7 @@ class ProfilePageState extends State<ProfilePage> {
                 onHistory: _showHistory,
                 onDownloads: () => widget.onSwitchTab?.call(2),
                 onHelp: _showHelp,
+                onExportBooklist: _exportBooklist,
               ),
             ),
         ];
@@ -316,7 +318,7 @@ class ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  /// 阅读周报弹窗：最近 7 天每天的阅读时长柱状图 + 汇总。
+  /// 阅读报告弹窗：周报（最近 7 天柱状图）/ 年度报告（12 个月柱状图）。
   Future<void> _showReadingReport() async {
     final days = await LocalStore.recentReadingDays(7);
     if (!mounted) return;
@@ -324,10 +326,73 @@ class ProfilePageState extends State<ProfilePage> {
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => _ReadingReportSheet(days: days),
+      builder: (_) => _ReadingReportSheet(
+        days: days,
+        onYearTap: _showYearReport,
+      ),
     ).then((_) {
       if (mounted) _load();
     });
+  }
+
+  /// 年度阅读报告弹窗：当前年份 12 个月柱状图 + 年度汇总。
+  Future<void> _showYearReport() async {
+    final now = DateTime.now();
+    final months = await LocalStore.yearReadingMonths(now.year);
+    final total = await LocalStore.yearReadingSeconds(now.year);
+    final active = await LocalStore.activeReadingDays(now.year);
+    if (!mounted) return;
+    showResponsiveBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _YearReportSheet(
+        year: now.year,
+        months: months,
+        totalSeconds: total,
+        activeDays: active,
+      ),
+    );
+  }
+
+  /// 书单文本导出：书架全部条目转纯文本，写入剪贴板并提示。
+  Future<void> _exportBooklist() async {
+    final books = BookshelfStore.listAll();
+    if (books.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('书架为空，暂无内容可导出')));
+      return;
+    }
+    final sb = StringBuffer()
+      ..writeln('星漫匣 · 我的书单（共 ${books.length} 本）')
+      ..writeln('导出时间：${DateTime.now().toString().substring(0, 16)}')
+      ..writeln('─────────────');
+    for (var i = 0; i < books.length; i++) {
+      final b = books[i];
+      final author = (b.author?.isNotEmpty ?? false) ? b.author : null;
+      final status = (b.status?.isNotEmpty ?? false) ? b.status : null;
+      sb.writeln('${i + 1}. ${b.name}'
+          '${author != null ? ' — $author' : ''}'
+          '${status != null ? '（$status）' : ''}');
+    }
+    final text = sb.toString();
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: const Text('书单已复制到剪贴板'),
+      action: SnackBarAction(label: '查看', onPressed: () => _previewBooklist(text)),
+    ));
+  }
+
+  /// 书单文本预览弹窗。
+  void _previewBooklist(String text) {
+    showResponsiveBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _TextExportSheet(title: '我的书单', text: text),
+    );
   }
 }
 
@@ -680,6 +745,7 @@ class _MenuCard extends StatelessWidget {
   final VoidCallback onHistory;
   final VoidCallback onDownloads;
   final VoidCallback onHelp;
+  final VoidCallback onExportBooklist;
   const _MenuCard({
     required this.dark,
     required this.onDarkChanged,
@@ -687,6 +753,7 @@ class _MenuCard extends StatelessWidget {
     required this.onHistory,
     required this.onDownloads,
     required this.onHelp,
+    required this.onExportBooklist,
   });
 
   @override
@@ -718,6 +785,13 @@ class _MenuCard extends StatelessWidget {
             icon: Icons.download_rounded,
             title: '我的下载',
             onTap: onDownloads,
+            showDivider: true,
+          ),
+          SettingsRow(
+            icon: Icons.ios_share_rounded,
+            title: '导出书单',
+            subtitle: '书架清单复制为文本',
+            onTap: onExportBooklist,
             showDivider: true,
           ),
           SettingsRow(
@@ -935,10 +1009,11 @@ class _HelpSheet extends StatelessWidget {
   }
 }
 
-/// 阅读周报弹窗：最近 7 天柱状图 + 汇总数据。
+/// 阅读周报弹窗：最近 7 天柱状图 + 汇总数据，底部可进入年度报告。
 class _ReadingReportSheet extends StatelessWidget {
   final List<Map<String, dynamic>> days;
-  const _ReadingReportSheet({required this.days});
+  final VoidCallback? onYearTap;
+  const _ReadingReportSheet({required this.days, this.onYearTap});
 
   String _fmt(int sec) {
     if (sec < 60) return '$sec秒';
@@ -988,25 +1063,42 @@ class _ReadingReportSheet extends StatelessWidget {
                       brightness: scheme.brightness),
                 )),
             const SizedBox(height: S.x16),
-            SizedBox(
-              height: 130,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  for (var i = 0; i < days.length; i++) ...[
-                    Expanded(
-                      child: _Bar(
-                        seconds: (days[i]['seconds'] as int?) ?? 0,
-                        maxSeconds: maxSec,
-                        dayLabel: _shortDay(days[i]['day'] as String),
-                        color: scheme.primary,
+            if (total <= 0)
+              Container(
+                height: 130,
+                width: double.infinity,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: T.color(scheme.onSurface, TextTier.fill,
+                      brightness: scheme.brightness),
+                  borderRadius: BorderRadius.circular(R.card),
+                ),
+                child: Text('最近 7 天还没有阅读记录',
+                    style: text.bodySmall?.copyWith(
+                      color: T.color(scheme.onSurface, TextTier.low,
+                          brightness: scheme.brightness),
+                    )),
+              )
+            else
+              SizedBox(
+                height: 130,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    for (var i = 0; i < days.length; i++) ...[
+                      Expanded(
+                        child: _Bar(
+                          seconds: (days[i]['seconds'] as int?) ?? 0,
+                          maxSeconds: maxSec,
+                          dayLabel: _shortDay(days[i]['day'] as String),
+                          color: scheme.primary,
+                        ),
                       ),
-                    ),
-                    if (i < days.length - 1) const SizedBox(width: 6),
+                      if (i < days.length - 1) const SizedBox(width: 6),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
             const SizedBox(height: S.x16),
             Container(
               padding: const EdgeInsets.all(14),
@@ -1028,6 +1120,17 @@ class _ReadingReportSheet extends StatelessWidget {
                 ],
               ),
             ),
+            if (onYearTap != null) ...[
+              const SizedBox(height: S.x12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: onYearTap,
+                  icon: const Icon(Icons.calendar_month_rounded, size: 16),
+                  label: const Text('查看年度报告'),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -1056,6 +1159,218 @@ class _ReadingReportSheet extends StatelessWidget {
       day.length >= 10 ? day.substring(5) : day;
 }
 
+/// 年度阅读报告弹窗：12 个月柱状图 + 年度汇总（时长 / 有效阅读天数）。
+class _YearReportSheet extends StatelessWidget {
+  final int year;
+  final List<Map<String, dynamic>> months;
+  final int totalSeconds;
+  final int activeDays;
+  const _YearReportSheet({
+    required this.year,
+    required this.months,
+    required this.totalSeconds,
+    required this.activeDays,
+  });
+
+  String _fmt(int sec) {
+    if (sec < 60) return '$sec秒';
+    if (sec < 3600) return '${sec ~/ 60}分钟';
+    final h = sec ~/ 3600;
+    final m = (sec % 3600) ~/ 60;
+    return m > 0 ? '$h小时$m分' : '$h小时';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final maxSec = [
+      ...months.map((d) => (d['seconds'] as int?) ?? 0),
+      3600
+    ].reduce((a, b) => a > b ? a : b);
+    return SafeArea(
+      child: Container(
+        margin: const EdgeInsets.all(S.x12),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(R.sheet),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SheetHandle(),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(Icons.calendar_month_rounded,
+                    size: 18, color: scheme.primary),
+                const SizedBox(width: 8),
+                Text('$year 年度报告', style: text.titleLarge),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text('全年 12 个月阅读时长统计',
+                style: text.bodySmall?.copyWith(
+                  color: T.color(scheme.onSurface, TextTier.low,
+                      brightness: scheme.brightness),
+                )),
+            const SizedBox(height: S.x16),
+            if (totalSeconds <= 0)
+              Container(
+                height: 130,
+                width: double.infinity,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: T.color(scheme.onSurface, TextTier.fill,
+                      brightness: scheme.brightness),
+                  borderRadius: BorderRadius.circular(R.card),
+                ),
+                child: Text('$year 年还没有阅读记录',
+                    style: text.bodySmall?.copyWith(
+                      color: T.color(scheme.onSurface, TextTier.low,
+                          brightness: scheme.brightness),
+                    )),
+              )
+            else
+              SizedBox(
+                height: 130,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    for (var i = 0; i < months.length; i++) ...[
+                      Expanded(
+                        child: _Bar(
+                          seconds: (months[i]['seconds'] as int?) ?? 0,
+                          maxSeconds: maxSec,
+                          dayLabel: _shortMonth(months[i]['month'] as String),
+                          color: scheme.primary,
+                        ),
+                      ),
+                      if (i < months.length - 1) const SizedBox(width: 4),
+                    ],
+                  ],
+                ),
+              ),
+            const SizedBox(height: S.x16),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: scheme.primary.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(R.card),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _sumCell(context, scheme, _fmt(totalSeconds), '全年时长'),
+                  ),
+                  Container(
+                      width: 0.5,
+                      height: 26,
+                      color: T.color(scheme.onSurface, TextTier.hairline,
+                          brightness: scheme.brightness)),
+                  Expanded(
+                      child: _sumCell(context, scheme, '$activeDays天', '有效阅读')),
+                ],
+              ),
+            ),
+            const SizedBox(height: S.x12),
+            Text('数据仅统计本机阅读时长，不会上传',
+                style: text.labelSmall?.copyWith(
+                  color: T.color(scheme.onSurface, TextTier.disabled,
+                      brightness: scheme.brightness),
+                )),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sumCell(BuildContext context, ColorScheme scheme, String value, String label) {
+    final text = Theme.of(context).textTheme;
+    return Column(
+      children: [
+        Text(value,
+            style: text.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700, color: scheme.onSurface)),
+        const SizedBox(height: 2),
+        Text(label,
+            style: text.labelSmall?.copyWith(
+              color: T.color(scheme.onSurface, TextTier.low,
+                  brightness: scheme.brightness),
+            )),
+      ],
+    );
+  }
+
+  /// "2026-08" -> "08月"。
+  String _shortMonth(String month) =>
+      month.length >= 7 ? '${month.substring(5)}月' : month;
+}
+
+/// 文本导出预览弹窗：展示导出的文本，支持复制/关闭。
+class _TextExportSheet extends StatelessWidget {
+  final String title;
+  final String text;
+  const _TextExportSheet({required this.title, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return SafeArea(
+      child: Container(
+        margin: const EdgeInsets.all(S.x12),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(R.sheet),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SheetHandle(),
+            const SizedBox(height: 12),
+            Text(title, style: textTheme.titleLarge),
+            const SizedBox(height: 12),
+            Container(
+              constraints: const BoxConstraints(maxHeight: 320),
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: T.color(scheme.onSurface, TextTier.fill,
+                    brightness: scheme.brightness),
+                borderRadius: BorderRadius.circular(R.card),
+              ),
+              child: SingleChildScrollView(
+                child: Text(text,
+                    style: textTheme.bodySmall?.copyWith(height: 1.6)),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: text));
+                  if (!context.mounted) return;
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('已复制到剪贴板')));
+                },
+                icon: const Icon(Icons.copy_rounded, size: 16),
+                label: const Text('复制文本'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// 单根柱子：高度按 seconds/maxSeconds 比例，下方显示日期。
 class _Bar extends StatelessWidget {
   final int seconds;
@@ -1068,7 +1383,6 @@ class _Bar extends StatelessWidget {
     required this.dayLabel,
     required this.color,
   });
-
   @override
   Widget build(BuildContext context) {
     final ratio = maxSeconds <= 0 ? 0.0 : (seconds / maxSeconds).clamp(0.0, 1.0);

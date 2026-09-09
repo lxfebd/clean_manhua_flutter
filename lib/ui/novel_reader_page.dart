@@ -285,10 +285,8 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     _listController ??= ScrollController();
     try {
       final c = await s.chapterContent(chapterId).timeout(const Duration(seconds: 15));
-      debugPrint('[novel-reader] chapterContent OK id=$chapterId title=${c.title} paras=${c.paragraphs.length} prev=${c.prevChapterId != null} next=${c.nextChapterId != null}');
-      try {
-        ErrorLogger.instance.logError('[novel-reader] OK id=$chapterId title=${c.title} paras=${c.paragraphs.length} prev=${c.prevChapterId != null} next=${c.nextChapterId != null}');
-      } catch (_) {}
+      // 成功事件用 debug 级，不写 ERROR 日志（避免污染 7 天滚动日志与错误计数）。
+      ErrorLogger.instance.debug('[novel-reader] chapterContent OK id=$chapterId title=${c.title} paras=${c.paragraphs.length} prev=${c.prevChapterId != null} next=${c.nextChapterId != null}');
       if (mounted) {
         _content = c;
         _curChapterId = chapterId;

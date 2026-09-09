@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/comic_item.dart';
 import '../utils/danmaku.dart';
+import 'error_logger.dart';
 
 /// 在独立 Isolate 中解析 JSON（用于大文件，避免阻塞 UI）。
 dynamic _jsonDecodeCompute(String raw) => jsonDecode(raw);
@@ -284,8 +285,19 @@ class LocalStore {
       final json = jsonEncode(data);
       await f.writeAsString(json, flush: true);
     } catch (e) {
-      debugPrint('LocalStore._write($name) error: $e');
+      ErrorLogger.instance.warn('LocalStore._write($name) 写盘失败: $e');
     }
+  }
+
+  /// 「读-改-写」复合操作整体串行化：fn 排进该文件的写队列，内部必须用
+  /// [_writeNow] 直写（不能再调 [_write]，否则会排到 fn 自己后面死锁）。
+  /// 并发 toggle/add 时避免双方读到同一快照后互相覆盖（丢更新）。
+  static Future<T> _enqueue<T>(String name, Future<T> Function() fn) {
+    final prev = _writeQueues[name] ?? Future.value();
+    final next = prev.then((_) => fn());
+    // 队列尾链转成 Future<void> 吞掉 fn 的异常，防止链断裂；错误已在 fn 内部消化。
+    _writeQueues[name] = next.then<void>((_) {}, onError: (_) {});
+    return next;
   }
 
   static dynamic _read(String name) async {
@@ -298,9 +310,18 @@ class LocalStore {
       }
       return jsonDecode(raw);
     } catch (e) {
-      // 文件损坏（写入中断/磁盘错误）与"不存在"在此都返回 null；
-      // 但损坏需留可观测日志，便于排查"收藏/历史突然清空"类问题。
-      debugPrint('LocalStore._read($name) 解析失败（数据可能已损坏）: $e');
+      // 文件损坏（写入中断/磁盘错误）：先备份损坏文件再返回 null，
+      // 与 BookshelfStore 的 .corrupt 行为对齐，避免"收藏/历史突然清空"无法追溯。
+      try {
+        final f = await _fileAsync(name);
+        if (f.existsSync()) {
+          f.renameSync(
+              '${f.path}.corrupt-${DateTime.now().millisecondsSinceEpoch}');
+        }
+      } catch (e2) {
+        ErrorLogger.instance.warn('LocalStore._read($name) 损坏备份失败: $e2');
+      }
+      ErrorLogger.instance.warn('LocalStore._read($name) 解析失败（数据已损坏，原文件已备份）: $e');
       return null;
     }
   }
@@ -329,13 +350,15 @@ class LocalStore {
   static Future<void> addSearchHistory(String kw) async {
     final t = kw.trim();
     if (t.isEmpty) return;
-    final list = await searchHistory();
-    list.removeWhere((e) => e == t);
-    list.insert(0, t);
-    if (list.length > _searchHistoryMax) {
-      list.removeRange(_searchHistoryMax, list.length);
-    }
-    await _write('search_history', list);
+    await _enqueue('search_history', () async {
+      final list = (await _read('search_history') as List?)?.whereType<String>().toList() ?? <String>[];
+      list.removeWhere((e) => e == t);
+      list.insert(0, t);
+      if (list.length > _searchHistoryMax) {
+        list.removeRange(_searchHistoryMax, list.length);
+      }
+      await _writeNow('search_history', list);
+    });
   }
 
   /// 清空全部搜索历史。
@@ -346,19 +369,26 @@ class LocalStore {
       (await favorites()).any((b) => b.key == key);
 
   static Future<void> toggleFavorite(Bookmark b) async {
-    final list = await favorites();
-    final idx = list.indexWhere((x) => x.key == b.key);
-    if (idx >= 0) {
-      list.removeAt(idx);
-    } else {
-      list.insert(0, b);
-    }
-    await _write('favorites', list.map((e) => e.toMap()).toList());
+    await _enqueue('favorites', () async {
+      final list = (await _read('favorites') as List?) ?? [];
+      final items = list.map((e) => Bookmark.fromMap(e as Map<String, dynamic>)).toList();
+      final idx = items.indexWhere((x) => x.key == b.key);
+      if (idx >= 0) {
+        items.removeAt(idx);
+      } else {
+        items.insert(0, b);
+      }
+      await _writeNow('favorites', items.map((e) => e.toMap()).toList());
+    });
   }
 
   static Future<void> removeFavorite(String key) async {
-    final list = (await favorites()).where((b) => b.key != key).toList();
-    await _write('favorites', list.map((e) => e.toMap()).toList());
+    await _enqueue('favorites', () async {
+      final list = (await _read('favorites') as List?) ?? [];
+      final items = list.map((e) => Bookmark.fromMap(e as Map<String, dynamic>)).toList();
+      final out = items.where((b) => b.key != key).toList();
+      await _writeNow('favorites', out.map((e) => e.toMap()).toList());
+    });
   }
 
   // ---- 历史 ----
@@ -372,10 +402,17 @@ class LocalStore {
   }
 
   static Future<void> recordHistory(HistoryEntry entry) async {
-    final list = (await history()).where((h) => h.key != entry.key).toList();
-    list.insert(0, entry);
-    if (list.length > 200) list.removeRange(200, list.length);
-    await _write('history', list.map((e) => e.toMap()).toList());
+    await _enqueue('history', () async {
+      final raw = (await _read('history') as List?) ?? [];
+      final list = raw
+          .map((e) => HistoryEntry.fromMap(e as Map<String, dynamic>))
+          .where((h) => h.key != entry.key)
+          .toList();
+      list.insert(0, entry);
+      // 新记录时间戳最大，插到最前后整表仍按时间降序，无需再排序。
+      if (list.length > 200) list.removeRange(200, list.length);
+      await _writeNow('history', list.map((e) => e.toMap()).toList());
+    });
   }
 
   static Future<void> clearHistory() async => _write('history', []);
@@ -392,19 +429,31 @@ class LocalStore {
 
   /// 新增一条书签（同书同章同页已存在则更新时间，避免重复）。
   static Future<void> addBookmark(ComicBookmark b) async {
-    final list =
-        (await bookmarks()).where((x) => x.key != b.key).toList();
-    list.insert(0, b);
-    if (list.length > 500) list.removeRange(500, list.length);
-    await _write('bookmarks', list.map((e) => e.toMap()).toList());
+    await _enqueue('bookmarks', () async {
+      final raw = (await _read('bookmarks') as List?) ?? [];
+      final list = raw
+          .map((e) => ComicBookmark.fromMap(e as Map<String, dynamic>))
+          .where((x) => x.key != b.key)
+          .toList();
+      list.insert(0, b);
+      // 新书签时间戳最大，插到最前后整表仍按时间降序。
+      if (list.length > 500) list.removeRange(500, list.length);
+      await _writeNow('bookmarks', list.map((e) => e.toMap()).toList());
+    });
   }
 
   /// 删除一条书签（同书同章同页）。
   static Future<void> removeBookmark(
       String sourceId, String comicId, String chapterId, int pageIndex) async {
     final key = '$sourceId::$comicId::$chapterId::$pageIndex';
-    final list = (await bookmarks()).where((x) => x.key != key).toList();
-    await _write('bookmarks', list.map((e) => e.toMap()).toList());
+    await _enqueue('bookmarks', () async {
+      final raw = (await _read('bookmarks') as List?) ?? [];
+      final list = raw
+          .map((e) => ComicBookmark.fromMap(e as Map<String, dynamic>))
+          .where((x) => x.key != key)
+          .toList();
+      await _writeNow('bookmarks', list.map((e) => e.toMap()).toList());
+    });
   }
 
   /// 某书某章某页是否已加书签。
@@ -426,16 +475,29 @@ class LocalStore {
 
   /// 保存/更新一条动画观看记录（同 key 覆盖）。
   static Future<void> recordVideo(VideoRecord r) async {
-    final list = (await videoRecords()).where((e) => e.key != r.key).toList();
-    list.insert(0, r);
-    if (list.length > 300) list.removeRange(300, list.length);
-    await _write('video_records', list.map((e) => e.toMap()).toList());
+    await _enqueue('video_records', () async {
+      final raw = (await _read('video_records') as List?) ?? [];
+      final list = raw
+          .map((e) => VideoRecord.fromMap(e as Map<String, dynamic>))
+          .where((e) => e.key != r.key)
+          .toList();
+      list.insert(0, r);
+      // 新记录时间戳最大，插到最前后整表仍按时间降序。
+      if (list.length > 300) list.removeRange(300, list.length);
+      await _writeNow('video_records', list.map((e) => e.toMap()).toList());
+    });
   }
 
   /// 移除一条动画观看记录。
   static Future<void> removeVideoRecord(String key) async {
-    final list = (await videoRecords()).where((e) => e.key != key).toList();
-    await _write('video_records', list.map((e) => e.toMap()).toList());
+    await _enqueue('video_records', () async {
+      final raw = (await _read('video_records') as List?) ?? [];
+      final list = raw
+          .map((e) => VideoRecord.fromMap(e as Map<String, dynamic>))
+          .where((e) => e.key != key)
+          .toList();
+      await _writeNow('video_records', list.map((e) => e.toMap()).toList());
+    });
   }
 
   // ---- 设置 ----
@@ -502,11 +564,14 @@ class LocalStore {
       _updateSetting('autoPageTurn', seconds);
 
   /// 只更新单个设置键，其余设置保持不变（避免全量覆盖丢字段）。
+  /// 整体走 _enqueue：并发 set* 时不会各自基于旧快照整表写回而互丢字段。
   static Future<void> _updateSetting(String key, Object? value) async {
-    final s = Map<String, dynamic>.from(
-        ((await _read('settings')) as Map?) ?? const {});
-    s[key] = value;
-    await _write('settings', s);
+    await _enqueue('settings', () async {
+      final s = Map<String, dynamic>.from(
+          ((await _read('settings')) as Map?) ?? const {});
+      s[key] = value;
+      await _writeNow('settings', s);
+    });
   }
 
   /// 弹幕显示设置（开关、字号、速度、透明度）。
@@ -563,14 +628,19 @@ class LocalStore {
     bool? firstIndent,
     int? colorTemp,
   }) async {
-    final cur = (await _read('novel_read_settings')) as Map? ?? {};
-    await _write('novel_read_settings', {
-      'fontSize': fontSize ?? cur['fontSize'] ?? 17,
-      'lineHeight': lineHeight ?? cur['lineHeight'] ?? 180,
-      'theme': theme ?? cur['theme'] ?? 0,
-      'paragraphGap': paragraphGap ?? cur['paragraphGap'] ?? 18,
-      'firstIndent': firstIndent ?? cur['firstIndent'] ?? true,
-      'colorTemp': colorTemp ?? cur['colorTemp'] ?? 0,
+    // 与 setTtsRate 同文件：整体排队，避免各自基于旧快照写回互丢字段。
+    await _enqueue('novel_read_settings', () async {
+      final cur = (await _read('novel_read_settings')) as Map? ?? {};
+      await _writeNow('novel_read_settings', {
+        // 以旧表打底：本方法只写 6 个已知键，ttsRate 等其余键原样保留。
+        ...cur,
+        'fontSize': fontSize ?? cur['fontSize'] ?? 17,
+        'lineHeight': lineHeight ?? cur['lineHeight'] ?? 180,
+        'theme': theme ?? cur['theme'] ?? 0,
+        'paragraphGap': paragraphGap ?? cur['paragraphGap'] ?? 18,
+        'firstIndent': firstIndent ?? cur['firstIndent'] ?? true,
+        'colorTemp': colorTemp ?? cur['colorTemp'] ?? 0,
+      });
     });
   }
 
@@ -582,10 +652,12 @@ class LocalStore {
   }
 
   static Future<void> setTtsRate(double rate) async {
-    final cur = (await _read('novel_read_settings')) as Map? ?? {};
-    await _write('novel_read_settings', {
-      ...cur,
-      'ttsRate': rate.clamp(0.5, 2.0),
+    await _enqueue('novel_read_settings', () async {
+      final cur = (await _read('novel_read_settings')) as Map? ?? {};
+      await _writeNow('novel_read_settings', {
+        ...cur,
+        'ttsRate': rate.clamp(0.5, 2.0),
+      });
     });
   }
 
@@ -595,15 +667,12 @@ class LocalStore {
   static Future<void> addReadingSeconds(int seconds) async {
     if (seconds <= 0) return;
     final day = _todayKey();
-    // 读-改-写放入写队列，避免 _flushStats 与 dispose flush 并发时互相覆盖丢秒数。
-    final prev = _writeQueues['reading_stats'] ?? Future.value();
-    final next = prev.then((_) async {
+    // 读-改-写整体排进写队列，避免 _flushStats 与 dispose flush 并发时互相覆盖丢秒数。
+    await _enqueue('reading_stats', () async {
       final m = (await _read('reading_stats')) as Map? ?? {};
       m[day] = ((m[day] as num?) ?? 0).toInt() + seconds;
       await _writeNow('reading_stats', m);
     });
-    _writeQueues['reading_stats'] = next.catchError((_) {});
-    return next;
   }
 
   /// 读取某天的阅读秒数。
@@ -644,6 +713,68 @@ class LocalStore {
       out.add({'day': key, 'seconds': (m[key] as int?) ?? 0});
     }
     return out;
+  }
+
+  /// 最近 N 个月每月的阅读秒数（按月份升序 [{month:'2026-08', seconds}]）。
+  static Future<List<Map<String, dynamic>>> recentReadingMonths(int n) async {
+    final m = (await _read('reading_stats')) as Map? ?? {};
+    final now = DateTime.now();
+    final out = <Map<String, dynamic>>[];
+    for (var i = n - 1; i >= 0; i--) {
+      final month = DateTime(now.year, now.month - i, 1);
+      final key = '${month.year}-${month.month.toString().padLeft(2, '0')}';
+      var sum = 0;
+      for (final entry in m.entries) {
+        final d = (entry.key as String?) ?? '';
+        if (d.length >= 7 && d.startsWith(key)) {
+          sum += (entry.value as num?)?.toInt() ?? 0;
+        }
+      }
+      out.add({'month': key, 'seconds': sum});
+    }
+    return out;
+  }
+
+  /// 指定年份的月度阅读统计（全年 12 个月升序 [{month:'2026-01', seconds}]）。
+  static Future<List<Map<String, dynamic>>> yearReadingMonths(int year) async {
+    final m = (await _read('reading_stats')) as Map? ?? {};
+    final out = <Map<String, dynamic>>[];
+    for (var mo = 1; mo <= 12; mo++) {
+      final key = '$year-${mo.toString().padLeft(2, '0')}';
+      var sum = 0;
+      for (final entry in m.entries) {
+        final d = (entry.key as String?) ?? '';
+        if (d.length >= 7 && d.startsWith(key)) {
+          sum += (entry.value as num?)?.toInt() ?? 0;
+        }
+      }
+      out.add({'month': key, 'seconds': sum});
+    }
+    return out;
+  }
+
+  /// 指定年份的总阅读秒数；不传年份为全部累计。
+  static Future<int> yearReadingSeconds([int? year]) async {
+    final m = (await _read('reading_stats')) as Map? ?? {};
+    var sum = 0;
+    for (final entry in m.entries) {
+      final d = (entry.key as String?) ?? '';
+      if (year != null && !(d.length >= 4 && d.startsWith('$year'))) continue;
+      sum += (entry.value as num?)?.toInt() ?? 0;
+    }
+    return sum;
+  }
+
+  /// 有效阅读天数（秒数 > 0）；可传年份限定。
+  static Future<int> activeReadingDays([int? year]) async {
+    final m = (await _read('reading_stats')) as Map? ?? {};
+    var count = 0;
+    for (final entry in m.entries) {
+      final d = (entry.key as String?) ?? '';
+      if (year != null && !(d.length >= 4 && d.startsWith('$year'))) continue;
+      if (((entry.value as num?)?.toInt() ?? 0) > 0) count++;
+    }
+    return count;
   }
 
   static String _todayKey() => _dayKeyOf(DateTime.now());
@@ -711,19 +842,19 @@ class LocalStore {
     return null;
   }
 
-  static Future<void> _saveDownloads(List<DownloadRecord> list) async {
-    await _write('downloads', list.map((e) => e.toMap()).toList());
-  }
-
   static Future<void> upsertDownload(DownloadRecord d) async {
-    final list = (await downloads()).where((x) => x.key != d.key).toList();
-    list.add(d);
-    await _saveDownloads(list);
+    await _enqueue('downloads', () async {
+      final list = (await downloads()).where((x) => x.key != d.key).toList();
+      list.add(d);
+      await _writeNow('downloads', list.map((e) => e.toMap()).toList());
+    });
   }
 
   static Future<void> removeDownload(String key) async {
-    await _saveDownloads(
-        (await downloads()).where((d) => d.key != key).toList());
+    await _enqueue('downloads', () async {
+      final list = (await downloads()).where((d) => d.key != key).toList();
+      await _writeNow('downloads', list.map((e) => e.toMap()).toList());
+    });
   }
 
   /// 下载文件根目录。
@@ -753,13 +884,17 @@ class LocalStore {
 
   /// 仅清理已完成的下载（文件 + 记录），保留进行中的任务。
   static Future<int> clearFinishedDownloads() async {
-    final list = await downloads();
-    final finished = list.where((d) => d.finished).toList();
-    for (final d in finished) {
-      await removeDownloadFiles(d);
-    }
-    await _saveDownloads(list.where((d) => !d.finished).toList());
-    return finished.length;
+    // 读写整体排队：清文件期间新加入的下载记录不会被旧快照写回覆盖。
+    return _enqueue('downloads', () async {
+      final list = await downloads();
+      final finished = list.where((d) => d.finished).toList();
+      for (final d in finished) {
+        await removeDownloadFiles(d);
+      }
+      await _writeNow('downloads',
+          list.where((d) => !d.finished).map((e) => e.toMap()).toList());
+      return finished.length;
+    });
   }
 
   /// 删除单条下载记录对应的本地文件目录（章节目录），不删记录本身。
@@ -769,6 +904,35 @@ class LocalStore {
       final cd = Directory('${base.path}/${d.localKey}');
       if (cd.existsSync()) cd.deleteSync(recursive: true);
     } catch (_) {}
+  }
+
+  // ---- 视频续播进度 ----
+  /// key=剧集 historyKey，value=播放秒数。上限 500 条，超出按最旧插入裁剪。
+  static const int _videoProgressMax = 500;
+
+  /// 读取某剧集的续播秒数（无记录返回 0）。
+  static Future<int> videoProgressOf(String key) async {
+    final raw = await _read('video_progress');
+    if (raw is Map) return (raw[key] as num?)?.toInt() ?? 0;
+    return 0;
+  }
+
+  /// 写入/清除续播进度；[seconds] 为 null 或 <=0 表示看完清除记录。
+  /// 读-改-写整体排队：主播放器与小窗并发保存时不再互踩丢进度。
+  static Future<void> setVideoProgress(String key, int? seconds) async {
+    await _enqueue('video_progress', () async {
+      final raw = await _read('video_progress');
+      final map = <String, dynamic>{};
+      if (raw is Map) raw.forEach((k, v) => map['$k'] = v);
+      map.remove(key); // 先删再插 = 移到末尾，表头始终是 最旧（裁剪端）
+      if (seconds != null && seconds > 0) {
+        map[key] = seconds;
+      }
+      while (map.length > _videoProgressMax) {
+        map.remove(map.keys.first);
+      }
+      await _writeNow('video_progress', map);
+    });
   }
 
   // ---- 备份/恢复 ----
@@ -822,13 +986,16 @@ class LocalStore {
     double? x,
     double? y,
   }) async {
-    final m = ((await _read('settings')) as Map?)?.cast<String, dynamic>() ??
-        <String, dynamic>{};
-    if (w != null) m['winW'] = w;
-    if (h != null) m['winH'] = h;
-    if (x != null) m['winX'] = x;
-    if (y != null) m['winY'] = y;
-    await _write('settings', m);
+    // 与 _updateSetting 同文件：resize 与主题/设置变更并发时整体排队，互不丢字段。
+    await _enqueue('settings', () async {
+      final m = ((await _read('settings')) as Map?)?.cast<String, dynamic>() ??
+          <String, dynamic>{};
+      if (w != null) m['winW'] = w;
+      if (h != null) m['winH'] = h;
+      if (x != null) m['winX'] = x;
+      if (y != null) m['winY'] = y;
+      await _writeNow('settings', m);
+    });
   }
 
   /// 返回 {w,h,x,y}，无记录时返回 null。

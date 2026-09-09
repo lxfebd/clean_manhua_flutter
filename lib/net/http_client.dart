@@ -252,13 +252,13 @@ class Net {
   static Future<List<int>> _getBytesWithFallback(String urlStr,
       Map<String, String>? headers, Duration? timeout, String? proxy) async {
     if (proxy == null && _effectiveProxy == null) {
-      return _getBytesOnce(urlStr, headers, proxy: null);
+      return _getBytesOnce(urlStr, headers, proxy: null, timeout: timeout);
     }
     try {
-      return await _getBytesOnce(urlStr, headers, proxy: proxy);
+      return await _getBytesOnce(urlStr, headers, proxy: proxy, timeout: timeout);
     } catch (e) {
       if (!_retryable(e)) rethrow;
-      return _getBytesOnce(urlStr, headers, proxy: '');
+      return _getBytesOnce(urlStr, headers, proxy: '', timeout: timeout);
     }
   }
 
@@ -412,7 +412,7 @@ class Net {
   static Future<List<int>> getBytesCronet(String urlStr,
       {Map<String, String>? headers, Duration? timeout, String? proxy}) async {
     if (proxy != null || _cronetUsable == false || _proxyEnabled) {
-      return getBytes(urlStr, headers: headers, proxy: proxy);
+      return getBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout);
     }
     final t = timeout ?? _timeout;
     final probe = t < const Duration(seconds: 8)
@@ -423,10 +423,10 @@ class Net {
           urlStr, headers, t, probe,
           accept: 'image/webp,image/*,*/*', asBytes: true);
       if (b is List<int>) return b;
-      return getBytes(urlStr, headers: headers, proxy: proxy);
+      return getBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout);
     } catch (_) {
       _cronetUsable = false;
-      return getBytes(urlStr, headers: headers, proxy: proxy);
+      return getBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout);
     }
   }
 
@@ -468,7 +468,7 @@ class Net {
       {Map<String, String>? headers, Duration? timeout, String? proxy}) async {
     final host = Uri.parse(urlStr).host;
     if (proxy != null || preferredHostIps.containsKey(host)) {
-      return getBytes(urlStr, headers: headers, proxy: proxy);
+      return getBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout);
     }
     return getBytesCronet(urlStr, headers: headers, timeout: timeout, proxy: proxy);
   }
@@ -476,21 +476,22 @@ class Net {
   /// GET 请求，返回原始响应字节。
   /// [proxy] 为单源代理覆盖：null=走全局代理/直连；''=强制直连；其余=强制走该代理。
   static Future<List<int>> getBytes(String urlStr,
-      {Map<String, String>? headers, String? proxy}) async {
+      {Map<String, String>? headers, String? proxy, Duration? timeout}) async {
     if (proxy == null) {
-      return _getBytesOnce(urlStr, headers, proxy: null);
+      return _getBytesOnce(urlStr, headers, proxy: null, timeout: timeout);
     }
-    return _getBytesWithFallback(urlStr, headers, null, proxy);
+    return _getBytesWithFallback(urlStr, headers, timeout, proxy);
   }
 
   static Future<List<int>> _getBytesOnce(String urlStr,
-      Map<String, String>? headers, {String? proxy}) async {
+      Map<String, String>? headers, {String? proxy, Duration? timeout}) async {
+    final t = timeout ?? _timeout;
     final client = _client(Uri.parse(urlStr).host, proxy: proxy);
     try {
       final req = await _request(
-          client, 'GET', Uri.parse(urlStr), headers, timeout: _timeout);
-      final res = await req.close().timeout(_timeout);
-      final bytes = await _readBytes(res, _timeout);
+          client, 'GET', Uri.parse(urlStr), headers, timeout: t);
+      final res = await req.close().timeout(t);
+      final bytes = await _readBytes(res, t);
       _onDone(res, urlStr);
       return bytes;
     } finally {
@@ -533,18 +534,20 @@ class Net {
   }
 
   static Future<String> _postOnce(String urlStr,
-      Map<String, String>? headers, String? body, {String? proxy}) async {
+      Map<String, String>? headers, String? body,
+      {String? proxy, Duration? timeout}) async {
+    final t = timeout ?? _timeout;
     final client = _client(Uri.parse(urlStr).host, proxy: proxy);
     try {
       final req = await _request(
-          client, 'POST', Uri.parse(urlStr), headers, timeout: _timeout);
+          client, 'POST', Uri.parse(urlStr), headers, timeout: t);
       if (body != null) {
         // 显式 UTF-8：http 包默认按 platformEncoding 编码，中文 JSON body
         // 会被错误编码（如弹幕匹配的"番名 第N集"）导致服务端拒绝
         req.write(utf8.encode(body));
       }
-      final res = await req.close().timeout(_timeout);
-      final bytes = await _readBytes(res, _timeout);
+      final res = await req.close().timeout(t);
+      final bytes = await _readBytes(res, t);
       _onDone(res, urlStr);
       return utf8.decode(bytes);
     } finally {
