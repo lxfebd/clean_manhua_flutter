@@ -9,20 +9,23 @@
 ---
 
 ## 技术栈
-- Dart（Flutter 3.x）
-- 网络：零三方依赖，自写 `Net`（`lib/net/http_client.dart`）
-- 加密：`crypto` + `pointycastle`；图片：`image`；播放：`media_kit`；WebView：`webview_flutter`
+- Dart（Flutter 3.x），全平台：Android / iOS / Windows / macOS / Linux
+- 网络：零三方依赖，自写 `Net`（`lib/net/http_client.dart`）——多级镜像降级、Cloudflare 优选 IP、请求限流、HTTP/Socks5 代理
+- 加密：`crypto` + `pointycastle`；图片：`image`；播放：`media_kit`；WebView：`webview_flutter` / `webview_windows`
+- 其他：`window_manager`（桌面窗口）、`flutter_tts`（小说朗读）、`file_picker`（本地导入）、`screen_brightness`/`volume_controller`（阅读播放手势）
 
 ---
 
 ## 快速开始
 ```bash
 flutter pub get
-flutter build apk --release     # 产物：app-release.apk（仅 arm64-v8a，约 33MB）
+flutter build apk --release     # Android 产物：app-release.apk（仅 arm64-v8a，约 33MB）
 flutter build apk --debug       # 全 ABI（含 x86_64，模拟器可跑）
+flutter build windows --release # Windows 桌面端产物：build/windows/x64/runner/Release（含 xingmanxia.exe）
 # 或 flutter run 直连设备/模拟器
 ```
-> 发布包仅打包 `arm64-v8a`（现代手机/平板通用），体积从 112MB 降到 33MB；debug 包保留全 ABI 以便 x86 模拟器测试。
+> Android 发布包仅打包 `arm64-v8a`（现代手机/平板通用），体积从 112MB 降到 33MB；debug 包保留全 ABI 以便 x86 模拟器测试。
+> Windows 打包产物在 `build/windows/x64/runner/Release/`，完整发布需连同 `data/` 与 `flutter_windows.dll` 一并分发（CI 发版时由 GitHub Actions 打成 zip 挂到 Release）。
 > 需要在装有 Flutter SDK 与 Android NDK 的机器上构建。
 
 ---
@@ -38,6 +41,20 @@ flutter build apk --debug       # 全 ABI（含 x86_64，模拟器可跑）
 ---
 
 ## 更新日志
+
+### v1.4.2（2026-09-09）
+- 📚 **书架分类文件夹**：自定义分类整理（新建/重命名/删除分类，长按作品移动归类）+ 顶部分类筛选切换 + 备份兼容导出导入
+- ☁️ **WebDAV 多端同步**：标准 WebDAV 协议（坚果云/Nextcloud/群晖等）同步书架/阅读进度/书签/设置，密码 AES-256 加密存储，手动 + 启动自动同步
+- 🖥️ **桌面全键盘快捷键**：通用 Ctrl+F 搜索 / Ctrl+Tab 切 Tab / 窗口缩放；阅读器空格+方向键翻页 / Ctrl+B 书签 / Ctrl+D 下载 / +/- 缩放；播放器空格播放暂停 / 方向键快进快退 / M 静音 / F 全屏；鼠标侧键返回前进
+- 🌐 **单源代理生效 + 失败回退直连**：全局 HTTP/Socks5 代理 + 按源单独配置代理，代理节点故障自动回退直连不拖死整源；Cronet 有代理时必须跳 dart:io
+- 🖼️ **图片多级降级加载**：原画 → 省空间压缩图 → 备用镜像源 → 占位图，每级失败自动降级 + 重试，弱网减少白屏；缓存分配分级（低端 15MB / 中端 30MB / 高端 60MB）
+- 🔌 **插件化源 + 自定义源 DSL + 源健康度**：内置源改为插件化注册、卸载免改核心；设置页表单化配置自定义源（JSON 规则：解析选择器/正则/解密函数）并支持导出导入；后台静默测速自动切换低延迟镜像、故障源自动熔断并降级
+- 🚀 **性能极致**：Impeller 渲染显式开启 / 内存动态适配 / 启动并行化懒加载 / 章节图片 URL 缓存上限防泄漏
+- 📱 **移动端手势 + 阅读器体验**：阅读器侧边滑动切上下话、中部滑动调亮度；动漫播放器左右半屏调亮度/音量；点击局部放大/双页阅读/条漫连续滚动精读；漫画自动裁边去白边；小说段间距/首行缩进/色温护眼/系统 TTS 朗读/TXT·EPUB 本地导入
+- 🎬 **动漫播放增强**：画中画悬浮播放 / 音轨切换 / 倍速扩展到 0.25x–4x；修复播放页双播放器叠音 / WebView2 stop / blob 直链黑屏
+- 🐛 **修复「检查更新」两大问题**：① 平台分选附件——Windows 匹配 `-windows` zip、macOS 匹配 `-macos` dmg、Android 取 apk，桌面端不再误下手机 APK（Windows runner 无安装器 channel，下完提示手动解压安装）；② `getUrl` 无超时导致检查更新永久卡死——补 `client.getUrl/postUrl` 连接超时（`lib/net/http_client.dart`），网络挂起不再无限转圈
+- 🛡️ **合规加固**：请求频率限制（每域名令牌桶 3req/s + 并发 ≤5，超限排队）+ 备份导出可选口令 AES-256-GCM 加密；本地错误日志系统（分级/按天滚动/一键导出）
+- 🐛 **稳定性修复**：首页榜单重复条目去重（multiple heroes 崩溃）、详情页/轮播去 Hero（同类共用 tag 崩溃）、异步续体 mounted 保护（Null check）；更新检查当前版本号显示修复（先 init 缓存再读）
 
 ### v1.4.1（2026-09-06）
 - 📚 **书架书签 Tab**：书架新增第 5 个 Tab「书签」（封面/书名/章节/页码/收藏时间），点击直达阅读器书签页；修复跨源同名作品的错源反查 bug（书架存储改自带 `sourceId`，移出删错书 / 打开进错源根治）
@@ -172,12 +189,14 @@ flutter build apk --debug       # 全 ABI（含 x86_64，模拟器可跑）
 ---
 
 ## 设计要点
-- **源 = 引擎代码 + 声明式配置**：域名/镜像/请求头/登录开关外置到 `SourceConfig`（`lib/sources/source_config.dart`），用户在「源管理」页可改，免发版换域名。
-- **网络自愈**：候选 IP 轮询 + DNS 回退 + 短超时 + 每 host 熔断。
-- **多类型聚合**：`MainShell` 底部 4 Tab（首页/书架/工具/我的），首页内 漫画/动漫/小说 三态切换。
+- **源 = 插件化 + 声明式配置**：内置源通过统一接口注册（`ComicSource`/`VideoSource`/`NovelSource`），域名/镜像/请求头/登录开关外置到 `SourceConfig`（`lib/sources/source_config.dart`），支持插件化装卸；另开放**用户自定义源 DSL**（JSON 规则：解析选择器/正则/解密函数），设置页表单化配置并支持导出导入
+- **网络自愈**：候选 IP 轮询 + DNS 回退 + 短超时 + 每 host 熔断；单源代理 + 失败自动回退直连；每域名令牌桶限流（3req/s）+ 并发上限，避免对源站施压
+- **多类型聚合**：`MainShell` 底部 4 Tab（首页/书架/工具/我的），首页内 漫画/动漫/小说 三态切换
+- **阅读/播放体验**：小说 TTS 朗读 / TXT·EPUB 导入 / 色温护眼；漫画自动裁边 / 双页 / 条漫 / 局部放大；播放器倍速 0.25x–4x / 画中画 / 音轨切换
+- **桌面端**：全键盘快捷键 + 窗口状态记忆；**Windows 检查更新会自动选择 `-windows` zip 附件，不再误下手机 APK**
 
 ---
 
 ## 架构速览
-- 源 = 引擎代码（实现 `ComicSource`/`VideoSource`/`NovelSource`）+ 声明式 `SourceConfig`
-- 新增源：写实现类 → `source_manager.dart` 注册 → `source_config.dart` 加默认配置
+- 源 = 插件化注册（实现 `ComicSource`/`VideoSource`/`NovelSource` 接口）+ 声明式 `SourceConfig` + 可选自定义源 DSL
+- 新增源：写实现类 → 插件注册 → `source_config.dart` 加默认配置（或直接导入自定义源 JSON）

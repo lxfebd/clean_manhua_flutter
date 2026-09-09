@@ -365,7 +365,8 @@ class Net {
     await RateLimiter.acquire(host);
     final client = _client(host, proxy: proxy);
     try {
-      final req = await _request(client, 'GET', Uri.parse(urlStr), headers);
+      final req = await _request(
+          client, 'GET', Uri.parse(urlStr), headers, timeout: t);
       final res = await req.close().timeout(t);
       final bytes = await _readBytes(res, t);
       _onDone(res, urlStr);
@@ -486,7 +487,8 @@ class Net {
       Map<String, String>? headers, {String? proxy}) async {
     final client = _client(Uri.parse(urlStr).host, proxy: proxy);
     try {
-      final req = await _request(client, 'GET', Uri.parse(urlStr), headers);
+      final req = await _request(
+          client, 'GET', Uri.parse(urlStr), headers, timeout: _timeout);
       final res = await req.close().timeout(_timeout);
       final bytes = await _readBytes(res, _timeout);
       _onDone(res, urlStr);
@@ -534,7 +536,8 @@ class Net {
       Map<String, String>? headers, String? body, {String? proxy}) async {
     final client = _client(Uri.parse(urlStr).host, proxy: proxy);
     try {
-      final req = await _request(client, 'POST', Uri.parse(urlStr), headers);
+      final req = await _request(
+          client, 'POST', Uri.parse(urlStr), headers, timeout: _timeout);
       if (body != null) {
         // 显式 UTF-8：http 包默认按 platformEncoding 编码，中文 JSON body
         // 会被错误编码（如弹幕匹配的"番名 第N集"）导致服务端拒绝
@@ -551,9 +554,12 @@ class Net {
 
   static Future<HttpClientRequest> _request(
       HttpClient client, String method, Uri uri,
-      Map<String, String>? headers) async {
-    final req =
-        await (method == 'POST' ? client.postUrl(uri) : client.getUrl(uri));
+      Map<String, String>? headers,
+      {Duration? timeout}) async {
+    final req = await (method == 'POST'
+            ? client.postUrl(uri)
+            : client.getUrl(uri))
+        .timeout(timeout ?? _timeout);
     req.headers.set('User-Agent', defaultUA);
     req.headers.set('Accept', '*/*');
     final h = <String, String>{...?headers};

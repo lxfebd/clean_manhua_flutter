@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import '../services/novel_tts_service.dart';
 import '../sources/novel_source.dart';
@@ -284,6 +285,10 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     _listController ??= ScrollController();
     try {
       final c = await s.chapterContent(chapterId).timeout(const Duration(seconds: 15));
+      debugPrint('[novel-reader] chapterContent OK id=$chapterId title=${c.title} paras=${c.paragraphs.length} prev=${c.prevChapterId != null} next=${c.nextChapterId != null}');
+      try {
+        ErrorLogger.instance.logError('[novel-reader] OK id=$chapterId title=${c.title} paras=${c.paragraphs.length} prev=${c.prevChapterId != null} next=${c.nextChapterId != null}');
+      } catch (_) {}
       if (mounted) {
         _content = c;
         _curChapterId = chapterId;
@@ -296,7 +301,12 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         _initBookmark();
       }
     } catch (e) {
-      if (mounted) _error = '加载失败：$e';
+      if (mounted) {
+        try {
+          ErrorLogger.instance.logError('[novel-reader] FAIL id=$chapterId err=$e');
+        } catch (_) {}
+        _error = '加载失败：$e';
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -461,6 +471,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
 
   @override
   Widget build(BuildContext context) {
+    debugPrint('[novel-reader] BUILD loading=$_loading error=${_error != null} content=${_content != null} title=${_content?.title ?? widget.title} theme=$_theme colorTemp=$_colorTemp surface=${Theme.of(context).colorScheme.surface} onSurface=${Theme.of(context).colorScheme.onSurface} surfaceTint=${Theme.of(context).colorScheme.surfaceTint} brightness=${Theme.of(context).brightness}');
     final scheme = Theme.of(context).colorScheme;
     final useCustomBg = _theme > 0;
     final bgColor = useCustomBg
@@ -484,6 +495,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       // 色温护眼：正文区叠加暖色半透明滤镜（纯图层，无额外解码开销）。
       // 0 = 无色温，100 = 最暖（约 3000K），透明度随档位线性增强。
       body: Stack(
+        fit: StackFit.expand,
         children: [
           _loading
               ? const Center(child: CircularProgressIndicator(strokeWidth: 2))

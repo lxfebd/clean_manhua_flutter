@@ -11,8 +11,9 @@ import '../../net/update_download_manager.dart';
 /// 下载仍会在后台继续，并在通知栏显示实时进度。
 Future<bool> showUpdateDownloadDialog(
   BuildContext context,
-  String apkUrl,
-) async {
+  String apkUrl, {
+  String? assetName,
+}) async {
   final navigator = Navigator.of(context, rootNavigator: true);
   final completer = Completer<bool>();
 
@@ -20,7 +21,7 @@ Future<bool> showUpdateDownloadDialog(
   if (UpdateDownloadManager.instance.state.received == 0 &&
       UpdateDownloadManager.instance.state.total == 0 &&
       !UpdateDownloadManager.instance.state.done) {
-    UpdateDownloadManager.instance.start(apkUrl);
+    UpdateDownloadManager.instance.start(apkUrl, fileName: assetName);
   }
 
   showDialog<void>(

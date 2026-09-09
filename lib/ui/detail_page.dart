@@ -1205,14 +1205,13 @@ class _Hero extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
+        // 详情页头图不用 Hero：来源列表（首页/书架/搜索等多处同款列表并存）里
+        // 同一 tag 会出现多次，Hero 动画反而会触发「multiple heroes」崩溃。
         if (pic != null && pic!.isNotEmpty)
-          Hero(
-            tag: 'cover_${sourceId}_$comicId',
-            child: CachedImage(
-              pic!,
-              fit: BoxFit.cover,
-              radius: 0,
-            ),
+          CachedImage(
+            pic!,
+            fit: BoxFit.cover,
+            radius: 0,
           )
         else
           Container(color: scheme.surfaceContainerHighest),

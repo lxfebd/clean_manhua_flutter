@@ -42,7 +42,8 @@ class UpdateDownloadManager {
   bool _running = false;
   bool _cancelled = false;
   String? _downloadedPath;
-  String? _apkPath;
+  String? _dlPath;
+  String _fileName = 'xingmanxia_update.apk';
   int _totalSize = 0;
 
   /// GitHub 加速镜像：按速度优先级排列，空字符串表示直连 GitHub。
@@ -58,18 +59,22 @@ class UpdateDownloadManager {
   static const Duration _speedCheckDuration = Duration(seconds: 5);
 
   /// 启动后台下载（去重，已在跑就直接返回）。
-  Future<void> start(String apkUrl) async {
+  /// [fileName] 为附件文件名（含后缀，用于桌面端手动安装识别）。
+  Future<void> start(String apkUrl, {String? fileName}) async {
     if (_running) return;
     _running = true;
     _cancelled = false;
     _downloadedPath = null;
     _totalSize = 0;
-    // 更新 APK 存放到应用的规范下载目录（LocalStore.downloadDir，
+    _fileName = (fileName != null && fileName.isNotEmpty)
+        ? fileName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
+        : 'xingmanxia_update${UpdateChecker.currentPlatformKey()}.apk';
+    // 更新包存放到应用的规范下载目录（LocalStore.downloadDir，
     // 即 .../files/data/downloads/），与漫画下载同一目录、统一管理；
     // 应用私有目录可被 FileProvider 的 files-path 正常分享用于安装。
     final dl = await LocalStore.downloadDir();
     await dl.create(recursive: true);
-    _apkPath = '${dl.path}/xingmanxia_update.apk';
+    _dlPath = '${dl.path}/$_fileName';
     _notify('更新下载', '开始下载…', 0, 0, false);
     _state = const UpdateDownloadState();
     _stateCtrl.add(_state);
@@ -83,7 +88,7 @@ class UpdateDownloadManager {
     _state = const UpdateDownloadState(error: '已取消');
     _stateCtrl.add(_state);
     _cancelNotif();
-    final p = _apkPath;
+    final p = _dlPath;
     if (p != null) {
       final f = File(p);
       if (f.existsSync()) f.deleteSync();
@@ -110,7 +115,11 @@ class UpdateDownloadManager {
             done: true);
         _stateCtrl.add(_state);
         _notifyDone();
-        await _triggerInstall();
+        // 仅 Android 直接拉起系统安装器；Windows/macOS 下载完成后
+        // 提示用户到下载目录手动解压/安装（桌面端无安装器 channel）。
+        if (Platform.isAndroid) {
+          await _triggerInstall();
+        }
         _running = false;
         return;
       } catch (e) {
@@ -127,7 +136,7 @@ class UpdateDownloadManager {
   /// 下载单个 URL（带 Range 断点续传 + 速度计算）。
   /// 使用固定路径文件，切换镜像/重试时可续传。
   Future<String> _downloadOne(String url, {required String label}) async {
-    final path = _apkPath;
+    final path = _dlPath;
     if (path == null) throw Exception('下载路径未初始化');
     final file = File(path);
 
@@ -140,7 +149,8 @@ class UpdateDownloadManager {
       ..connectionTimeout = const Duration(seconds: 20)
       ..badCertificateCallback = (c, h, p) => true;
     try {
-      final req = await client.getUrl(Uri.parse(url));
+      final req = await client.getUrl(Uri.parse(url))
+          .timeout(const Duration(seconds: 20));
       req.headers.set('User-Agent', 'xingmanxia-android');
       if (received > 0) req.headers.set('Range', 'bytes=$received-');
       final res = await req.close().timeout(const Duration(seconds: 30));

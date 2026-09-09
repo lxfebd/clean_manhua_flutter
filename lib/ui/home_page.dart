@@ -88,10 +88,10 @@ class _HomePageState extends State<HomePage> {
       final key = _snapshotKey;
       final raw = await LocalStore.readJson(key);
       if (raw is List && raw.isNotEmpty) {
-        final items = raw
+        final items = _dedup(raw
             .whereType<Map>()
             .map((m) => ComicItem.fromMap(Map<String, dynamic>.from(m)))
-            .toList();
+            .toList());
         if (mounted && _items.isEmpty) {
           setState(() {
             _items.addAll(items);
@@ -106,11 +106,18 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  /// 源站榜单偶发返回重复条目（同一作品多次出现）：
+  /// 去重后渲染，避免网格内多个同 tag Hero 触发「multiple heroes」崩溃。
+  static List<ComicItem> _dedup(List<ComicItem> items) {
+    final seen = <String>{};
+    return [for (final it in items) if (it.id.isNotEmpty && seen.add(it.id)) it];
+  }
+
   /// 网络拉取成功后将首页数据落盘，供下次启动打底。
   Future<void> _saveSnapshot(List<ComicItem> items) async {
     try {
       await LocalStore.writeJson(
-          _snapshotKey, items.map((e) => e.toMap()).toList());
+          _snapshotKey, _dedup(items).map((e) => e.toMap()).toList());
     } catch (e) {
       // 写快照失败不影响主流程
       debugPrint('saveSnapshot failed: $e');
@@ -139,7 +146,9 @@ class _HomePageState extends State<HomePage> {
   Future<void> _loadMore() async {
     if (_loading) return;
     _loading = true;
-    if (_items.isEmpty) setState(() => _error = null);
+    // 异步续体可能在组件被 dispose 后恢复（切 tab / 换源），
+    // 此时必须带 mounted 保护，否则 setState 在 _element 为 null 时抛 Null check。
+    if (mounted && _items.isEmpty) setState(() => _error = null);
     final source = SourceManager.current;
     final next = _page;
     try {
@@ -156,7 +165,10 @@ class _HomePageState extends State<HomePage> {
       }
       if (mounted) {
         setState(() {
-          _items.addAll(r);
+          // 源站榜单粘页时同一作品可能跨页重复，合并后整体去重。
+          _items
+            ..clear()
+            ..addAll(_dedup([..._items, ...r]));
           _page++;
           _error = null;
         });
@@ -980,13 +992,12 @@ class _FeaturedCard extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Hero(
-                tag: 'cover_${sourceId}_${item.id}',
-                child: CachedImage(
-                  item.pic,
-                  fit: BoxFit.cover,
-                  radius: 0,
-                ),
+              // 轮播卡不用 Hero：同一作品也会出现在下方热榜网格里，
+              // 共用 tag 会触发「multiple heroes share the same tag」。
+              CachedImage(
+                item.pic,
+                fit: BoxFit.cover,
+                radius: 0,
               ),
               // 暗色渐变：对角 + 底部两道，保证标题永远落在深色衬上，
               // 避免亮色封面把白字"吃掉"（底部渐变到 55% 处仍保留 0.72 黑度）。
@@ -1167,13 +1178,13 @@ class _ComicCardState extends State<_ComicCard> {
                     child: Stack(
                       children: [
                         Positioned.fill(
-                          child: Hero(
-                            tag: 'cover_${widget.sourceId}_${widget.item.id}',
-                            child: CachedImage(
-                              widget.item.pic,
-                              fit: BoxFit.cover,
-                              radius: 0,
-                            ),
+                          // 网格卡不用 Hero：同一作品会出现在多个 tab 的同款列表中
+                          // （首页/漫画 tab 都是 HomePage 实例，IndexedStack 同时保活
+                          // 所有 tab），同 tag 会触发「multiple heroes share the same tag」。
+                          child: CachedImage(
+                            widget.item.pic,
+                            fit: BoxFit.cover,
+                            radius: 0,
                           ),
                         ),
                         if ((widget.item.author ?? '').isNotEmpty)

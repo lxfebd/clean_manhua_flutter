@@ -579,14 +579,18 @@ class _SettingsPageState extends State<SettingsPage> {
         }
         return;
       }
+      // 移动端 saveFile 必须携带 bytes（桌面端仅弹出保存路径）。
+      // 传 bytes 后 file_picker 会在用户选择的路径写入内容，全平台一致。
+      final logText = File(path).readAsStringSync();
+      final bytes = Uint8List.fromList(utf8.encode(logText));
       final result = await FilePicker.saveFile(
         dialogTitle: '导出错误日志',
         fileName: '星漫匣_日志_${DateTime.now().millisecondsSinceEpoch}.txt',
         type: FileType.custom,
         allowedExtensions: ['txt'],
+        bytes: bytes,
       );
       if (result == null) return;
-      File(result).writeAsBytesSync(File(path).readAsBytesSync());
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('已导出到 ${result.split('\\').last.split('/').last}')),
@@ -695,6 +699,9 @@ class _SettingsPageState extends State<SettingsPage> {
       );
       if (password == null) return; // 用户取消
       final out = password.isEmpty ? json : BackupCipher.encrypt(json, password);
+      // 移动端 saveFile 必须携带 bytes，否则抛 ArgumentError；
+      // 传 bytes 后 file_picker 会写入所选路径，全平台一致。
+      final bytes = Uint8List.fromList(utf8.encode(out));
       final result = await FilePicker.saveFile(
         dialogTitle: '导出备份',
         fileName: password.isEmpty
@@ -702,9 +709,9 @@ class _SettingsPageState extends State<SettingsPage> {
             : '星漫匣_备份_${DateTime.now().millisecondsSinceEpoch}_enc.json',
         type: FileType.custom,
         allowedExtensions: ['json'],
+        bytes: bytes,
       );
       if (result == null) return;
-      File(result).writeAsStringSync(out);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('已导出到 ${result.split('\\').last.split('/').last}')),
@@ -841,8 +848,9 @@ class _SettingsPageState extends State<SettingsPage> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('检查更新失败：$e')),
+        SnackBar(content: Text('检查更新失败，请稍后重试')),
       );
+      ErrorLogger.instance.warn('检查更新失败：$e');
     } finally {
       if (mounted) setState(() => _checking = false);
     }
@@ -903,7 +911,8 @@ class _SettingsPageState extends State<SettingsPage> {
           FilledButton(
             onPressed: () async {
               Navigator.pop(ctx);
-              showUpdateDownloadDialog(context, info.apkUrl);
+              showUpdateDownloadDialog(context, info.apkUrl,
+                  assetName: info.assetName);
             },
             child: const Text('更新'),
           ),

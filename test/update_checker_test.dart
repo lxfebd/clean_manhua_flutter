@@ -34,4 +34,46 @@ void main() {
   test('currentVersion 非空', () {
     expect(UpdateChecker.currentVersion(), '1.0.0');
   });
+
+  test('Android 平台选中 apk 附件', () {
+    final assets = [
+      {'name': 'app-release.apk', 'browser_download_url': 'https://x/app.apk'},
+      {'name': 'xingmanxia-windows-1.4.1.zip', 'browser_download_url': 'https://x/win.zip'},
+    ];
+    final picked =
+        UpdateChecker.pickAssetForPlatform(assets, platformKey: '');
+    expect(picked, isNotNull);
+    expect(picked!.name, 'app-release.apk');
+  });
+
+  test('Windows 平台选中 windows zip，而非 apk', () {
+    final assets = [
+      {'name': 'app-release.apk', 'browser_download_url': 'https://x/app.apk'},
+      {'name': 'xingmanxia-windows-1.4.1.zip', 'browser_download_url': 'https://x/win.zip'},
+    ];
+    final picked =
+        UpdateChecker.pickAssetForPlatform(assets, platformKey: '-windows');
+    expect(picked, isNotNull);
+    expect(picked!.name, 'xingmanxia-windows-1.4.1.zip');
+  });
+
+  test('macOS 平台选中 macos dmg', () {
+    final assets = [
+      {'name': 'app-release.apk', 'browser_download_url': 'https://x/app.apk'},
+      {'name': 'xingmanxia-macos-1.4.1.dmg', 'browser_download_url': 'https://x/mac.dmg'},
+    ];
+    final picked =
+        UpdateChecker.pickAssetForPlatform(assets, platformKey: '-macos');
+    expect(picked, isNotNull);
+    expect(picked!.name, 'xingmanxia-macos-1.4.1.dmg');
+  });
+
+  test('平台无匹配附件时返回 null', () {
+    final assets = [
+      {'name': 'app-release.apk', 'browser_download_url': 'https://x/app.apk'},
+    ];
+    final picked =
+        UpdateChecker.pickAssetForPlatform(assets, platformKey: '-windows');
+    expect(picked, isNull);
+  });
 }

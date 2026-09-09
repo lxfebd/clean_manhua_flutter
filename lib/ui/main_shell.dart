@@ -248,7 +248,8 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
           FilledButton(
             onPressed: () {
               Navigator.pop(ctx);
-              showUpdateDownloadDialog(context, info.apkUrl);
+              showUpdateDownloadDialog(context, info.apkUrl,
+                  assetName: info.assetName);
             },
             child: const Text('更新'),
           ),
