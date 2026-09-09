@@ -151,17 +151,20 @@ class AgedMVideoSource implements VideoSource {
   @override
   Future<String> playUrl(String videoId, int season, int episode) async {
     // 网络抖动/超时重试一次（与稀饭源一致），提升弱网下解析成功率。
+    // 带同源 Referer 降低反爬触发；若站点仍下发 CF 人机校验落地页，
+    // 由播放页内嵌 WebView 执行 JS 质询，不走这里提取直链。
+    const headers = {'Cookie': 'adult=1', 'Referer': '$_base/'};
     String html;
     try {
       html = await Net.get(
         '$_base/play/$videoId/$season/$episode',
-        headers: {'Cookie': 'adult=1'},
+        headers: headers,
         timeout: const Duration(seconds: 20),
       );
     } catch (_) {
       html = await Net.get(
         '$_base/play/$videoId/$season/$episode',
-        headers: {'Cookie': 'adult=1'},
+        headers: headers,
         timeout: const Duration(seconds: 25),
       );
     }

@@ -184,18 +184,29 @@ class XifanVideoSource implements VideoSource {
   static final Map<String, _CachedUrl> _urlCache = {};
   static const int _maxUrlCache = 100;
 
+  /// 播放页请求头：带同源 Referer 与站点 UA，降低反爬/人机校验触发率。
+  static Map<String, String> _watchHeaders() => {
+        'Referer': '$_host/',
+        'Accept':
+            'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      };
+
   @override
   Future<String> playUrl(String videoId, int season, int episode) async {
     final key = '$videoId/$season/$episode';
     final cached = _urlCache[key];
     if (cached != null && !cached.expired) return cached.url;
-    // 网络抖动/超时重试一次，避免偶发失败直接打断播放
+    // 网络抖动/超时重试一次，避免偶发失败直接打断播放。
+    // 播放页走 Cronet（Chromium 网络栈，TLS/HTTP2 指纹类浏览器），
+    // 规避部分线路对 dart:io 指纹的 Cloudflare 人机校验拦截。
     String raw;
     try {
-      raw = await Net.get('$_host/watch/$videoId/$season/$episode.html',
+      raw = await Net.getCronet('$_host/watch/$videoId/$season/$episode.html',
+          headers: _watchHeaders(),
           timeout: const Duration(seconds: 20));
     } catch (_) {
-      raw = await Net.get('$_host/watch/$videoId/$season/$episode.html',
+      raw = await Net.getCronet('$_host/watch/$videoId/$season/$episode.html',
+          headers: _watchHeaders(),
           timeout: const Duration(seconds: 25));
     }
     // 播放页在 <script> 的 JSON 字符串里给出视频地址，斜杠被转义为 \/，
@@ -207,7 +218,7 @@ class XifanVideoSource implements VideoSource {
       if (html.contains('captcha') ||
           html.contains('verify') ||
           html.contains('cf-challenge')) {
-        throw Exception('稀饭：该线路触发人机校验，请稍后重试或换线路');
+        throw Exception('稀饭：该线路触发人机校验，请换一个线路再试');
       }
       throw Exception('稀饭：未找到播放直链');
     }

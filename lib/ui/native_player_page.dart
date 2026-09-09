@@ -10,6 +10,7 @@ import 'package:screen_brightness/screen_brightness.dart';
 import 'package:volume_controller/volume_controller.dart';
 
 import '../net/error_logger.dart';
+import '../net/http_client.dart' show Net;
 import '../net/local_store.dart';
 import '../net/subtitle_srt.dart';
 import '../net/video_download_manager.dart';
@@ -40,6 +41,9 @@ class NativePlayerPage extends StatefulWidget {
   final String title;
   final String? cover;
 
+  /// 剧情简介（网页通道的 AnimePlayerPage 下面板展示）。
+  final String? description;
+
   /// 选集数据（可空）。传入后播放器内可直接切集、自动连播。
   final List<VideoEpisode> episodes;
   final int season;
@@ -69,6 +73,7 @@ class NativePlayerPage extends StatefulWidget {
     required this.url,
     required this.title,
     this.cover,
+    this.description,
     this.episodes = const [],
     this.season = 1,
     this.episode = 1,
@@ -107,6 +112,24 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   bool _failed = false;
   String _failMsg = '本地播放内核不可用';
   int _vw = 0, _vh = 0;
+
+  // ── 网页通道（同一 Route 双状态机）────────────
+  /// mpv 无法播放（网页加密/人机校验/直链带签名 Cookie）时切到内嵌 WebView
+  /// 通道，由 AnimePlayerPage 状态机接管播放；捕获到直链再切回 mpv。
+  /// 与旧实现「pushReplacement 跳到另一个播放页」相比，这是同一页面内的
+  /// 通道切换，杜绝双页互跳/双播放器叠音。
+  bool _useWeb = false;
+
+  /// 网页通道当前要加载的地址；切通道/换集时更新。
+  String _webUrl = '';
+
+  /// 网页通道当前集（换集后同步给 AnimePlayerPage 的 initialSeason/Episode）。
+  int _webSeason = 1;
+  int _webEpisode = 1;
+
+  /// 网页通道子树重建计数：换集/换地址时 +1 强制重建 WebView，
+  /// 让 AnimePlayerPage 重新 initState 加载新地址。
+  int _webGeneration = 0;
 
   // ── 画质 ────────────────────────────────────
   String _srId = 'off';
@@ -434,6 +457,17 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   Future<void> _boot() async {
     await _loadPrefs();
     if (!mounted) return;
+    // 初始地址是网页播放页（非直链）：先走内嵌 WebView 通道，等捕获到
+    // 直链再切 mpv。Player 仍需创建（_handoffWebToMpv 的 _open 要用），
+    // 只是不 open 任何地址。
+    if (!isDirectMediaUrl(widget.url)) {
+      setState(() {
+        _useWeb = true;
+        _webUrl = widget.url;
+        _webSeason = widget.season;
+        _webEpisode = widget.episode;
+      });
+    }
     try {
       // 画中画恢复：直接接管迷你播放器移交的 Player，不再新建实例。
       final PlayerHandoff? taken = widget.take;
@@ -534,10 +568,32 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         }
       }));
 
-      await _open(widget.url, adopted: taken != null);
+      // 网页通道初始加载：Player 已建好但不开网页地址（mpv 播不了），
+      // 等 WebView 捕获直链后由 _handoffWebToMpv 切回 mpv。
+      if (!_useWeb) {
+        await _open(widget.url, adopted: taken != null);
+      }
     } catch (e) {
       if (mounted) setState(() => _failed = true);
     }
+  }
+
+  /// mpv 拉流所需的请求头。多数组源 CDN 校验 Referer/UA，缺了会在 ts
+  /// 分片阶段返回 403（表现为「播几秒后失败」）；补上与下载器一致的
+  /// Referer（scheme://host/）+ 浏览器 UA。IP 直连（Cloudflare 优选）时
+  /// 还要带正确 Host 头，否则 TLS 证书校验不过。
+  Map<String, String> _mediaHeaders(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return const {};
+    final host = uri.host;
+    final h = <String, String>{
+      'User-Agent': Net.defaultUA,
+      'Referer': '${uri.scheme}://$host/',
+    };
+    if (RegExp(r'^\d{1,3}(\.\d{1,3}){3}$').hasMatch(host)) {
+      h['Host'] = 'www.tvtfun.net';
+    }
+    return h;
   }
 
   Future<void> _open(String url, {bool adopted = false}) async {
@@ -560,7 +616,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           });
         }
       } else {
-        await p.open(Media(url), play: true);
+        await p.open(Media(url, httpHeaders: _mediaHeaders(url)), play: true);
         // Android 上 VideoController 会在拿到 wid 后把 vo=null→gpu 重建，
         // 提前塞的 glsl-shaders 可能被清掉。等首帧真正渲染完再补挂一次最稳。
         if (_sr.enabled) {
@@ -810,21 +866,21 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     try {
       final url = await resolver(ep.season, ep.episode);
       if (!mounted) return;
-      // 有些源换集后拿到的是网页地址而非直链，此时交回 WebView 播放
+      // 有些源换集后拿到的是网页地址而非直链，此时切到内嵌 WebView 通道
+      // （同一 Route，不再 pushReplacement 跳另一播放页）。
       if (!isDirectMediaUrl(url)) {
         _player?.pause();
-        Navigator.of(context).pushReplacement(MaterialPageRoute(
-          builder: (_) => AnimePlayerPage(
-            url: url,
-            title: widget.title,
-            cover: widget.cover,
-            episodes: widget.episodes,
-            initialSeason: ep.season,
-            initialEpisode: ep.episode,
-            resolveUrl: widget.resolveUrl,
-            sourceNames: widget.sourceNames,
-          ),
-        ));
+        setState(() {
+          _webUrl = url;
+          _webSeason = ep.season;
+          _webEpisode = ep.episode;
+          _curSeason = ep.season;
+          _curEpisode = ep.episode;
+          _useWeb = true;
+          _webGeneration++;
+          _ready = false;
+          _switching = false;
+        });
         return;
       }
       setState(() {
@@ -849,12 +905,32 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   }
 
   void _fallbackWeb() {
-    _player?.dispose();
+    // 同一 Route 内切换到内嵌 WebView 通道，而非 pushReplacement 另一播放页。
+    _player?.pause();
     if (mounted) {
-      Navigator.of(context).pushReplacement(MaterialPageRoute(
-        builder: (_) => AnimePlayerPage(
-            url: widget.url, title: widget.title, cover: widget.cover),
-      ));
+      setState(() {
+        _webUrl = widget.url;
+        _useWeb = true;
+        _failed = false;
+        _webGeneration++;
+      });
+    }
+  }
+
+  /// WebView 通道捕获到可直连媒体 URL 时，切回 mpv 通道（同一 Route）。
+  /// AnimePlayerPage 已在切出前 _killWebMedia 杀网页媒体，这里只负责
+  /// 隐藏 WebView 子树并用直链重新 open mpv。返回 true 表示接管成功。
+  Future<bool> _handoffWebToMpv(String src) async {
+    if (!mounted) return false;
+    setState(() => _useWeb = false);
+    if (!mounted) return false;
+    try {
+      await _open(src);
+      return true;
+    } catch (_) {
+      // mpv 也失败：留在网页通道（AnimePlayerPage 仍在树中），不叠加报错。
+      if (mounted) setState(() => _useWeb = true);
+      return false;
     }
   }
 
@@ -1244,6 +1320,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   @override
   Widget build(BuildContext context) {
     if (_failed) return _failedView();
+    // 网页通道：同一 Route 内渲染 AnimePlayerPage 完整状态机（WebView +
+    // 手势/亮度音量/选集/弹幕/全屏/直链捕获），不再跳另一个播放页。
+    if (_useWeb) return _webChannelView();
     return PopScope(
       canPop: !_fullscreen,
       onPopInvokedWithResult: (didPop, _) {
@@ -1288,8 +1367,28 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     );
   }
 
-  Widget _failedView() {
-    return Scaffold(
+  /// 网页通道视图：直接渲染 AnimePlayerPage（完整 WebView 状态机：
+  /// 手势/亮度音量/选集/弹幕/全屏/直链捕获/降级页），ValueKey 变更即重建。
+  /// onDirectUrl 捕获直链时切回 mpv 通道，实现「一套播放器」双通道。
+  Widget _webChannelView() {
+    return AnimePlayerPage(
+      key: ValueKey('web-$_webGeneration'),
+      url: _webUrl,
+      title: widget.title,
+      cover: widget.cover,
+      description: widget.description,
+      episodes: widget.episodes,
+      initialSeason: _webSeason,
+      initialEpisode: _webEpisode,
+      resolveUrl: widget.resolveUrl,
+      sourceNames: widget.sourceNames,
+      sourceId: widget.sourceId,
+      videoId: widget.videoId,
+      onDirectUrl: _handoffWebToMpv,
+    );
+  }
+
+  Widget _failedView() {    return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,

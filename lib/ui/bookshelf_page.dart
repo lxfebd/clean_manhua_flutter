@@ -8,7 +8,6 @@ import '../net/video_download_manager.dart';
 import '../net/local_store.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
-import 'anime_player_page.dart';
 import 'detail_page.dart';
 import 'native_player_page.dart';
 import 'reader_page.dart';
@@ -1448,11 +1447,9 @@ class BookshelfPageState extends State<BookshelfPage>
     reload();
   }
 
-  /// 续播：先向源解析该集的播放入口（站点 iframe 解析器 URL），再交给
-  /// AnimePlayerPage —— 由它抓到真实直链后自动切原生播放器。
-  ///
-  /// 不能直接 push NativePlayerPage：它要求必填真实直链（m3u8/mp4），
-  /// 而直链只有 WebView 播放页才能拿到。
+  /// 续播：向源解析该集的播放入口后统一进 NativePlayerPage（单一播放器）。
+  /// 直链走 mpv 通道；网页地址（站点 iframe 解析器/人机校验）由页面内嵌
+  /// WebView 通道处理，不再跳独立 AnimePlayerPage。
   Future<void> _openVideoRecord(VideoRecord r) async {
     if (_openingVideo) return;
     _openingVideo = true;
@@ -1487,12 +1484,13 @@ class BookshelfPageState extends State<BookshelfPage>
       Navigator.of(context).pop();
       Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) => AnimePlayerPage(
+          builder: (_) => NativePlayerPage(
             url: url,
             title: r.title,
             cover: r.cover,
-            initialSeason: r.season,
-            initialEpisode: r.episode,
+            episodes: const [],
+            season: r.season,
+            episode: r.episode,
             resolveUrl: (s, e) => src.playUrl(r.videoId, s, e),
             sourceId: r.sourceId,
             videoId: r.videoId,

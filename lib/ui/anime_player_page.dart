@@ -36,6 +36,11 @@ class AnimePlayerPage extends StatefulWidget {
   final String? sourceId;
   final String? videoId;
 
+  /// 捕获到可直连媒体 URL 时交由外部处理（同一 Route 内切回 mpv 通道）。
+  /// 为 null 时保持旧行为：本页内 pushReplacement 到 NativePlayerPage。
+  /// 回调返回 true 表示外部接管成功（本页不再跳转）；false/null 走旧逻辑。
+  final Future<bool> Function(String src)? onDirectUrl;
+
   const AnimePlayerPage({
     super.key,
     required this.url,
@@ -50,6 +55,7 @@ class AnimePlayerPage extends StatefulWidget {
     this.sourceNames,
     this.sourceId,
     this.videoId,
+    this.onDirectUrl,
   });
 
   @override
@@ -302,6 +308,18 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     if (src == _hookedVideoUrl) return;
     _hookedVideoUrl = src;
     if (!mounted) return;
+    // 同一 Route 内嵌模式（NativePlayerPage 持有 WebView 状态机）：
+    // 由宿主切回 mpv 通道，本页不 pushReplacement，杜绝双页互跳。
+    final cb = widget.onDirectUrl;
+    if (cb != null) {
+      _resolveTimer?.cancel();
+      _videoPollTimer?.cancel();
+      // 切回 mpv 前先杀掉网页媒体（复用同一套销毁语义），再交由宿主接管。
+      await _killWebMedia();
+      final taken = await cb(src);
+      if (!mounted) return;
+      if (taken) return; // 宿主已接管，URL 无需再跳转
+    }
     // 取消解析定时器，防止 pushReplacement 后定时器触发 setState
     _resolveTimer?.cancel();
     _videoPollTimer?.cancel();
@@ -2482,37 +2500,26 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
       final url = await widget.source.playUrl(
           widget.detail.video.id, season, episode);
       if (!mounted) return;
+      // 统一入口：无论直链还是网页地址都进 NativePlayerPage（单一播放器）。
+      // 直链走 mpv 通道；网页地址由页面内嵌 WebView 通道处理，不再双页互跳。
       await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => isDirectMediaUrl(url)
-              ? NativePlayerPage(
-                  url: url,
-                  title: widget.detail.video.name,
-                  cover: widget.detail.cover,
-                  episodes: widget.detail.episodes,
-                  season: season,
-                  episode: episode,
-                  resolveUrl: _resolveEpisodeUrl,
-                  sourceNames: widget.detail.sourceNames,
-                  sourceId: widget.source.id,
-                  videoId: widget.detail.video.id,
-                  historyKey:
-                      '${widget.source.id}::${widget.detail.video.id}::$season-$episode',
-                )
-              : AnimePlayerPage(
-                  url: url,
-                  title: widget.detail.video.name,
-                  cover: widget.detail.cover,
-                  description: widget.detail.description,
-                  episodes: widget.detail.episodes,
-                  initialSeason: season,
-                  initialEpisode: episode,
-                  resolveUrl: _resolveEpisodeUrl,
-                  sourceNames: widget.detail.sourceNames,
-                  sourceId: widget.source.id,
-                  videoId: widget.detail.video.id,
-                ),
+          builder: (_) => NativePlayerPage(
+            url: url,
+            title: widget.detail.video.name,
+            cover: widget.detail.cover,
+            description: widget.detail.description,
+            episodes: widget.detail.episodes,
+            season: season,
+            episode: episode,
+            resolveUrl: _resolveEpisodeUrl,
+            sourceNames: widget.detail.sourceNames,
+            sourceId: widget.source.id,
+            videoId: widget.detail.video.id,
+            historyKey:
+                '${widget.source.id}::${widget.detail.video.id}::$season-$episode',
+          ),
         ),
       );
     } catch (e) {
