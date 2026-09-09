@@ -293,7 +293,7 @@ class MainActivity : FlutterActivity() {
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(pi)
         // 大文本：多条作品名可展开
-        if (names.isNotEmpty) {
+        if (names.isNotEmpty()) {
             val bigText = androidx.core.app.NotificationCompat.BigTextStyle()
                 .bigText(names.joinToString("\n"))
             builder.setStyle(bigText)
