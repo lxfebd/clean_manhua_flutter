@@ -81,7 +81,6 @@ class RateLimiter {
     final now = DateTime.now().millisecondsSinceEpoch;
     final b = _buckets[host];
     if (b != null) {
-      b.lastRefillMs = now;
       return b;
     }
     final nb = _Bucket(now);
