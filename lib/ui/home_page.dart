@@ -492,6 +492,8 @@ class _HomePageState extends State<HomePage> {
     await showResponsiveBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
+      // 源多时列表可能撑过半屏，放开默认 9/16 高度上限，由内部滚动接管。
+      isScrollControlled: true,
       builder: (_) => _SourceSwitchSheet(
         sources: enabled,
         currentIndex: curInList < 0 ? 0 : curInList,
@@ -1307,61 +1309,71 @@ class _SourceSwitchSheet extends StatelessWidget {
                   ),
             ),
             const SizedBox(height: 10),
-            for (var i = 0; i < sources.length; i++) ...[
-              FadeSlideIn(
-                delay: Duration(milliseconds: 40 * i),
-                offset: 8,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(12),
-                  onTap: () => onSelected(i),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    margin: const EdgeInsets.only(bottom: 6),
-                    decoration: BoxDecoration(
-                      color: i == currentIndex
-                          ? scheme.primary.withValues(alpha: 0.10)
-                          : scheme.surfaceContainerHighest.withValues(alpha: 0.4),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
+            Flexible(
+              // 源数量多时在弹窗内滚动，保证底部源不被导航手势区裁剪。
+              child: ListView.builder(
+                shrinkWrap: true,
+                padding: EdgeInsets.zero,
+                itemCount: sources.length,
+                itemBuilder: (context, i) => FadeSlideIn(
+                  delay: Duration(milliseconds: 40 * i),
+                  offset: 8,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => onSelected(i),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                      margin: const EdgeInsets.only(bottom: 6),
+                      decoration: BoxDecoration(
                         color: i == currentIndex
-                            ? scheme.primary.withValues(alpha: 0.5)
-                            : T.color(scheme.onSurface, TextTier.hairline,
-                                brightness: scheme.brightness),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          i == currentIndex
-                              ? Icons.radio_button_checked_rounded
-                              : Icons.radio_button_unchecked_rounded,
-                          size: 18,
+                            ? scheme.primary.withValues(alpha: 0.10)
+                            : scheme.surfaceContainerHighest
+                                .withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
                           color: i == currentIndex
-                              ? scheme.primary
-                              : scheme.onSurface.withValues(alpha: 0.4),
+                              ? scheme.primary.withValues(alpha: 0.5)
+                              : T.color(scheme.onSurface, TextTier.hairline,
+                                  brightness: scheme.brightness),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            sources[i].name,
-                            style:
-                                Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                      color: scheme.onSurface,
-                                    ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            i == currentIndex
+                                ? Icons.radio_button_checked_rounded
+                                : Icons.radio_button_unchecked_rounded,
+                            size: 18,
+                            color: i == currentIndex
+                                ? scheme.primary
+                                : scheme.onSurface.withValues(alpha: 0.4),
                           ),
-                        ),
-                        Icon(
-                          Icons.public_rounded,
-                          size: 13,
-                          color: scheme.onSurface.withValues(alpha: 0.3),
-                        ),
-                      ],
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              sources[i].name,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                    color: scheme.onSurface,
+                                  ),
+                            ),
+                          ),
+                          Icon(
+                            Icons.public_rounded,
+                            size: 13,
+                            color: scheme.onSurface.withValues(alpha: 0.3),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ],
+            ),
             const SizedBox(height: 6),
             Center(
               child: Text(
