@@ -22,6 +22,7 @@ flutter pub get
 flutter build apk --release     # Android 产物：app-release.apk（仅 arm64-v8a，约 33MB）
 flutter build apk --debug       # 全 ABI（含 x86_64，模拟器可跑）
 flutter build windows --release # Windows 桌面端产物：build/windows/x64/runner/Release（含 xingmanxia.exe）
+flutter build web --release     # Web 端（alpha）：静态产物 build/web（PlatformHttp/WebPersist 自动适配）
 # 或 flutter run 直连设备/模拟器
 ```
 > Android 发布包仅打包 `arm64-v8a`（现代手机/平板通用），体积从 112MB 降到 33MB；debug 包保留全 ABI 以便 x86 模拟器测试。
@@ -41,6 +42,15 @@ flutter build windows --release # Windows 桌面端产物：build/windows/x64/ru
 ---
 
 ## 更新日志
+
+### v1.4.3（2026-09-10）
+- 🎬 **播放器并成单页双通道**：动漫播放器从「双页互跳 + 兜底回退」重构为单一播放页，mpv 原生通道与内嵌 WebView 通道同页共存、按需接管——页面型地址走 WebView（完整浏览器指纹，可执行 Cloudflare JS 人机质询），捕获到直链后同页无缝切回 mpv，不再页面跳转
+- 🐛 **修复 AGE 非首线路播放失败**：AGE 线路 2/3+ 解析不出 iframe（人机校验落地页）时不再抛「人机校验」异常中断播放，改为把播放页 URL 原样交给内嵌 WebView 执行 JS 质询，通过后正常出画面出声
+- 🐛 **修复动漫播放器叠音**：暂停后仍残留上一播放器声音的问题（player 会话 retire + 全局注册表统一管理）
+- 🌐 **Web 端 alpha**：`PlatformHttp`/`WebPersist` 平台抽象层（dart:io ↔ Web 自动切换）、path_provider Web 降级、localStorage 持久化书架、Web 版本检查通知
+- 🔌 **源市场**：拉取远端索引展示社区/官方自定义源，一键安装/更新/查看详情（走 CustomSourceStore 校验落盘 + 插件注册）
+- 📺 **本地字幕 SRT**：本地视频外挂字幕解析（时间轴/双语/滚动渲染），字幕覆盖层独立组件
+- 📊 **年度阅读报告 + 书单导出**：阅读报告弹窗（周报柱状图 / 年度 12 个月柱状图 + 汇总）、书单一键导出纯文本到剪贴板
 
 ### v1.4.2（2026-09-09）
 - 📚 **书架分类文件夹**：自定义分类整理（新建/重命名/删除分类，长按作品移动归类）+ 顶部分类筛选切换 + 备份兼容导出导入
