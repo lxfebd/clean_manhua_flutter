@@ -744,6 +744,35 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     await _runJs(_muteWebMediaJs);
   }
 
+  /// 空格播放/暂停：遍历顶层 + 同域 iframe 的全部 video/audio。
+  /// 只停 `querySelector('video')` 第一个元素会漏掉多播放器/跨域 iframe
+  /// 里的媒体——暂停后仍有声音的典型根因。跨域 iframe 取不到 document
+  /// （SecurityError）无法控制，属平台限制。
+  static const String _toggleWebMediaJs = '''
+    (function(){
+      var collect = function(doc){
+        var list = [];
+        if(!doc || !doc.querySelectorAll) return list;
+        list.push.apply(list, doc.querySelectorAll('video,audio'));
+        var fs = doc.querySelectorAll('iframe');
+        for(var i=0;i<fs.length;i++){
+          try{ var fd = fs[i].contentDocument; if(fd){ list = list.concat(collect(fd)); } }catch(e){}
+        }
+        return list;
+      };
+      var nodes = collect(document);
+      var anyPlaying = false;
+      for(var i=0;i<nodes.length;i++){
+        try{ if(!nodes[i].paused){ anyPlaying = true; break; } }catch(e){}
+      }
+      for(var j=0;j<nodes.length;j++){
+        try{
+          if(anyPlaying){ nodes[j].pause(); } else { var pr = nodes[j].play(); if(pr && pr.catch){ pr.catch(function(){}); } }
+        }catch(e){}
+      }
+    })();
+  ''';
+
   /// 切原生播放器/退出页前杀掉网页媒体：先跑 [_destroyWebMediaJs] 硬销毁
   /// 顶层与同域 iframe 的媒体元素并把跨域 iframe 摘除，再停 WebView2、
   /// 导航到 about:blank 卸载整个文档树，最后同步把 WebView 从视图树移除。
@@ -997,13 +1026,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     }
     switch (event.logicalKey) {
       case LogicalKeyboardKey.space:
-        _runJs('''
-          (function(){
-            var v = document.querySelector('video');
-            if(!v) return;
-            if(v.paused) v.play(); else v.pause();
-          })();
-        ''');
+        _runJs(_toggleWebMediaJs);
         return true;
       case LogicalKeyboardKey.arrowLeft:
         _runJs('''

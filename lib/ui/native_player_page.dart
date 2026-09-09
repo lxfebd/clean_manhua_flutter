@@ -437,6 +437,11 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     try {
       // 画中画恢复：直接接管迷你播放器移交的 Player，不再新建实例。
       final PlayerHandoff? taken = widget.take;
+      // 非恢复场景（用户从书架/详情直接开新播放页）时，若小窗仍挂载
+      // 着旧 Player，先收编销毁它，否则新旧两个 Player 同时出声（叠音）。
+      if (taken == null && PlayerRegistry.active) {
+        PlayerRegistry.retire();
+      }
       final Player p;
       if (taken != null) {
         p = taken.player;

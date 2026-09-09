@@ -26,14 +26,15 @@ class PlayerRegistry {
 
   /// 播放页最小化 → 移交给迷你播放器。
   static void publish(PlayerHandoff handoff) {
+    // 覆盖旧登记前先停掉旧小窗的 Player，否则新播放器接管时
+    // 旧小窗仍在后台出声（双 Player 叠音）。
+    _stopAndRelease();
     notifier.value = handoff;
   }
 
   /// 迷你小窗关闭 → 彻底释放 Player。
   static void retire() {
-    final handoff = notifier.value;
-    notifier.value = null;
-    handoff?.player.dispose();
+    _stopAndRelease();
   }
 
   /// 小窗点击"继续观看" → 取回（所有权回到播放页）。
@@ -41,6 +42,19 @@ class PlayerRegistry {
     final handoff = notifier.value;
     notifier.value = null;
     return handoff;
+  }
+
+  /// 停声 + 释放当前登记的 Player（若存在）。先 pause 止血再 dispose，
+  /// 避免 dispose 前最后一帧仍输出音频。
+  static void _stopAndRelease() {
+    final handoff = notifier.value;
+    if (handoff == null) return;
+    notifier.value = null;
+    try {
+      final p = handoff.player;
+      if (p.state.playing) p.pause();
+      p.dispose();
+    } catch (_) {}
   }
 }
 
