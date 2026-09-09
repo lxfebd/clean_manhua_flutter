@@ -9,20 +9,23 @@
 ---
 
 ## 技术栈
-- Dart（Flutter 3.x）
-- 网络：零三方依赖，自写 `Net`（`lib/net/http_client.dart`）
-- 加密：`crypto` + `pointycastle`；图片：`image`；播放：`media_kit`；WebView：`webview_flutter`
+- Dart（Flutter 3.x），全平台：Android / iOS / Windows / macOS / Linux
+- 网络：零三方依赖，自写 `Net`（`lib/net/http_client.dart`）——多级镜像降级、Cloudflare 优选 IP、请求限流、HTTP/Socks5 代理
+- 加密：`crypto` + `pointycastle`；图片：`image`；播放：`media_kit`；WebView：`webview_flutter` / `webview_windows`
+- 其他：`window_manager`（桌面窗口）、`flutter_tts`（小说朗读）、`file_picker`（本地导入）、`screen_brightness`/`volume_controller`（阅读播放手势）
 
 ---
 
 ## 快速开始
 ```bash
 flutter pub get
-flutter build apk --release     # 产物：app-release.apk（仅 arm64-v8a，约 33MB）
+flutter build apk --release     # Android 产物：app-release.apk（仅 arm64-v8a，约 33MB）
 flutter build apk --debug       # 全 ABI（含 x86_64，模拟器可跑）
+flutter build windows --release # Windows 桌面端产物：build/windows/x64/runner/Release（含 xingmanxia.exe）
 # 或 flutter run 直连设备/模拟器
 ```
-> 发布包仅打包 `arm64-v8a`（现代手机/平板通用），体积从 112MB 降到 33MB；debug 包保留全 ABI 以便 x86 模拟器测试。
+> Android 发布包仅打包 `arm64-v8a`（现代手机/平板通用），体积从 112MB 降到 33MB；debug 包保留全 ABI 以便 x86 模拟器测试。
+> Windows 打包产物在 `build/windows/x64/runner/Release/`，完整发布需连同 `data/` 与 `flutter_windows.dll` 一并分发（CI 发版时由 GitHub Actions 打成 zip 挂到 Release）。
 > 需要在装有 Flutter SDK 与 Android NDK 的机器上构建。
 
 ---
@@ -186,12 +189,14 @@ flutter build apk --debug       # 全 ABI（含 x86_64，模拟器可跑）
 ---
 
 ## 设计要点
-- **源 = 引擎代码 + 声明式配置**：域名/镜像/请求头/登录开关外置到 `SourceConfig`（`lib/sources/source_config.dart`），用户在「源管理」页可改，免发版换域名。
-- **网络自愈**：候选 IP 轮询 + DNS 回退 + 短超时 + 每 host 熔断。
-- **多类型聚合**：`MainShell` 底部 4 Tab（首页/书架/工具/我的），首页内 漫画/动漫/小说 三态切换。
+- **源 = 插件化 + 声明式配置**：内置源通过统一接口注册（`ComicSource`/`VideoSource`/`NovelSource`），域名/镜像/请求头/登录开关外置到 `SourceConfig`（`lib/sources/source_config.dart`），支持插件化装卸；另开放**用户自定义源 DSL**（JSON 规则：解析选择器/正则/解密函数），设置页表单化配置并支持导出导入
+- **网络自愈**：候选 IP 轮询 + DNS 回退 + 短超时 + 每 host 熔断；单源代理 + 失败自动回退直连；每域名令牌桶限流（3req/s）+ 并发上限，避免对源站施压
+- **多类型聚合**：`MainShell` 底部 4 Tab（首页/书架/工具/我的），首页内 漫画/动漫/小说 三态切换
+- **阅读/播放体验**：小说 TTS 朗读 / TXT·EPUB 导入 / 色温护眼；漫画自动裁边 / 双页 / 条漫 / 局部放大；播放器倍速 0.25x–4x / 画中画 / 音轨切换
+- **桌面端**：全键盘快捷键 + 窗口状态记忆；**Windows 检查更新会自动选择 `-windows` zip 附件，不再误下手机 APK**
 
 ---
 
 ## 架构速览
-- 源 = 引擎代码（实现 `ComicSource`/`VideoSource`/`NovelSource`）+ 声明式 `SourceConfig`
-- 新增源：写实现类 → `source_manager.dart` 注册 → `source_config.dart` 加默认配置
+- 源 = 插件化注册（实现 `ComicSource`/`VideoSource`/`NovelSource` 接口）+ 声明式 `SourceConfig` + 可选自定义源 DSL
+- 新增源：写实现类 → 插件注册 → `source_config.dart` 加默认配置（或直接导入自定义源 JSON）
