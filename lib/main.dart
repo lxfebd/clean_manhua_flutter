@@ -136,8 +136,12 @@ Future<void> _postFirstFrameInit() async {
   await Future.wait([
     _safeInit('SourceHealthMonitor', () => SourceHealthMonitor.instance.start()),
     _safeInit('UpdateChecker', UpdateChecker.init),
-    _safeInit('ErrorLogger.setAppVersion',
-        () async => ErrorLogger.instance.setAppVersion(UpdateChecker.currentVersion())),
+    _safeInit('ErrorLogger.setAppVersion', () async {
+      // 与 UpdateChecker.init 并发执行，必须先 await init 让 _cached 就绪，
+      // 否则 currentVersion() 读到空缓存恒返回兜底 1.0.0（日志头版本错误）。
+      await UpdateChecker.init();
+      ErrorLogger.instance.setAppVersion(UpdateChecker.currentVersion());
+    }),
     _safeInit('VideoDownloadManager', () => VideoDownloadManager.instance.init()),
     _safeInit('Net.restorePreferredHostIps', Net.restorePreferredHostIps),
     _safeInit('Net.restoreProxy', Net.restoreProxy),
