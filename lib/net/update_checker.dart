@@ -105,7 +105,9 @@ class UpdateChecker {
   }
 
   /// 当前平台的附件识别关键字：Windows→'-windows'、macOS→'-macos'、其余（Android）→''。
+  /// Web 无自更新，返回空串（调用方已按 kIsWeb 短路）。
   static String currentPlatformKey() {
+    if (kIsWeb) return '';
     if (Platform.isWindows) return '-windows';
     if (Platform.isMacOS) return '-macos';
     return '';

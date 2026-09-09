@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/comic_item.dart';
 import '../utils/danmaku.dart';
 import 'error_logger.dart';
+import 'web_persist.dart';
 
 /// 在独立 Isolate 中解析 JSON（用于大文件，避免阻塞 UI）。
 dynamic _jsonDecodeCompute(String raw) => jsonDecode(raw);
@@ -253,11 +254,15 @@ class LocalStore {
 
   /// 初始化（应用启动时调用一次）。
   static Future<void> init() async {
+    if (kIsWeb) return; // web 端无文件目录，读写全走 WebPersist(localStorage)
     await _dirAsync();
   }
 
   static Future<Directory> _dirAsync() async {
     if (_dir != null) return _dir!;
+    if (kIsWeb) {
+      throw UnsupportedError('web 端无文件目录，读写走 WebPersist(localStorage)');
+    }
     final d = await getApplicationSupportDirectory();
     final sub = Directory('${d.path}/data');
     if (!sub.existsSync()) sub.createSync(recursive: true);
@@ -281,8 +286,12 @@ class LocalStore {
 
   static Future<void> _writeNow(String name, Object data) async {
     try {
-      final f = await _fileAsync(name);
       final json = jsonEncode(data);
+      if (kIsWeb) {
+        WebPersist.write('local_$name', json);
+        return;
+      }
+      final f = await _fileAsync(name);
       await f.writeAsString(json, flush: true);
     } catch (e) {
       ErrorLogger.instance.warn('LocalStore._write($name) 写盘失败: $e');
@@ -302,6 +311,11 @@ class LocalStore {
 
   static dynamic _read(String name) async {
     try {
+      if (kIsWeb) {
+        final raw = WebPersist.read('local_$name');
+        if (raw == null) return null;
+        return jsonDecode(raw);
+      }
       final f = await _fileAsync(name);
       if (!f.existsSync()) return null;
       final raw = await f.readAsString();
@@ -312,14 +326,16 @@ class LocalStore {
     } catch (e) {
       // 文件损坏（写入中断/磁盘错误）：先备份损坏文件再返回 null，
       // 与 BookshelfStore 的 .corrupt 行为对齐，避免"收藏/历史突然清空"无法追溯。
-      try {
-        final f = await _fileAsync(name);
-        if (f.existsSync()) {
-          f.renameSync(
-              '${f.path}.corrupt-${DateTime.now().millisecondsSinceEpoch}');
+      if (!kIsWeb) {
+        try {
+          final f = await _fileAsync(name);
+          if (f.existsSync()) {
+            f.renameSync(
+                '${f.path}.corrupt-${DateTime.now().millisecondsSinceEpoch}');
+          }
+        } catch (e2) {
+          ErrorLogger.instance.warn('LocalStore._read($name) 损坏备份失败: $e2');
         }
-      } catch (e2) {
-        ErrorLogger.instance.warn('LocalStore._read($name) 损坏备份失败: $e2');
       }
       ErrorLogger.instance.warn('LocalStore._read($name) 解析失败（数据已损坏，原文件已备份）: $e');
       return null;

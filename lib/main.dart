@@ -68,30 +68,33 @@ class _DesktopWindowListener extends WindowListener {
 }
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  PaintingBinding.instance.imageCache.maximumSize = 20;
-  PaintingBinding.instance.imageCache.maximumSizeBytes = 30 * 1024 * 1024;
-  // 注册各源的图片降级链（原画→省空间→备用镜像），幂等；
-  // 必须在任何图片加载前完成，否则首张图加载时降级注册表为空。
-  SourceManager.init();
-  // Android 低内存警告（onTrimMemory → MethodChannel）：收到后主动释放图片缓存，
-  // 降低被系统杀进程概率。通道在 Android 才存在，其他平台无副作用。
-  if (!kIsWeb && Platform.isAndroid) {
-    const MethodChannel('xingmanxia/low_memory').setMethodCallHandler(
-        (call) async {
-      if (call.method == 'onLowMemory') {
-        ImageCacheManager.onLowMemory();
-      }
-    });
-  }
-  try {
-    MediaKit.ensureInitialized();
-  } catch (e) {
-    debugPrint('MediaKit init failed: $e');
-  }
-  // 立即渲染首帧，避免用户看到灰色空窗；外层 Zone 捕获未处理的异步异常
-  // 写入本地日志（不改变既有行为，仅记录）。
-  runZonedGuarded(() {
+  // 整个 app（含 binding 初始化）跑在同一个 Zone 里，避免 "Zone mismatch"：
+  // ensureInitialized 与 runApp 必须在同一 zone，否则 Flutter web 报告异常时
+  // 内部访问 dart:io Platform stub 抛 Unsupported operation。
+  await runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    PaintingBinding.instance.imageCache.maximumSize = 20;
+    PaintingBinding.instance.imageCache.maximumSizeBytes = 30 * 1024 * 1024;
+    // 注册各源的图片降级链（原画→省空间→备用镜像），幂等；
+    // 必须在任何图片加载前完成，否则首张图加载时降级注册表为空。
+    SourceManager.init();
+    // Android 低内存警告（onTrimMemory → MethodChannel）：收到后主动释放图片缓存，
+    // 降低被系统杀进程概率。通道在 Android 才存在，其他平台无副作用。
+    if (!kIsWeb && Platform.isAndroid) {
+      const MethodChannel('xingmanxia/low_memory').setMethodCallHandler(
+          (call) async {
+        if (call.method == 'onLowMemory') {
+          ImageCacheManager.onLowMemory();
+        }
+      });
+    }
+    try {
+      MediaKit.ensureInitialized();
+    } catch (e) {
+      debugPrint('MediaKit init failed: $e');
+    }
+    // 立即渲染首帧，避免用户看到灰色空窗；外层 Zone 捕获未处理的异步异常
+    // 写入本地日志（不改变既有行为，仅记录）。
     runApp(const YingManHeApp());
   }, (error, stack) {
     try {
@@ -155,14 +158,18 @@ Future<void> _postFirstFrameInit() async {
       debugPrint('initDesktopWindow failed: $e');
     }
   }
-  try {
-    final dir = await getApplicationSupportDirectory();
-    BookshelfStore.bindFile(File('${dir.path}/bookshelf.json'));
-    NovelShelfStore.bindFile(File('${dir.path}/novel_shelf.json'));
-    // 本地导入小说正文存独立目录，避免混入全局 JSON 大文本。
-    LocalNovelSource.setStoreDir('${dir.path}${Platform.pathSeparator}novel_imports');
-  } catch (e) {
-    debugPrint('shelf bind failed: $e');
+  // 书架/小说书架绑定文件：web 端无文件系统，两个 Store 内部走 WebPersist(localStorage)。
+  if (!kIsWeb) {
+    try {
+      final dir = await getApplicationSupportDirectory();
+      BookshelfStore.bindFile(File('${dir.path}/bookshelf.json'));
+      NovelShelfStore.bindFile(File('${dir.path}/novel_shelf.json'));
+      // 本地导入小说正文存独立目录，避免混入全局 JSON 大文本。
+      LocalNovelSource.setStoreDir(
+          '${dir.path}${Platform.pathSeparator}novel_imports');
+    } catch (e) {
+      debugPrint('shelf bind failed: $e');
+    }
   }
 }
 

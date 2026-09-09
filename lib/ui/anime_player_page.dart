@@ -497,8 +497,20 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       _pendingBlank!.complete();
     }
     // 兜底：离开播放页时若网页播放器仍在播放（如未捕获直链直接退出），
-    // 立即静音停播并同步移除 WebView，避免页面销毁后音频残留。
-    if (!_webViewRemoved) _muteWebMedia();
+    // 立即硬销毁网页媒体并停掉 WebView2，避免页面销毁后音频残留。
+    // 不能复用 _killWebMedia：它在内部 setState，dispose 期间调用会崩。
+    if (!_webViewRemoved) {
+      _runJs(_destroyWebMediaJs); // fire-and-forget：销毁脚本本身同步执行
+      try {
+        _desktop?.stop();
+      } catch (_) {}
+      // 跨域 iframe 内的媒体销毁脚本够不着（SecurityError），只剩
+      // 导航 about:blank 能连根卸载整个文档树（含跨域 iframe 的 <video>）。
+      // fire-and-forget，不等待 onPageFinished，不 setState。
+      try {
+        _controller.loadRequest(Uri.parse('about:blank'));
+      } catch (_) {}
+    }
     _webViewRemoved = true;
     for (final s in _desktopSubs) {
       s.cancel();
@@ -632,20 +644,37 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   /// 抛 SecurityError 被吞，跨域 iframe 里的播放器全程既不 pause 也不 mute，
   /// 是「网页播放器 + 原生播放器双音轨」的根因。这里用 `querySelectorAll`
   /// 处理多元素，并用 `srcObject = null` 掐断 MSE/blob 流（只 pause 不够）。
+  ///
+  /// 跨域 iframe 无法读 contentDocument，音频轨道线程在 iframe 内仍存活：
+  /// 摘掉 iframe 节点只能断渲染，不能保证停声。因此：
+  /// 1) 对所有 iframe 先整体 `pause = true` 强行走到 document 的
+  ///    visibilitychange 隐藏分支,由各媒体元素自身的 volumechange/pause 事件
+  ///    触发（而非依赖读跨域 DOM）;
+  /// 2) 接管 document 的 appendChild/insertBefore，拦截后续由站点脚本
+  ///    重建的 <video>/<audio>（深色模式/播放器库重挂载时常见）;
+  /// 3) 用 MutationObserver 兜底观察同域文档，交叉覆盖动态插入的媒体。
   static const String _destroyWebMediaJs = '''
     (function(){
       var kill = function(doc){
-        if(!doc) return;
-        var nodes = doc.querySelectorAll ? doc.querySelectorAll('video,audio') : [];
+        if(!doc || !doc.querySelectorAll) return;
+        var nodes = doc.querySelectorAll('video,audio');
         for(var i=0;i<nodes.length;i++){
           var m = nodes[i];
           try{ m.muted = true; }catch(e){}
           try{ m.pause(); }catch(e){}
           try{ if(m.srcObject !== undefined){ m.srcObject = null; } }catch(e){}
-          try{ m.removeAttribute('src'); m.load(); }catch(e){}
+          try{ if(m.removeAttribute) m.removeAttribute('src'); }catch(e){}
+          try{ if(m.load) m.load(); }catch(e){}
           try{ if(m.parentNode){ m.parentNode.removeChild(m); } }catch(e){}
         }
       };
+      var ts = (typeof document.hidden !== 'undefined') && document.hidden;
+      // 修改 visibilityState：document.hidden 只读，直接替换整个属性描述符
+      try{
+        Object.defineProperty(document, 'hidden', {get: function(){ return true; }, configurable: true});
+        Object.defineProperty(document, 'visibilityState', {get: function(){ return 'hidden'; }, configurable: true});
+      }catch(e){}
+      try{ document.dispatchEvent(new Event('visibilitychange')); }catch(e){}
       kill(document);
       var fs = document.querySelectorAll ? document.querySelectorAll('iframe') : [];
       for(var j=0;j<fs.length;j++){
@@ -653,6 +682,35 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
         try{ kill(fs[j].contentWindow.document); }catch(e){}
         try{ if(fs[j].parentNode){ fs[j].parentNode.removeChild(fs[j]); } }catch(e){}
       }
+      // 站点播放器库在事件队列尾部常会重挂媒体元素（隐藏节流播放器），
+      // 接管注入点：拦截 appendChild/insertBefore 重建的媒体并立即销毁。
+      var detach = function (m){
+        try{ m.muted = true; }catch(e){}
+        try{ if(m.pause) m.pause(); }catch(e){}
+        try{ if(m.srcObject !== undefined){ m.srcObject = null; } }catch(e){}
+        try{ if(m.parentNode){ m.parentNode.removeChild(m); } }catch(e){}
+        return m;
+      };
+      try{
+        var _append = Element.prototype.appendChild;
+        Element.prototype.appendChild = function(child){
+          if(child && (child.tagName === 'VIDEO' || child.tagName === 'AUDIO')){ detach(child); return child; }
+          return _append.apply(this, arguments);
+        };
+        var _insert = Element.prototype.insertBefore;
+        Element.prototype.insertBefore = function(child, ref){
+          if(child && (child.tagName === 'VIDEO' || child.tagName === 'AUDIO')){ detach(child); return child; }
+          return _insert.apply(this, arguments);
+        };
+      }catch(e){}
+      // MutationObserver 兜底：同域文档里动态插入的媒体也会被销毁
+      try{
+        var _kill = function(){ kill(document); };
+        var mo = new MutationObserver(_kill);
+        mo.observe(document, {childList: true, subtree: true});
+        setTimeout(function(){ try{ mo.disconnect(); }catch(e){} }, 5000);
+      }catch(e){}
+      return ts;
     })();
   ''';
 

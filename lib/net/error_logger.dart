@@ -31,16 +31,21 @@ class ErrorLogger {
   /// 应用启动时调用：初始化日志目录、安装全局异常捕获、写入设备/版本头。
   Future<void> init() async {
     try {
-      final base = await getApplicationSupportDirectory();
-      final d = Directory('${base.path}/$_dirName');
-      if (!d.existsSync()) d.createSync(recursive: true);
-      _dir = d;
-      _pruneOldLogs();
+      // web 端无文件系统：跳过日志落盘，仅安装全局异常捕获（Buffer 日志仍可用）。
+      if (!kIsWeb) {
+        final base = await getApplicationSupportDirectory();
+        final d = Directory('${base.path}/$_dirName');
+        if (!d.existsSync()) d.createSync(recursive: true);
+        _dir = d;
+        _pruneOldLogs();
+      }
       if (!_installed) {
         _installed = true;
         _installGlobalHandlers();
       }
-      unawaited(_collectDeviceInfo());
+      if (!kIsWeb) {
+        unawaited(_collectDeviceInfo());
+      }
     } catch (e) {
       debugPrint('ErrorLogger init failed: $e');
     }

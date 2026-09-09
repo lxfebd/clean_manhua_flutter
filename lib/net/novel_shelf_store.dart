@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/comic_item.dart';
 import '../sources/novel_source.dart';
+import 'web_persist.dart';
 
 /// 小说本地书架：与漫画 [BookshelfStore] 分离，独立 JSON 文件，避免与漫画条目混淆。
 /// 同样按 sourceId 维度分组。
@@ -15,10 +16,13 @@ class NovelShelfStore {
   static Timer? _saveTimer;
   /// 串行写盘队列：防抖触发后只允许一个 writeAsString 在途，杜绝并发写坏文件。
   static Future<void> _writeTail = Future.value();
+  /// 是否已从持久层加载（web 端避免重复读 localStorage）。
+  static bool _loaded = false;
 
   static void bindFile(File file) {
     _file = file;
     _load();
+    _loaded = true;
   }
 
   static void _load() {
@@ -41,14 +45,34 @@ class NovelShelfStore {
     }
   }
 
+  /// 首次访问时确保已从持久层装载（web 端无 bindFile，用 localStorage）。
+  static void _ensureLoaded() {
+    if (_cache.isNotEmpty || _loaded) return;
+    if (kIsWeb) {
+      final raw = WebPersist.read('novel_shelf');
+      if (raw != null) {
+        try {
+          _cache = jsonDecode(raw) as Map<String, dynamic>;
+        } catch (_) {
+          _cache = {};
+        }
+      }
+      _loaded = true;
+    }
+  }
+
   /// 防抖异步写盘：300ms 内多次调用合并为一次写入。
   /// 写入通过 [_writeTail] 串行排队，杜绝并发 writeAsString 交错。
   static void _save() {
     _saveTimer?.cancel();
     _saveTimer = Timer(const Duration(milliseconds: 300), () {
+      final snapshot = jsonEncode(_cache);
+      if (kIsWeb) {
+        WebPersist.write('novel_shelf', snapshot);
+        return;
+      }
       final f = _file;
       if (f == null) return;
-      final snapshot = jsonEncode(_cache);
       _writeTail = _writeTail.then((_) => _writeAsync(f, snapshot));
     });
   }
@@ -68,6 +92,7 @@ class NovelShelfStore {
   }
 
   static void add(String sourceId, NovelDetail d) {
+    _ensureLoaded();
     final k = _key(sourceId, d.id);
     _cache[k] = {
       'sourceId': sourceId,
@@ -85,15 +110,19 @@ class NovelShelfStore {
   }
 
   static void remove(String sourceId, String novelId) {
+    _ensureLoaded();
     _cache.remove(_key(sourceId, novelId));
     _save();
   }
 
-  static bool contains(String sourceId, String novelId) =>
-      _cache.containsKey(_key(sourceId, novelId));
+  static bool contains(String sourceId, String novelId) {
+    _ensureLoaded();
+    return _cache.containsKey(_key(sourceId, novelId));
+  }
 
   /// 列出某个源的书架。
   static List<NovelDetail> listBySource(String sourceId) {
+    _ensureLoaded();
     return _all()
         .where((m) => m['sourceId'] == sourceId)
         .map(_fromMap)
@@ -107,6 +136,7 @@ class NovelShelfStore {
 
   /// 列出全部书架（用于统一书架视图）。
   static List<NovelDetail> listAll() {
+    _ensureLoaded();
     return _all().map(_fromMap).toList()
       ..sort((a, b) {
         final ma = _readAddedAt(a);
@@ -131,6 +161,7 @@ class NovelShelfStore {
 
   /// 覆盖导入（用于恢复备份）。
   static void importData(Map<String, dynamic> data) {
+    _ensureLoaded();
     _cache = Map.from(data);
     _save();
   }

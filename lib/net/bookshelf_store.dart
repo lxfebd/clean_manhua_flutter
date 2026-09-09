@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../models/comic_item.dart';
 import '../sources/comic_source.dart';
 import 'local_store.dart';
+import 'web_persist.dart';
 
 /// 通用本地书架：所有漫画源统一保存在一个 JSON 文件中，
 /// 按 sourceId 维度分组，避免每个源各自实现。
@@ -15,6 +16,8 @@ class BookshelfStore {
   static Map<String, dynamic> _cache = {};
   static Timer? _saveTimer;
   static Map<String, String> _idIndex = {};
+  /// 是否已从持久层加载（web 端避免重复读 localStorage）。
+  static bool _loaded = false;
   /// 串行写盘队列：防抖触发后只允许一个 writeAsString 在途，
   /// 连点收藏/移出时不会并发写坏文件。
   static Future<void> _writeTail = Future.value();
@@ -158,12 +161,14 @@ class BookshelfStore {
 
   /// 读取某本书所属分类（id）。旧数据/未设置返回 [defaultFolderId]。
   static String folderIdOf(String sourceId, String comicId) {
+    _ensureLoaded();
     final v = _cache[_key(sourceId, comicId)]?['folderId'];
     return (v is String && v.isNotEmpty) ? v : defaultFolderId;
   }
 
   /// 写入某本书所属分类（传 [defaultFolderId] 归入默认分类）。
   static void setFolderId(String sourceId, String comicId, String folderId) {
+    _ensureLoaded();
     final m = _cache[_key(sourceId, comicId)];
     if (m == null) return;
     m['folderId'] = folderId;
@@ -172,7 +177,7 @@ class BookshelfStore {
 
   static void bindFile(File file) {
     _file = file;
-    _load();
+    _loadFromFile();
     _rebuildIndex();
     // 新文件范围：分类内存态作废，下次访问从该文件对应目录重读。
     _foldersLoaded = false;
@@ -180,7 +185,29 @@ class BookshelfStore {
     _folderSort = {};
   }
 
-  static void _load() {
+  /// 从持久层读全量数据（web=localStorage，io=bindFile 绑定的文件）。
+  /// web 端没有 bindFile（main.dart 的 shelf bind 失败兜底），首次访问时
+  /// 用 localStorage 里的书架数据初始化。
+  static bool _ensureLoaded() {
+    if (_cache.isNotEmpty || _loaded) return true;
+    if (kIsWeb) {
+      final raw = WebPersist.read('bookshelf');
+      if (raw != null) {
+        try {
+          _cache = jsonDecode(raw) as Map<String, dynamic>;
+        } catch (_) {
+          _cache = {};
+        }
+      } else {
+        _cache = {};
+      }
+      _loaded = true;
+      return true;
+    }
+    return false;
+  }
+
+  static void _loadFromFile() {
     final f = _file;
     if (f == null || !f.existsSync()) {
       _cache = {};
@@ -218,9 +245,13 @@ class BookshelfStore {
   static void _save() {
     _saveTimer?.cancel();
     _saveTimer = Timer(const Duration(milliseconds: 300), () {
+      final snapshot = jsonEncode(_cache);
+      if (kIsWeb) {
+        WebPersist.write('bookshelf', snapshot);
+        return;
+      }
       final f = _file;
       if (f == null) return;
-      final snapshot = jsonEncode(_cache);
       _writeTail = _writeTail.then((_) => _writeAsync(f, snapshot));
     });
   }
@@ -241,6 +272,7 @@ class BookshelfStore {
   }
 
   static void add(String sourceId, ComicDetail d) {
+    _ensureLoaded();
     final k = _key(sourceId, d.id);
     _cache[k] = {
       'sourceId': sourceId,
@@ -263,19 +295,26 @@ class BookshelfStore {
   }
 
   static void remove(String sourceId, String comicId) {
+    _ensureLoaded();
     _cache.remove(_key(sourceId, comicId));
     _idIndex.remove(comicId);
     _save();
   }
 
-  static bool contains(String sourceId, String comicId) =>
-      _cache.containsKey(_key(sourceId, comicId));
+  static bool contains(String sourceId, String comicId) {
+    _ensureLoaded();
+    return _cache.containsKey(_key(sourceId, comicId));
+  }
 
   /// 根据 comicId 反查所属 sourceId（书架统一视图中使用）。
-  static String? sourceIdOf(String comicId) => _idIndex[comicId];
+  static String? sourceIdOf(String comicId) {
+    _ensureLoaded();
+    return _idIndex[comicId];
+  }
 
   /// 列出某个源的书架。
   static List<ComicDetail> listBySource(String sourceId) {
+    _ensureLoaded();
     return _all()
         .where((m) => m['sourceId'] == sourceId)
         .map((m) => _fromMap(m))
@@ -289,6 +328,7 @@ class BookshelfStore {
 
   /// 列出全部书架（用于统一书架视图）。
   static List<ComicDetail> listAll() {
+    _ensureLoaded();
     return _all().map(_fromMap).toList()
       ..sort((a, b) {
         final ma = _readAddedAt(a);

@@ -669,11 +669,15 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   Future<void> _applyEnhance() async {
     final native = _player?.platform;
     if (native is! NativePlayer) return;
+    // web 上 NativePlayer 是 stub（无 libmpv），setProperty 不存在，
+    // 但 `is NativePlayer` 检查仍会通过；用 dynamic 分发让非桌面端
+    // 调用直接失败被吞掉，行为等价于"web 无超分"。
+    final dyn = native as dynamic;
     final props =
         _enhance ? Anime4KManager.enhanceProps : Anime4KManager.enhanceOffProps;
     for (final e in props.entries) {
       try {
-        await native.setProperty(e.key, e.value);
+        await dyn.setProperty(e.key, e.value);
       } catch (_) {}
     }
   }
@@ -681,6 +685,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   Future<void> _applySr({bool silent = false}) async {
     final native = _player?.platform;
     if (native is! NativePlayer) return;
+    final dyn = native as dynamic;
     if (!silent) setState(() => _srApplying = true);
     try {
       _srFault = null;
@@ -689,9 +694,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       // 逗号/换行拆分（会把整个串当单个文件名）。改用 change-list 命令，
       // 其 value 按平台路径列表分隔符解析：POSIX(Android)=冒号。
       if (list.isEmpty) {
-        await native.command(const ['change-list', 'glsl-shaders', 'set', '']);
+        await dyn.command(const ['change-list', 'glsl-shaders', 'set', '']);
       } else {
-        await native.command([
+        await dyn.command([
           'change-list',
           'glsl-shaders',
           'set',
@@ -699,7 +704,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         ]);
       }
       // 读回属性，确认 mpv 真的接受了这份 shader 列表（对路径回规范化）。
-      final back = await native.getProperty('glsl-shaders');
+      final back = await dyn.getProperty('glsl-shaders');
       final applied = (!_sr.enabled && (back.isEmpty)) ||
           (_sr.enabled &&
               back.split(RegExp('[,\\n:]')).where((s) => s.trim().isNotEmpty).isNotEmpty);

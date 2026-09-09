@@ -18,7 +18,9 @@ import java.io.File
 class MainActivity : FlutterActivity() {
     private val notifChannelId = "xingmanxia_update"
     private val notifChannelIdHigh = "xingmanxia_install"
+    private val notifChannelIdShelf = "xingmanxia_shelf"
     private val notifId = 9527
+    private val notifIdShelf = 9528
 
     /// 低内存警告转发：系统内存吃紧时主动通知 Dart 侧释放图片缓存（Kotlin→Dart 方向）
     private val lowMemChannelName = "xingmanxia/low_memory"
@@ -82,6 +84,26 @@ class MainActivity : FlutterActivity() {
                         nm.cancel(notifId)
                         result.success(true)
                     }
+                    "showShelfUpdate" -> {
+                        val title = call.argument<String>("title") ?: "收藏有更新"
+                        val text = call.argument<String>("text") ?: ""
+                        val names = call.argument<List<String>>("names") ?: emptyList()
+                        showShelfUpdateNotif(title, text, names)
+                        result.success(true)
+                    }
+                    "ensureNotificationPermission" -> {
+                        // Android 13+ 运行时通知权限；拒绝不报错（静默降级为无通知）
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                                != android.content.pm.PackageManager.PERMISSION_GRANTED
+                            ) {
+                                requestPermissions(
+                                    arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001
+                                )
+                            }
+                        }
+                        result.success(true)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -129,6 +151,20 @@ class MainActivity : FlutterActivity() {
                     vibrationPattern = longArrayOf(0, 200, 200, 200)
                 }
                 nm.createNotificationChannel(chHigh)
+            }
+            // 书架更新通道：收藏作品有新章节时提醒
+            if (nm.getNotificationChannel(notifChannelIdShelf) == null) {
+                val chShelf = NotificationChannel(
+                    notifChannelIdShelf,
+                    "书架更新",
+                    NotificationManager.IMPORTANCE_DEFAULT
+                ).apply {
+                    description = "收藏作品更新提醒"
+                    setShowBadge(true)
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 150, 150, 150)
+                }
+                nm.createNotificationChannel(chShelf)
             }
         }
     }
@@ -238,6 +274,32 @@ class MainActivity : FlutterActivity() {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(notifId, builder.build())
+    }
+
+    private fun showShelfUpdateNotif(title: String, text: String, names: List<String>) {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pi = PendingIntent.getActivity(
+            this, 1, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val builder = NotificationCompat.Builder(this, notifChannelIdShelf)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setAutoCancel(true)
+            .setOngoing(false)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(pi)
+        // 大文本：多条作品名可展开
+        if (names.isNotEmpty) {
+            val bigText = androidx.core.app.NotificationCompat.BigTextStyle()
+                .bigText(names.joinToString("\n"))
+            builder.setStyle(bigText)
+        }
+        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(notifIdShelf, builder.build())
     }
 
     private fun formatBytes(bytes: Int): String {

@@ -134,6 +134,8 @@ class VideoDownloadManager {
   /// 启动时调用：加载已下载索引。
   Future<void> init() async {
     if (_ready) return;
+    _ready = true; // web 端无本地视频下载，直接视为就绪（避免 path_provider 报错）
+    if (kIsWeb) return;
     final base = await LocalStore.downloadDir();
     _indexFile = File('${base.path}/video_downloads.json');
     try {

@@ -87,6 +87,9 @@ class ImageCacheManager {
   static Directory? _dir;
 
   static Future<Directory> _imagesDir() async {
+    if (kIsWeb) {
+      throw UnsupportedError('web 端无磁盘图片缓存，仅走内存');
+    }
     if (_dir != null) return _dir!;
     final base = await getApplicationSupportDirectory();
     final d = Directory('${base.path}/data/images');

@@ -3,11 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:cronet_http/cronet_http.dart' as cronet;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import 'cronet_conditional.dart';
 import 'local_store.dart';
+import 'platform_http.dart';
 
 /// 带状态码的 HTTP 异常：让重试逻辑能区分 5xx/429（可重试）与 4xx（不可重试）。
 class HttpStatusException implements Exception {
@@ -37,8 +38,18 @@ class RateLimiter {
   /// 测试环境下跳过限流：widget 测试无真实网络流量（HttpClient 恒返回 400），
   /// 且 fake-async 不允许测试结束时仍有挂起计时器。单元测试需用
   /// [debugForceEnabled] 强制开启以验证限流语义。
+  /// Web 无 dart:io 环境变量概念，直接按非测试处理。
   static bool get _enabled =>
-      debugForceEnabled || !Platform.environment.containsKey('FLUTTER_TEST');
+      debugForceEnabled || !_isTestEnvironment();
+
+  static bool _isTestEnvironment() {
+    if (kIsWeb) return false;
+    try {
+      return Platform.environment.containsKey('FLUTTER_TEST');
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// 测试辅助：强制开启限流（配合单元测试）。
   @visibleForTesting
@@ -179,7 +190,8 @@ class Net {
   /// 优选 IP 全部失败时，自动回退到系统 DNS 解析，避免整源因写死 IP 失效而挂死。
   /// 代理启用时优先走代理（findProxy 自动处理 CONNECT 隧道），
   /// 与 connectionFactory 互斥——代理模式下不设 connectionFactory。
-  static HttpClient _client(String host, {String? proxy}) {
+  /// 供 platform_http_io.dart 复用同一套连接策略（代理/优选 IP）。
+  static HttpClient clientForRequest(String host, {String? proxy}) {
     final client = HttpClient()
       ..connectionTimeout = _timeout
       ..autoUncompress = false
@@ -327,6 +339,16 @@ class Net {
   /// 当前域名已尝试到的候选 IP 下标，失败时轮询切换。
   static final Map<String, int> _ipIndex = {};
 
+  /// 供 platform_http_io 在收到 5xx/429 后轮换候选 IP：返回下一个应尝试的下标。
+  static int rotateIpIndex(String host) {
+    final ips = preferredHostIps[host];
+    if (ips == null || ips.isEmpty) return 0;
+    final cur = _ipIndex[host] ?? 0;
+    final next = (cur + 1) % ips.length;
+    _ipIndex[host] = next;
+    return next;
+  }
+
   /// GET 请求，返回响应体字符串（UTF-8）。
   /// 瞬态失败（超时/连接重置/5xx/429）自动重试 1 次（指数退避 600ms），
   /// 解决部分源站（如 xbiquge）间歇性超时/连接被重置导致的假性失败。
@@ -363,17 +385,11 @@ class Net {
     // 限流：等待令牌与并发槽位（降低对源站压力，避免被封）
     final host = Uri.parse(urlStr).host;
     await RateLimiter.acquire(host);
-    final client = _client(host, proxy: proxy);
     try {
-      final req = await _request(
-          client, 'GET', Uri.parse(urlStr), headers, timeout: t);
-      final res = await req.close().timeout(t);
-      final bytes = await _readBytes(res, t);
-      _onDone(res, urlStr);
+      final bytes = await PlatformHttp.get(urlStr, headers, t, proxy);
       return utf8.decode(bytes);
     } finally {
       RateLimiter.release(host, jitter: true);
-      client.close(force: true);
     }
   }
 
@@ -439,7 +455,9 @@ class Net {
       String urlStr, Map<String, String>? headers, Duration t, Duration probe,
       {required String accept, required bool asBytes}) async {
     return Future<Object>(() async {
-      final client = cronet.CronetClient.defaultCronetEngine();
+      final client = CronetHttp.defaultCronetEngine();
+      // web 上 Cronet 不可用（stub 返回 null），抛错让调用方回退 dart:io。
+      if (client == null) throw UnsupportedError('Cronet 仅支持 Android');
       try {
         final req = http.Request('GET', Uri.parse(urlStr));
         req.headers['User-Agent'] = defaultUA;
@@ -486,35 +504,7 @@ class Net {
   static Future<List<int>> _getBytesOnce(String urlStr,
       Map<String, String>? headers, {String? proxy, Duration? timeout}) async {
     final t = timeout ?? _timeout;
-    final client = _client(Uri.parse(urlStr).host, proxy: proxy);
-    try {
-      final req = await _request(
-          client, 'GET', Uri.parse(urlStr), headers, timeout: t);
-      final res = await req.close().timeout(t);
-      final bytes = await _readBytes(res, t);
-      _onDone(res, urlStr);
-      return bytes;
-    } finally {
-      client.close(force: true);
-    }
-  }
-
-  /// 读取响应字节，自动处理 gzip/deflate 压缩。
-  static Future<List<int>> _readBytes(HttpClientResponse res, Duration t) async {
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      // 读取错误体用于抛出（带状态码，供重试逻辑判断可重试性）
-      final errBytes = await res.fold<List<int>>(<int>[], (a, b) => a..addAll(b)).timeout(t);
-      throw HttpStatusException(
-          res.statusCode, utf8.decode(errBytes, allowMalformed: true));
-    }
-    final enc = res.headers.value('Content-Encoding') ?? '';
-    if (enc.contains('gzip')) {
-      return await res.transform(gzip.decoder).fold<List<int>>(<int>[], (a, b) => a..addAll(b)).timeout(t);
-    }
-    if (enc.contains('deflate')) {
-      return await res.transform(zlib.decoder).fold<List<int>>(<int>[], (a, b) => a..addAll(b)).timeout(t);
-    }
-    return await res.fold<List<int>>(<int>[], (a, b) => a..addAll(b)).timeout(t);
+    return PlatformHttp.get(urlStr, headers, t, proxy);
   }
 
   /// POST 请求，body 为表单/JSON 字符串，返回响应体字符串（UTF-8）。
@@ -537,53 +527,14 @@ class Net {
       Map<String, String>? headers, String? body,
       {String? proxy, Duration? timeout}) async {
     final t = timeout ?? _timeout;
-    final client = _client(Uri.parse(urlStr).host, proxy: proxy);
+    // 限流：POST 同样受每域名令牌桶约束
+    final host = Uri.parse(urlStr).host;
+    await RateLimiter.acquire(host);
     try {
-      final req = await _request(
-          client, 'POST', Uri.parse(urlStr), headers, timeout: t);
-      if (body != null) {
-        // 显式 UTF-8：http 包默认按 platformEncoding 编码，中文 JSON body
-        // 会被错误编码（如弹幕匹配的"番名 第N集"）导致服务端拒绝
-        req.write(utf8.encode(body));
-      }
-      final res = await req.close().timeout(t);
-      final bytes = await _readBytes(res, t);
-      _onDone(res, urlStr);
+      final bytes = await PlatformHttp.post(urlStr, headers, body, t, proxy);
       return utf8.decode(bytes);
     } finally {
-      client.close(force: true);
-    }
-  }
-
-  static Future<HttpClientRequest> _request(
-      HttpClient client, String method, Uri uri,
-      Map<String, String>? headers,
-      {Duration? timeout}) async {
-    final req = await (method == 'POST'
-            ? client.postUrl(uri)
-            : client.getUrl(uri))
-        .timeout(timeout ?? _timeout);
-    req.headers.set('User-Agent', defaultUA);
-    req.headers.set('Accept', '*/*');
-    final h = <String, String>{...?headers};
-    if (method == 'POST' &&
-        (h['Content-Type'] ?? '').isNotEmpty &&
-        !h['Content-Type']!.toLowerCase().contains('charset')) {
-      // POST 与 JSON body 配套时补 UTF-8 声明，否则服务端按默认编码解析乱码
-      h['Content-Type'] = '${h['Content-Type']}; charset=utf-8';
-    }
-    h.forEach((k, v) => req.headers.set(k, v));
-    return req;
-  }
-
-  /// 请求完成后，若该 host 配置了优选 IP 且遇到服务器错误/限流，切换下一个候选 IP。
-  static void _onDone(HttpClientResponse res, String urlStr) {
-    final host = Uri.parse(urlStr).host;
-    final ips = preferredHostIps[host];
-    if (ips == null || ips.isEmpty) return;
-    if (res.statusCode >= 500 || res.statusCode == 429 || res.statusCode == 0) {
-      final cur = _ipIndex[host] ?? 0;
-      _ipIndex[host] = (cur + 1) % ips.length;
+      RateLimiter.release(host, jitter: true);
     }
   }
 

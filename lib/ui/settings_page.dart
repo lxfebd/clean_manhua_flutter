@@ -12,6 +12,7 @@ import '../net/local_store.dart';
 import '../net/novel_shelf_store.dart';
 import '../net/shelf_updater.dart';
 import '../net/update_checker.dart';
+import '../net/update_notifier.dart';
 import '../net/webdav_sync.dart';
 import '../theme.dart';
 import '../utils/danmaku.dart';
@@ -37,6 +38,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _checking = false;
   DanmakuSettings _danmaku = const DanmakuSettings();
   UpdateFreq _updateFreq = UpdateFreq.off;
+  bool _notifyEnabled = false;
 
   String get _updateFreqLabel => switch (_updateFreq) {
         UpdateFreq.off => '关闭',
@@ -58,6 +60,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final tid = await LocalStore.themeId();
     final dm = await LocalStore.danmakuSettings();
     final freq = await ShelfUpdater.frequency();
+    final notify = await UpdateNotifier.enabled();
     if (mounted) {
       setState(() {
         _dark = d;
@@ -66,6 +69,7 @@ class _SettingsPageState extends State<SettingsPage> {
         _themeId = tid;
         _danmaku = dm;
         _updateFreq = freq;
+        _notifyEnabled = notify;
         _loaded = true;
       });
     }
@@ -371,6 +375,20 @@ class _SettingsPageState extends State<SettingsPage> {
                     subtitle: _updateFreqLabel,
                     trailing: const Icon(Icons.chevron_right_rounded, size: 18),
                     onTap: _pickUpdateFreq,
+                  ),
+                  Container(
+                    height: 0.5,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  ),
+                  _SettingTile(
+                    icon: Icons.notifications_outlined,
+                    title: '系统通知',
+                    subtitle: _notifyEnabled
+                        ? '更新时在通知栏提醒'
+                        : '关闭：仅应用内横幅提醒',
+                    trailing: Switch(
+                        value: _notifyEnabled, onChanged: _toggleNotify),
+                    onTap: () => _toggleNotify(!_notifyEnabled),
                   ),
                 ],
               ),
@@ -784,7 +802,23 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-    /// 收藏更新提醒频率选择。
+    /// 系统通知开关：开启时请求通知权限（Android 13+ 运行时弹窗）。
+  Future<void> _toggleNotify(bool value) async {
+    setState(() => _notifyEnabled = value);
+    await UpdateNotifier.setEnabled(value);
+    if (value) {
+      await UpdateNotifier.instance.ensurePermission();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('已开启：收藏更新时在通知栏提醒'),
+              duration: Duration(seconds: 2)),
+        );
+      }
+    }
+  }
+
+  /// 收藏更新提醒频率选择。
   Future<void> _pickUpdateFreq() async {
     final v = await showDialog<UpdateFreq>(
       context: context,

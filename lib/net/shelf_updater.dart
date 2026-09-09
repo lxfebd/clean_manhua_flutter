@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../sources/source_manager.dart';
 import 'bookshelf_store.dart';
 import 'local_store.dart';
+import 'update_notifier.dart';
 
 /// 更新检查频率。
 enum UpdateFreq { off, every6h, every12h, daily }
@@ -114,7 +115,8 @@ class ShelfUpdater {
     return updated;
   }
 
-  /// 后台定时检查：发现更新时通过 [onUpdatesFound] 通知 UI。
+  /// 后台定时检查：发现更新时通过 [onUpdatesFound] 通知 UI，并在
+  /// 用户开启推送开关时补发系统通知（24h 冷却去重，见 [UpdateNotifier]）。
   Future<void> checkInBackground() async {
     if (_checking) return;
     _checking = true;
@@ -122,6 +124,7 @@ class ShelfUpdater {
       final updated = await checkNow();
       if (updated.isNotEmpty) {
         onUpdatesFound?.call(updated);
+        await UpdateNotifier.instance.notifyShelfUpdate(updated);
       }
     } finally {
       _checking = false;

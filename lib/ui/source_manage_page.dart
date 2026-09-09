@@ -9,6 +9,7 @@ import '../sources/source_config.dart';
 import '../sources/source_manager.dart';
 import '../sources/source_plugin_manager.dart';
 import 'responsive.dart';
+import 'source_market_page.dart';
 
 /// 数据源管理页：列出所有源，可启用/停用、编辑域名/图片CDN/代理/请求头/层级，
 /// 保存后持久化（源配置免发版更新），并同步 SourceManager 的启用列表。
@@ -112,6 +113,13 @@ class _SourceManagePageState extends State<SourceManagePage> {
     await _load();
   }
 
+  /// 打开源市场页（拉取远端索引，一键安装/更新自定义源）。
+  void _openMarket() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const SourceMarketPage()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -156,6 +164,15 @@ class _SourceManagePageState extends State<SourceManagePage> {
                     onPressed: _openCustomSources,
                     icon: const Icon(Icons.extension_rounded, size: 16),
                     label: const Text('自定义源'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: theme.colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  TextButton.icon(
+                    onPressed: _openMarket,
+                    icon: const Icon(Icons.storefront_rounded, size: 16),
+                    label: const Text('源市场'),
                     style: TextButton.styleFrom(
                       foregroundColor: theme.colorScheme.primary,
                     ),
