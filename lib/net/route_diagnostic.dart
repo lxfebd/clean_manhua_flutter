@@ -54,7 +54,8 @@ class _SimpleHttp {
   final HttpClient _client;
   _SimpleHttp(Duration timeout)
       : _client = (HttpClient()
-          ..badCertificateCallback = (_, __, ___) => true)
+          ..badCertificateCallback =
+              Net.trustSelfSigned ? (_, __, ___) => true : null)
   {
     _client.connectionTimeout = timeout;
   }

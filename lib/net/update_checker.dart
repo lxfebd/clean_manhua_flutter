@@ -167,57 +167,6 @@ class UpdateChecker {
     return ta2 - tb2;
   }
 
-  /// 下载更新包到临时目录，返回文件路径。
-  /// [onProgress] 进度回调（已下载字节, 总字节）；[isCancelled] 返回 true 时中止下载。
-  /// 文件名按平台区分（Android→*.apk，Windows/macOS→平台包）。
-  static Future<String> downloadUpdate(
-    String url, {
-    String? assetName,
-    void Function(int current, int total)? onProgress,
-    bool Function()? isCancelled,
-  }) async {
-    final tmpDir = await Directory.systemTemp.createTemp('xingmanxia_update');
-    var name = assetName?.isNotEmpty == true
-        ? assetName!
-        : (Platform.isAndroid
-            ? 'xingmanxia.apk'
-            : 'xingmanxia${currentPlatformKey()}-update.zip');
-    // 文件名不允许带路径分隔符
-    name = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
-    final file = File('${tmpDir.path}/$name');
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 30)
-      ..badCertificateCallback = (c, h, p) => true;
-    try {
-      final req = await client.getUrl(Uri.parse(url))
-          .timeout(const Duration(seconds: 30));
-      req.headers.set('User-Agent', 'xingmanxia-android');
-      final res = await req.close().timeout(const Duration(seconds: 60));
-      if (res.statusCode != 200) {
-        throw Exception('HTTP ${res.statusCode}');
-      }
-      final total = res.contentLength;
-      final sink = file.openWrite();
-      var received = 0;
-      await for (final chunk in res) {
-        if (isCancelled?.call() == true) {
-          await sink.close();
-          await file.delete();
-          throw Exception('下载已取消');
-        }
-        sink.add(chunk);
-        received += chunk.length;
-        if (total > 0 && onProgress != null) {
-          onProgress(received, total);
-        }
-      }
-      await sink.close();
-      return file.path;
-    } finally {
-      client.close(force: true);
-    }
-  }
-
   /// 触发系统安装器安装 APK。
   static Future<void> installApk(String path) async {
     await const MethodChannel('xingmanxia/install')

@@ -154,8 +154,11 @@ class WebDavSync {
   static HttpClient _client() {
     final c = HttpClient()
       ..connectionTimeout = const Duration(seconds: 20)
-      ..autoUncompress = false
-      ..badCertificateCallback = (cert, h, port) => true; // 自签证书（常见于家庭 NAS）
+      ..autoUncompress = false;
+    // 默认校验证书；仅用户开启「信任自签」才放行（家庭 NAS 常见自签）
+    if (Net.trustSelfSigned) {
+      c.badCertificateCallback = (cert, h, port) => true;
+    }
     if (Net.proxyEnabled) {
       c.findProxy = (url) => Net.proxyDirective!;
     }

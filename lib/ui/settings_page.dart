@@ -9,6 +9,7 @@ import '../main.dart';
 import '../net/backup_cipher.dart';
 import '../net/bookshelf_store.dart';
 import '../net/error_logger.dart';
+import '../net/http_client.dart';
 import '../net/local_store.dart';
 import '../net/novel_shelf_store.dart';
 import '../net/shelf_updater.dart';
@@ -40,6 +41,7 @@ class _SettingsPageState extends State<SettingsPage> {
   DanmakuSettings _danmaku = const DanmakuSettings();
   UpdateFreq _updateFreq = UpdateFreq.off;
   bool _notifyEnabled = false;
+  bool _trustSelfSigned = false;
 
   String get _updateFreqLabel => switch (_updateFreq) {
         UpdateFreq.off => '关闭',
@@ -71,6 +73,7 @@ class _SettingsPageState extends State<SettingsPage> {
         _danmaku = dm;
         _updateFreq = freq;
         _notifyEnabled = notify;
+        _trustSelfSigned = Net.trustSelfSigned;
         _loaded = true;
       });
     }
@@ -395,6 +398,31 @@ class _SettingsPageState extends State<SettingsPage> {
                       onTap: () => _toggleNotify(!_notifyEnabled),
                     ),
                   ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            FadeSlideIn(
+              delay: const Duration(milliseconds: 220),
+              child: _SectionLabel(label: '网络'),
+            ),
+            const SizedBox(height: 6),
+            FadeSlideIn(
+              delay: const Duration(milliseconds: 280),
+              child: _SettingsCard(
+                children: [
+                  _SettingTile(
+                    icon: Icons.verified_user_outlined,
+                    title: '信任自签证书',
+                    subtitle: _trustSelfSigned
+                        ? '已开启：放行自签 HTTPS（家庭 NAS/自建服务器）'
+                        : '关闭：严格校验服务器证书（默认，更安全）',
+                    trailing: Switch(
+                      value: _trustSelfSigned,
+                      onChanged: _toggleTrustSelfSigned,
+                    ),
+                    onTap: () => _toggleTrustSelfSigned(!_trustSelfSigned),
+                  ),
                 ],
               ),
             ),
@@ -827,6 +855,20 @@ class _SettingsPageState extends State<SettingsPage> {
               duration: Duration(seconds: 2)),
         );
       }
+    }
+  }
+
+  /// 信任自签证书开关：影响所有 HttpClient 的证书校验（默认不信任，防 MITM）。
+  Future<void> _toggleTrustSelfSigned(bool value) async {
+    setState(() => _trustSelfSigned = value);
+    await Net.setTrustSelfSigned(value);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(value ? '已开启：信任自签证书（仅安全网络建议）' : '已关闭：严格校验服务器证书'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
     }
   }
 

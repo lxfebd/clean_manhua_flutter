@@ -953,7 +953,8 @@ class LocalStore {
 
   // ---- 备份/恢复 ----
 
-  /// 收集所有用户数据（书架/小说书架/历史/动画记录/收藏/下载清单/设置/源配置），
+  /// 收集所有用户数据（书架/小说书架/历史/动画记录/收藏/下载清单/设置/源配置/
+  /// 书签/搜索历史/阅读设置/统计/手势/插件/自定义源/源健康/WebDAV/更新检查），
   /// 返回可直接 JSON 序列化的结构。下载图片文件不包含在内。
   /// 书架分类定义随备份一起导出（bookshelf 数据里的 folderId 依赖它才能还原）。
   static Future<Map<String, dynamic>> collectBackup({
@@ -965,10 +966,21 @@ class LocalStore {
       'createdAt': DateTime.now().millisecondsSinceEpoch,
       'favorites': await _read('favorites'),
       'history': await _read('history'),
+      'bookmarks': await _read('bookmarks'),
+      'search_history': await _read('search_history'),
       'video_records': await _read('video_records'),
+      'video_progress': await _read('video_progress'),
       'downloads': await _read('downloads'),
       'settings': await _read('settings'),
+      'novel_read_settings': await _read('novel_read_settings'),
+      'reading_stats': await _read('reading_stats'),
+      'gesture_config': await _read('gesture_config'),
       'sources_config': await _read('sources_config'),
+      'source_plugins': await _read('source_plugins'),
+      'custom_sources': await _read('custom_sources'),
+      'source_health': await _read('source_health'),
+      'webdav_config': await _read('webdav_config'),
+      'update_check': await _read('update_check'),
       'bookshelf': bookshelfData,
       'shelf_folders': await _read('shelf_folders'),
       'novel_shelf': novelShelfData,
@@ -976,6 +988,7 @@ class LocalStore {
   }
 
   /// 从备份数据恢复。返回恢复的数据文件个数字符串，便于提示。
+  /// 与 [collectBackup] 字段一一对称；旧备份缺键时 put 自动跳过不覆盖。
   static Future<int> restoreBackup(Map<String, dynamic> data) async {
     var count = 0;
     Future<void> put(String name, Object? v) async {
@@ -986,10 +999,21 @@ class LocalStore {
 
     await put('favorites', data['favorites']);
     await put('history', data['history']);
+    await put('bookmarks', data['bookmarks']);
+    await put('search_history', data['search_history']);
     await put('video_records', data['video_records']);
+    await put('video_progress', data['video_progress']);
     await put('downloads', data['downloads']);
     await put('settings', data['settings']);
+    await put('novel_read_settings', data['novel_read_settings']);
+    await put('reading_stats', data['reading_stats']);
+    await put('gesture_config', data['gesture_config']);
     await put('sources_config', data['sources_config']);
+    await put('source_plugins', data['source_plugins']);
+    await put('custom_sources', data['custom_sources']);
+    await put('source_health', data['source_health']);
+    await put('webdav_config', data['webdav_config']);
+    await put('update_check', data['update_check']);
     await put('shelf_folders', data['shelf_folders']);
     return count;
   }

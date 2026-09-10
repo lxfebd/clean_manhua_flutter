@@ -186,6 +186,27 @@ class Net {
   /// 单次请求是否走代理：proxy=null 走全局代理/直连；proxy='' 强制直连；
   /// proxy=具体串 强制走该代理（单源代理覆盖全局）。
 
+  /// 是否信任自签证书（默认 false）。开启后 [clientForRequest] 与优选 IP 直连
+  /// 的 `onBadCertificate` 放行，用于兼容自签 HTTPS 的源/家庭 NAS/自建服务器。
+  /// 由设置页「信任自签证书」开关控制，[restoreTrustSelfSigned] 启动时恢复。
+  static bool trustSelfSigned = false;
+
+  /// 从本地持久化恢复「信任自签证书」开关。应用启动时调用一次。
+  static Future<void> restoreTrustSelfSigned() async {
+    try {
+      final v = await LocalStore.readJson('trust_self_signed');
+      trustSelfSigned = v == true;
+    } catch (_) {
+      // 恢复失败保持默认（不信任）
+    }
+  }
+
+  /// 设置并持久化「信任自签证书」开关。
+  static Future<void> setTrustSelfSigned(bool on) async {
+    trustSelfSigned = on;
+    await LocalStore.writeJson('trust_self_signed', on);
+  }
+
   /// 构造 HttpClient；若该 host 配置了优选 IP，则通过 connectionFactory 强制直连。
   /// 优选 IP 全部失败时，自动回退到系统 DNS 解析，避免整源因写死 IP 失效而挂死。
   /// 代理启用时优先走代理（findProxy 自动处理 CONNECT 隧道），
@@ -194,8 +215,11 @@ class Net {
   static HttpClient clientForRequest(String host, {String? proxy}) {
     final client = HttpClient()
       ..connectionTimeout = _timeout
-      ..autoUncompress = false
-      ..badCertificateCallback = (cert, h, port) => true; // 允许自签证书，兼容部分源
+      ..autoUncompress = false;
+    // 默认校验证书（防 MITM）；仅用户显式开启「信任自签」才放行
+    if (trustSelfSigned) {
+      client.badCertificateCallback = (cert, h, port) => true;
+    }
     // 单源代理（proxy != null 且非空）> 全局代理（_effectiveProxy）；空串表示直连
     final p = (proxy == null) ? _effectiveProxy : (proxy.isEmpty ? null : proxy);
     if (p != null) {
@@ -219,7 +243,8 @@ class Net {
             final socket =
                 await Socket.connect(ip, port, timeout: _ipTryTimeout);
             final secure = await SecureSocket.secure(socket,
-                host: url.host, onBadCertificate: (_) => true);
+                host: url.host,
+                onBadCertificate: trustSelfSigned ? (_) => true : null);
             return ConnectionTask.fromSocket<SecureSocket>(
                 Future.value(secure), () {});
           } catch (_) {
@@ -232,7 +257,8 @@ class Net {
           final socket =
               await Socket.connect(addr, port, timeout: _ipTryTimeout);
           final secure = await SecureSocket.secure(socket,
-              host: url.host, onBadCertificate: (_) => true);
+              host: url.host,
+              onBadCertificate: trustSelfSigned ? (_) => true : null);
           return ConnectionTask.fromSocket<SecureSocket>(
               Future.value(secure), () {});
         } catch (_) {
@@ -538,18 +564,12 @@ class Net {
     }
   }
 
-  /// 拼接 query 参数。
+  /// 拼接 query 参数（值经 [Uri.encodeQueryComponent] 编码，支持 CJK/特殊字符）。
   static String buildUrl(String base, Map<String, String> params) {
     if (params.isEmpty) return base;
-    final buf = StringBuffer(base);
-    var first = !base.contains('?');
-    params.forEach((k, v) {
-      buf.write(first ? '?' : '&');
-      first = false;
-      buf.write(k);
-      buf.write('=');
-      buf.write(v);
-    });
-    return buf.toString();
+    final uri = Uri.parse(base);
+    final merged = Map<String, String>.from(uri.queryParameters);
+    params.forEach((k, v) => merged[k] = v);
+    return uri.replace(queryParameters: merged).toString();
   }
 }

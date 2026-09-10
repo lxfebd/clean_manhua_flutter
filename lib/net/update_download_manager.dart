@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import 'local_store.dart';
 import 'update_checker.dart';
+import 'http_client.dart';
 
 /// 后台更新下载状态。
 class UpdateDownloadState {
@@ -146,8 +147,11 @@ class UpdateDownloadManager {
     }
 
     final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 20)
-      ..badCertificateCallback = (c, h, p) => true;
+      ..connectionTimeout = const Duration(seconds: 20);
+    // 默认校验证书；仅用户开启「信任自签」才放行
+    if (Net.trustSelfSigned) {
+      client.badCertificateCallback = (c, h, p) => true;
+    }
     try {
       final req = await client.getUrl(Uri.parse(url))
           .timeout(const Duration(seconds: 20));

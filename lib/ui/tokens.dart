@@ -143,26 +143,3 @@ abstract final class TypeScale {
         ),
       );
 }
-
-/// 动效与阴影 token（原 theme.dart `class D`，迁入 tokens 收敛）。
-class D {
-  static const Duration fast = Duration(milliseconds: 160);
-  static const Duration medium = Duration(milliseconds: 280);
-  static const Duration slow = Duration(milliseconds: 480);
-
-  static const Curve easeOut = Curves.easeOutCubic;
-  static const Curve easeInOut = Cubic(0.4, 0.0, 0.2, 1.0);
-  static const Curve spring = Cubic(0.34, 1.4, 0.64, 1.0);
-
-  // Minimalist：不再使用辉光，保留签名以兼容调用点，返回空阴影。
-  static List<BoxShadow> glow(Color c) => const [];
-
-  // Minimalist：卡片层级靠 hairline 描边，阴影退为极淡的中性投影（近乎不可见）。
-  static List<BoxShadow> soft(bool dark) => dark
-      ? const [
-          BoxShadow(color: Color(0x14000000), blurRadius: 8, offset: Offset(0, 2)),
-        ]
-      : const [
-          BoxShadow(color: Color(0x0A000000), blurRadius: 8, offset: Offset(0, 2)),
-        ];
-}

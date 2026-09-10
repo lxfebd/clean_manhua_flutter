@@ -91,7 +91,7 @@ void main() async {
     try {
       MediaKit.ensureInitialized();
     } catch (e) {
-      debugPrint('MediaKit init failed: $e');
+      ErrorLogger.instance.warn('MediaKit init failed: $e');
     }
     // 立即渲染首帧，避免用户看到灰色空窗；外层 Zone 捕获未处理的异步异常
     // 写入本地日志（不改变既有行为，仅记录）。
@@ -111,7 +111,7 @@ Future<void> _postFirstFrameInit() async {
     // 内部自带 try/catch，失败不影响启动。
     await ErrorLogger.instance.init();
   } catch (e) {
-    debugPrint('ErrorLogger init failed: $e');
+    ErrorLogger.instance.warn('ErrorLogger init failed: $e');
   }
   try {
     // 设备内存分档提到启动链第一步：首帧后立刻探测，让首页/书架/阅读的首屏图片
@@ -119,12 +119,12 @@ Future<void> _postFirstFrameInit() async {
     // LocalStore 尚未初始化也能直接跑（DeviceInfoPlugin 不依赖磁盘）。
     await ImageCacheManager.probeDeviceMemory();
   } catch (e) {
-    debugPrint('probeDeviceMemory failed: $e');
+    ErrorLogger.instance.warn('probeDeviceMemory failed: $e');
   }
   try {
     await LocalStore.init();
   } catch (e) {
-    debugPrint('LocalStore init failed: $e');
+    ErrorLogger.instance.warn('LocalStore init failed: $e');
   }
   try {
     // 插件注册表恢复（内置源元数据 + 禁用状态），LocalStore 就绪后执行。
@@ -132,7 +132,7 @@ Future<void> _postFirstFrameInit() async {
     // 自定义源恢复：注册已导入的 DSL 源为插件（含実装正文进 SourceManager）。
     await CustomSourceStore.restorePlugins();
   } catch (e) {
-    debugPrint('SourcePluginManager restore failed: $e');
+    ErrorLogger.instance.warn('SourcePluginManager restore failed: $e');
   }
   // 其余启动任务互不依赖，并行执行减少首屏后可交互前的串行等待：
   // 每个任务内部自带 try/catch，单个失败不影响其他任务。
@@ -147,6 +147,7 @@ Future<void> _postFirstFrameInit() async {
     _safeInit('VideoDownloadManager', () => VideoDownloadManager.instance.init()),
     _safeInit('Net.restorePreferredHostIps', Net.restorePreferredHostIps),
     _safeInit('Net.restoreProxy', Net.restoreProxy),
+    _safeInit('Net.restoreTrustSelfSigned', Net.restoreTrustSelfSigned),
     _safeInit('WebDavSync', WebDavSync.restore),
     _safeInit('ShelfUpdater', () => ShelfUpdater.instance.restore()),
   ]);
@@ -155,7 +156,7 @@ Future<void> _postFirstFrameInit() async {
     try {
       await _initDesktopWindow();
     } catch (e) {
-      debugPrint('initDesktopWindow failed: $e');
+      ErrorLogger.instance.warn('initDesktopWindow failed: $e');
     }
   }
   // 书架/小说书架绑定文件：web 端无文件系统，两个 Store 内部走 WebPersist(localStorage)。
@@ -168,7 +169,7 @@ Future<void> _postFirstFrameInit() async {
       LocalNovelSource.setStoreDir(
           '${dir.path}${Platform.pathSeparator}novel_imports');
     } catch (e) {
-      debugPrint('shelf bind failed: $e');
+      ErrorLogger.instance.warn('shelf bind failed: $e');
     }
   }
   // B-6 启动补检：应用被杀后下次启动补检并补发未读提醒。
@@ -183,7 +184,7 @@ Future<void> _safeInit(String name, Future<void> Function() task) async {
   try {
     await task();
   } catch (e) {
-    debugPrint('$name failed: $e');
+    ErrorLogger.instance.warn('$name failed: $e');
   }
 }
 
@@ -257,8 +258,8 @@ class YingManHeAppState extends State<YingManHeApp>
         ]);
       }
     } catch (e, st) {
-      // 平台异常（如 views 为空）不阻塞首帧；仅 debugPrint 便于排查。
-      debugPrint('allowTabletRotations failed: $e\n$st');
+      // 平台异常（如 views 为空）不阻塞首帧；仅打日志便于排查。
+      ErrorLogger.instance.warn('allowTabletRotations failed: $e\n$st');
     }
   }
 

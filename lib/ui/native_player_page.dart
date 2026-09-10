@@ -557,8 +557,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
             t.contains('fp32') ||
             t.contains('Texture') ||
             t.contains('scale')) {
-          // ignore: avoid_print
-          print('MPVLOG[${log.level}] ${t.trim()}');
+          ErrorLogger.instance.debug('MPVLOG[${log.level}] ${t.trim()}');
         }
         if (log.level == 'error' &&
             (t.contains('shader') ||
