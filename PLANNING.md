@@ -104,33 +104,33 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 | P1-1 | 读-改-写只串行写、不串行读 → 并发 toggle 丢更新 | `local_store.dart:329-339,348-362,374-381,394-414,428-439,505-510,718-727` | 全部跟进 `addReadingSeconds:595` 的 `prev.then(...)` 范式 |
 | P1-2 | `video_progress` 裸读改写 + 永不裁剪 | `native_player_page.dart:650-667`、`mini_player.dart:94-104` | 并入 LocalStore 队列 + 上限裁剪 |
 | P1-3 | `_read` 损坏静默返回 null 丢数据 | `local_store.dart:300-305` | 对齐 bookshelf_store 的 `.corrupt-<ts>` 备份 |
-| P1-4 | 备份 12 域漏项 + restore 与 collect 不对称 | `local_store.dart:779-815` | 补 bookmarks/search_history/gesture_config/novel_read_settings/reading_stats/source_plugins/custom_sources/source_health/webdav_config/video_downloads/video_progress/player_prefs 等；restore 补齐 |
+| P1-4 | 备份 12 域漏项 + restore 与 collect 不对称 | `local_store.dart:779-815` | ✅ 已修（1.4.3+47）：collect 补 bookmarks/search_history/novel_read_settings/reading_stats/gesture_config/source_plugins/custom_sources/source_health/webdav_config/video_progress/update_check；restore 对称补齐，旧备份缺键自动跳过 |
 | P1-5 | 图片内存缓存 key 归一化不一致 | `image_cache.dart:213,220`（查 norm 写 url） | `_putMem(norm, ...)` |
 | P1-6 | `_maybeTrimDisk` UI 线程同步全目录扫描（2000 文件 × 4 sync 调用） | `image_cache.dart:290-311` | 移 Isolate / 惰性统计 |
 | P1-7 | `getBytesAuto` 吞 timeout 参数 | `http_client.dart:467-474` | 透传 |
 | P1-8 | 三套重复持久化栈 + 双写路径 | `local_store.dart` vs `bookshelf_store.dart`/`novel_shelf_store.dart` | 提取公共「串行队列+损坏备份」基类（低优先，功能正确性已在）；备份契约文档化 |
 | P1-9 | 每请求 `client.close(force:true)` 无连接复用 | `http_client.dart:376,497,551` | 长连接池/复用 |
-| P1-10 | `badCertificateCallback => true` 四处放行 MITM | `http_client.dart:186,210,223`、`webdav_sync.dart:158`、`update_download_manager.dart:150`、`update_checker.dart:183` | 收敛到设置项「信任自签」开关 |
-| P1-11 | `buildUrl` 不 URL 编码（CJK 搜索词） | `http_client.dart:588-600` | Uri.encodeComponent |
+| P1-10 | `badCertificateCallback => true` 四处放行 MITM | `http_client.dart:186,210,223`、`webdav_sync.dart:158`、`update_download_manager.dart:150`、`update_checker.dart:183` | ✅ 已修（1.4.3+47）：新增 `Net.trustSelfSigned` 开关（设置页「网络」区，默认严格校验），5 处含 route_diagnostic 全收敛 |
+| P1-11 | `buildUrl` 不 URL 编码（CJK 搜索词） | `http_client.dart:588-600` | ✅ 已修（1.4.3+47）：Uri.replace(queryParameters) 编码 |
 | P1-12 | WebDAV pull 整包覆盖无合并；密钥裸 SHA256 无盐无迭代 | `webdav_sync.dart:276-282,326-334` | 时间戳+内容 hash 三向判断；PBKDF2/加盐迭代 |
-| P1-13 | 日志可观测性≈0：38 处 debugPrint / 21 文件；ErrorLogger 四级只用 1/4 | 启动链 `main.dart:90-175` 8 处、持久化 catch 等 | 静默降级 catch 统一走 ErrorLogger |
+| P1-13 | 日志可观测性≈0：38 处 debugPrint / 21 文件；ErrorLogger 四级只用 1/4 | 启动链 `main.dart:90-175` 8 处、持久化 catch 等 | ✅ 已修（1.4.3+47）：main.dart 10 处 debugPrint 全改 ErrorLogger.warn；剩余按页面改动顺带收敛 |
 | P1-14 | 26 个 regression_* 测试 gitignore，CI 跑不到（回归保护=0） | `.gitignore:57` | 拆「纯逻辑入库 / 真网络打活测不入库」 |
 | P1-15 | JM 纯 Dart 解码（单张 200-800ms）无原生降级路径——卡顿根因 | `jm_scramble.dart:88-116` | 长线：Android BitmapFactory MethodChannel；短期：分档限位解码保持 |
 | P1-16 | 6 个巨型文件 SRP 违规（35% 代码量） | reader/anime_player/bookshelf/native_player/local_store/http_client | 随 Riverpod 渐进重构顺带拆（不做单独大重构） |
 | P1-17 | token 落地不足：344 处内联 fontSize、252 处 borderRadius、66 处硬编码 Color；断点魔法数字 600 | `main.dart:241,280` 应引 `Responsive.compactBreakpoint`；tokens `S.x*` 几乎未用 | 页面级改造时顺带收敛，不单独立项 |
-| P1-18 | 本地工作区 229M 构建产物 | `app-debug-ci.apk`(117M) + `downloaded_release.apk`(111M) + `ci_parts/`(118M) | 删除（均已 gitignore，不影响仓库） |
+| P1-18 | 本地工作区 229M 构建产物 | `app-debug-ci.apk`(117M) + `downloaded_release.apk`(111M) + `ci_parts/`(118M) | ✅ 已清理（1.4.3+47）|
 | P1-19 | `local_novel_source._storeDir` 硬编码兜底 + 启动期覆盖，时序错误时静默写错目录 | `local_novel_source.dart:48-53` | init 前置守卫 + 写前校验 |
 
 ### P2（可选，随开发顺带清）
 
 | # | 债 | 位置 | 修法 |
 |---|---|---|---|
-| P2-1 | 死代码：tokens `class D`（0 调用）、`Net.getCronet`（0 调用）、`UpdateChecker.downloadUpdate`（0 调用）、`WebDavSync.recordPull`（注释自认未用）、circuit_breaker（待验） | 见各文件 | 验证后删除 |
+| P2-1 | 死代码：tokens `class D`、`UpdateChecker.downloadUpdate` | 见各文件 | ✅ 已清理（1.4.3+47）；`Net.getCronet`/`WebDavSync.recordPull`/circuit_breaker 非死代码（有调用），保留 |
 | P2-2 | 互斥锁超时 30s < compute 2min → 锁对象被覆盖错配 | `jm_scramble.dart:127-142`、`image_super_res.dart:23-39` | 超时与 compute 超时对齐 / 锁等待重新入队 |
 | P2-3 | RateLimiter 无排队上限、无超时 | `http_client.dart:52-66` | 排队上限 + 超时放弃 |
-| P2-4 | 未使用依赖：`flutter_svg`/`uuid`/`cupertino_icons`（0 import） | `pubspec.yaml:36,41,57` | 删除 |
+| P2-4 | 未使用依赖：`flutter_svg`/`uuid`/`cupertino_icons`（0 import） | `pubspec.yaml` | ✅ 已删（1.4.3+47） |
 | P2-5 | `_legacy_icons/` 2 个已跟踪死文件（app_icon_master_256.png / macos_app_icon_1024_old.png） | 仓库根 | git rm（须用户同意后） |
-| P2-6 | `native_player_page.dart:512` 唯一 `print(`（MPV 日志逐行 stdout） | 同上 | 改 ErrorLogger.debug |
+| P2-6 | `native_player_page.dart` 唯一 `print(`（MPV 日志逐行 stdout） | 同上 | ✅ 已改 ErrorLogger.debug（1.4.3+47，:561） |
 | P2-7 | `_write` 同步 IO 在 UI 线程 + 超限整文件读回重写 | `error_logger.dart:122-147` | 低频可接受，日志高频场景注意 |
 | P2-8 | `onLowMemory` 永久压 imageCache 无恢复 | `image_cache.dart:326-327` | 分级恢复策略 |
 | P2-9 | 备份恢复对调用方隐式契约（bookshelf/novel_shelf 外部写回） | `local_store.dart:800-823` | 文档化 / 收口 |
@@ -266,21 +266,23 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 - 方案：通知渠道（Android 用 `flutter_local_notifications`；后台定时先做**前台常驻/下次启动补检**兜底，不依赖 workmanager 保证——国产 ROM 后台限制）；同一作品 24h 只提醒一次；设置页开关（默认关）
 - 国产 ROM 兜底（用户评审要求）：引导页提示加白名单（MIUI/EMUI/ColorOS 自动跳转电池管理设置）；预留厂商推送 SDK 接入位但不排期；真机上提前验证 workmanager 存活率
 - ✅ 代码完成（2026-09-10，审计收尾）：UpdateNotifier（MethodChannel + 24h 冷却 + 开关）已有；本次补 2 缺口——web 隐藏「系统通知」开关（settings_page:380）+ `ShelfUpdater.checkOnStartup` 启动补检（main.dart bindFile 后串行）
+- ✅ 通知点击核查（2026-09-10）：`showShelfUpdateNotif` 已设 PendingIntent（点击回 MainActivity CLEAR_TOP）；多作品提醒精确跳单作品意义有限，验收按「点击回到书架」口径
 - 验收清单：
   - [ ] 模拟器+真机（小米）通知到达（含省电模式开关两种状态）
   - [ ] 重复提醒抑制（24h）正确
   - [x] 应用被杀后：下次启动补检并补发未读提醒（checkOnStartup 已接）
-  - [ ] 通知点击跳转对应书架项
+  - [x] 通知点击跳转书架（原生 PendingIntent 已设）
 
 #### 7. 源市场
 - 现状：`custom_source_store.importJson :88-116` 是一键安装唯一入口（single-or-array、validate→upsert）；`update_checker.dart` GitHub 拉取+平台分选是索引模式模板
 - 方案：源索引 JSON 托管公开 GitHub 仓库；App 内「源市场」页（分类/搜索/一键安装/更新提醒/风险提示）；安装走 importJson，扩 video/novel 绑定
-- ✅ 前置代码完成（2026-09-10，1.4.3+46）：`CustomSourcePlugin.bind` 按 type 分派 comic/video/novel（`_comicImpl/_videoImpl/_novelImpl` 缓存，unbind 对称）；新增 `dsl_video_source.dart`（剧集/线路/播放页解析，复用 DSL 行抽取 + `dslGroup` 命名组取组）与 `dsl_novel_source.dart`（章节/正文，`picListCss/Re` 复用）；9 个 regression DSL 用例过（gitignore 不入库）
+- ✅ 代码完成 + 补缺（2026-09-10，1.4.3+48）：`fetchIndex` 受 RateLimiter 管控 + 成功落缓存，网络失败回退缓存浏览；已安装条目显示卸载按钮（带确认）；前置 DSL binding 已分派 video/novel
 - 验收清单：
-  - [ ] 一键安装/卸载/更新闭环（含失败回滚）
-  - [ ] 索引更新拉取（受 RateLimiter 管，失败回退缓存）
-  - [ ] 源格式校验拒绝恶意 JSON（validate 在 importJson 内强化）
-  - [ ] 免责声明展示 + 风险提示
+  - [x] 一键安装/卸载/更新闭环（含失败回退；卸载走 CustomSourceStore.remove）
+  - [x] 索引更新拉取（受 RateLimiter 管，失败回退缓存）
+  - [x] 源格式校验拒绝恶意 JSON（validate 在 importJson 内强化）
+  - [x] 免责声明展示 + 风险提示
+  - [ ] <待实测> 真机安装/卸载/更新闭环 + 离线缓存浏览
 
 #### 8. Web 端（alpha → beta）
 - 现状：无 web/ 目录；`Net` 基于 dart:io（Web 不可用）；29 文件 import dart:io、17 处 path_provider
@@ -300,7 +302,7 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 - 现状：`image_super_res.dart` 是成熟 Isolate 推理模板；无任何 ML 依赖（需新增）
 - 方案：
   - **漫画上色**：轻量 TFLite/ONNX 模型（用户可选下载，非内置）；Isolate 推理；单张目标 **<3s**（用户评审基线）；INT8 量化
-  - **章节总结**：本地小模型（如 Phi/Qwen 蒸馏小版 or 纯规则摘要兜底）；单章目标 **<5s**
+  - **章节总结 ✅ 已编码（2026-09-10，1.4.3+49）**：`utils/novel_summarizer.dart` 纯规则——拆句过滤（<8字/>120字丢）→ 位置加权（首尾 15% +2）→ 关键词/主角名加权 → 贪心去重按原文序输出 topK；小说阅读器 AppBar「本章摘要」面板。7 单测过；<待实测> 长章节摘要可读性
   - **本地推荐 ✅ 已编码（2026-09-10）**：`utils/local_recommender.dart` 纯规则——按历史聚合作者计数 → 跨启用源搜索该作者 → 过滤已读 → 排序 TopK；冷启动回落热门榜。profile 页右栏「猜你喜欢」横向封面列表，点击跳详情。3 测试过
   - 默认关闭，仅 WiFi+充电 下载模型；低端机（RAM<4GB）隐藏入口（用户评审要求）
 - 验收清单：
