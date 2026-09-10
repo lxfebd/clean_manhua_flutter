@@ -8,6 +8,7 @@ import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/comic_item.dart';
+import '../net/error_logger.dart';
 import 'novel_source.dart';
 import 'source_config.dart';
 
@@ -42,10 +43,17 @@ class LocalNovelSource extends NovelSource {
   static const String sourceId = 'local';
 
   static LocalNovelStore? _store;
+  static bool _bound = false;
   // web 端无文件系统（本地导入禁用），store 用空目录兜底，避免构建时触 Directory.systemTemp 抛 _Namespace。
-  static LocalNovelStore get store =>
-      _store ??= LocalNovelStore(
-          dir: kIsWeb ? '' : _defaultDir());
+  static LocalNovelStore get store {
+    if (!_bound && !kIsWeb) {
+      // 兜底目录被使用（说明 setStoreDir 未先绑定）不可见——记录一次，便于排查写错目录。
+      ErrorLogger.instance.warn('LocalNovelSource.store 在 setStoreDir 前被访问，'
+          '落盘目录退回 ${_defaultDir()}');
+    }
+    return _store ??= LocalNovelStore(
+        dir: kIsWeb ? '' : _defaultDir());
+  }
 
   static String _defaultDir() {
     // 真实路径由 main.dart 启动时 setStoreDir 覆盖；此处仅作可回退值。
@@ -55,6 +63,7 @@ class LocalNovelSource extends NovelSource {
   /// 供 main.dart 启动时绑定真实目录（应用支持目录下）。
   static void setStoreDir(String dir) {
     _store = LocalNovelStore(dir: dir);
+    _bound = true;
   }
 
   @override

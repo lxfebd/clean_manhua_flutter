@@ -119,7 +119,7 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 | P1-16 | 6 个巨型文件 SRP 违规（35% 代码量） | reader/anime_player/bookshelf/native_player/local_store/http_client | 随 Riverpod 渐进重构顺带拆（不做单独大重构） |
 | P1-17 | token 落地不足：344 处内联 fontSize、252 处 borderRadius、66 处硬编码 Color；断点魔法数字 600 | `main.dart:241,280` 应引 `Responsive.compactBreakpoint`；tokens `S.x*` 几乎未用 | 页面级改造时顺带收敛，不单独立项 |
 | P1-18 | 本地工作区 229M 构建产物 | `app-debug-ci.apk`(117M) + `downloaded_release.apk`(111M) + `ci_parts/`(118M) | ✅ 已清理（1.4.3+47）|
-| P1-19 | `local_novel_source._storeDir` 硬编码兜底 + 启动期覆盖，时序错误时静默写错目录 | `local_novel_source.dart:48-53` | init 前置守卫 + 写前校验 |
+| P1-19 | `local_novel_source._storeDir` 硬编码兜底 + 启动期覆盖，时序错误时静默写错目录 | `lib/sources/local_novel_source.dart:44-58` | ✅ 已修（1.4.3+55）：`_bound` 标记 + store 惰性 getter 在绑定前被访问时记 ErrorLogger.warn（可观测，不再静默写错目录） |
 
 ### P2（可选，随开发顺带清）
 
