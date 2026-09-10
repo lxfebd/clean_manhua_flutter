@@ -129,7 +129,7 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 | P2-2 | 互斥锁超时 30s < compute 2min → 锁对象被覆盖错配 | `jm_scramble.dart`、`image_super_res.dart` | ✅ 已修（1.4.3+52）：acquire 超时 2m30s > compute 2m + identical 守卫防锁错配 |
 | P2-3 | RateLimiter 无排队上限、无超时 | `http_client.dart` | ✅ 已修（1.4.3+52）：队列上限 40 + 等待超时 30s 抛错走降级 |
 | P2-4 | 未使用依赖：`flutter_svg`/`uuid`/`cupertino_icons`（0 import） | `pubspec.yaml` | ✅ 已删（1.4.3+47） |
-| P2-5 | `_legacy_icons/` 2 个已跟踪死文件（app_icon_master_256.png / macos_app_icon_1024_old.png） | 仓库根 | git rm（须用户同意后） |
+| P2-5 | `_legacy_icons/` 2 个已跟踪死文件（app_icon_master_256.png / macos_app_icon_1024_old.png） | 仓库根 | ✅ 已删（1.4.3+57）：全仓零引用确认后 git rm + 目录移除 |
 | P2-6 | `native_player_page.dart` 唯一 `print(`（MPV 日志逐行 stdout） | 同上 | ✅ 已改 ErrorLogger.debug（1.4.3+47，:561） |
 | P2-7 | `_write` 同步 IO 在 UI 线程 + 超限整文件读回重写 | `error_logger.dart:122-147` | ✅ 已评估（1.4.3+56）：同步小写（append 单行）+ 超限截断写是刻意设计——日志低频、异步化会在进程被杀时丢未 flush 日志；`_pruneOldLogs` 仅启动跑一次（非热路径）。维持现状 |
 | P2-8 | `onLowMemory` 永久压 imageCache 无恢复 | `image_cache.dart` | ✅ 已修（1.4.3+52）：记录原预算 + 60s 后 load 入口渐进恢复 |
