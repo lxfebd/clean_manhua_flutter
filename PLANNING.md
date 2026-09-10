@@ -131,7 +131,7 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 | P2-4 | 未使用依赖：`flutter_svg`/`uuid`/`cupertino_icons`（0 import） | `pubspec.yaml` | ✅ 已删（1.4.3+47） |
 | P2-5 | `_legacy_icons/` 2 个已跟踪死文件（app_icon_master_256.png / macos_app_icon_1024_old.png） | 仓库根 | git rm（须用户同意后） |
 | P2-6 | `native_player_page.dart` 唯一 `print(`（MPV 日志逐行 stdout） | 同上 | ✅ 已改 ErrorLogger.debug（1.4.3+47，:561） |
-| P2-7 | `_write` 同步 IO 在 UI 线程 + 超限整文件读回重写 | `error_logger.dart:122-147` | 低频可接受，日志高频场景注意 |
+| P2-7 | `_write` 同步 IO 在 UI 线程 + 超限整文件读回重写 | `error_logger.dart:122-147` | ✅ 已评估（1.4.3+56）：同步小写（append 单行）+ 超限截断写是刻意设计——日志低频、异步化会在进程被杀时丢未 flush 日志；`_pruneOldLogs` 仅启动跑一次（非热路径）。维持现状 |
 | P2-8 | `onLowMemory` 永久压 imageCache 无恢复 | `image_cache.dart` | ✅ 已修（1.4.3+52）：记录原预算 + 60s 后 load 入口渐进恢复 |
 | P2-9 | 备份恢复对调用方隐式契约（bookshelf/novel_shelf 外部写回） | `local_store.dart:800-823` | ✅ 已文档化（1.4.3+56）：restoreBackup 注释明确 bookshelf/novel_shelf 由调用方单独还原（settings 备份恢复页与 WebDAV pull 均已各自处理），键缺失自动跳过 |
 | P2-10 | 无 schema 迁移机制（唯一显式兼容：readerMode 回退旧 horizontal `:456-462`） | `local_store.dart` | ✅ 已修（1.4.3+53）：schema_version + 迁移钩子 `_migrations` map + `_readRaw`/`_MigratorImpl`；v1 框架就绪，3 测试过 |
