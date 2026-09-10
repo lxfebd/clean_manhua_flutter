@@ -17,6 +17,7 @@ import '../net/update_checker.dart';
 import '../net/update_notifier.dart';
 import '../net/webdav_sync.dart';
 import '../theme.dart';
+import '../utils/colorizer_manager.dart';
 import '../utils/danmaku.dart';
 import 'responsive.dart';
 import 'source_manage_page.dart';
@@ -505,6 +506,10 @@ class _SettingsPageState extends State<SettingsPage> {
                 ],
               ),
             ),
+            const SizedBox(height: 28),
+            // 漫画上色（本地 AI）：默认关、仅 io + 有模型 + RAM≥4GB 可见。
+            // 自包含状态组件，不与本页其它开关耦合。
+            const _ColorizerSection(),
             const SizedBox(height: 28),
             FadeSlideIn(
               delay: const Duration(milliseconds: 220),
@@ -1222,6 +1227,151 @@ class _SectionLabel extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 漫画上色设置区（本地 AI）：开关 + 模型导入/卸载。
+///
+/// 自包含状态：不依赖本页其它开关。约束（用户评审要求）：
+/// - 默认关；开关写 LocalStore（ColorizerManager.enabled）；
+/// - web / 无模型 / RAM<4GB 低端机 → 入口禁用并给出原因副标题；
+/// - 模型由用户自放/导入（不内置，公开仓库红线），选中 .tflite 后复制
+///   到应用文档目录并热加载。
+class _ColorizerSection extends StatefulWidget {
+  const _ColorizerSection();
+
+  @override
+  State<_ColorizerSection> createState() => _ColorizerSectionState();
+}
+
+class _ColorizerSectionState extends State<_ColorizerSection> {
+  final ColorizerManager _m = ColorizerManager.instance;
+  bool _enabled = false;
+  String? _subtitle; // 状态说明（禁用原因 / 模型路径）
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final isWeb = kIsWeb;
+    await _m.restore();
+    await _m.ensureLoaded();
+    final lowEnd = await ColorizerManager.isLowEndDevice();
+    if (!mounted) return;
+    setState(() {
+      _enabled = _m.enabled && _m.isAvailable;
+      _subtitle = switch ((isWeb, lowEnd, _m.isAvailable, _m.modelPath)) {
+        (true, _, _, _) => 'Web 端不支持本地 AI 推理',
+        (false, true, _, _) => '低端机（内存 < 4GB）不可用',
+        (false, false, false, _) => '未导入模型（需 .tflite）',
+        (false, false, true, final p?) => '模型：${p.split('\\').last.split('/').last}',
+        _ => '已启用，可在阅读器内使用',
+      };
+    });
+  }
+
+  Future<void> _toggle(bool on) async {
+    setState(() => _busy = true);
+    await _m.setEnabled(on);
+    if (!mounted) return;
+    setState(() {
+      _enabled = on && _m.isAvailable;
+      _busy = false;
+    });
+  }
+
+  Future<void> _pickModel() async {
+    final result = await FilePicker.pickFiles(
+      dialogTitle: '选择上色模型文件',
+      type: FileType.custom,
+      allowedExtensions: ['tflite', 'tflite.zip'],
+    );
+    if (result == null || result.files.single.path == null) return;
+    setState(() => _busy = true);
+    final ok = await _m.importModel(result.files.single.path!);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      if (ok) {
+        _enabled = _m.enabled && _m.isAvailable;
+        _subtitle = '模型加载成功，可在阅读器内使用';
+      } else {
+        _subtitle = '模型导入失败（文件无效或损坏）';
+      }
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(ok ? '上色模型已导入' : '模型导入失败')),
+    );
+  }
+
+  Future<void> _unload() async {
+    await _m.unload();
+    if (!mounted) return;
+    setState(() {
+      _enabled = false;
+      _subtitle = '未导入模型（需 .tflite）';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final canUse = _m.isAvailable && !kIsWeb;
+    return FadeSlideIn(
+      delay: const Duration(milliseconds: 220),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _SectionLabel(label: '漫画上色'),
+          const SizedBox(height: 6),
+          _SettingsCard(
+            children: [
+              _SettingTile(
+                icon: Icons.palette_rounded,
+                title: '灰度漫画自动上色',
+                subtitle: _subtitle ?? '检测模型…',
+                trailing: Switch(
+                  value: _enabled,
+                  onChanged: (canUse && !_busy) ? _toggle : null,
+                ),
+              ),
+              if (canUse) ...[
+                Container(
+                  height: 0.5,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                ),
+                _SettingTile(
+                  icon: Icons.file_download_rounded,
+                  title: '导入上色模型',
+                  subtitle: _m.modelPath != null
+                      ? '已加载，点击可替换'
+                      : '选择 .tflite 文件（AnimeGAN/DDColor 等）',
+                  enabled: !_busy,
+                  onTap: _pickModel,
+                ),
+                if (_m.modelPath != null) ...[
+                  Container(
+                    height: 0.5,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  ),
+                  _SettingTile(
+                    icon: Icons.delete_forever_rounded,
+                    title: '卸载模型',
+                    subtitle: '释放内存并禁用上色',
+                    enabled: !_busy,
+                    onTap: _unload,
+                  ),
+                ],
+              ],
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

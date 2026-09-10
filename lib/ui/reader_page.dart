@@ -9,6 +9,7 @@ import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:image/image.dart' as img;
 
 import '../net/download_manager.dart';
 import '../net/http_client.dart';
@@ -22,6 +23,7 @@ import '../sources/source_http.dart';
 import '../sources/source_manager.dart';
 import '../utils/image_super_res.dart';
 import '../utils/image_trim.dart';
+import '../utils/colorizer_manager.dart';
 import 'widgets/jm_scramble_image.dart';
 
 /// 阅读器（对齐 UI_v2 S5/S6）：沉浸式黑底 + 顶部返回/标题/菜单 +
@@ -2023,6 +2025,16 @@ class _ImageViewState extends State<_ImageView>
   bool get _superResEnabled =>
       !widget.horizontal && !_isJm && widget.resLevel >= 2;
 
+  /// 是否启用自动上色。规则：
+  /// - 全局开关已开 + 模型就绪（ColorizerManager 内部兜底）；
+  /// - 横向翻页禁用（PageView 中长图推理叠加会卡）；
+  /// - JM 源禁用（彩色图床上色无意义）。
+  bool get _colorizeEnabled =>
+      !widget.horizontal &&
+      !_isJm &&
+      ColorizerManager.instance.enabled &&
+      ColorizerManager.instance.isAvailable;
+
   FilterQuality _filterLevel() {
     switch (widget.resLevel) {
       case 0:
@@ -2050,6 +2062,8 @@ class _ImageViewState extends State<_ImageView>
   void initState() {
     super.initState();
     _reportLayout();
+    // 懒探模型（幂等）：决定 _colorizeEnabled 前先确认模型是否就绪。
+    ColorizerManager.instance.ensureLoaded();
   }
 
   @override
@@ -2135,6 +2149,7 @@ class _ImageViewState extends State<_ImageView>
           filterQuality: _filterLevel(),
           sourceId: widget.sourceId,
           superRes: _superResEnabled,
+          colorize: _colorizeEnabled,
           horizontal: widget.horizontal,
           trimBorder: widget.trimBorder,
           onError: () {
@@ -2224,6 +2239,10 @@ class _CachedReaderImage extends StatefulWidget {
   /// 自动裁边去白边：开启后加载完成时在 Isolate 里扫描白边并裁剪，
   /// 裁剪结果按独立缓存 key 持久化，二次打开直接命中。
   final bool trimBorder;
+
+  /// 自动上色（本地 AI）：开启后对显示字节做灰度→彩色推理并替换，
+  /// 失败/超时降级原图（ColorizerManager.colorize 返回 null）。
+  final bool colorize;
   final VoidCallback onError;
   const _CachedReaderImage({
     required this.url,
@@ -2233,6 +2252,7 @@ class _CachedReaderImage extends StatefulWidget {
     required this.superRes,
     this.horizontal = false,
     this.trimBorder = false,
+    this.colorize = false,
     required this.onError,
   });
 
@@ -2244,6 +2264,7 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
     with AutomaticKeepAliveClientMixin {
   Uint8List? _bytes;
   bool _failed = false;
+  bool _colorized = false; // 上色已执行（成功或降级都置位，避免重复推理）
 
   /// 与 _ImageView 一致：横向翻页关闭 keepAlive，翻走即销毁释放内存，
   /// 避免长条图在 PageView 中累积导致 OOM。
@@ -2261,7 +2282,8 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
     super.didUpdateWidget(old);
     if (old.url != widget.url ||
         old.superRes != widget.superRes ||
-        old.trimBorder != widget.trimBorder) {
+        old.trimBorder != widget.trimBorder ||
+        old.colorize != widget.colorize) {
       _load();
     }
   }
@@ -2271,6 +2293,31 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
   Map<String, String>? _headers() => _ReaderPageState._headersForUrl(widget.url);
 
   String _srKey() => '${widget.url}|${ImageSuperRes.algoVersion}';
+
+  /// 自动上色：解码 → 剥 alpha → 灰度推理 → 重编码。
+  /// 任何一步失败返回 null，调用方保留原图（不打断阅读）。
+  Future<Uint8List?> _tryColorize(Uint8List bytes) async {
+    try {
+      _colorized = true;
+      if (!ColorizerManager.instance.isAvailable) return null;
+      final src = img.decodeImage(bytes);
+      if (src == null) return null;
+      // 推理按整图尺寸做（模型内部缩放），这里直接传原尺寸避免二次缩放。
+      final rgb = src.getBytes(order: img.ChannelOrder.rgb);
+      final out = await ColorizerManager.instance
+          .colorize(rgb, src.width, src.height);
+      if (out == null || out.length != src.width * src.height * 3) return null;
+      final colored = img.Image.fromBytes(
+        width: src.width,
+        height: src.height,
+        bytes: out.buffer,
+        order: img.ChannelOrder.rgb,
+      );
+      return Uint8List.fromList(img.encodeJpg(colored, quality: 90));
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// 先加载原图快速显示，滑动停止后再异步超分升级。
   /// 避免超分 Isolate 在滑动期间并发导致低端机卡死。
@@ -2330,6 +2377,15 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
         setState(() {
           _bytes = sr;
         });
+      }
+
+      // 自动上色：对最终显示字节做本地 AI 推理（失败降级原图，不打断阅读）。
+      // 仅在未触发上色时执行一次，避免每次重建重复推理。
+      if (widget.colorize && !_colorized) {
+        final colored = await _tryColorize(_bytes ?? display);
+        if (mounted && colored != null) {
+          setState(() => _bytes = colored);
+        }
       }
     } catch (_) {
       if (mounted) {
