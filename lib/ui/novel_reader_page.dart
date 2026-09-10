@@ -8,6 +8,7 @@ import '../net/local_store.dart';
 import '../services/novel_tts_service.dart';
 import '../sources/novel_source.dart';
 import '../sources/source_manager.dart';
+import '../utils/novel_summarizer.dart';
 import 'responsive.dart';
 
 /// 小说阅读器：渲染章节正文（段落列表），支持上下章导航与阅读进度记录。
@@ -386,6 +387,26 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     LocalStore.setNovelReadSettings(fontSize: v);
   }
 
+  /// 本章摘要：当前章正文本地纯规则生成（无网络、无模型依赖）。
+  Future<void> _showSummary() {
+    final content = _content;
+    if (content == null) return Future.value();
+    final sentences =
+        NovelSummarizer.summarize(content.paragraphs, maxSentences: 4);
+    return showResponsiveBottomSheet<void>(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      barrierColor: Colors.black.withValues(alpha: 0.3),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => _SummarySheet(
+        title: content.title,
+        sentences: sentences,
+      ),
+    );
+  }
+
   /// 打开阅读设置底部抽屉。
   void _showSettings() {
     showResponsiveBottomSheet<void>(
@@ -483,6 +504,12 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         title: Text(_content?.title ?? widget.title,
             style: const TextStyle(fontSize: 15)),
         actions: [
+          if (_content != null)
+            IconButton(
+              tooltip: '本章摘要',
+              icon: const Icon(Icons.auto_awesome_rounded, size: 20),
+              onPressed: _showSummary,
+            ),
           IconButton(
             tooltip: '阅读设置',
             icon: const Icon(Icons.text_fields_rounded, size: 20),
@@ -1014,6 +1041,92 @@ class _TtsRateChip extends StatelessWidget {
             fontWeight: active ? FontWeight.w700 : FontWeight.w500,
             color: active ? Colors.white : Colors.white70,
           ),
+        ),
+      ),
+    );
+  }
+}
+/// 本章摘要底部面板：标题 + 摘要句列表 + 免责说明。
+class _SummarySheet extends StatelessWidget {
+  final String title;
+  final List<String> sentences;
+
+  const _SummarySheet({required this.title, required this.sentences});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.auto_awesome_rounded,
+                    size: 18, color: scheme.primary),
+                const SizedBox(width: 8),
+                Text('本章摘要',
+                    style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                        color: scheme.onSurface)),
+                const Spacer(),
+                Text('本地生成',
+                    style: TextStyle(
+                        fontSize: 11,
+                        color: scheme.onSurface.withValues(alpha: 0.45))),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              title,
+              style: TextStyle(
+                  fontSize: 12.5,
+                  color: scheme.onSurface.withValues(alpha: 0.55)),
+            ),
+            const SizedBox(height: 14),
+            if (sentences.isEmpty)
+              Text('本章暂无内容可摘要',
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: scheme.onSurface.withValues(alpha: 0.6)))
+            else
+              for (var i = 0; i < sentences.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${i + 1}. ',
+                        style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: scheme.primary),
+                      ),
+                      Expanded(
+                        child: Text(
+                          sentences[i],
+                          style: TextStyle(
+                              fontSize: 13.5,
+                              height: 1.55,
+                              color: scheme.onSurface.withValues(alpha: 0.85)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            const SizedBox(height: 6),
+            Text(
+              '摘要由本地算法生成，仅作快速回顾参考。',
+              style: TextStyle(
+                  fontSize: 11,
+                  color: scheme.onSurface.withValues(alpha: 0.4)),
+            ),
+          ],
         ),
       ),
     );
