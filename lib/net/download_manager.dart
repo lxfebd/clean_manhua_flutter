@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image/image.dart' as img;
 
 import '../sources/source_http.dart';
@@ -186,15 +187,17 @@ class DownloadManager {
     );
   }
 
-  /// 判断某章节是否已下载完成。
+  /// 判断某章节是否已下载完成。web 端无下载能力，恒为 false。
   static Future<bool> isDownloaded(String bookKey, String chapterId) async {
+    if (kIsWeb) return false;
     final d = await LocalStore.downloadOf('$bookKey::$chapterId');
     return d?.finished == true;
   }
 
-  /// 读取本地已下载的图片路径；未下载则返回 null。
+  /// 读取本地已下载的图片路径；未下载则返回 null。web 端无本地文件，恒为 null。
   static Future<String?> localUrlIfExists(
       String bookKey, String chapterId, int index) async {
+    if (kIsWeb) return null;
     final key = '${bookKey.replaceFirst('::', '/')}/$chapterId';  // bookKey sourceId::comicId → path
     final p = await LocalStore.localImagePath(key, index);
     if (File(p).existsSync()) return p;

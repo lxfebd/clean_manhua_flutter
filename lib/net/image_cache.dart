@@ -101,6 +101,27 @@ class ImageCacheManager {
   static String _key(String url) =>
       md5.convert(utf8.encode(ImageDeg.normalizeUrl(url))).toString();
 
+  /// web 端无磁盘：所有磁盘读写在此收口，web 直接返回 null / 跳过。
+  static Future<Uint8List?> _diskBytes(String url) async {
+    if (kIsWeb) return null;
+    final f = File('${(await _imagesDir()).path}/${_key(url)}.img');
+    try {
+      if (!f.existsSync()) return null;
+      return await f.readAsBytes();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> _diskWrite(String url, Uint8List bytes) async {
+    if (kIsWeb) return;
+    final f = File('${(await _imagesDir()).path}/${_key(url)}.img');
+    try {
+      await f.writeAsBytes(bytes, flush: true);
+      _maybeTrimDisk();
+    } catch (_) {}
+  }
+
   /// 归一化后的主 URL（去 @jm: 解扰标记），供调用方区分降级档位。
   /// 同图不同地址（原画/省空间/备用镜像）共享一个缓存槽，命中即算成功。
   static String primaryUrl(String url) => ImageDeg.normalizeUrl(url);
@@ -157,14 +178,11 @@ class ImageCacheManager {
     bool useSaver = false,
   }) async {
     final norm = primaryUrl(chain.first);
-    final f = File('${(await _imagesDir()).path}/${_key(norm)}.img');
-    try {
-      if (f.existsSync()) {
-        final b = await f.readAsBytes();
-        _putMem(norm, b);
-        return ImageDegResult.ok(b, ImageDegStatus.original, 0);
-      }
-    } catch (_) {}
+    final disk = await _diskBytes(norm);
+    if (disk != null) {
+      _putMem(norm, disk);
+      return ImageDegResult.ok(disk, ImageDegStatus.original, 0);
+    }
     final res = await ImageDeg.loadWithChain(
       chain,
       engineId: engineId,
@@ -179,10 +197,7 @@ class ImageCacheManager {
       throw Exception('图片降级链全部失败: ${chain.length} 个地址');
     }
     _putMem(norm, res.bytes!);
-    try {
-      await f.writeAsBytes(res.bytes!, flush: true);
-      _maybeTrimDisk();
-    } catch (_) {}
+    await _diskWrite(norm, res.bytes!);
     return res;
   }
 
@@ -216,22 +231,16 @@ class ImageCacheManager {
     Future<Uint8List> Function()? fetch,
     String? proxy,
   }) async {
-    final f = File('${(await _imagesDir()).path}/${_key(url)}.img');
-    try {
-      if (f.existsSync()) {
-        final b = await f.readAsBytes();
-        _putMem(url, b);
-        return b;
-      }
-    } catch (_) {}
+    final disk = await _diskBytes(url);
+    if (disk != null) {
+      _putMem(url, disk);
+      return disk;
+    }
     final bytes = fetch != null
         ? await fetch()
         : Uint8List.fromList(await Net.getBytesAuto(url, headers: headers, proxy: proxy));
     _putMem(url, bytes);
-    try {
-      await f.writeAsBytes(bytes, flush: true);
-      _maybeTrimDisk();
-    } catch (_) {}
+    await _diskWrite(url, bytes);
     return bytes;
   }
 
@@ -339,6 +348,7 @@ class ImageCacheManager {
   }
 
   static Future<List<File>> diskFiles() async {
+    if (kIsWeb) return const [];
     final d = await _imagesDir();
     return d.existsSync() ? d.listSync().whereType<File>().toList() : const [];
   }
@@ -346,10 +356,12 @@ class ImageCacheManager {
   static Future<void> clear() async {
     _mem.clear();
     _memBytes = 0;
-    try {
-      final d = await _imagesDir();
-      if (d.existsSync()) d.deleteSync(recursive: true);
-    } catch (_) {}
-    _dir = null;
+    if (!kIsWeb) {
+      try {
+        final d = await _imagesDir();
+        if (d.existsSync()) d.deleteSync(recursive: true);
+      } catch (_) {}
+      _dir = null;
+    }
   }
 }

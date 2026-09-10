@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:ui' show PointerDeviceKind;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
@@ -2085,7 +2086,7 @@ class _ImageViewState extends State<_ImageView>
 
     final fit = widget.horizontal ? BoxFit.contain : BoxFit.fitWidth;
     Widget img;
-    if (widget.url.startsWith('/')) {
+    if (widget.url.startsWith('/') && !kIsWeb) {
       final dpr = MediaQuery.of(context).devicePixelRatio;
       final cw = (MediaQuery.sizeOf(context).width * dpr).toInt();
       img = Image.file(
@@ -2102,6 +2103,18 @@ class _ImageViewState extends State<_ImageView>
             return const SizedBox();
           },
         );
+    } else if (kIsWeb && widget.url.startsWith('/')) {
+      // Web 端无本地文件阅读（下载/本地导入在 web 为禁用态），占位避免崩溃。
+      img = SizedBox(
+        key: _imgKey,
+        width: double.infinity,
+        child: Center(
+          child: Text(
+            'Web 端不支持本地文件阅读',
+            style: TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+        ),
+      );
     } else if (widget.url.contains('@') || _isJm) {
       img = KeyedSubtree(
         key: _imgKey,
