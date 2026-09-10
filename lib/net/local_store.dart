@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/comic_item.dart';
 import '../utils/danmaku.dart';
+import '../utils/file_backup.dart';
 import 'error_logger.dart';
 import 'web_persist.dart';
 
@@ -378,18 +379,17 @@ class LocalStore {
     } catch (e) {
       // 文件损坏（写入中断/磁盘错误）：先备份损坏文件再返回 null，
       // 与 BookshelfStore 的 .corrupt 行为对齐，避免"收藏/历史突然清空"无法追溯。
+      var backed = false;
       if (!kIsWeb) {
         try {
           final f = await _fileAsync(name);
-          if (f.existsSync()) {
-            f.renameSync(
-                '${f.path}.corrupt-${DateTime.now().millisecondsSinceEpoch}');
-          }
+          backed = f.backupCorrupt();
         } catch (e2) {
           ErrorLogger.instance.warn('LocalStore._read($name) 损坏备份失败: $e2');
         }
       }
-      ErrorLogger.instance.warn('LocalStore._read($name) 解析失败（数据已损坏，原文件已备份）: $e');
+      ErrorLogger.instance.warn('LocalStore._read($name) 解析失败'
+          '${backed ? '（数据已损坏，原文件已备份）' : '（损坏文件备份失败）'}: $e');
       return null;
     }
   }
@@ -1040,7 +1040,10 @@ class LocalStore {
   }
 
   /// 从备份数据恢复。返回恢复的数据文件个数字符串，便于提示。
-  /// 与 [collectBackup] 字段一一对称；旧备份缺键时 put 自动跳过不覆盖。
+  ///
+  /// 与 [collectBackup] 字段对称——唯一例外：`bookshelf` / `novel_shelf`
+  /// 由调用方（备份恢复页）单独还原到各自 Store，本方法不处理（书架数据
+  /// 含分类引用，必须先建 store 再灌数据）。无键字段（旧版本备份）自动跳过。
   static Future<int> restoreBackup(Map<String, dynamic> data) async {
     var count = 0;
     Future<void> put(String name, Object? v) async {

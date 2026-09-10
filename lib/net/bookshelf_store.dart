@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/comic_item.dart';
 import '../sources/comic_source.dart';
+import '../utils/file_backup.dart';
 import 'local_store.dart';
 import 'web_persist.dart';
 
@@ -219,11 +220,8 @@ class BookshelfStore {
       // 数据损坏（写入中断/磁盘错误）：备份损坏文件再从空开始，
       // 避免静默清空导致用户书架"凭空消失"且无法追溯。
       debugPrint('bookshelf 数据损坏，已备份原文件: $e');
-      try {
-        f.renameSync(
-            '${f.path}.corrupt-${DateTime.now().millisecondsSinceEpoch}');
-      } catch (e2) {
-        debugPrint('bookshelf 备份失败: $e2');
+      if (!f.backupCorrupt()) {
+        debugPrint('bookshelf 备份失败: $e');
       }
       _cache = {};
     }

@@ -4,10 +4,6 @@ import 'package:flutter/services.dart';
 
 import 'ui/tokens.dart';
 
-// 设计 token（间距 S / 圆角 R / 透明度阶 T / 字号阶 TypeScale / 动效阴影 D）
-// 已迁至 ui/tokens.dart，此处转出保持既有 import 兼容。
-export 'ui/tokens.dart';
-
 /// 设计系统 · Minimalist（极简单色）
 ///
 /// 设计原则（对齐风格方案 C）：

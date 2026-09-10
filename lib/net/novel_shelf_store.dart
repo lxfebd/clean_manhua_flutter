@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/comic_item.dart';
 import '../sources/novel_source.dart';
+import '../utils/file_backup.dart';
 import 'web_persist.dart';
 
 /// 小说本地书架：与漫画 [BookshelfStore] 分离，独立 JSON 文件，避免与漫画条目混淆。
@@ -35,11 +36,8 @@ class NovelShelfStore {
       _cache = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
     } catch (e) {
       debugPrint('novel_shelf 数据损坏，已备份原文件: $e');
-      try {
-        f.renameSync(
-            '${f.path}.corrupt-${DateTime.now().millisecondsSinceEpoch}');
-      } catch (e2) {
-        debugPrint('novel_shelf 备份失败: $e2');
+      if (!f.backupCorrupt()) {
+        debugPrint('novel_shelf 备份失败: $e');
       }
       _cache = {};
     }

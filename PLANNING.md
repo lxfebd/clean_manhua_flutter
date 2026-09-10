@@ -133,12 +133,12 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 | P2-6 | `native_player_page.dart` 唯一 `print(`（MPV 日志逐行 stdout） | 同上 | ✅ 已改 ErrorLogger.debug（1.4.3+47，:561） |
 | P2-7 | `_write` 同步 IO 在 UI 线程 + 超限整文件读回重写 | `error_logger.dart:122-147` | 低频可接受，日志高频场景注意 |
 | P2-8 | `onLowMemory` 永久压 imageCache 无恢复 | `image_cache.dart` | ✅ 已修（1.4.3+52）：记录原预算 + 60s 后 load 入口渐进恢复 |
-| P2-9 | 备份恢复对调用方隐式契约（bookshelf/novel_shelf 外部写回） | `local_store.dart:800-823` | 文档化 / 收口 |
+| P2-9 | 备份恢复对调用方隐式契约（bookshelf/novel_shelf 外部写回） | `local_store.dart:800-823` | ✅ 已文档化（1.4.3+56）：restoreBackup 注释明确 bookshelf/novel_shelf 由调用方单独还原（settings 备份恢复页与 WebDAV pull 均已各自处理），键缺失自动跳过 |
 | P2-10 | 无 schema 迁移机制（唯一显式兼容：readerMode 回退旧 horizontal `:456-462`） | `local_store.dart` | ✅ 已修（1.4.3+53）：schema_version + 迁移钩子 `_migrations` map + `_readRaw`/`_MigratorImpl`；v1 框架就绪，3 测试过 |
-| P2-11 | 损坏文件备份逻辑三处复制 | bookshelf/novel/LocalStore | 随 P1-8 一起 |
+| P2-11 | 损坏文件备份逻辑三处复制 | bookshelf/novel/LocalStore | ✅ 已修（1.4.3+56）：`utils/file_backup.dart` 新增 `File.backupCorrupt()` 扩展，三处（`bookshelf_store.dart:223` / `novel_shelf_store.dart:39` / `local_store.dart:386`）统一调用 |
 | P2-12 | `video_download_manager._persist` 无防抖全量重写 | `video_download_manager.dart` | ✅ 已修（1.4.3+52）：500ms 防抖合并 + flushPersist 落盘（lifecycle 钩子收口） |
-| P2-13 | `tmp_render_preview_test.dart` 被 `tmp_*` 规则误伤 gitignore | `test/` | 改名或加白名单 |
-| P2-14 | `theme.dart:7` 兼容 export 转出层 | 同上 | 清理旧引用后删 |
+| P2-13 | `tmp_render_preview_test.dart` 被 `tmp_*` 规则误伤 gitignore | `test/` | ✅ 已改名（1.4.3+56）：`render_preview_test.dart`，脱离 `tmp_*` 误伤，默认 skip 出图测试 |
+| P2-14 | `theme.dart:7` 兼容 export 转出层 | 同上 | ✅ 已删（1.4.3+56）：两 import 者（main/settings_page）均不用 token 符号，export 无引用；theme.dart 保留自身 import ui/tokens（TypeScale） |
 | P2-15 | `design_tokens_test` 门禁只校验档位取值，不校验调用点 | `test/design_tokens_test.dart:76-84` | 加「禁止内联」门禁（基线棘轮已在下调） |
 
 ### 技术债修债节奏（原则）
