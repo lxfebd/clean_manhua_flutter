@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../sources/dsl/custom_source_store.dart';
 import '../sources/dsl/source_market.dart';
 import 'responsive.dart';
 
@@ -56,6 +57,42 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
       content: Text(ok
           ? '已安装：${entry.name} v${entry.version}'
           : '安装失败：${entry.name} 校验未通过'),
+      duration: const Duration(seconds: 2),
+    ));
+    setState(() {}); // 刷新 installed 状态
+  }
+
+  /// 卸载已安装的源（移除解析规则，书架收藏不受影响）。
+  Future<void> _uninstall(MarketSourceEntry entry) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('卸载来源'),
+        content: Text(
+          '卸载「${entry.name}」将移除其解析规则。\n'
+          '书架中已收藏的作品不受影响，但将无法继续更新/阅读新章节。',
+          style: const TextStyle(fontSize: 13.5, height: 1.6),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('卸载'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final removed = await CustomSourceStore.remove(entry.id);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(removed ? '已卸载：${entry.name}' : '卸载失败：${entry.name} 未找到'),
       duration: const Duration(seconds: 2),
     ));
     setState(() {}); // 刷新 installed 状态
@@ -202,17 +239,23 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
       itemBuilder: (_, i) => _SourceTile(
         entry: entries[i],
         onInstall: () => _confirmInstall(entries[i]),
+        onUninstall: () => _uninstall(entries[i]),
       ),
     );
   }
 }
 
-/// 单条源市场卡片：名称/类型/版本/作者 + 安装/已安装/更新 状态。
+/// 单条源市场卡片：名称/类型/版本/作者 + 安装/已安装/更新/卸载 状态。
 class _SourceTile extends StatefulWidget {
   final MarketSourceEntry entry;
   final VoidCallback onInstall;
+  final VoidCallback onUninstall;
 
-  const _SourceTile({required this.entry, required this.onInstall});
+  const _SourceTile({
+    required this.entry,
+    required this.onInstall,
+    required this.onUninstall,
+  });
 
   @override
   State<_SourceTile> createState() => _SourceTileState();
@@ -324,12 +367,14 @@ class _SourceTileState extends State<_SourceTile> {
           ),
           const SizedBox(width: 8),
           isInstalled
-              ? Text(
-                  '已安装',
-                  style: TextStyle(
-                      fontSize: 12,
-                      color:
-                          theme.colorScheme.onSurface.withValues(alpha: 0.4)),
+              ? TextButton(
+                  onPressed: widget.onUninstall,
+                  style: TextButton.styleFrom(
+                    foregroundColor: theme.colorScheme.error,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                  ),
+                  child: const Text('卸载', style: TextStyle(fontSize: 12)),
                 )
               : FilledButton.tonal(
                   onPressed: widget.onInstall,

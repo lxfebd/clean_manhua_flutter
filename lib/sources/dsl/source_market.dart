@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../../net/http_client.dart';
+import '../../net/local_store.dart';
 import 'custom_source_def.dart';
 import 'custom_source_store.dart';
 
@@ -52,10 +53,33 @@ class SourceMarket {
   static const String _indexUrl =
       'https://raw.githubusercontent.com/lxfebd/xingmanxia-sources/main/index.json';
 
-  /// 拉取并解析源市场索引。网络失败抛异常（调用方给错误 UI）。
+  /// 索引本地缓存域：网络失败时回退，避免整源市场空白。
+  static const String _cacheFile = 'source_market_index';
+
+  /// 拉取并解析源市场索引。网络失败先尝试缓存；
+  /// 缓存也没有则抛异常（调用方给错误 UI）。
   static Future<List<MarketSourceEntry>> fetchIndex() async {
-    final bytes = await Net.getBytes(_indexUrl, timeout: const Duration(seconds: 15));
-    final text = utf8.decode(bytes);
+    try {
+      final host = Uri.parse(_indexUrl).host;
+      await RateLimiter.acquire(host);
+      try {
+        final bytes = await Net.getBytes(_indexUrl,
+            timeout: const Duration(seconds: 15));
+        final text = utf8.decode(bytes);
+        // 网络成功先落缓存（下次离线也能浏览市场）
+        await _cache(text);
+        return _parse(text);
+      } finally {
+        RateLimiter.release(host);
+      }
+    } catch (e) {
+      final cached = await _readCache();
+      if (cached != null) return _parse(cached);
+      rethrow;
+    }
+  }
+
+  static List<MarketSourceEntry> _parse(String text) {
     final decoded = jsonDecode(text);
     if (decoded is! Map) throw FormatException('索引格式错误');
     final list = decoded['sources'];
@@ -74,6 +98,14 @@ class SourceMarket {
       ));
     }
     return out;
+  }
+
+  static Future<void> _cache(String text) =>
+      LocalStore.writeJson(_cacheFile, text);
+
+  static Future<String?> _readCache() async {
+    final v = await LocalStore.readJson(_cacheFile);
+    return v is String && v.isNotEmpty ? v : null;
   }
 
   /// 安装（或更新）一个市场条目：交给 CustomSourceStore.importJson 校验+落盘。
