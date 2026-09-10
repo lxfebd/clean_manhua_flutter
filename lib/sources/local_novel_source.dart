@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
 
@@ -41,8 +42,10 @@ class LocalNovelSource extends NovelSource {
   static const String sourceId = 'local';
 
   static LocalNovelStore? _store;
+  // web 端无文件系统（本地导入禁用），store 用空目录兜底，避免构建时触 Directory.systemTemp 抛 _Namespace。
   static LocalNovelStore get store =>
-      _store ??= LocalNovelStore(dir: _defaultDir());
+      _store ??= LocalNovelStore(
+          dir: kIsWeb ? '' : _defaultDir());
 
   static String _defaultDir() {
     // 真实路径由 main.dart 启动时 setStoreDir 覆盖；此处仅作可回退值。
@@ -518,6 +521,7 @@ class LocalNovelStore {
 
   /// 入库：写章节文件 + book.json。返回 bookId。
   Future<String> import(LocalNovelBook book, {required String sourceName}) async {
+    if (kIsWeb || dir.isEmpty) return nextBookId();
     final id = nextBookId();
     final bookDir = _bookDir(id);
     await Directory(p.join(bookDir, 'chapters')).create(recursive: true);
@@ -545,6 +549,7 @@ class LocalNovelStore {
 
   /// 元信息（不含正文）。不存在返回 null。
   Map<String, dynamic>? metaOf(String bookId) {
+    if (kIsWeb || dir.isEmpty) return null;
     final f = File(_metaPath(bookId));
     if (!f.existsSync()) return null;
     try {
@@ -556,12 +561,14 @@ class LocalNovelStore {
 
   /// 单章正文。不存在返回 null。
   String? chapterBody(String bookId, int seq) {
+    if (kIsWeb || dir.isEmpty) return null;
     final f = File(_chapterPath(bookId, seq));
     return f.existsSync() ? f.readAsStringSync() : null;
   }
 
-  /// 列出全部本地书（元信息，按导入时间倒序）。
+  /// 列出全部本地书（元信息，按导入时间倒序）。web 端无本地导入，恒空列表。
   List<Map<String, dynamic>> listAll() {
+    if (kIsWeb || dir.isEmpty) return const [];
     final rootDir = Directory(dir);
     if (!rootDir.existsSync()) return const [];
     final out = <Map<String, dynamic>>[];
@@ -577,6 +584,7 @@ class LocalNovelStore {
 
   /// 删除本地书（含目录）。
   Future<void> remove(String bookId) async {
+    if (kIsWeb || dir.isEmpty) return;
     final d = Directory(_bookDir(bookId));
     if (d.existsSync()) {
       await d.delete(recursive: true);
