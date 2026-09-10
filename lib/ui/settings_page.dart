@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:convert';
@@ -406,7 +407,9 @@ class _SettingsPageState extends State<SettingsPage> {
                   _SettingTile(
                     icon: Icons.backup_rounded,
                     title: '导出备份',
-                    subtitle: '书架、历史、设置 → JSON 文件',
+                    subtitle:
+                        kIsWeb ? 'Web 端不支持（数据保存在浏览器本地）' : '书架、历史、设置 → JSON 文件',
+                    enabled: !kIsWeb,
                     onTap: _exportBackup,
                   ),
                   Container(
@@ -416,7 +419,8 @@ class _SettingsPageState extends State<SettingsPage> {
                   _SettingTile(
                     icon: Icons.restore_rounded,
                     title: '导入备份',
-                    subtitle: '从 JSON 文件恢复数据',
+                    subtitle: kIsWeb ? 'Web 端不支持' : '从 JSON 文件恢复数据',
+                    enabled: !kIsWeb,
                     onTap: _importBackup,
                   ),
                   Container(
@@ -428,7 +432,8 @@ class _SettingsPageState extends State<SettingsPage> {
                     title: 'WebDAV 同步',
                     subtitle: WebDavSync.hasConfig
                         ? '已配置 ${WebDavSync.config!['url']}'
-                        : '多端同步书架 / 进度 / 设置',
+                        : (kIsWeb ? 'Web 端不支持' : '多端同步书架 / 进度 / 设置'),
+                    enabled: !kIsWeb,
                     onTap: _openWebDav,
                   ),
                   Container(
@@ -501,7 +506,10 @@ class _SettingsPageState extends State<SettingsPage> {
                   _SettingTile(
                     icon: Icons.bug_report_outlined,
                     title: '导出错误日志',
-                    subtitle: '崩溃 / 网络 / 解析错误的本地记录',
+                    subtitle: kIsWeb
+                        ? 'Web 端不支持（错误仅记录在浏览器控制台）'
+                        : '崩溃 / 网络 / 解析错误的本地记录',
+                    enabled: !kIsWeb,
                     onTap: _exportLogs,
                   ),
                 ],
@@ -1197,66 +1205,79 @@ class _SettingTile extends StatelessWidget {
   final String? subtitle;
   final Widget? trailing;
   final VoidCallback? onTap;
+
+  /// 平台不可用（如 web 上的本地文件功能）时禁用并降饱和提示。
+  final bool enabled;
   const _SettingTile({
     required this.icon,
     required this.title,
     this.subtitle,
     this.trailing,
     this.onTap,
+    this.enabled = true,
   });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final disabledColor = scheme.onSurface.withValues(alpha: 0.38);
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Row(
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: scheme.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
+        onTap: enabled ? onTap : null,
+        child: Opacity(
+          opacity: enabled ? 1 : 0.5,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(icon,
+                      size: 18,
+                      color: enabled ? scheme.primary : disabledColor),
                 ),
-                child: Icon(icon, size: 18, color: scheme.primary),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: scheme.onSurface,
-                      ),
-                    ),
-                    if (subtitle != null) ...[
-                      const SizedBox(height: 2),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                       Text(
-                        subtitle!,
+                        title,
                         style: TextStyle(
-                          fontSize: 11.5,
-                          color: scheme.onSurface.withValues(alpha: 0.6),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color:
+                              enabled ? scheme.onSurface : disabledColor,
                         ),
                       ),
+                      if (subtitle != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle!,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: enabled
+                                ? scheme.onSurface.withValues(alpha: 0.6)
+                                : disabledColor,
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
               if (trailing != null) trailing!,
               if (trailing == null)
                 Icon(Icons.chevron_right_rounded,
                     color: scheme.onSurface.withValues(alpha: 0.4), size: 22),
             ],
+          ),
           ),
         ),
       ),

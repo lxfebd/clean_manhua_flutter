@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 
 import '../net/image_cache.dart';
@@ -380,7 +381,8 @@ class ToolboxPageState extends State<ToolboxPage> {
           scheme,
           icon: Icons.image_outlined,
           title: '图片工具',
-          subtitle: '水印 / 模糊 / 切图 / 压缩',
+          subtitle: kIsWeb ? 'Web 端不支持' : '水印 / 模糊 / 切图 / 压缩',
+          enabled: !kIsWeb,
           onTap: () => _push(const ImageToolsPage()),
         );
       case 2:
@@ -388,7 +390,8 @@ class ToolboxPageState extends State<ToolboxPage> {
           scheme,
           icon: Icons.text_fields_rounded,
           title: '文本工具',
-          subtitle: '加密 / 摩斯 / 二维码',
+          subtitle: kIsWeb ? 'Web 端不支持' : '加密 / 摩斯 / 二维码',
+          enabled: !kIsWeb,
           onTap: () => _push(const TextToolsPage()),
         );
       case 3:
@@ -396,7 +399,8 @@ class ToolboxPageState extends State<ToolboxPage> {
           scheme,
           icon: Icons.public_rounded,
           title: '网络工具',
-          subtitle: 'DNS / Ping / IP / 天气',
+          subtitle: kIsWeb ? 'Web 端不支持' : 'DNS / Ping / IP / 天气',
+          enabled: !kIsWeb,
           onTap: () => _push(const NetworkToolsPage()),
         );
       case 4:
@@ -404,7 +408,8 @@ class ToolboxPageState extends State<ToolboxPage> {
           scheme,
           icon: Icons.phone_android_rounded,
           title: '设备工具',
-          subtitle: '信息 / 屏幕 / 秒表',
+          subtitle: kIsWeb ? 'Web 端不支持' : '信息 / 屏幕 / 秒表',
+          enabled: !kIsWeb,
           onTap: () => _push(const DeviceToolsPage()),
         );
       case 5:
@@ -428,11 +433,14 @@ class ToolboxPageState extends State<ToolboxPage> {
     required String title,
     required String subtitle,
     required VoidCallback onTap,
+    bool enabled = true,
   }) {
     return PressableScale(
-      onTap: onTap,
+      onTap: enabled ? onTap : null,
       scale: 0.98,
-      child: Container(
+      child: Opacity(
+        opacity: enabled ? 1 : 0.5,
+        child: Container(
         padding: const EdgeInsets.all(S.x16),
         decoration: BoxDecoration(
           color: scheme.surface,
@@ -483,6 +491,7 @@ class ToolboxPageState extends State<ToolboxPage> {
                   brightness: scheme.brightness),
             ),
           ],
+        ),
         ),
       ),
     );
@@ -688,28 +697,32 @@ class ToolboxPageState extends State<ToolboxPage> {
               scheme,
               icon: Icons.image_outlined,
               title: '图片工具',
-              subtitle: '水印 / 模糊 / 切图',
+              subtitle: kIsWeb ? 'Web 端不支持' : '水印 / 模糊 / 切图',
+              enabled: !kIsWeb,
               onTap: () => _push(const ImageToolsPage()),
             ),
             _toolTile(
               scheme,
               icon: Icons.text_fields_rounded,
               title: '文本工具',
-              subtitle: '加密 / 摩斯 / 二维码',
+              subtitle: kIsWeb ? 'Web 端不支持' : '加密 / 摩斯 / 二维码',
+              enabled: !kIsWeb,
               onTap: () => _push(const TextToolsPage()),
             ),
             _toolTile(
               scheme,
               icon: Icons.public_rounded,
               title: '网络工具',
-              subtitle: 'DNS / Ping / IP / 天气',
+              subtitle: kIsWeb ? 'Web 端不支持' : 'DNS / Ping / IP / 天气',
+              enabled: !kIsWeb,
               onTap: () => _push(const NetworkToolsPage()),
             ),
             _toolTile(
               scheme,
               icon: Icons.phone_android_rounded,
               title: '设备工具',
-              subtitle: '信息 / 屏幕 / 秒表',
+              subtitle: kIsWeb ? 'Web 端不支持' : '信息 / 屏幕 / 秒表',
+              enabled: !kIsWeb,
               onTap: () => _push(const DeviceToolsPage()),
             ),
             _toolTile(
@@ -760,11 +773,14 @@ class ToolboxPageState extends State<ToolboxPage> {
     required String title,
     required String subtitle,
     required VoidCallback onTap,
+    bool enabled = true,
   }) {
     return PressableScale(
-      onTap: onTap,
+      onTap: enabled ? onTap : null,
       scale: 0.97,
-      child: Container(
+      child: Opacity(
+        opacity: enabled ? 1 : 0.5,
+        child: Container(
         padding: const EdgeInsets.all(S.x12),
         decoration: BoxDecoration(
           color: scheme.surface,
@@ -807,6 +823,7 @@ class ToolboxPageState extends State<ToolboxPage> {
               ],
             ),
           ],
+        ),
         ),
       ),
     );
