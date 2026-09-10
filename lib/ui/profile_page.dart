@@ -1,9 +1,16 @@
+import 'dart:io';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../main.dart';
 import '../net/bookshelf_store.dart';
+import '../net/image_cache.dart';
+import '../sources/comic_source.dart';
 import '../net/local_store.dart';
 import '../net/update_checker.dart';
 import '../utils/local_recommender.dart';
@@ -234,7 +241,8 @@ class ProfilePageState extends State<ProfilePage> {
                           onHistory: _showHistory,
                           onDownloads: () => widget.onSwitchTab?.call(4),
                           onHelp: _showHelp,
-                          onExportBooklist: _exportBooklist)),
+                          onExportBooklist: _exportBooklist,
+                          onExportBooklistImage: _exportBooklistImage)),
                   const SizedBox(height: 14),
                   FadeSlideIn(
                     delay: const Duration(milliseconds: 280),
@@ -335,6 +343,7 @@ class ProfilePageState extends State<ProfilePage> {
                 onDownloads: () => widget.onSwitchTab?.call(2),
                 onHelp: _showHelp,
                 onExportBooklist: _exportBooklist,
+                onExportBooklistImage: _exportBooklistImage,
               ),
             ),
         ];
@@ -438,6 +447,75 @@ class ProfilePageState extends State<ProfilePage> {
       isScrollControlled: true,
       builder: (_) => _TextExportSheet(title: '我的书单', text: text),
     );
+  }
+
+  /// 书单图片导出：预加载全部封面 → 渲染海报网格 → 截图为 PNG 存到应用目录。
+  Future<void> _exportBooklistImage() async {
+    final books = BookshelfStore.listAll();
+    if (books.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('书架为空，暂无内容可导出')));
+      return;
+    }
+    if (!mounted) return;
+    // 先展示生成中弹窗，再开并行预加载封面（超时 8s/张，失败置空走占位图）。
+    showResponsiveBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _ImageLoadingSheet(),
+    );
+    final covers = <Uint8List?>[];
+    await Future.wait([
+      for (final b in books)
+        (() async {
+          try {
+            final url = b.pic;
+            if (url == null || url.isEmpty) {
+              covers.add(null);
+              return;
+            }
+            covers.add(await ImageCacheManager.load(url).timeout(
+                const Duration(seconds: 8)));
+          } catch (_) {
+            covers.add(null);
+          }
+        })(),
+    ]);
+    if (!mounted) return;
+    final boundaryKey = GlobalKey();
+    showResponsiveBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _ImageExportSheet(
+        books: books,
+        covers: covers,
+        boundaryKey: boundaryKey,
+        onSave: () async => _savePoster(boundaryKey),
+      ),
+    );
+  }
+
+  /// 把海报 [boundaryKey] 截图保存为 PNG，返回保存路径（失败返回 null）。
+  Future<String?> _savePoster(GlobalKey boundaryKey) async {
+    final renderObject =
+        boundaryKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+    if (renderObject == null) return null;
+    try {
+      final image = await renderObject.toImage(pixelRatio: 2);
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (bytes == null) return null;
+      final dir = await getApplicationSupportDirectory();
+      final outDir = Directory('${dir.path}/exports');
+      if (!outDir.existsSync()) outDir.createSync(recursive: true);
+      final f = File('${outDir.path}/booklist_'
+          '${DateTime.now().millisecondsSinceEpoch}.png');
+      await f.writeAsBytes(bytes.buffer.asUint8List(), flush: true);
+      return f.path;
+    } catch (_) {
+      return null;
+    }
   }
 }
 
@@ -883,6 +961,7 @@ class _MenuCard extends StatelessWidget {
   final VoidCallback onDownloads;
   final VoidCallback onHelp;
   final VoidCallback onExportBooklist;
+  final VoidCallback onExportBooklistImage;
   const _MenuCard({
     required this.dark,
     required this.onDarkChanged,
@@ -891,6 +970,7 @@ class _MenuCard extends StatelessWidget {
     required this.onDownloads,
     required this.onHelp,
     required this.onExportBooklist,
+    required this.onExportBooklistImage,
   });
 
   @override
@@ -929,6 +1009,13 @@ class _MenuCard extends StatelessWidget {
             title: '导出书单',
             subtitle: '书架清单复制为文本',
             onTap: onExportBooklist,
+            showDivider: true,
+          ),
+          SettingsRow(
+            icon: Icons.photo_rounded,
+            title: '导出书单海报',
+            subtitle: '封面网格 → PNG 图片',
+            onTap: onExportBooklistImage,
             showDivider: true,
           ),
           SettingsRow(
@@ -1555,4 +1642,282 @@ class _Bar extends StatelessWidget {
 
   String _shortFmt(int sec) =>
       sec >= 3600 ? '${sec ~/ 3600}h' : '${sec ~/ 60}m';
+}
+/// 书单海报生成中的占位弹窗。
+class _ImageLoadingSheet extends StatelessWidget {
+  const _ImageLoadingSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      child: Container(
+        margin: const EdgeInsets.all(S.x12),
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(R.sheet),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 14),
+            Text('正在加载封面、生成海报…'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 书单海报预览 + 保存弹窗。海报由 [boundaryKey] 的 RepaintBoundary 截图。
+class _ImageExportSheet extends StatefulWidget {
+  final List<ComicDetail> books;
+  final List<Uint8List?> covers;
+  final GlobalKey boundaryKey;
+  final Future<String?> Function() onSave;
+  const _ImageExportSheet({
+    required this.books,
+    required this.covers,
+    required this.boundaryKey,
+    required this.onSave,
+  });
+
+  @override
+  State<_ImageExportSheet> createState() => _ImageExportSheetState();
+}
+
+class _ImageExportSheetState extends State<_ImageExportSheet> {
+  bool _saving = false;
+  String? _savedPath;
+
+  Future<void> _save() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    final p = await widget.onSave();
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      _savedPath = p;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return SafeArea(
+      child: Container(
+        margin: const EdgeInsets.all(S.x12),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(R.sheet),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SheetHandle(),
+            const SizedBox(height: 12),
+            Text('书单海报', style: textTheme.titleLarge),
+            const SizedBox(height: 4),
+            Text(
+              '共 ${widget.books.length} 本 · 保存为 PNG 图片',
+              style: textTheme.bodySmall?.copyWith(
+                color: T.color(scheme.onSurface, TextTier.low,
+                    brightness: scheme.brightness),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              constraints: const BoxConstraints(maxHeight: 360),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFFFFF),
+                borderRadius: BorderRadius.circular(R.card),
+                border: Border.all(
+                  color: T.color(scheme.onSurface, TextTier.hairline,
+                      brightness: scheme.brightness),
+                ),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: SingleChildScrollView(
+                child: RepaintBoundary(
+                  key: widget.boundaryKey,
+                  child: _BooklistPoster(
+                    books: widget.books,
+                    covers: widget.covers,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _savedPath != null
+                    ? () => Navigator.pop(context)
+                    : (_saving ? null : _save),
+                icon: Icon(_savedPath != null
+                    ? Icons.check_rounded
+                    : Icons.image_rounded,
+                    size: 16),
+                label: Text(_saving
+                    ? '保存中…'
+                    : _savedPath != null
+                        ? '完成'
+                        : '保存图片'),
+              ),
+            ),
+            if (_saving) ...[
+              const SizedBox(height: 12),
+              const Center(
+                child: SizedBox(
+                  width: 120,
+                  child: LinearProgressIndicator(minHeight: 2),
+                ),
+              ),
+            ] else if (_savedPath != null) ...[
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.check_circle_rounded,
+                      size: 16, color: Color(0xFF2E7D32)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '已保存：$_savedPath',
+                      style: textTheme.bodySmall?.copyWith(height: 1.4),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 书单海报：固定白色底、780 宽、3 列封面网格，用于截图导出。
+class _BooklistPoster extends StatelessWidget {
+  final List<ComicDetail> books;
+  final List<Uint8List?> covers;
+  const _BooklistPoster({required this.books, required this.covers});
+
+  @override
+  Widget build(BuildContext context) {
+    const bg = Color(0xFFFFFFFF);
+    const fg = Color(0xFF1A1A1A);
+    const sub = Color(0xFF757575);
+    final count = books.length;
+    return Container(
+      width: 780,
+      color: bg,
+      padding: const EdgeInsets.all(28),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              const Text(
+                '星漫匣 · 我的书单',
+                style: TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w700,
+                    color: fg,
+                    height: 1.2),
+              ),
+              const Spacer(),
+              Text(
+                '共 $count 本',
+                style: const TextStyle(fontSize: 15, color: sub),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '导出时间：${DateTime.now().toString().substring(0, 16)}',
+            style: const TextStyle(fontSize: 12, color: sub),
+          ),
+          const SizedBox(height: 20),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              mainAxisSpacing: 16,
+              crossAxisSpacing: 12,
+              childAspectRatio: 0.62,
+            ),
+            itemCount: count,
+            itemBuilder: (_, i) => _PosterCard(
+              book: books[i],
+              cover: i < covers.length ? covers[i] : null,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 海报单本卡片：封面 + 书名 + 作者。
+class _PosterCard extends StatelessWidget {
+  final ComicDetail book;
+  final Uint8List? cover;
+  const _PosterCard({required this.book, required this.cover});
+
+  @override
+  Widget build(BuildContext context) {
+    final author = (book.author?.isNotEmpty ?? false) ? book.author : null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: cover != null
+                ? Image.memory(
+                    cover!,
+                    fit: BoxFit.cover,
+                    gaplessPlayback: true,
+                    filterQuality: FilterQuality.medium,
+                  )
+                : Container(
+                    color: const Color(0xFFECECEC),
+                    child: const Icon(Icons.image_not_supported_rounded,
+                        color: Color(0xFFBDBDBD)),
+                  ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          book.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+              fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1A1A1A)),
+        ),
+        if (author != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            author,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 11, color: Color(0xFF757575)),
+          ),
+        ],
+      ],
+    );
+  }
 }
