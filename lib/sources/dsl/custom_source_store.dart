@@ -8,14 +8,16 @@ import '../source_plugin.dart';
 import '../source_plugin_manager.dart';
 import 'custom_source_def.dart';
 import 'dsl_comic_source.dart';
+import 'dsl_novel_source.dart';
+import 'dsl_video_source.dart';
 
 /// 自定义源（JSON DSL）的持久化与生命周期桥接。
 ///
 /// - 定义存 `custom_sources`（JSON 数组），每个元素一份完整 [CustomSourceDef]，
 ///   可独立导入/导出。
 /// - 每个自定义源在 install 时生成一个 [CustomSourcePlugin]（继承 [SourcePlugin]，
-///   携带 [CustomSourceDef]），bind 时把 [DslComicSource] 注册进 [SourceManager]，
-///   unbind 时移除。
+///   携带 [CustomSourceDef]），bind 时按类型把 [DslComicSource]/[DslVideoSource]/
+///   [DslNovelSource] 注册进 [SourceManager]，unbind 时移除。
 /// - 启用/禁用走 [SourcePluginManager.setEnabled]（自定义源禁用状态落
 ///   `source_plugins` 的 disabled 列表）。
 class CustomSourceStore {
@@ -134,11 +136,13 @@ class CustomSourceStore {
   }
 }
 
-/// 自定义源插件：元数据来自 [CustomSourceDef]；bind 把实现挂进 SourceManager。
+/// 自定义源插件：元数据来自 [CustomSourceDef]；bind 按类型把对应实现挂进 SourceManager。
 class CustomSourcePlugin extends SourcePlugin {
   final CustomSourceDef def;
 
-  DslComicSource? _impl;
+  DslComicSource? _comicImpl;
+  DslVideoSource? _videoImpl;
+  DslNovelSource? _novelImpl;
 
   CustomSourcePlugin(this.def)
       : super(
@@ -152,17 +156,34 @@ class CustomSourcePlugin extends SourcePlugin {
 
   @override
   Future<void> bind() async {
-    _impl ??= DslComicSource(def);
-    if (def.type == 'comic') {
-      SourceManager.addSource(_impl!);
+    switch (def.type) {
+      case 'comic':
+        SourceManager.addSource(_comicImpl ??= DslComicSource(def));
+        break;
+      case 'video':
+        SourceManager.addVideoSource(_videoImpl ??= DslVideoSource(def));
+        break;
+      case 'novel':
+        SourceManager.addNovelSource(_novelImpl ??= DslNovelSource(def));
+        break;
     }
   }
 
   @override
   Future<void> unbind() async {
-    if (def.type == 'comic') {
-      SourceManager.removeSource(def.id);
+    switch (def.type) {
+      case 'comic':
+        SourceManager.removeSource(def.id);
+        break;
+      case 'video':
+        SourceManager.removeVideoSource(def.id);
+        break;
+      case 'novel':
+        SourceManager.removeNovelSource(def.id);
+        break;
     }
-    _impl = null;
+    _comicImpl = null;
+    _videoImpl = null;
+    _novelImpl = null;
   }
 }

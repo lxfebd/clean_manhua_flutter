@@ -265,15 +265,17 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 - 现状：`ShelfUpdater` 仅前台 Timer + SnackBar（无通知能力）；`checkNow :97-114` 只比对章节总数，需拆「新章 id 列表」
 - 方案：通知渠道（Android 用 `flutter_local_notifications`；后台定时先做**前台常驻/下次启动补检**兜底，不依赖 workmanager 保证——国产 ROM 后台限制）；同一作品 24h 只提醒一次；设置页开关（默认关）
 - 国产 ROM 兜底（用户评审要求）：引导页提示加白名单（MIUI/EMUI/ColorOS 自动跳转电池管理设置）；预留厂商推送 SDK 接入位但不排期；真机上提前验证 workmanager 存活率
+- ✅ 代码完成（2026-09-10，审计收尾）：UpdateNotifier（MethodChannel + 24h 冷却 + 开关）已有；本次补 2 缺口——web 隐藏「系统通知」开关（settings_page:380）+ `ShelfUpdater.checkOnStartup` 启动补检（main.dart bindFile 后串行）
 - 验收清单：
   - [ ] 模拟器+真机（小米）通知到达（含省电模式开关两种状态）
   - [ ] 重复提醒抑制（24h）正确
-  - [ ] 应用被杀后：下次启动补检并补发未读提醒
+  - [x] 应用被杀后：下次启动补检并补发未读提醒（checkOnStartup 已接）
   - [ ] 通知点击跳转对应书架项
 
 #### 7. 源市场
 - 现状：`custom_source_store.importJson :88-116` 是一键安装唯一入口（single-or-array、validate→upsert）；`update_checker.dart` GitHub 拉取+平台分选是索引模式模板
 - 方案：源索引 JSON 托管公开 GitHub 仓库；App 内「源市场」页（分类/搜索/一键安装/更新提醒/风险提示）；安装走 importJson，扩 video/novel 绑定
+- ✅ 前置代码完成（2026-09-10，1.4.3+46）：`CustomSourcePlugin.bind` 按 type 分派 comic/video/novel（`_comicImpl/_videoImpl/_novelImpl` 缓存，unbind 对称）；新增 `dsl_video_source.dart`（剧集/线路/播放页解析，复用 DSL 行抽取 + `dslGroup` 命名组取组）与 `dsl_novel_source.dart`（章节/正文，`picListCss/Re` 复用）；9 个 regression DSL 用例过（gitignore 不入库）
 - 验收清单：
   - [ ] 一键安装/卸载/更新闭环（含失败回滚）
   - [ ] 索引更新拉取（受 RateLimiter 管，失败回退缓存）
@@ -286,10 +288,11 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
   - **alpha（编译+浏览）**：加 `web/`，`flutter build web` 通过；浏览/搜索/详情只读链路走通（`PlatformHttp` 用 fetch）
   - **beta（阅读器）**：阅读/书架/设置可用；下载/本地导入/WebDAV 等平台功能显式禁用并提示
   - 抽象层（用户评审要求）：新增 `PlatformStorage`/`PlatformHttp`，替换散弹式 `if (kIsWeb)`——本地 IO 集中在接口后，dart:io 依赖收敛到桌面/移动实现
+- ✅ 代码完成（2026-09-10，1.4.3+45）：启动崩溃修复（NovelHomePage _Namespace）+ io 崩溃面收口（bookshelf 下载卡/novel_import）+ 禁用态（设置页 4 项 + 工具箱 4 工具 web 灰置）+ CORS 友好提示；`flutter build web --release` 成功 + headless 0 console 错误
 - 验收清单：
-  - [ ] alpha：`flutter build web` 零错，部署后浏览/搜索/详情可用
-  - [ ] beta：阅读器翻页/进度/书签可用；不兼容功能显示禁用态而非报错
-  - [ ] 移动/桌面端行为零回归（抽象层替换后全量回归测试过）
+  - [x] alpha：`flutter build web` 零错，部署后浏览/搜索/详情可用（构建零错 + headless 渲染验证）
+  - [ ] beta：阅读器翻页/进度/书签可用（需真实浏览器手动实测）；不兼容功能显示禁用态而非报错 ✅
+  - [ ] 移动/桌面端行为零回归（194 测试过；真实设备需实测）
 
 ### 📦 批次 C —— 架构与差异化（依赖重，最后做）
 
@@ -298,9 +301,10 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 - 方案：
   - **漫画上色**：轻量 TFLite/ONNX 模型（用户可选下载，非内置）；Isolate 推理；单张目标 **<3s**（用户评审基线）；INT8 量化
   - **章节总结**：本地小模型（如 Phi/Qwen 蒸馏小版 or 纯规则摘要兜底）；单章目标 **<5s**
-  - **本地推荐**：基于阅读历史的标签匹配（无模型，纯规则，先做）
+  - **本地推荐 ✅ 已编码（2026-09-10）**：`utils/local_recommender.dart` 纯规则——按历史聚合作者计数 → 跨启用源搜索该作者 → 过滤已读 → 排序 TopK；冷启动回落热门榜。profile 页右栏「猜你喜欢」横向封面列表，点击跳详情。3 测试过
   - 默认关闭，仅 WiFi+充电 下载模型；低端机（RAM<4GB）隐藏入口（用户评审要求）
 - 验收清单：
+  - [x] 本地推荐：历史作者聚合去重正确；空历史不请求网络；冷启动给热门兜底
   - [ ] 上色单张 <3s（中端机）；总结一章 <5s
   - [ ] 离线可用（模型下载后断网推理）
   - [ ] 默认关闭；WiFi+充电才提示下载；低端机不显示

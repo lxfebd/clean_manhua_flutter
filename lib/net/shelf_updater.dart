@@ -115,6 +115,16 @@ class ShelfUpdater {
     return updated;
   }
 
+  /// 应用启动补检（B-6）：进程被杀后下次启动跑一轮后台检查，
+  /// 命中更新即经 [checkInBackground] 走应用内横幅 + 系统通知
+  /// （24h 冷却去重，见 [UpdateNotifier]）。
+  /// 用户把轮询频率设为 off 时跳过，尊重关闭提醒的意图。
+  /// 必须在书架数据绑定完成后调用（书架为空时检不出更新）。
+  Future<void> checkOnStartup() async {
+    if (await frequency() == UpdateFreq.off) return;
+    await checkInBackground();
+  }
+
   /// 后台定时检查：发现更新时通过 [onUpdatesFound] 通知 UI，并在
   /// 用户开启推送开关时补发系统通知（24h 冷却去重，见 [UpdateNotifier]）。
   Future<void> checkInBackground() async {

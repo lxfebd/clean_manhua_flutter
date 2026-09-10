@@ -171,6 +171,11 @@ Future<void> _postFirstFrameInit() async {
       debugPrint('shelf bind failed: $e');
     }
   }
+  // B-6 启动补检：应用被杀后下次启动补检并补发未读提醒。
+  // 必须放在书架文件绑定之后（书架为空时检不出更新），
+  // 且尊重用户关闭频率（off 时跳过）；失败静默不影响启动。
+  await _safeInit('ShelfUpdater.checkOnStartup',
+      () => ShelfUpdater.instance.checkOnStartup());
 }
 
 /// 单个启动任务的安全包装：异常只打日志，不影响并行组内其他任务。

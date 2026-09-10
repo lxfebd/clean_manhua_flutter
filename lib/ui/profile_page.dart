@@ -6,8 +6,10 @@ import '../main.dart';
 import '../net/bookshelf_store.dart';
 import '../net/local_store.dart';
 import '../net/update_checker.dart';
+import '../utils/local_recommender.dart';
 import 'responsive.dart';
 import 'settings_page.dart';
+import 'detail_page.dart';
 import 'tokens.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
@@ -29,6 +31,8 @@ class ProfilePage extends StatefulWidget {
 class ProfilePageState extends State<ProfilePage> {
   List<HistoryEntry> _history = [];
   List<DownloadRecord> _downloads = [];
+  List<RecommendItem> _recommends = [];
+  bool _recLoading = false;
   int _favorites = 0;
   bool _loaded = false;
   bool _dark = false;
@@ -61,6 +65,38 @@ class ProfilePageState extends State<ProfilePage> {
         _totalSec = total;
         _loaded = true;
       });
+    }
+    // 本地推荐：独立于主加载，失败静默（不给推荐空态）。
+    _loadRecommends(h);
+  }
+
+  void _openRecommend(RecommendItem r) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DetailPage(
+          sourceId: r.sourceId,
+          comicId: r.item.id,
+          name: r.item.name,
+          pic: r.item.pic,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _loadRecommends(List<HistoryEntry> history) async {
+    if (_recLoading) return;
+    setState(() => _recLoading = true);
+    try {
+      final recs = await LocalRecommender.recommend(history: history);
+      final items = recs.isNotEmpty ? recs : await LocalRecommender.fallbackRanking();
+      if (mounted && items.isNotEmpty) {
+        setState(() => _recommends = items);
+      }
+    } catch (_) {
+      // 网络/源异常静默，不影响主页面
+    } finally {
+      if (mounted) setState(() => _recLoading = false);
     }
   }
 
@@ -199,6 +235,15 @@ class ProfilePageState extends State<ProfilePage> {
                           onDownloads: () => widget.onSwitchTab?.call(4),
                           onHelp: _showHelp,
                           onExportBooklist: _exportBooklist)),
+                  const SizedBox(height: 14),
+                  FadeSlideIn(
+                    delay: const Duration(milliseconds: 280),
+                    child: _RecommendCard(
+                      items: _recommends,
+                      loading: _recLoading,
+                      onOpen: _openRecommend,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -732,6 +777,98 @@ class _StatsCard extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 本地推荐：横向滑动封面列表（批次 C「本地推荐」切片）。
+class _RecommendCard extends StatelessWidget {
+  final List<RecommendItem> items;
+  final bool loading;
+  final ValueChanged<RecommendItem> onOpen;
+  const _RecommendCard({
+    required this.items,
+    required this.loading,
+    required this.onOpen,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    if (items.isEmpty) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+              '猜你喜欢',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: scheme.onSurface,
+                  ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+              '基于本地阅读历史的纯本地推荐，不上传任何数据',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurface.withValues(alpha: 0.55),
+                  ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 148,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              itemCount: items.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (context, i) {
+                final r = items[i];
+                return SizedBox(
+                  width: 96,
+                  child: GestureDetector(
+                    onTap: () => onOpen(r),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: CachedImage(
+                            r.item.pic,
+                            width: 96,
+                            height: 128,
+                            fit: BoxFit.cover,
+                            radius: 10,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          r.item.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(
+                                color: scheme.onSurface,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }

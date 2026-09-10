@@ -377,20 +377,24 @@ class _SettingsPageState extends State<SettingsPage> {
                     trailing: const Icon(Icons.chevron_right_rounded, size: 18),
                     onTap: _pickUpdateFreq,
                   ),
-                  Container(
-                    height: 0.5,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
-                  ),
-                  _SettingTile(
-                    icon: Icons.notifications_outlined,
-                    title: '系统通知',
-                    subtitle: _notifyEnabled
-                        ? '更新时在通知栏提醒'
-                        : '关闭：仅应用内横幅提醒',
-                    trailing: Switch(
-                        value: _notifyEnabled, onChanged: _toggleNotify),
-                    onTap: () => _toggleNotify(!_notifyEnabled),
-                  ),
+                  // 系统通知走原生 MethodChannel（Android 通知栏），Web 端无实现
+                  // 且系统通知语义不存在，直接隐藏该项（收藏更新提醒的应用内横幅仍可用）。
+                  if (!kIsWeb) ...[
+                    Container(
+                      height: 0.5,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                    ),
+                    _SettingTile(
+                      icon: Icons.notifications_outlined,
+                      title: '系统通知',
+                      subtitle: _notifyEnabled
+                          ? '更新时在通知栏提醒'
+                          : '关闭：仅应用内横幅提醒',
+                      trailing: Switch(
+                          value: _notifyEnabled, onChanged: _toggleNotify),
+                      onTap: () => _toggleNotify(!_notifyEnabled),
+                    ),
+                  ],
                 ],
               ),
             ),

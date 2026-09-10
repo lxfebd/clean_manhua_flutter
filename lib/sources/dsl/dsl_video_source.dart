@@ -1,52 +1,41 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import '../../models/comic_item.dart';
-import '../../net/aes_cbc.dart';
 import '../../net/http_client.dart';
-import '../comic_source.dart';
-import '../source_config.dart';
+import '../comic_source.dart' show Category;
 import '../source_result.dart';
+import '../video_source.dart';
 import 'custom_source_def.dart';
+import 'dsl_comic_source.dart' show DslDecrypt, dslGroup;
 import 'html_parser.dart';
 
-/// 自定义源 JSON DSL 的漫画源实现。
+/// 自定义源 JSON DSL 的视频源实现。
 ///
-/// 一份 DSL 定义（[CustomSourceDef]）实例化一个 [DslComicSource]，完整实现
-/// [ComicSource] 接口：分类/列表/排行/搜索/详情/章节图，全部由「基础 URL +
-/// CSS 或正则规则 + 可选解码（AES/Base64/替换）」声明式驱动，无需写 Dart 代码。
+/// 复用 [CustomSourceDef] 的 DSL 规则（分类/列表/搜索/详情）+ 通用解码链
+/// （AES/Base64/替换），实现 [VideoSource] 接口。字段命名约定与
+/// [DslComicSource] 完全一致，语义对齐：
+/// - `categoryList` → [listByCategory]；`search` → [search]；
+/// - `detail.title/cover/author/description/area/type/status` → 详情元信息；
+/// - `detail.chapters`（CSS 选择器）→ 主线路剧集列表；
+/// - `detail.chaptersRe`（正则）→ 剧集列表，组 1 = 标题、组 2 = 链接
+///   （提取其中第一个数字作为集号）、可选组 3 = 线路号（如 S1 / 线路1），
+///   线路号同时填充 [VideoDetail.sourceNames]；
+/// - `detail.picListUrl` 复用为「播放地址」规则：请求该页后按
+///   `picListCss`（取 [picAttr] 属性，默认 `src`）/ `picListRe`（组 1 = 地址）
+///   抽取，结果第一个为可直接播放的 URL（m3u8/mp4/iframe 解析器页均可）。
 ///
-/// 数据流向（以「详情页章节图」为例）：
-/// `chapterPics` → GET `picListUrl` → 响应 → 按 `picList.decrypt` 解码
-/// → 按 `picList.pics`（CSS 或正则）抽取图片地址 → 按 `picList.replace` 修正
-/// → 按 `picList.picFilter` 过滤 → 返回。
-///
-/// 网络统一走 Net（http_client.dart），域名可被 SourceConfigStore 的用户配置覆盖，
-/// 与其他内置源行为一致（走同一代理/降级链）。
-class DslComicSource extends ComicSource {
+/// 网络统一走全局 Net（http_client.dart），与内置视频源行为一致。
+class DslVideoSource implements VideoSource {
   final CustomSourceDef def;
 
-  DslComicSource(this.def);
+  DslVideoSource(this.def);
 
   @override
   String get id => def.id;
 
   @override
   String get name => def.name;
-
-  @override
-  bool get requiresLogin => def.requiresLogin;
-
-  @override
-  bool get isEnabled => true;
-
-  @override
-  SourceTier get tier => SourceTier.fallback;
-
-  @override
-  Future<ConnectionStatus> health() async => ConnectionStatus.unknown;
 
   // ---- 分类 ----
   @override
@@ -70,20 +59,13 @@ class DslComicSource extends ComicSource {
     }, (_) => const <Category>[]);
   }
 
-  // ---- 列表 / 排行 / 搜索 ----
+  // ---- 列表 / 搜索 ----
   @override
   Future<List<ComicItem>> listByCategory(String categoryId, int page) async {
     final rule = def.categoryListRule;
     if (rule == null || def.categoryListUrl == null) return const [];
     final url = _pageUrl(def.categoryListUrl!, categoryId, page);
     return _list(url, rule);
-  }
-
-  @override
-  Future<List<ComicItem>> rank(int page) async {
-    final rule = def.rankRule;
-    if (rule == null || def.rankUrl == null) return const [];
-    return _list(_pageUrl(def.rankUrl!, null, page), rule);
   }
 
   @override
@@ -119,65 +101,124 @@ class DslComicSource extends ComicSource {
 
   // ---- 详情 ----
   @override
-  Future<ComicDetail> detail(String comicId) async {
+  Future<VideoDetail> detail(String videoId) async {
     final d = def.detailRule;
     if (d == null || def.detailUrl == null) {
       throw SourceError.service('该源未配置详情页规则');
     }
-    final html = await _fetch(def.detailUrl!, null, d.baseDecrypt, comicId);
+    final html = await _fetch(def.detailUrl!, null, d.baseDecrypt, videoId);
     final root = parseHtml(html);
     final cover = _queryAttr(root, d.cover, d.coverAttr, d.baseUrl);
-    final item = ComicItem(comicId, d.title.isNotEmpty ? _queryText(root, d.title) : '', cover.isEmpty ? '' : _abs(def.detailUrl!, cover))
+    final item = ComicItem(
+      videoId,
+      d.title.isNotEmpty ? _queryText(root, d.title) : '',
+      cover.isEmpty ? '' : _abs(def.detailUrl!, cover),
+    )
       ..author = _queryText(root, d.author)
-      ..content = _queryText(root, d.description);
+      ..content = _queryText(root, d.description)
+      ..remarks = _queryText(root, d.status);
+    final type = _queryText(root, d.type);
+    final area = _queryText(root, d.area);
 
-    // 章节：CSS 选择器抽取，或正则
-    final chapters = <Chapter>[];
-    if (d.chapters.isNotEmpty) {
-      final nodes = root.querySelectorAll(d.chapters);
-      final hrefRe = d.chapterUrlRe.isNotEmpty
-          ? RegExp(d.chapterUrlRe)
-          : null;
-      for (final n in nodes) {
-        var href = _attr(n, d.chapterUrl);
-        if (href.isEmpty && hrefRe != null) {
-          final m = hrefRe.firstMatch(n.innerText);
-          if (m != null) href = m.group(1) ?? m.group(0)!;
-        }
-        if (href.isEmpty) continue;
-        final cid = _extractId(href, comicId);
-        if (cid.isEmpty) continue;
-        final title = _attr(n, d.chapterTitle).isNotEmpty
-            ? _attr(n, d.chapterTitle)
-            : n.innerText.trim();
-        if (title.isEmpty) continue;
-        chapters.add(Chapter(cid, title));
-      }
+    final episodes = <VideoEpisode>[];
+    final seen = <String>{};
+    // 主线路：CSS 选择器抽取
+    final nodes = d.chapters.isNotEmpty
+        ? root.querySelectorAll(d.chapters)
+        : <HtmlNode>[];
+    for (final n in nodes) {
+      final href = _epHref(n, d);
+      if (href.isEmpty) continue;
+      final idx = _epIndex(href);
+      if (idx < 0) continue;
+      // chapterTitle 留空时用链接文本（与 ComicSource 章节解析一致）
+      final raw = d.chapterTitle.isEmpty
+          ? n.innerText.trim()
+          : _extract(n, d.chapterTitle);
+      final label = raw.isEmpty ? '第${_pad(idx)}集' : raw;
+      final key = '1-$idx';
+      if (seen.add(key)) episodes.add(VideoEpisode(1, idx, label));
     }
-    if (chapters.isEmpty && d.chaptersRe.isNotEmpty) {
+    // 或 chaptersRe 正则（组1=标题 组2=链接 可选组3=线路号；支持命名组）
+    Map<int, String>? sourceNames;
+    if (episodes.isEmpty && d.chaptersRe.isNotEmpty) {
       final re = RegExp(d.chaptersRe);
+      final names = <int, String>{};
       for (final m in re.allMatches(html)) {
-        final title = m.group(1) ?? '';
-        final href = m.group(2) ?? '';
-        if (title.isEmpty || href.isEmpty) continue;
-        final cid = _extractId(href, comicId);
-        if (cid.isEmpty) continue;
-        chapters.add(Chapter(cid, title.trim()));
+        final href = dslGroup(m, re, 'href', 2);
+        if (href.isEmpty) continue;
+        final title = dslGroup(m, re, 'title', 1);
+        if (title.isEmpty) continue;
+        final seasonRaw = dslGroup(m, re, 'season', m.groupCount >= 3 ? 3 : 0);
+        final season = _seasonNum(seasonRaw.trim());
+        final idx = _epIndex(href);
+        if (idx < 0) continue;
+        final key = '$season-$idx';
+        if (seen.add(key)) {
+          episodes.add(VideoEpisode(season, idx, title.trim()));
+        }
+        if (seasonRaw.trim().isNotEmpty) {
+          names.putIfAbsent(season, () => seasonRaw.trim());
+        }
       }
+      if (names.isNotEmpty) sourceNames = names;
     }
+    episodes.sort((a, b) => a.season == b.season
+        ? a.episode.compareTo(b.episode)
+        : a.season.compareTo(b.season));
 
-    return ComicDetail(item, chapters,
-        sourceId: id,
-        description: item.content,
-        author: item.author);
+    return VideoDetail(
+      item,
+      episodes,
+      description: item.content,
+      cover: cover.isEmpty ? null : item.pic,
+      area: area.isEmpty ? null : area,
+      type: type.isEmpty ? null : type,
+      sourceNames: sourceNames,
+    );
   }
 
-  // ---- 章节图片 ----
+  // 单行取章的 href：优先按 chapterUrlRe 从文章文本抽，再按 chapterUrl 属性。
+  String _epHref(HtmlNode n, DslDetailRule d) {
+    var href = _attr(n, d.chapterUrl);
+    if (href.isEmpty && d.chapterUrlRe.isNotEmpty) {
+      final m = RegExp(d.chapterUrlRe).firstMatch(n.innerText);
+      if (m != null) href = m.group(1) ?? m.group(0)!;
+    }
+    return href;
+  }
+
+  // 按 href 里最后一个数字取集号（如 /play/{videoId}/{ep}.html → ep；
+  // -1 = 取不到）。
+  int _epIndex(String href) {
+    final re = RegExp(r'(\d+)');
+    int? last;
+    for (final m in re.allMatches(href)) {
+      last = int.tryParse(m.group(1) ?? '');
+    }
+    return last ?? -1;
+  }
+
+  // 抽取线路号：纯数字直接用；含 's'/'线路'/'第' 则取其后的数字。
+  int _seasonNum(String raw) {
+    if (raw.isEmpty) return 1;
+    final direct = int.tryParse(raw);
+    if (direct != null) return direct < 1 ? 1 : direct;
+    final m = RegExp(r'(\d+)').firstMatch(raw);
+    return m == null ? 1 : (int.tryParse(m.group(1) ?? '1') ?? 1);
+  }
+
+  // ---- 播放地址（复用「章节图」规则）----
   @override
-  Future<List<String>> chapterPics(String chapterId) async {
+  Future<String> playUrl(String videoId, int season, int episode) async {
     final d = def.detailRule;
-    if (d == null || d.picListUrl.isEmpty) return const [];
-    final html = await _fetch(d.picListUrl, null, d.picListDecrypt, chapterId);
+    if (d == null || d.picListUrl.isEmpty) {
+      throw SourceError.service('该源未配置播放地址规则（picListUrl）');
+    }
+    final seasonUrl = d.picListUrl
+        .replaceAll('{season}', '$season')
+        .replaceAll('{episode}', '$episode');
+    final html = await _fetch(seasonUrl, '$episode', d.picListDecrypt, videoId);
     final root = parseHtml(html);
     final nodes = d.picListCss.isNotEmpty
         ? root.querySelectorAll(d.picListCss)
@@ -197,21 +238,21 @@ class DslComicSource extends ComicSource {
         if (u.isNotEmpty) urls.add(u);
       }
     }
-    // 过滤 + 修正
     final filtered = <String>[];
     for (var u in urls) {
       if (d.picFilter.isNotEmpty) {
         if (!RegExp(d.picFilter).hasMatch(u)) continue;
       }
       u = _applyReplace(u, d.picReplace);
-      if (u.isNotEmpty && !filtered.contains(u)) filtered.add(_abs(d.picListUrl, u));
+      if (u.isNotEmpty) filtered.add(_abs(seasonUrl, u));
     }
-    return filtered;
+    if (filtered.isEmpty) {
+      throw SourceError.parse('未匹配到播放地址');
+    }
+    return filtered.first;
   }
 
   // ---- 工具 ----
-
-  /// 抓取并按 [decrypt] 解码页面文本。统一出口：所有网络都在这里，失败抛 SourceError。
   Future<String> _fetch(String url, String? page, String? decrypt, String id) async {
     final u = url.replaceAll('{id}', id).replaceAll('{page}', page ?? '1');
     try {
@@ -221,7 +262,6 @@ class DslComicSource extends ComicSource {
     } on SourceError {
       rethrow;
     } catch (e) {
-      // 统一归约为结构化错误（对齐 runCatching 的语义）
       if (e is SocketException || e is TimeoutException) {
         throw SourceError.network('$e');
       }
@@ -230,7 +270,7 @@ class DslComicSource extends ComicSource {
       throw SourceError.unknown('$e');
     }
   }
-  /// 组装分页 URL：替换 {page} 与可选 {keyword}。
+
   String _pageUrl(String url, String? categoryId, int page, {String? keyword}) {
     return url
         .replaceAll('{page}', '$page')
@@ -241,7 +281,6 @@ class DslComicSource extends ComicSource {
   String _extractId(String href, String comicId) {
     var s = href.trim();
     if (s.isEmpty) return '';
-    // 相对路径 → 补 baseUrl（保留 query）
     if (s.startsWith('/')) {
       s = '${def.baseUrl}$s';
     } else if (!s.startsWith('http://') && !s.startsWith('https://')) {
@@ -250,7 +289,6 @@ class DslComicSource extends ComicSource {
     }
     final uri = Uri.tryParse(s);
     if (uri == null) return s;
-    // 返回去掉前导斜杠的路径：{id} 由详情/章节图 URL 模板自行拼接。
     var path = uri.path;
     while (path.startsWith('/')) {
       path = path.substring(1);
@@ -282,15 +320,7 @@ class DslComicSource extends ComicSource {
     return out;
   }
 
-  /// 统一字段抽取：规则字段值可以是——
-  /// - 属性名（如 'href' / 'src' / 'data-id'）：取元素该属性；
-  /// - 子选择器（以 `.` / `#` / `[` / 标签 开头）：在元素内做子查询取首匹配；
-  /// - 空：取元素文本（innerText）。
-  /// 统一字段抽取。规则字段值支持三种形态：
-/// - `selector|attr`：先按选择器取子元素，再取该元素属性（如 `img|src`、`a|href`）；
-/// - 纯属性名且条目元素直接拥有（如 `href`、`data-id`）；
-/// - 选择器（标签/类/id/属性）：取第一个匹配子元素的文本；空 → 条目自身文本。
-String _extract(HtmlNode e, String field) {
+  String _extract(HtmlNode e, String field) {
     final f = field.trim();
     if (f.isEmpty) return e.innerText.trim();
     if (f.contains('|')) {
@@ -310,25 +340,21 @@ String _extract(HtmlNode e, String field) {
     return e.innerText.trim();
   }
 
-  // 在元素内按选择器查第一个匹配（后代任意层级）
   HtmlNode? _firstSub(HtmlNode e, String selector) {
     final list = e.querySelectorAll(selector);
     return list.isEmpty ? null : list.first;
   }
 
-  // 取元素属性（小写键）；选择器形式原样返回空，交给 _extract 处理文本
   String _attr(HtmlNode e, String field) {
     if (field.isEmpty) return '';
     return e.attrs[field.toLowerCase()] ?? '';
   }
 
-  // 可选字段抽取（String?），空返回 ''
   String _opt(HtmlNode e, String? field) {
     if (field == null || field.isEmpty) return '';
     return _extract(e, field);
   }
 
-  /// 在 [root] 中按 [selector] 取首个元素，再按 [attr] 取属性（空则取文本）。
   String _queryAttr(HtmlNode root, String selector, String attr, String fallbackUrl) {
     if (selector.isEmpty) return '';
     final els = root.querySelectorAll(selector);
@@ -344,7 +370,7 @@ String _extract(HtmlNode e, String field) {
     return els.first.innerText.trim();
   }
 
-  /// 通用「查询→映射」执行器：抓取、解码、按 CSS/正则定位元素、应用映射。
+  /// 通用「查询→映射」执行器：抓取、解码、按 CSS/正则定位元素，应用映射。
   Future<T> _runRule<T>(
     String url,
     DslListRule rule,
@@ -357,7 +383,7 @@ String _extract(HtmlNode e, String field) {
     if (rule.selector.isNotEmpty) {
       els = root.querySelectorAll(rule.selector);
     } else if (rule.regex.isNotEmpty) {
-      // 正则行式：把每个匹配包装成虚拟节点，供 map 复用统一抽取逻辑
+      // 正则行式：每个匹配包装成虚拟节点，供 map 复用统一抽取逻辑
       final re = RegExp(rule.regex);
       final groups = <List<String>>[];
       for (final m in re.allMatches(html)) {
@@ -379,76 +405,6 @@ String _extract(HtmlNode e, String field) {
     }
     return els.isEmpty ? empty(els) : map(els);
   }
-}
 
-/// 网页抓取：直接使用全局 Net（http_client.dart），统一走代理/降级链。
-///
-/// 简易站点名 → 头部附加（UA）。
-class DslDecrypt {
-  static String apply(String spec, String input) {
-    final parts = spec.split('|');
-    var out = input;
-    for (final p in parts) {
-      final t = p.trim();
-      if (t.isEmpty) continue;
-      if (t.startsWith('b64')) {
-        out = utf8.decode(base64Decode(out));
-      } else if (t.startsWith('hex')) {
-        out = utf8.decode(_hexToBytes(out));
-      } else if (t.startsWith('aes:')) {
-        final rest = t.substring(4).split(',');
-        final key = utf8.encode(rest.isEmpty ? '' : rest[0]);
-        final iv = rest.length > 1 ? utf8.encode(rest[1]) : key;
-        final raw = base64Decode(out);
-        final dec = AesCbc.decryptCbc(raw, key, iv);
-        out = utf8.decode(dec, allowMalformed: true);
-      } else if (t.startsWith('replace:')) {
-        final kv = t.substring(8);
-        final idx = kv.indexOf('>');
-        if (idx > 0) {
-          out = out.replaceAll(kv.substring(0, idx), kv.substring(idx + 1));
-        }
-      } else if (t.startsWith('decode:')) {
-        out = Uri.decodeComponent(out);
-      } else if (t.startsWith('re:')) {
-        final body = t.substring(3);
-        final sepIdx = body.indexOf('|');
-        if (sepIdx > 0) {
-          final re = RegExp(body.substring(0, sepIdx), dotAll: true);
-          final rep = body.substring(sepIdx + 1);
-          out = out.replaceAll(re, rep);
-        }
-      }
-    }
-    return out;
-  }
-
-  static Uint8List _hexToBytes(String hex) {
-    final s = hex.replaceAll(' ', '');
-    final out = Uint8List(s.length ~/ 2);
-    for (var i = 0; i + 1 < s.length; i += 2) {
-      out[i ~/ 2] = int.parse(s.substring(i, i + 2), radix: 16);
-    }
-    return out;
-  }
-}
-
-/// 正则匹配串抽取：优先命名组（`(?<name>...)`），不存在时回退按位取 [position]。
-/// DSL 的 `chaptersRe`/`chapters` 规则可能给出顺序不确定的捕获组（如
-/// `<a href="...">标题</a>` 既有 href 又有标题），命名组让规则作者明确声明
-/// 各字段，避免依赖组顺序。
-String dslGroup(RegExpMatch m, RegExp re, String name, int position) {
-  if (re.pattern.contains('?<$name>')) {
-    try {
-      final v = m.namedGroup(name);
-      if (v != null) return v;
-    } catch (_) {
-      // 该命名组不存在（pattern 变体差异），回退按位
-    }
-  }
-  if (position <= m.groupCount) {
-    final v = m.group(position);
-    if (v != null) return v;
-  }
-  return '';
+  static String _pad(int n) => n.toString().padLeft(2, '0');
 }
