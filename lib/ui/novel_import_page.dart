@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -38,8 +39,11 @@ class _NovelImportPageState extends State<NovelImportPage> {
         return;
       }
       setState(() => _busy = true);
-      final raw = f.bytes ??
-          (f.path != null ? await File(f.path!).readAsBytes() : null);
+      // web 上 file_picker 的 path 是 blob URL（无本地文件系统），只信任 bytes；
+      // 移动/桌面 path 为本地路径兜底读取。
+      final pickedBytes = f.bytes;
+      final raw = pickedBytes ??
+          (kIsWeb || f.path == null ? null : await File(f.path!).readAsBytes());
       if (raw == null) {
         _toast('读取文件失败');
         return;

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io';
 
 import '../net/bookshelf_store.dart';
@@ -785,8 +786,9 @@ class BookshelfPageState extends State<BookshelfPage>
 
   Widget _animeDownloadCard(ColorScheme scheme, VideoDownloadTask t) {
     final text = Theme.of(context).textTheme;
-    final hasFile =
-        t.localPath != null && File(t.localPath!).existsSync();
+    final hasFile = !kIsWeb &&
+        t.localPath != null &&
+        File(t.localPath!).existsSync();
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -986,7 +988,7 @@ class BookshelfPageState extends State<BookshelfPage>
 
   void _openAnimeDownload(VideoDownloadTask t) {
     final p = t.localPath;
-    if (p == null || !File(p).existsSync()) {
+    if (kIsWeb || p == null || !File(p).existsSync()) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('未找到本地文件，可能无法离线播放')),
