@@ -244,8 +244,21 @@ class DownloadRecord {
 
 /// 本地存储：基于 JSON 文件的收藏/历史/设置/下载清单持久化。
 /// 所有数据存放在应用文档目录下，避免引入额外依赖。
+///
+/// 迁移机制（P2-10）：数据根文件 `data/schema_version` 记录结构版本。
+/// [init] 时若版本低于 [schemaVersion]，依次执行未跑过的迁移钩子
+/// （迁移用普通 `_writeNow` 直写，禁用 `_write` 避免入队与迁移串行冲突）。
 class LocalStore {
+  /// 当前结构版本。新增迁移时必须：+1 并在 [_migrations] 末尾注册钩子。
+  static const int schemaVersion = 1;
+
   static Directory? _dir;
+
+  /// 迁移历史：index = 从版本 i 升到 i+1 的钩子，只记录变更过的版本。
+  /// 例：v1 新增某字段 → `_migrations[1] = (name) async {...}`。
+  /// 钩子按序幂等执行，失败记日志不中断启动（下次启动重试）。
+  static const Map<int, Future<void> Function(LocalStoreMigrator)> _migrations =
+      {};
 
   /// 每文件的串行写盘队列（文件名 -> 尾链）。
   /// "读-改-写"复合操作（如 addReadingSeconds / recordHistory）并发时会互相覆盖，
@@ -256,6 +269,45 @@ class LocalStore {
   static Future<void> init() async {
     if (kIsWeb) return; // web 端无文件目录，读写全走 WebPersist(localStorage)
     await _dirAsync();
+    await _runMigrations();
+  }
+
+  /// 顺序执行未跑过的迁移。升级失败只记日志不中断启动（下次启动重试）。
+  static Future<void> _runMigrations() async {
+    var v = (await _readRaw('schema_version') as num?)?.toInt() ?? 0;
+    for (var target = v + 1; target <= schemaVersion; target++) {
+      final fn = _migrations[target];
+      if (fn != null) {
+        try {
+          await fn(_MigratorImpl());
+        } catch (e) {
+          ErrorLogger.instance
+              .warn('LocalStore 迁移 v$target 失败（下次启动重试）: $e');
+          return;
+        }
+      }
+      // 无论是否有钩子都推进版本，避免永久卡在某个版本。
+      _writeQueues['schema_version'] = _writeNow('schema_version', target);
+      await _writeQueues['schema_version'];
+    }
+  }
+
+  /// 未经损坏备份逻辑的裸读（供迁移读原始 JSON；复用 [_read] 会触发
+  /// 备份改名逻辑，在迁移期反而引入写盘副作用）。
+  static Future<dynamic> _readRaw(String name) async {
+    try {
+      if (kIsWeb) {
+        final raw = WebPersist.read('local_$name');
+        return raw == null ? null : jsonDecode(raw);
+      }
+      final f = await _fileAsync(name);
+      if (!f.existsSync()) return null;
+      final raw = await f.readAsString();
+      if (raw.length > 64 * 1024) return await compute(_jsonDecodeCompute, raw);
+      return jsonDecode(raw);
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<Directory> _dirAsync() async {
@@ -1049,4 +1101,21 @@ class LocalStore {
       'y': (m['winY'] as num?)?.toDouble() ?? 0,
     };
   }
+}
+
+/// 迁移钩子入参：给单次迁移提供受限的数据访问能力。
+/// 迁移只能读/写单个 JSON 文件（不能碰 _writeQueues 之外的内部状态）。
+class LocalStoreMigrator {
+  const LocalStoreMigrator();
+
+  /// 读取某 JSON 文件的原始解码值（解析失败返回 null）。
+  Future<dynamic> read(String name) => LocalStore._readRaw(name);
+
+  /// 直写某 JSON 文件（走文件写队列，不参与迁移版本推进）。
+  Future<void> write(String name, Object data) =>
+      LocalStore._write(name, data);
+}
+
+class _MigratorImpl extends LocalStoreMigrator {
+  const _MigratorImpl();
 }

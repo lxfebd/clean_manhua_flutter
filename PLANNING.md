@@ -134,7 +134,7 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 | P2-7 | `_write` 同步 IO 在 UI 线程 + 超限整文件读回重写 | `error_logger.dart:122-147` | 低频可接受，日志高频场景注意 |
 | P2-8 | `onLowMemory` 永久压 imageCache 无恢复 | `image_cache.dart` | ✅ 已修（1.4.3+52）：记录原预算 + 60s 后 load 入口渐进恢复 |
 | P2-9 | 备份恢复对调用方隐式契约（bookshelf/novel_shelf 外部写回） | `local_store.dart:800-823` | 文档化 / 收口 |
-| P2-10 | 无 schema 迁移机制（唯一显式兼容：readerMode 回退旧 horizontal `:456-462`） | `local_store.dart` | 加 version 字段 + 迁移钩子 |
+| P2-10 | 无 schema 迁移机制（唯一显式兼容：readerMode 回退旧 horizontal `:456-462`） | `local_store.dart` | ✅ 已修（1.4.3+53）：schema_version + 迁移钩子 `_migrations` map + `_readRaw`/`_MigratorImpl`；v1 框架就绪，3 测试过 |
 | P2-11 | 损坏文件备份逻辑三处复制 | bookshelf/novel/LocalStore | 随 P1-8 一起 |
 | P2-12 | `video_download_manager._persist` 无防抖全量重写 | `video_download_manager.dart` | ✅ 已修（1.4.3+52）：500ms 防抖合并 + flushPersist 落盘（lifecycle 钩子收口） |
 | P2-13 | `tmp_render_preview_test.dart` 被 `tmp_*` 规则误伤 gitignore | `test/` | 改名或加白名单 |
