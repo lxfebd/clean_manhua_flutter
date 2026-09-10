@@ -139,7 +139,7 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 | P2-12 | `video_download_manager._persist` 无防抖全量重写 | `video_download_manager.dart` | ✅ 已修（1.4.3+52）：500ms 防抖合并 + flushPersist 落盘（lifecycle 钩子收口） |
 | P2-13 | `tmp_render_preview_test.dart` 被 `tmp_*` 规则误伤 gitignore | `test/` | ✅ 已改名（1.4.3+56）：`render_preview_test.dart`，脱离 `tmp_*` 误伤，默认 skip 出图测试 |
 | P2-14 | `theme.dart:7` 兼容 export 转出层 | 同上 | ✅ 已删（1.4.3+56）：两 import 者（main/settings_page）均不用 token 符号，export 无引用；theme.dart 保留自身 import ui/tokens（TypeScale） |
-| P2-15 | `design_tokens_test` 门禁只校验档位取值，不校验调用点 | `test/design_tokens_test.dart:76-84` | 加「禁止内联」门禁（基线棘轮已在下调） |
+| P2-15 | `design_tokens_test` 门禁只校验档位取值，不校验调用点 | `test/design_tokens_test.dart:76-84` | ✅ 已满足（1.4.3+56）：既有「字面量棘轮」门禁（`design_tokens_test.dart:95-138`）即有效的禁止内联 gate——遍历全 lib 统计 fontSize/BorderRadius/alpha 字面量**种类数**并连年下调基线（≤24/22/40）。按种类计数比按调用点更稳（对重构不敏感、防新增字面量），调用点计数易碎不作额外门禁 |
 
 ### 技术债修债节奏（原则）
 
