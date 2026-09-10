@@ -126,17 +126,17 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 | # | 债 | 位置 | 修法 |
 |---|---|---|---|
 | P2-1 | 死代码：tokens `class D`、`UpdateChecker.downloadUpdate` | 见各文件 | ✅ 已清理（1.4.3+47）；`Net.getCronet`/`WebDavSync.recordPull`/circuit_breaker 非死代码（有调用），保留 |
-| P2-2 | 互斥锁超时 30s < compute 2min → 锁对象被覆盖错配 | `jm_scramble.dart:127-142`、`image_super_res.dart:23-39` | 超时与 compute 超时对齐 / 锁等待重新入队 |
-| P2-3 | RateLimiter 无排队上限、无超时 | `http_client.dart:52-66` | 排队上限 + 超时放弃 |
+| P2-2 | 互斥锁超时 30s < compute 2min → 锁对象被覆盖错配 | `jm_scramble.dart`、`image_super_res.dart` | ✅ 已修（1.4.3+52）：acquire 超时 2m30s > compute 2m + identical 守卫防锁错配 |
+| P2-3 | RateLimiter 无排队上限、无超时 | `http_client.dart` | ✅ 已修（1.4.3+52）：队列上限 40 + 等待超时 30s 抛错走降级 |
 | P2-4 | 未使用依赖：`flutter_svg`/`uuid`/`cupertino_icons`（0 import） | `pubspec.yaml` | ✅ 已删（1.4.3+47） |
 | P2-5 | `_legacy_icons/` 2 个已跟踪死文件（app_icon_master_256.png / macos_app_icon_1024_old.png） | 仓库根 | git rm（须用户同意后） |
 | P2-6 | `native_player_page.dart` 唯一 `print(`（MPV 日志逐行 stdout） | 同上 | ✅ 已改 ErrorLogger.debug（1.4.3+47，:561） |
 | P2-7 | `_write` 同步 IO 在 UI 线程 + 超限整文件读回重写 | `error_logger.dart:122-147` | 低频可接受，日志高频场景注意 |
-| P2-8 | `onLowMemory` 永久压 imageCache 无恢复 | `image_cache.dart:326-327` | 分级恢复策略 |
+| P2-8 | `onLowMemory` 永久压 imageCache 无恢复 | `image_cache.dart` | ✅ 已修（1.4.3+52）：记录原预算 + 60s 后 load 入口渐进恢复 |
 | P2-9 | 备份恢复对调用方隐式契约（bookshelf/novel_shelf 外部写回） | `local_store.dart:800-823` | 文档化 / 收口 |
 | P2-10 | 无 schema 迁移机制（唯一显式兼容：readerMode 回退旧 horizontal `:456-462`） | `local_store.dart` | 加 version 字段 + 迁移钩子 |
 | P2-11 | 损坏文件备份逻辑三处复制 | bookshelf/novel/LocalStore | 随 P1-8 一起 |
-| P2-12 | `video_download_manager._persist` 无防抖全量重写 | `video_download_manager.dart:603-612` | 防抖 |
+| P2-12 | `video_download_manager._persist` 无防抖全量重写 | `video_download_manager.dart` | ✅ 已修（1.4.3+52）：500ms 防抖合并 + flushPersist 落盘（lifecycle 钩子收口） |
 | P2-13 | `tmp_render_preview_test.dart` 被 `tmp_*` 规则误伤 gitignore | `test/` | 改名或加白名单 |
 | P2-14 | `theme.dart:7` 兼容 export 转出层 | 同上 | 清理旧引用后删 |
 | P2-15 | `design_tokens_test` 门禁只校验档位取值，不校验调用点 | `test/design_tokens_test.dart:76-84` | 加「禁止内联」门禁（基线棘轮已在下调） |

@@ -35,6 +35,14 @@ class RateLimiter {
   /// 每域名最大并发请求数。
   static const int _maxConcurrent = 5;
 
+  /// 单请求在限流队列中的最长等待时间：超时抛出，让调用方走超时/降级
+  /// 路径（原本无限排队会把超时请求拖到永不出网，UI 直接转圈）。
+  static const Duration _acquireTimeout = Duration(seconds: 30);
+
+  /// 每域名等待队列上限：超过视为该域被卡死，直接抛错降级
+  /// （防批量预取把所有请求都堆进同一个慢域的队列）。
+  static const int _maxQueue = 40;
+
   /// 测试环境下跳过限流：widget 测试无真实网络流量（HttpClient 恒返回 400），
   /// 且 fake-async 不允许测试结束时仍有挂起计时器。单元测试需用
   /// [debugForceEnabled] 强制开启以验证限流语义。
@@ -57,22 +65,38 @@ class RateLimiter {
 
   static final Map<String, _Bucket> _buckets = {};
   static final Map<String, int> _inflight = {};
+  static final Map<String, int> _waiting = {};
   static final Random _random = Random();
 
   /// 请求开始前调用：等待令牌 + 并发槽位（限流排队，不丢请求）。
+  /// 排队有上限与超时：队列塞满（慢域被卡死）或等待过久直接抛错，
+  /// 调用方按网络异常处理（走降级/超时路径）。
   static Future<void> acquire(String host) async {
     if (!_enabled) return;
     final bucket = _bucketFor(host);
+    final deadline =
+        DateTime.now().add(_acquireTimeout);
     while (true) {
       bucket.refill();
+      final waiting = _waiting[host] ?? 0;
+      if (waiting >= _maxQueue) {
+        throw StateError('RateLimiter 队列超限: $host');
+      }
       final inflight = _inflight[host] ?? 0;
       if (inflight < _maxConcurrent && bucket.tokens >= 1.0) {
         bucket.tokens -= 1.0;
         _inflight[host] = inflight + 1;
         return;
       }
+      if (DateTime.now().isAfter(deadline)) {
+        throw TimeoutException('RateLimiter 等待超时: $host', _acquireTimeout);
+      }
       // 队列等待；并发满或令牌不足时让出事件循环
+      _waiting[host] = waiting + 1;
       await Future<void>.delayed(const Duration(milliseconds: 50));
+      _waiting[host] = DateTime.now().isAfter(deadline)
+          ? 0
+          : ((_waiting[host] ?? 1) - 1).clamp(0, _maxQueue);
     }
   }
 
@@ -105,6 +129,7 @@ class RateLimiter {
   static void reset() {
     _buckets.clear();
     _inflight.clear();
+    _waiting.clear();
   }
 
   /// 测试辅助：当前某域名的并发数。

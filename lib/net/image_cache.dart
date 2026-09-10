@@ -207,6 +207,7 @@ class ImageCacheManager {
     Future<Uint8List> Function()? fetch,
     String? proxy,
   }) {
+    _maybeRecoverImageCache();
     final norm = primaryUrl(url);
     final mem = _mem[norm];
     if (mem != null) {
@@ -332,6 +333,13 @@ class ImageCacheManager {
   static int get memoryCount => _mem.length;
   static int get memoryBytes => _memBytes;
 
+  /// 低内存压制后到该时刻为止不恢复引擎层 imageCache 预算。
+  /// 空 = 未处于压制期。恢复 = 时间到达后下一次 [load] 时把预算调回
+  /// 正常档（避免一次性恢复带来二次峰值）；再触发低内存会重新计时。
+  static DateTime? _lowMemUntil;
+  static int? _lowMemMaxSize;
+  static int? _lowMemMaxBytes;
+
   /// 系统发出低内存警告（Android onTrimMemory/onLowMemory）时调用：
   /// 主动清空内存图片缓存（磁盘缓存保留，不会重复下载），
   /// 同时收缩 Flutter 引擎层 imageCache 预算，避免 OOM 被系统杀进程。
@@ -340,10 +348,29 @@ class ImageCacheManager {
     _memBytes = 0;
     try {
       final cache = PaintingBinding.instance.imageCache;
+      _lowMemMaxSize ??= cache.maximumSize;
+      _lowMemMaxBytes ??= cache.maximumSizeBytes;
       cache.clear();
       cache.clearLiveImages();
       cache.maximumSize = 8;
       cache.maximumSizeBytes = 8 * 1024 * 1024;
+      _lowMemUntil = DateTime.now().add(const Duration(minutes: 1));
+    } catch (_) {}
+  }
+
+  /// 低压期结束后恢复引擎层 imageCache 预算（在 [load] 入口触发，渐进而非
+  /// 立即恢复，避免回升瞬间再次打高内存）。恢复后不再重复判断。
+  static void _maybeRecoverImageCache() {
+    final until = _lowMemUntil;
+    if (until == null) return;
+    if (!DateTime.now().isAfter(until)) return;
+    _lowMemUntil = null;
+    try {
+      final cache = PaintingBinding.instance.imageCache;
+      if (_lowMemMaxSize != null) cache.maximumSize = _lowMemMaxSize!;
+      if (_lowMemMaxBytes != null) cache.maximumSizeBytes = _lowMemMaxBytes!;
+      _lowMemMaxSize = null;
+      _lowMemMaxBytes = null;
     } catch (_) {}
   }
 

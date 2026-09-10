@@ -602,14 +602,32 @@ class VideoDownloadManager {
     } catch (_) {}
   }
 
+  /// 防抖定时器：批量状态更新时合并写盘（如批量添加/排队期间连续 _persist），
+  /// 上次调用后 [_persistDebounce] 内仅下一次写。
+  Timer? _persistTimer;
+  static const Duration _persistDebounce = Duration(milliseconds: 500);
+
   void _persist() {
-    unawaited(() async {
-      try {
-        final list = _tasks.values.map((t) => t.toJson()).toList();
-        await _indexFile.writeAsString(jsonEncode(list), flush: true);
-      } catch (e) {
-        debugPrint('VideoDownloadManager 索引保存失败: $e');
-      }
-    }());
+    _persistTimer?.cancel();
+    _persistTimer = Timer(_persistDebounce, () {
+      _persistTimer = null;
+      unawaited(_writeIndex());
+    });
+  }
+
+  /// 立即写盘（供防抖合并窗口之外的关键路径显式调用，如应用切后台/退出前）。
+  void flushPersist() {
+    _persistTimer?.cancel();
+    _persistTimer = null;
+    unawaited(_writeIndex());
+  }
+
+  Future<void> _writeIndex() async {
+    try {
+      final list = _tasks.values.map((t) => t.toJson()).toList();
+      await _indexFile.writeAsString(jsonEncode(list), flush: true);
+    } catch (e) {
+      debugPrint('VideoDownloadManager 索引保存失败: $e');
+    }
   }
 }

@@ -19,13 +19,29 @@ class ImageSuperRes {
   static const String algoVersion = 'lanczos3-v2';
   static Completer<void>? _mutex;
 
-  /// 获取互斥锁，带 30 秒超时保护（防止 Isolate 异常导致锁永不释放）。
+  /// 超分单张最坏耗时（compute 超时）。
+  static const Duration _computeTimeout = Duration(minutes: 2);
+
+  /// 锁等待超时必须大于 [_computeTimeout]：持有者 compute 超时也有 onTimeout
+  /// 兜底 + finally release，2min 内必释放；等待超时只在锁真正卡死时触发。
+  /// 曾为 30s < 2min，等待者提前超时会覆盖在持锁锁对象，导致两个 compute
+  /// 并发执行（串行化被打破，低端机更卡）。
+  static const Duration _acquireTimeout =
+      Duration(minutes: 2, seconds: 30);
+
+  /// 获取互斥锁（超时保护：防止 Isolate 异常导致锁永不释放）。
   static Future<void> _acquire() async {
     while (_mutex != null) {
+      final m = _mutex!;
       try {
-        await _mutex!.future.timeout(const Duration(seconds: 30));
+        await m.future.timeout(_acquireTimeout);
       } catch (_) {
-        // 超时：强制释放，继续执行
+        // 只有在持锁锁对象仍是本对象时（未被先行的 release 换掉）才接管，
+        // 防止完成了一个已被替换的锁对象。
+        if (identical(_mutex, m)) {
+          _mutex = null;
+          m.complete();
+        }
         break;
       }
     }
@@ -68,7 +84,7 @@ class ImageSuperRes {
     await _acquire();
     try {
       return await compute(_upscaleEntry, _Args(bytes, quality, _maxSourceEdge))
-          .timeout(const Duration(minutes: 2), onTimeout: () => bytes);
+          .timeout(_computeTimeout, onTimeout: () => bytes);
     } finally {
       _release();
     }

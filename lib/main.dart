@@ -237,6 +237,9 @@ class YingManHeAppState extends State<YingManHeApp>
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       WakelockPlus.disable();
+      // 下载索引带防抖合并写盘：切后台/退出前强制落盘，避免防抖窗口
+      // 内的最后一次状态更新丢失（写盘在后台异步完成即可）。
+      VideoDownloadManager.instance.flushPersist();
     }
   }
 
