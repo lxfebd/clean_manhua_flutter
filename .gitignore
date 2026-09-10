@@ -105,9 +105,6 @@ PROJECT_MEMORY.md
 /.trae/
 /trae-memory*.md
 
-# ===== 本地回归测试（仅本地验证用，勿入库）=====
-/test/regression_*_test.dart
-
 # ===== 布局/UI 调试产物（截图、diff、预览、备份，勿入库）=====
 .tmp/
 /test/failures/
