@@ -54,7 +54,7 @@
 | 超分管线 | `image_super_res.dart`（compute+mutex+30s/2min+`maxEdgeOf` >1400px 跳过）；`jm_scramble.dart`（纯 Dart 解码，单张 200-800ms 是最大卡顿债） | 本地 AI 上色的 Isolate 模板；互斥锁超时错配是 P2 债 |
 | LocalStore 持久化 | `local_store.dart`（845 行，86 static 成员）：串行写队列 `_writeQueues :273-279`；`addReadingSeconds :595-607`（**唯一读改写整体串行做对的**） | 所有数据域统一走这里；备份 12 域 `collectBackup :779` / `restoreBackup :800`（不对称，P1 债） |
 | 书架存储 | `bookshelf_store.dart`（独立 File + `_writeTail` + 300ms 防抖 + `.corrupt-<ts>` 损坏备份 :191-202） | LocalStore 损坏处理应对齐它；与 LocalStore 是两套写栈（P1-8） |
-| WebDAV | `webdav_sync.dart`（AES-256-GCM，密钥=SHA256(password) 无盐 :326-334；pull 整包覆盖 :276-282；仅手动同步） | P1-12 债：合并策略 + 密钥迭代 |
+| WebDAV | `webdav_sync.dart`（AES-256-GCM；密钥 PBKDF2-HMAC-SHA256 120k 迭代（v2 魔数 `XMX-SYNC-2:`），旧 v1 裸 SHA256 文件仅解密兼容 :297-352；pull 整包覆盖 :276-282；仅手动同步） | merge 三向判断按手动同步语义保持 |
 | 更新检查 | `update_checker.dart`（GitHub release + 平台分选 + `compareVersions :145` 支持 1.2.3+4） | 源市场索引模式抄这里；`downloadUpdate :166` 是死代码 |
 | 下载 | `download_manager.dart`（并发 3、30s/张、省空间档压缩）；`video_download_manager.dart`（mp4+m3u8+AES-128；`_persist :603` 无队列裸写，P2 债）；`update_download_manager.dart`（Range 续传+镜像+通知栏） | 三套下载器职责已分，保持 |
 | 源体系 | `source_plugin_manager.dart`（8 单例之一）；`custom_source_store.dart importJson :88-116`（single-or-array、validate→upsert，**源市场一键安装唯一入口**）；`CustomSourcePlugin extends SourcePlugin :138`（仅 comic 绑定） | 源市场直接调用 importJson，补 video/novel 绑定 |
@@ -106,13 +106,13 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 | P1-3 | `_read` 损坏静默返回 null 丢数据 | `local_store.dart:300-305` | 对齐 bookshelf_store 的 `.corrupt-<ts>` 备份 |
 | P1-4 | 备份 12 域漏项 + restore 与 collect 不对称 | `local_store.dart:779-815` | ✅ 已修（1.4.3+47）：collect 补 bookmarks/search_history/novel_read_settings/reading_stats/gesture_config/source_plugins/custom_sources/source_health/webdav_config/video_progress/update_check；restore 对称补齐，旧备份缺键自动跳过 |
 | P1-5 | 图片内存缓存 key 归一化不一致 | `image_cache.dart:213,220`（查 norm 写 url） | `_putMem(norm, ...)` |
-| P1-6 | `_maybeTrimDisk` UI 线程同步全目录扫描（2000 文件 × 4 sync 调用） | `image_cache.dart:290-311` | 移 Isolate / 惰性统计 |
+| P1-6 | `_maybeTrimDisk` UI 线程同步全目录扫描（2000 文件 × 4 sync 调用） | `image_cache.dart:290-311` | ✅ 已修（1.4.3+54）：改单次惰性扫描（async 流式 + where 过滤，非阻塞累计），磁盘写后异步触发不阻塞 UI 线程 |
 | P1-7 | `getBytesAuto` 吞 timeout 参数 | `http_client.dart:467-474` | 透传 |
 | P1-8 | 三套重复持久化栈 + 双写路径 | `local_store.dart` vs `bookshelf_store.dart`/`novel_shelf_store.dart` | 提取公共「串行队列+损坏备份」基类（低优先，功能正确性已在）；备份契约文档化 |
 | P1-9 | 每请求 `client.close(force:true)` 无连接复用 | `http_client.dart:376,497,551` | 长连接池/复用 |
 | P1-10 | `badCertificateCallback => true` 四处放行 MITM | `http_client.dart:186,210,223`、`webdav_sync.dart:158`、`update_download_manager.dart:150`、`update_checker.dart:183` | ✅ 已修（1.4.3+47）：新增 `Net.trustSelfSigned` 开关（设置页「网络」区，默认严格校验），5 处含 route_diagnostic 全收敛 |
 | P1-11 | `buildUrl` 不 URL 编码（CJK 搜索词） | `http_client.dart:588-600` | ✅ 已修（1.4.3+47）：Uri.replace(queryParameters) 编码 |
-| P1-12 | WebDAV pull 整包覆盖无合并；密钥裸 SHA256 无盐无迭代 | `webdav_sync.dart:276-282,326-334` | 时间戳+内容 hash 三向判断；PBKDF2/加盐迭代 |
+| P1-12 | WebDAV pull 整包覆盖无合并；密钥裸 SHA256 无盐无迭代 | `webdav_sync.dart:276-282,326-334` | ✅ 已修（1.4.3+54）：密钥升级 PBKDF2-HMAC-SHA256（120k 迭代 + 固定盐 `xingmanxia-webdav-v2`），新文件写 v2 魔数 `XMX-SYNC-2:`，旧 v1 文件仍可解密（历史备份兼容）；merge 三向判断仍按手动同步语义（pull 全量拉取+本地合并清单），不加自动合并 |
 | P1-13 | 日志可观测性≈0：38 处 debugPrint / 21 文件；ErrorLogger 四级只用 1/4 | 启动链 `main.dart:90-175` 8 处、持久化 catch 等 | ✅ 已修（1.4.3+47）：main.dart 10 处 debugPrint 全改 ErrorLogger.warn；剩余按页面改动顺带收敛 |
 | P1-14 | 26 个 regression_* 测试 gitignore，CI 跑不到（回归保护=0） | `.gitignore:57` | 拆「纯逻辑入库 / 真网络打活测不入库」 |
 | P1-15 | JM 纯 Dart 解码（单张 200-800ms）无原生降级路径——卡顿根因 | `jm_scramble.dart:88-116` | 长线：Android BitmapFactory MethodChannel；短期：分档限位解码保持 |

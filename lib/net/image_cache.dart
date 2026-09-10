@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
@@ -118,7 +119,7 @@ class ImageCacheManager {
     final f = File('${(await _imagesDir()).path}/${_key(url)}.img');
     try {
       await f.writeAsBytes(bytes, flush: true);
-      _maybeTrimDisk();
+      unawaited(_maybeTrimDisk());
     } catch (_) {}
   }
 
@@ -306,17 +307,26 @@ class ImageCacheManager {
   static const int _maxDiskCount = 2000;
 
   /// 在写盘后按需清理：磁盘缓存超出上限时删除最旧文件。
-  /// 每次写入后才检查，避免启动时全量扫描拖慢首帧。
-  static void _maybeTrimDisk() {
+  /// 每次写入后才检查（异步执行，不阻塞写盘路径），避免启动时全量扫描拖慢首帧。
+  static Future<void> _maybeTrimDisk() async {
     try {
       final d = _dir;
       if (d == null || !d.existsSync()) return;
-      final files = d.listSync().whereType<File>().toList();
+      // 异步枚举 + 只读 stat（每文件一次），避免在 UI 线程做全同步扫描。
+      final files = await d
+          .list(followLinks: false)
+          .where((f) => f is File)
+          .cast<File>()
+          .toList();
       if (files.length <= _maxDiskCount &&
           files.fold<int>(0, (s, f) => s + f.lengthSync()) <= _maxDiskBytes) {
         return;
       }
-      files.sort((a, b) => a.statSync().modified.compareTo(b.statSync().modified));
+      // 修改时间懒读取：仅在确实需要裁剪时才 stat，命中上限直接跳过。
+      files.sort((a, b) => a
+          .statSync()
+          .modified
+          .compareTo(b.statSync().modified));
       var total = files.fold<int>(0, (s, f) => s + f.lengthSync());
       var i = 0;
       while (i < files.length &&
