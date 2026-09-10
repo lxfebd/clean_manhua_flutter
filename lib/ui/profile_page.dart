@@ -11,6 +11,8 @@ import '../main.dart';
 import '../net/bookshelf_store.dart';
 import '../net/image_cache.dart';
 import '../sources/comic_source.dart';
+import '../sources/source_manager.dart';
+import '../utils/booklist_text.dart';
 import '../net/local_store.dart';
 import '../net/update_checker.dart';
 import '../utils/local_recommender.dart';
@@ -242,7 +244,8 @@ class ProfilePageState extends State<ProfilePage> {
                           onDownloads: () => widget.onSwitchTab?.call(4),
                           onHelp: _showHelp,
                           onExportBooklist: _exportBooklist,
-                          onExportBooklistImage: _exportBooklistImage)),
+                          onExportBooklistImage: _exportBooklistImage,
+                          onImportBooklist: _importBooklist)),
                   const SizedBox(height: 14),
                   FadeSlideIn(
                     delay: const Duration(milliseconds: 280),
@@ -344,6 +347,7 @@ class ProfilePageState extends State<ProfilePage> {
                 onHelp: _showHelp,
                 onExportBooklist: _exportBooklist,
                 onExportBooklistImage: _exportBooklistImage,
+                onImportBooklist: _importBooklist,
               ),
             ),
         ];
@@ -516,6 +520,27 @@ class ProfilePageState extends State<ProfilePage> {
     } catch (_) {
       return null;
     }
+  }
+
+  /// 书单导入：读剪贴板文本 → 解析条目 → 逐本跨源搜索 → 确认后一键入书架。
+  Future<void> _importBooklist() async {
+    final clip = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = clip?.text ?? '';
+    final entries = BooklistText.parse(text);
+    if (entries.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('剪贴板中没有可识别的书单文本（格式：1. 书名 — 作者）')));
+      return;
+    }
+    if (!mounted) return;
+    // 预览 + 逐本搜索在弹窗内进行，便于展示过程与失败项。
+    showResponsiveBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _ImportBooklistSheet(entries: entries),
+    );
   }
 }
 
@@ -962,6 +987,7 @@ class _MenuCard extends StatelessWidget {
   final VoidCallback onHelp;
   final VoidCallback onExportBooklist;
   final VoidCallback onExportBooklistImage;
+  final VoidCallback onImportBooklist;
   const _MenuCard({
     required this.dark,
     required this.onDarkChanged,
@@ -971,6 +997,7 @@ class _MenuCard extends StatelessWidget {
     required this.onHelp,
     required this.onExportBooklist,
     required this.onExportBooklistImage,
+    required this.onImportBooklist,
   });
 
   @override
@@ -1016,6 +1043,13 @@ class _MenuCard extends StatelessWidget {
             title: '导出书单海报',
             subtitle: '封面网格 → PNG 图片',
             onTap: onExportBooklistImage,
+            showDivider: true,
+          ),
+          SettingsRow(
+            icon: Icons.playlist_add_rounded,
+            title: '导入书单',
+            subtitle: '剪贴板文本一键入书架',
+            onTap: onImportBooklist,
             showDivider: true,
           ),
           SettingsRow(
@@ -1912,12 +1946,167 @@ class _PosterCard extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             author,
-            maxLines: 1,
+maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontSize: 11, color: Color(0xFF757575)),
           ),
         ],
       ],
+    );
+  }
+}
+
+/// 书单导入弹窗：预览解析出的书名 → 跨源搜索定位 → 一键加入书架。
+class _ImportBooklistSheet extends StatefulWidget {
+  final List<BooklistEntry> entries;
+  const _ImportBooklistSheet({required this.entries});
+
+  @override
+  State<_ImportBooklistSheet> createState() => _ImportBooklistSheetState();
+}
+
+class _ImportBooklistSheetState extends State<_ImportBooklistSheet> {
+  bool _running = false;
+  int _hit = 0;
+  int _miss = 0;
+  final List<String> _missed = [];
+  String _log = '';
+
+  Future<void> _runImport() async {
+    if (_running) return;
+    setState(() {
+      _running = true;
+      _hit = _miss = 0;
+      _missed.clear();
+      _log = '';
+    });
+    final sources = await SourceManager.enabledSources();
+    var done = 0;
+    for (final e in widget.entries) {
+      final found = await _findAndAdd(e, sources);
+      if (found) {
+        _hit++;
+      } else {
+        _miss++;
+        _missed.add(e.name);
+      }
+      done++;
+      setState(() => _log = '$done/${widget.entries.length}');
+    }
+    setState(() => _running = false);
+  }
+
+  /// 跨已启用源按书名精确搜索（取第一个完全同名的结果），命中即写入书架。
+  Future<bool> _findAndAdd(
+      BooklistEntry e, List<ComicSource> sources) async {
+    for (final s in sources) {
+      try {
+        final results = await s
+            .search(e.name, 1)
+            .timeout(const Duration(seconds: 12));
+        for (final r in results) {
+          if (r.name == e.name) {
+            final detail = await s
+                .detail(r.id)
+                .timeout(const Duration(seconds: 12));
+            BookshelfStore.add(s.id, detail);
+            return true;
+          }
+        }
+      } catch (_) {
+        // 单源搜索失败不影响其他源
+      }
+    }
+    return false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return SafeArea(
+      child: Container(
+        margin: const EdgeInsets.all(S.x12),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(R.sheet),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SheetHandle(),
+            const SizedBox(height: 12),
+            Text('导入书单', style: text.titleLarge),
+            const SizedBox(height: 4),
+            Text('识别到 ${widget.entries.length} 本：',
+                style: text.bodySmall?.copyWith(
+                  color: T.color(scheme.onSurface, TextTier.low,
+                      brightness: scheme.brightness),
+                )),
+            const SizedBox(height: 12),
+            Container(
+              constraints: const BoxConstraints(maxHeight: 260),
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: T.color(scheme.onSurface, TextTier.fill,
+                    brightness: scheme.brightness),
+                borderRadius: BorderRadius.circular(R.card),
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final e in widget.entries)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Text(
+                          '· ${e.name}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: text.bodySmall?.copyWith(height: 1.5),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            if (_missed.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: scheme.errorContainer.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(R.card),
+                ),
+                child: Text(
+                  '未找到（${_missed.length}）：${_missed.join('、')}',
+                  style: text.bodySmall?.copyWith(color: scheme.onErrorContainer),
+                ),
+              ),
+            ],
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _running ? null : _runImport,
+                    icon: const Icon(Icons.playlist_add_rounded, size: 16),
+                    label: Text(_running
+                        ? '搜索中 $_log…'
+                        : (_hit + _miss > 0
+                            ? '完成：命中 $_hit，未找到 $_miss'
+                            : '开始导入')),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
