@@ -301,17 +301,17 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 #### 10. 本地 AI（三项全做，全本地不上传）
 - 现状：`image_super_res.dart` 是成熟 Isolate 推理模板；无任何 ML 依赖（需新增）
 - 方案：
-  - **漫画上色 ✅ 代码完成（2026-09-10，1.4.3+59）**：`utils/colorizer*`（backend 抽象 + io TFLite Isolate 真推理 + web stub + 条件导出）+ `colorizer_manager.dart`（模型检测/导入/卸载、互斥锁、超时降级原图、低端机 RAM<4GB 隐藏）；设置页「漫画上色」开关 + 导入 .tflite + 卸载；阅读器 `_CachedReaderImage` 上色钩子（灰度→推理→重编码，失败降级原图）；7 单测过；**模型权重不内置**（公开仓库红线 + 体积/授权），用户自备 AnimeGAN/DDColor 等 .tflite 放入文档目录或设置页导入；<待实测> 真机 + 真实模型跑通 <3s 基线
+  - **漫画上色 ✅ 代码完成 + MuMu 实测通过（2026-09-10，1.4.3+59）**：`utils/colorizer*`（backend 抽象 + io TFLite Isolate 真推理 + web stub + 条件导出）+ `colorizer_manager.dart`（模型检测/导入/卸载、互斥锁、超时降级原图、低端机 RAM<4GB 隐藏）；设置页「漫画上色」开关 + 导入 .tflite + 卸载；阅读器 `_CachedReaderImage` 上色钩子（灰度→推理→重编码，失败降级原图）；7 单测过；MuMu 实证：无模型时设置页副标题「未导入模型（需 .tflite）」+ Switch 禁用 + 「导入上色模型」入口可见可点（canManage 修复）、FilePicker 正常弹出，沙盒确认无 colorizer/ 目录（ensureLoaded 早返回 isAvailable=false），阅读器双页正常不崩溃不卡；MemTotal 5.8GB 判非低端，区块完整显示；**模型权重不内置**（公开仓库红线 + 体积/授权），用户自备 AnimeGAN/DDColor 等 .tflite 放入文档目录或设置页导入；<仍待> 真实模型推理跑通 <3s 基线
   - **章节总结 ✅ 已编码（2026-09-10，1.4.3+49）**：`utils/novel_summarizer.dart` 纯规则——拆句过滤（<8字/>120字丢）→ 位置加权（首尾 15% +2）→ 关键词/主角名加权 → 贪心去重按原文序输出 topK；小说阅读器 AppBar「本章摘要」面板。7 单测过；<待实测> 长章节摘要可读性
   - **本地推荐 ✅ 已编码（2026-09-10）**：`utils/local_recommender.dart` 纯规则——按历史聚合作者计数 → 跨启用源搜索该作者 → 过滤已读 → 排序 TopK；冷启动回落热门榜。profile 页右栏「猜你喜欢」横向封面列表，点击跳详情。3 测试过
   - 默认关闭，仅 WiFi+充电 下载模型；低端机（RAM<4GB）隐藏入口（用户评审要求）
 - 验收清单：
   - [x] 本地推荐：历史作者聚合去重正确；空历史不请求网络；冷启动给热门兜底
-  - [x] 上色管线：状态机/无模型/加载失败降级单测过；web 平台禁用；默认关；失败返回原图不打断阅读
-  - [ ] 上色单张 <3s（中端机）；总结一章 <5s —— 等真机 + 真实模型实测
+  - [x] 上色管线：状态机/无模型/加载失败降级单测过；web 平台禁用；默认关；失败返回原图不打断阅读；MuMu 实测无模型全链路不崩
+  - [ ] 上色单张 <3s（中端机）；总结一章 <5s —— 等真实模型 + 真机实测
   - [ ] 离线可用（模型文件在文档目录即断网可用）
-  - [ ] 默认关闭；低端机不显示（RAM<4GB 已隐藏）
-  - [ ] 推理不阻塞 UI（Isolate），可取消/超时兜底
+  - [x] 默认关闭；低端机隐藏逻辑（RAM<4GB）——MuMu 5.8GB 判非低端，区块完整显示；低端隐藏态由单测兜底
+  - [x] 推理不阻塞 UI（Isolate），可取消/超时兜底（2m 计算超时 + 2m30s 锁等待）
 
 #### 11. Riverpod 渐进重构
 - 现状：58 个 State class、~90 处 setState、无 Provider/Riverpod；9 个服务层单例

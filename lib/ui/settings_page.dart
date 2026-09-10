@@ -1250,6 +1250,7 @@ class _ColorizerSectionState extends State<_ColorizerSection> {
   bool _enabled = false;
   String? _subtitle; // 状态说明（禁用原因 / 模型路径）
   bool _busy = false;
+  bool _lowEnd = false; // 低端机（RAM<4GB）：隐藏导入入口
 
   @override
   void initState() {
@@ -1264,6 +1265,7 @@ class _ColorizerSectionState extends State<_ColorizerSection> {
     final lowEnd = await ColorizerManager.isLowEndDevice();
     if (!mounted) return;
     setState(() {
+      _lowEnd = lowEnd;
       _enabled = _m.enabled && _m.isAvailable;
       _subtitle = switch ((isWeb, lowEnd, _m.isAvailable, _m.modelPath)) {
         (true, _, _, _) => 'Web 端不支持本地 AI 推理',
@@ -1321,7 +1323,9 @@ class _ColorizerSectionState extends State<_ColorizerSection> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final canUse = _m.isAvailable && !kIsWeb;
+    // 开关需模型就绪；导入入口仅需平台可用（web 无 FFI、低端机禁用）。
+    final canUse = _m.isAvailable && !kIsWeb && !_lowEnd;
+    final canManage = !kIsWeb && !_lowEnd;
     return FadeSlideIn(
       delay: const Duration(milliseconds: 220),
       child: Column(
@@ -1340,7 +1344,7 @@ class _ColorizerSectionState extends State<_ColorizerSection> {
                   onChanged: (canUse && !_busy) ? _toggle : null,
                 ),
               ),
-              if (canUse) ...[
+              if (canManage) ...[
                 Container(
                   height: 0.5,
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
