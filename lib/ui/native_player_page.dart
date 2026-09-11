@@ -133,6 +133,20 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 让 AnimePlayerPage 重新 initState 加载新地址。
   int _webGeneration = 0;
 
+  /// mpv 当前是否正被「网页通道 handoff 打开直链」：open/异步 error 期间
+  /// 置位。该阶段 mpv 打不开直链时切回网页通道而非弹失败页——网页通道捕获
+  /// 的直链若源站已失效（bucket 删除/签名过期），mpv 打开失败不代表
+  /// 「本地播放内核不可用」，用户应留在网页播放或换线路。
+  bool _handoffOpening = false;
+
+  /// 当前 handoff 尝试的直链：异步 error 到达时据此记忆「该直链打不开」。
+  String _handoffSrc = '';
+
+  /// mpv 已确认打不开的直链（源站失效/防盗链拒绝等）。同一失效直链不反复
+  /// handoff，避免「mpv 失败 → 重建 WebView → 又解析同一失效直链 → 又失败」
+  /// 的循环。仅本次页面生命周期内有效，换源/换集后自然失效。
+  final Set<String> _rejectedHandoffs = {};
+
   // ── 画质 ────────────────────────────────────
   String _srId = 'off';
   bool _enhance = true;
@@ -541,7 +555,23 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         }
       }));
       _subs.add(p.stream.error.listen((e) {
-        if (mounted && !_ready) {
+        if (!mounted) return;
+        if (!_ready) {
+          // 网页通道 handoff 的直链打不开（源站失效/防盗链拒绝）：
+          // 记住该直链不再尝试，切回网页通道继续播放，不弹失败页。
+          if (_handoffOpening) {
+            _handoffOpening = false;
+            if (_handoffSrc.isNotEmpty) {
+              _rejectedHandoffs.add(_handoffSrc);
+            }
+            setState(() {
+              _useWeb = true;
+              _failed = false;
+              _webGeneration++;
+            });
+            _toast('直链播放失败，已切回网页播放');
+            return;
+          }
           setState(() {
             _failed = true;
             _failMsg = '播放失败：$e';
@@ -601,9 +631,14 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     return h;
   }
 
-  Future<void> _open(String url, {bool adopted = false}) async {
+  /// 用 mpv 打开媒体地址。返回是否成功打开。
+  ///
+  /// handoff 阶段（[_handoffOpening]，网页通道捕获直链后试开）打不开时
+  /// 不外抛、不弹失败页：由调用方（[_handoffWebToMpv]）切回网页通道；
+  /// 其余场景保持旧行为——打开失败进入失败视图（含重试/切网页播放）。
+  Future<bool> _open(String url, {bool adopted = false}) async {
     final p = _player;
-    if (p == null) return;
+    if (p == null) return false;
     try {
       await Anime4KManager.ensureShaders();
       _srFault = null;
@@ -640,13 +675,19 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       }
       await _prepareResume();
       _scheduleHide();
+      return true;
     } catch (e) {
       if (mounted) {
+        if (_handoffOpening) {
+          // 网页通道试开的直链打不开：交由 _handoffWebToMpv 切回网页通道。
+          return false;
+        }
         setState(() {
           _failed = true;
           _failMsg = '播放失败：$e';
         });
       }
+      return false;
     }
   }
 
@@ -923,20 +964,32 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   }
 
   /// WebView 通道捕获到可直连媒体 URL 时，切回 mpv 通道（同一 Route）。
-  /// AnimePlayerPage 已在切出前 _killWebMedia 杀网页媒体，这里只负责
-  /// 隐藏 WebView 子树并用直链重新 open mpv。返回 true 表示接管成功。
+  /// AnimePlayerPage 会在接管成功后 _killWebMedia 杀网页媒体，这里只负责
+  /// 隐藏 WebView 子树并尝试用直链 open mpv。返回 true 表示接管成功。
   Future<bool> _handoffWebToMpv(String src) async {
     if (!mounted) return false;
+    // 该直链已确认打不开（源站失效/防盗链拒绝）：不再反复尝试，
+    // 让 WebView 留在网页通道播放，避免循环失败。
+    if (_rejectedHandoffs.contains(src)) return false;
     setState(() => _useWeb = false);
     if (!mounted) return false;
-    try {
-      await _open(src);
-      return true;
-    } catch (_) {
-      // mpv 也失败：留在网页通道（AnimePlayerPage 仍在树中），不叠加报错。
-      if (mounted) setState(() => _useWeb = true);
-      return false;
+    _handoffOpening = true;
+    _handoffSrc = src;
+    final ok = await _open(src);
+    _handoffOpening = false;
+    if (!mounted) return false;
+    if (ok) return true;
+    // mpv 打不开（_open 或异步 error 已把该直链记入 _rejectedHandoffs）：
+    // 留在网页通道（AnimePlayerPage 仍在树中），不叠加报错。
+    if (mounted && !_useWeb) {
+      setState(() {
+        _rejectedHandoffs.add(src);
+        _useWeb = true;
+        _failed = false;
+        _webGeneration++;
+      });
     }
+    return false;
   }
 
   // ── 控制层显隐 ──────────────────────────────

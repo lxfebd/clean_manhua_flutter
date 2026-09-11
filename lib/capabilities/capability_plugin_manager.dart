@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../net/local_store.dart';
 import 'capability_plugin.dart';
+import 'demo_native_capability.dart';
 
 /// 能力插件管理器：统一注册表 + 生命周期编排 + 持久化（capability_plugins.json）。
 ///
@@ -153,5 +154,7 @@ class CapabilityPluginManager {
       description: '本地阅读统计（纯本地计算，不上传）',
       builtin: true,
     ));
+    // M2 演示原生能力：FFI 加载真实动态库（走 artifact 下载→SHA256→Isolate）。
+    add(DemoNativePlugin());
   }
 }

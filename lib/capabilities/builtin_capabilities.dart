@@ -3,6 +3,7 @@ import 'dart:async';
 import 'capability_plugin.dart';
 import 'capability_plugin_manager.dart';
 import 'capability_runtime.dart';
+import 'demo_native_capability.dart';
 
 /// 演示能力：章节字数统计（M1 框架验证用，纯 Dart 无原生依赖）。
 ///
@@ -53,4 +54,5 @@ Future<void> registerBuiltinCapabilities() async {
   final mgr = CapabilityPluginManager.instance;
   // 幂等：重复调用 install 对同 id 忽略。
   await mgr.install(ChapterStatsPlugin());
+  await mgr.install(DemoNativePlugin());
 }

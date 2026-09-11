@@ -314,12 +314,14 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     final cb = widget.onDirectUrl;
     if (cb != null) {
       _resolveTimer?.cancel();
-      _videoPollTimer?.cancel();
-      // 切回 mpv 前先杀掉网页媒体（复用同一套销毁语义），再交由宿主接管。
-      await _killWebMedia();
+      // 先由宿主用 mpv 试开直链：成功才杀网页媒体（杜绝双音轨窗口），
+      // 失败则 WebView 完好，原样留在网页通道继续播放，不弹失败页。
       final taken = await cb(src);
       if (!mounted) return;
-      if (taken) return; // 宿主已接管，URL 无需再跳转
+      if (taken) {
+        await _killWebMedia();
+      }
+      return;
     }
     // 取消解析定时器，防止 pushReplacement 后定时器触发 setState
     _resolveTimer?.cancel();
