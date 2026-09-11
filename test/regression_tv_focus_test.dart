@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:xingmanxia/ui/main_shell.dart';
 import 'package:xingmanxia/ui/responsive.dart';
 
 /// Android TV 遥控器焦点导航回归测试。

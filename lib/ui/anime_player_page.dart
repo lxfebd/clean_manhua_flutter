@@ -1046,6 +1046,21 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       case LogicalKeyboardKey.space:
         _runJs(_toggleWebMediaJs);
         return true;
+      // TV 遥控器媒体键：D-pad 中心键与播放/暂停、快进/快退、上下集映射到等价操作。
+      case LogicalKeyboardKey.select:
+      case LogicalKeyboardKey.mediaPlayPause:
+        _runJs(_toggleWebMediaJs);
+        return true;
+      case LogicalKeyboardKey.mediaFastForward:
+      case LogicalKeyboardKey.arrowRight:
+        _runJs('''
+          (function(){
+            var v = document.querySelector('video');
+            if(v) v.currentTime = (v.currentTime||0) + 10;
+          })();
+        ''');
+        return true;
+      case LogicalKeyboardKey.mediaRewind:
       case LogicalKeyboardKey.arrowLeft:
         _runJs('''
           (function(){
@@ -1054,13 +1069,11 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           })();
         ''');
         return true;
-      case LogicalKeyboardKey.arrowRight:
-        _runJs('''
-          (function(){
-            var v = document.querySelector('video');
-            if(v) v.currentTime = (v.currentTime||0) + 10;
-          })();
-        ''');
+      case LogicalKeyboardKey.mediaTrackNext:
+        if (_hasNext) _goToAdjacent(1);
+        return true;
+      case LogicalKeyboardKey.mediaTrackPrevious:
+        if (_hasPrev) _goToAdjacent(-1);
         return true;
       case LogicalKeyboardKey.arrowUp:
         _runJs('''

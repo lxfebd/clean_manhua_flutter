@@ -1274,11 +1274,24 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       case LogicalKeyboardKey.space:
         _togglePlay();
         return true;
+      // TV 遥控器媒体键：D-pad 中心键与播放/暂停、快进/快退、上下集映射到等价操作。
+      case LogicalKeyboardKey.select:
+      case LogicalKeyboardKey.mediaPlayPause:
+        _togglePlay();
+        return true;
+      case LogicalKeyboardKey.mediaFastForward:
+      case LogicalKeyboardKey.arrowRight:
+        _seekBy(10);
+        return true;
+      case LogicalKeyboardKey.mediaRewind:
       case LogicalKeyboardKey.arrowLeft:
         _seekBy(-10);
         return true;
-      case LogicalKeyboardKey.arrowRight:
-        _seekBy(10);
+      case LogicalKeyboardKey.mediaTrackNext:
+        if (_hasNext) _goRelative(1);
+        return true;
+      case LogicalKeyboardKey.mediaTrackPrevious:
+        if (_hasPrev) _goRelative(-1);
         return true;
       case LogicalKeyboardKey.arrowUp:
         _applyVolume((_volume + 0.1).clamp(0.0, 1.0));

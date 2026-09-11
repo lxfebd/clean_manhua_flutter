@@ -17,6 +17,7 @@
         android:label="星漫匣"
         android:name="${applicationName}"
         android:usesCleartextTraffic="true"
+        android:banner="@drawable/tv_banner"
         android:icon="@mipmap/ic_launcher">
         <!-- 渲染引擎：显式开启 Flutter Impeller（替代 Skia，降低内存占用、提升滚动流畅度）。
              若部分低端 GPU 出现花屏/黑屏，将 android:value 改为 "false" 即可回退 Skia，

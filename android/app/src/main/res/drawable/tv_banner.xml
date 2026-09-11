@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android TV 启动器 banner（320x180）：深色底 + 白色五角星，
+     与 App 图标「墨色方块+星」同构；由 <application android:banner> 引用。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <!-- 深墨底色圆角方形 -->
+    <path
+        android:fillColor="#212121"
+        android:pathData="M0,24 L320,24 C320,24 320,156 320,156 L0,156 C0,156 0,24 0,24 Z" />
+    <!-- 白色五角星（中心 160,90，外径 55） -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M160,35 L172.3,73 L212.3,73 L180,96.5 L192.3,134.5 L160,111 L127.7,134.5 L140,96.5 L107.7,73 L147.7,73 Z" />
+</vector>
