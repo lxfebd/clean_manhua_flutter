@@ -1,0 +1,157 @@
+import 'package:flutter/foundation.dart';
+
+import '../net/local_store.dart';
+import 'capability_plugin.dart';
+
+/// 能力插件管理器：统一注册表 + 生命周期编排 + 持久化（capability_plugins.json）。
+///
+/// 与 SourcePluginManager 平行（设计 §12 架构：**不往源注册表里塞**，能力插件
+/// ≠ 源插件，运行边界不同）。职责边界：
+/// - 注册/卸载/启用/禁用全部能力插件（内置 + 市场安装），幂等且持久化。
+/// - 运行时正文（实现类实例）在 [CapabilityPlugin.bind]/[unbind] 回调里登记/
+///   移出 CapabilityRuntime——本类不直接依赖运行时内部，防双向依赖。
+/// - 持久化 `capability_plugins.json`：`{version:1, disabled:[…]}`。能力没有
+///   「配置项」概念只有开关，故内置与自定义能力统一走 disabled 集合（不同于
+///   源插件委托 SourceConfigStore 的复杂路径）。
+///
+/// 时序：main() → `_postFirstFrameInit` 里 LocalStore.init 之后、源插件 restore
+/// 同一 try 块调用 [restore]，先注册内置能力，再恢复 disabled 状态。
+class CapabilityPluginManager {
+  CapabilityPluginManager._();
+
+  static final CapabilityPluginManager instance = CapabilityPluginManager._();
+
+  static const String _file = 'capability_plugins';
+
+  final Map<String, CapabilityPlugin> _registry = {};
+
+  /// 禁用集合（内置与自定义统一走这里）。
+  final Set<String> _disabled = {};
+
+  bool _restored = false;
+  bool get restored => _restored;
+
+  /// 注册表变更通知（UI 层可监听刷新）。
+  final ValueNotifier<int> revision = ValueNotifier<int>(0);
+
+  /// 已注册能力列表，按分类（ai→video→utility）再按 id 排序。
+  List<CapabilityPlugin> get plugins {
+    const catRank = {'ai': 0, 'video': 1, 'utility': 2};
+    final list = _registry.values.toList()
+      ..sort((a, b) {
+        final ta = catRank[a.category] ?? 9;
+        final tb = catRank[b.category] ?? 9;
+        if (ta != tb) return ta.compareTo(tb);
+        return a.id.compareTo(b.id);
+      });
+    return list;
+  }
+
+  List<CapabilityPlugin> pluginsOfCategory(String category) =>
+      plugins.where((p) => p.category == category).toList();
+
+  CapabilityPlugin? byId(String id) => _registry[id];
+
+  /// 能力是否启用（同步版，供 UI 渲染）。
+  bool isEnabledSync(String id) {
+    final p = _registry[id];
+    if (p == null) return false;
+    return !_disabled.contains(id);
+  }
+
+  /// 能力是否启用（异步版，与源插件签名对齐）。
+  Future<bool> isEnabled(String id) async => isEnabledSync(id);
+
+  /// 注册能力：幂等（同 id 已存在则忽略），触发 onInstall + bind。
+  Future<void> install(CapabilityPlugin plugin) async {
+    if (_registry.containsKey(plugin.id)) return;
+    _registry[plugin.id] = plugin;
+    try {
+      await plugin.onInstall();
+      await plugin.bind();
+    } catch (e) {
+      debugPrint('CapabilityPluginManager.install(${plugin.id}) failed: $e');
+    }
+    revision.value++;
+  }
+
+  /// 卸载能力（内置能力不可卸载）：bind 收回 + onUninstall + 移出注册表。
+  Future<bool> uninstall(String id) async {
+    final p = _registry[id];
+    if (p == null) return true;
+    if (p.builtin) return false;
+    _registry.remove(id);
+    _disabled.remove(id);
+    try {
+      await p.unbind();
+      await p.onUninstall();
+    } catch (e) {
+      debugPrint('CapabilityPluginManager.uninstall($id) failed: $e');
+    }
+    await persist();
+    revision.value++;
+    return true;
+  }
+
+  /// 启用/禁用：切换触发 onEnable/onDisable，状态落本地禁用集合。
+  Future<void> setEnabled(String id, bool enabled) async {
+    final p = _registry[id];
+    if (p == null) return;
+    if (enabled) {
+      if (_disabled.remove(id)) await p.onEnable();
+    } else {
+      if (_disabled.add(id)) await p.onDisable();
+    }
+    await persist();
+    revision.value++;
+  }
+
+  /// 持久化自定义能力状态（禁用集合 + 版本）。
+  Future<void> persist() async {
+    await LocalStore.writeJson(
+      _file,
+      <String, dynamic>{
+        'version': 1,
+        'disabled': _disabled.toList()..sort(),
+      },
+    );
+  }
+
+  /// 恢复上次会话：先注册全部内置能力，再恢复禁用状态。幂等。
+  Future<void> restore() async {
+    if (_restored) return;
+    _restored = true;
+    await _registerBuiltin();
+    try {
+      final raw = await LocalStore.readJson(_file);
+      if (raw is Map && raw['disabled'] is List) {
+        _disabled
+          ..clear()
+          ..addAll((raw['disabled'] as List).whereType<String>());
+      }
+    } catch (e) {
+      debugPrint('CapabilityPluginManager.restore disabled failed: $e');
+    }
+  }
+
+  /// 内置能力：仅元数据壳（正文随版本代码发布，bind 空实现），
+  /// 不落盘、不可卸载。注册闪存索引，供能力中心 UI 统一枚举。
+  Future<void> _registerBuiltin() async {
+    void add(CapabilityPlugin p) {
+      _registry[p.id] = p;
+    }
+
+    // 内置能力（纯 Dart 壳，无原生依赖）。
+    // 注：AI 上色/插帧等原生能力由独立 agent 专项（红线 M4 前不碰 colorizer），
+    // 上线后作为市场能力而非内置注册。
+    add(const CapabilityPlugin(
+      id: 'utility.stats',
+      name: '阅读统计',
+      category: 'utility',
+      version: '1.0.0',
+      author: '星漫匣内置',
+      description: '本地阅读统计（纯本地计算，不上传）',
+      builtin: true,
+    ));
+  }
+}

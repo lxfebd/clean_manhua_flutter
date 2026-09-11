@@ -24,6 +24,7 @@ import 'sources/source_manager.dart';
 import 'sources/source_plugin_manager.dart';
 import 'sources/dsl/custom_source_store.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'capabilities/capability_plugin_manager.dart';
 import 'theme.dart';
 import 'ui/main_shell.dart';
 
@@ -131,6 +132,8 @@ Future<void> _postFirstFrameInit() async {
     await SourcePluginManager.instance.restore();
     // 自定义源恢复：注册已导入的 DSL 源为插件（含実装正文进 SourceManager）。
     await CustomSourceStore.restorePlugins();
+    // 能力插件恢复（平行体系：注册内置能力 + 恢复禁用状态）。
+    await CapabilityPluginManager.instance.restore();
   } catch (e) {
     ErrorLogger.instance.warn('SourcePluginManager restore failed: $e');
   }

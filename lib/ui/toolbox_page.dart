@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 
 import '../net/image_cache.dart';
+import 'capability_center_page.dart';
 import 'responsive.dart';
 import 'settings_page.dart';
 import 'tokens.dart';
@@ -225,6 +226,13 @@ class ToolboxPageState extends State<ToolboxPage> {
             isSelected: _selectedTool == 5,
             onTap: () => setState(() => _selectedTool = 5),
           ),
+          _tabletNavItem(
+            scheme,
+            icon: Icons.extension_outlined,
+            label: '能力中心',
+            isSelected: _selectedTool == 6,
+            onTap: () => setState(() => _selectedTool = 6),
+          ),
         ],
       ),
     );
@@ -419,6 +427,14 @@ class ToolboxPageState extends State<ToolboxPage> {
           title: '站点入口',
           subtitle: 'NekoGAL',
           onTap: () => _openSitesPanel(scheme),
+        );
+      case 6:
+        return _buildToolEntry(
+          scheme,
+          icon: Icons.extension_outlined,
+          title: '能力中心',
+          subtitle: '管理能力插件（上色 / 插帧等）',
+          onTap: () => _push(const CapabilityCenterPage()),
         );
       default:
         return const SizedBox.shrink();
@@ -731,6 +747,13 @@ class ToolboxPageState extends State<ToolboxPage> {
               title: '站点入口',
               subtitle: 'NekoGAL',
               onTap: () => _openSitesPanel(scheme),
+            ),
+            _toolTile(
+              scheme,
+              icon: Icons.extension_outlined,
+              title: '能力中心',
+              subtitle: '管理能力插件（上色 / 插帧等）',
+              onTap: () => _push(const CapabilityCenterPage()),
             ),
           ],
         ),

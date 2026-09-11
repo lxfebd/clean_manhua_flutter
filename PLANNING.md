@@ -321,6 +321,42 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
   - [ ] 每迁移一个页面跑全量测试
   - [ ] 不迁移的页面零影响（不引入混合复杂度到旧页面）
 
+#### 12. 能力插件化 + 能力市场（2026-09-11 调研定案）
+> 背景：用户问「像 ai 上色和插帧这些都可以做成插件，需要什么安装上就行，插件化可行性和稳定性」。调研结论：**可行，但要把「元数据壳」与「运行时隔离」分开看**。现有 `SourcePluginManager` 是元数据注册表（install/uninstall/setEnabled/persist/revision 全齐、生命周期钩子齐），但 bind 只是「把实现对象挂进 SourceManager」——同一进程、同一 isolate，**不是运行时隔离**。源插件能安全插拔是因为纯 JSON + 纯 Dart；带 `.so` 的原生算力插件需要外层机制补三件事（见「三件绕不过的事」）。基座 2026 年已成熟：Flutter 3.44 + Dart 3.13 native assets build hooks 稳定、ncnn 有官方 Android 库、Vulkan 走系统 API 免自打包。
+- 三件绕不过的事（稳定性边界，方案必须满足）：
+  1. **Android 原生库只能构建期 bundle，不能运行期裸下载**：Android 7.0+ SELinux 禁止从应用私有目录 `dlopen()` 裸 `.so`；Flutter 官方 Android c-interop 规范路径是「AAR 作为 Maven 依赖加进 build.gradle」（构建期纳入）。能跑通的两条路：`System.loadLibrary`（安装时解包）或 Dart 3.13+ native assets build hooks（构建期声明、运行期 `Native`/`DefaultAsset` 加载）。**含义**：AI 插件 `.so` 走 Maven/AAR 分发（需自建仓库 + CI 上传），模型权重才走运行期下载（`.model_cache/` 规则）
+  2. **Native 崩溃无法隔离**：`DynamicLibrary.open` 同步、ncnn/Vulkan 一个 SIGSEGV 就是整个 Flutter 进程掉，Dart try/catch 抓不住。只能前置防御：FFI 调用全进独立 Isolate（主线程不碰）、调用前校验 ABI/尺寸/对齐/版本、Vulkan 不兼容降级 CPU。做不到「插件崩了主进程还活」
+  3. **ABI 矩阵爆炸**：`libncnn.so`（5–15MB）+ rife 模型（10–50MB），一个插帧插件 50–150MB 起，按 `arm64-v8a / armeabi-v7a / x86_64` 三套；CI 已 split-per-abi（145MB→40MB/架构），插件包必须走同样 per-ABI 拆分，装错架构直接崩
+- 架构：**新建平行体系 `lib/capabilities/`，不往 SourcePluginManager 里塞**（能力插件 ≠ 源插件：源插件 bind 挂 SourceManager，能力插件 bind 挂 CapabilityRuntime——FFI 句柄/Isolate/权重，生命周期一样但运行边界完全不同，污染现有注册表排序得不偿失）
+  ```
+  lib/capabilities/
+    capability_plugin.dart          ← CapabilityPlugin（SourcePlugin 泛化：category/artifact/weights + 同款 5 钩子）
+    capability_plugin_manager.dart  ← 注册表+生命周期+持久化（capability_plugins.json，抄 SourcePluginManager 模式）
+    capability_runtime.dart         ← 运行时边界：acquire/probe/run 隔离调用+防御+降级（全项目唯一碰 FFI 的地方）
+    capability_market.dart          ← 远端索引拉取（复用 Net/RateLimiter/LocalStore，索引加 capabilities 数组）
+    capability_market_page.dart     ← 能力市场 UI（抄 SourceMarketPage 架子）
+  ```
+  依赖方向 `UI → Manager → Runtime → FFI`；业务代码只碰 Manager（查/装/卸/启/禁）与 Runtime facade（调能力），绝不直接碰 `DynamicLibrary`
+- CapabilityPlugin 关键字段：`id / name / category('ai'|'video'|'utility') / version / author / description / builtin / rank` + `CapabilityArtifact?`（url 桌面直链 .dll/.dylib；maven Android 分发；embedded 是否预打包；`sha256` per-ABI 映射）+ `List<CapabilityWeight>`（name/url/sizeBytes/sha256）。内置能力=纯 Dart 壳+bind 空实现（同内置源套路）
+- CapabilityRuntime 设计决策（每个都是「为什么」级别）：
+  - `acquire(id)` 校验启用+构件已加载+权重已就绪，任一不满足返回带原因失败；`run(id, task)` 独立 Isolate 执行，超时/异常包装 CapabilityResult，连续失败 N 次自动标记 degraded 并通知 Manager 禁用（对应 circuit breaker 思路）
+  - **加载失败给明确原因**（「当前机型无 Vulkan 支持」「权重校验失败已重新下载」），不静默降级——静默是上色「糊了+没上色」被骂的根因
+  - **版本钉死**：artifact/weights 带精确版本+SHA256，升级走显式 needsUpdate，绝不自动滚动 latest
+  - `probe(p)` 前置防御三步：ABI 校验（Platform 当前 ABI ∈ sha256 键）→ 权重 SHA256 校验 → 算力探测（Vulkan 物理设备/内存档位）
+- 分发链路：现有源市场索引 JSON 加 `capabilities` 数组（同一 GitHub raw 索引、同一套拉取/缓存/校验逻辑）；安装时序 `validate(平台/字段/SHA256) → 落 capability_plugins.json → Manager.install → Runtime.probe → 提示下载权重(进 .model_cache/)`。**平台分发**：桌面（Windows/macOS）直链下载到应用支持目录 → `DynamicLibrary.open(绝对路径)`（无 SELinux 限制，先在这验证全链路）；Android 走 Maven/AAR 构建期纳入 + per-ABI 产物，权重运行期下载
+- UI：`CapabilityMarketPage` 逐字复用 `SourceMarketPage` 架子（列表/已安装·需更新角标/一键安装+风险确认/卸载+数据保留说明/启停开关/SnackBar），入口放设置页或工具箱，与「源市场」并列
+- 落地里程碑（每步版本+1、本地实测、commit 不 push）：
+  - **M1 框架落地**：CapabilityPlugin/Manager/Runtime 骨架 + 一个纯 Dart 演示能力（如「章节字数统计」）走通 安装→启用→调用→禁用→卸载；MuMu 实测 + 单测
+  - **M2 桌面原生加载**：Windows 端 FFI 加载真实 `.dll`，验证 下载→SHA256→load→Isolate 调用→失败降级；桌面实测
+  - **M3 Android 接入**：Maven/AAR 渠道 + per-ABI 产物 + 权重 `.model_cache/` 下载；真机/MuMu 实测
+  - **M4 对接独立 agent**：与 colorizer 团队对齐契约（输入/输出/互斥/目录），本线只接 metadata shell + 市场条目；契约文档 + 联调
+- 验收清单：
+  - [x] M1：演示能力全流程（装→启→调→禁→卸）MuMu 实测 + 单测绿（2026-09-11，v1.4.3+68）
+  - [ ] M2：桌面 FFI 全链路（下载→SHA256→load→Isolate→降级）实测
+  - [ ] M3：Android per-ABI .so + 权重下载真机/MuMu 实测
+  - [ ] M4：colorizer 契约文档 + 联调（**不触碰 colorizer*.dart 代码**，仅 metadata shell）
+- ⚠️ 红线：M4 之前完全不碰 `colorizer*.dart`；`.model_cache/` 保持为空（权重仅运行时下载）；不 push
+
 ---
 
 ## 七、开发纪律（红线，必须遵守）
@@ -379,6 +415,8 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 11. Web beta 实测 / 分享渠道 / 侧键验证——纯实测，等用户排期
 
 **不排入**：AI 上色（专项 agent）、Riverpod 重构（新页面用、旧页面不动，维持渐进，不单独立项）。
+
+**新增线（2026-09-11 调研定案，非 36 项内）**：能力插件化 + 能力市场（AI 上色/插帧做成按需安装插件）——见 §六 批次 C 第 12 项，含可行性结论（三件绕不过的事）、架构、稳定性边界、M1–M4 落地里程碑。
 
 ### 8.4 Android TV 适配（唯一剩余真编码项）
 
