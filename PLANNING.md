@@ -340,7 +340,7 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 
 > 背景：用户提供 5 方向 36 项迭代目标清单，要求「由简单到复杂安排任务顺序」。本日全量核对代码真实状态（非账本记忆），结论：36 项中 22 项已实现、6 项部分实现、8 项未实现。下表是剩余工作的排期基线，覆盖 §六 11 项计划之外的新增缺口。
 >
-> **2026-09-11 傍晚进度同步**：当日已按序完成封面单独占页（几何纯函数+9 单测）、zip 日志导出、系统 PiP 三项编码，并核对确认音轨切换/变调补偿/年度报告/Impeller/CI-CD 均已存在或完成（见各批 ✅ 标注）。**8 项未实现中 7 项已闭环，36 项仅剩 1 项真编码项：Android TV 适配（§8.4），其余为纯实测项（§8.5）**。
+> **2026-09-11 傍晚进度同步**：当日已按序完成封面单独占页（几何纯函数+9 单测）、zip 日志导出、系统 PiP 三项编码，并核对确认音轨切换/变调补偿/年度报告/Impeller/CI-CD 均已存在或完成（见各批 ✅ 标注）。**8 项未实现中 7 项已闭环 + TV 基础期完成，36 项真编码项全部收官；剩余仅 TV 增强期（需真机）与纯实测项（§8.5）**。
 
 ### 8.1 已实现（22 项，无需排期，仅保留实测项）
 
@@ -384,10 +384,10 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 
 > 范围评估（2026-09-11）：TV 归入现有 `ScreenSize.large/expanded` 大屏分支（>1200dp），UI 无需大改，缺口集中在 **遥控器焦点导航** 与 **平台声明**。拆两期，先做可本地验证的基础期，再做需真机验证的增强期。
 
-**基础期（本机可编译+模拟器/真机粗测）**
-- [ ] Manifest 声明 TV 平台：`uses-feature android.software.leanback required=false` + `android.hardware.touchscreen required=false`（保持手机可装、TV 可装）
-- [ ] TV 启动入口：`android.app.leanback` category 的 intent-filter（LAUNCHER 之外加 `<category android:name="android.intent.category.LEANBACK_LAUNCHER"/>`）
-- [ ] 遥控器焦点策略：全局 `FocusTraversalPolicy` 或按 `KeyEvent` 上/下/左/右/OK/返回 映射到列表/卡片导航（最小侵入：底部栏/侧边栏按钮加 `Focus` + `onKeyEvent` 上/下切换 tab）
+**基础期（2026-09-11 已闭环，1.4.3+65）**
+- [x] Manifest 声明 TV 平台：`uses-feature android.software.leanback required=false` + `android.hardware.touchscreen required=false`（保持手机可装、TV 可装）
+- [x] TV 启动入口：`android.app.leanback` category 的 intent-filter（LAUNCHER 之外加 `<category android:name="android.intent.category.LEANBACK_LAUNCHER"/>`）
+- [x] 遥控器焦点策略：`HoverEffect` 新增可选 `focusable`/`focusNode`（默认 false，桌面/触屏零影响）；聚焦时主色焦点环 + 复用 hover 放大；方向键交给 Flutter 焦点系统、`LogicalKeyboardKey.select`/`enter` 触发 onTap；侧边栏导航项 `focusable: true` 接入；新增 `test/regression_tv_focus_test.dart` 4 项（非 focusable 无焦点、OK/Enter 触发、方向键移动、焦点环渲染）全过；merged manifest 三声明验证生效；MuMu 装机无崩溃；全量 248 测试绿
 
 **增强期（需 TV 真机，等用户排期）**
 - [ ] 播放器遥控器按键：播放/暂停/快进/快退/音量 原生按键映射到 media_kit 控制
