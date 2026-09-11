@@ -3,10 +3,13 @@ package com.xingmanxia.app
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.PictureInPictureParams
 import android.content.Intent
 import android.content.ComponentCallbacks2
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
+import android.util.Rational
 import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
@@ -26,11 +29,73 @@ class MainActivity : FlutterActivity() {
     private val lowMemChannelName = "xingmanxia/low_memory"
     private var lowMemChannel: MethodChannel? = null
 
+    /// 系统画中画（PiP）：Dart 请求进入 PiP / 查询支持度；PiP 状态变更回调回 Dart。
+    private val pipChannelName = "xingmanxia/pip"
+    private var pipChannel: MethodChannel? = null
+    private var lastPipAspect: Rational? = null
+
+    /// 进入 PiP（API 26+ 且系统支持时生效；返回是否成功进入）。
+    private fun enterPip(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        if (!packageManager.hasSystemFeature(
+                android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE
+            )
+        ) return false
+        return try {
+            enterPictureInPictureMode(
+                PictureInPictureParams.Builder()
+                    .setAspectRatio(lastPipAspect ?: Rational(16, 9))
+                    .build()
+            )
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /// Dart 通知原生设置 PiP 画面比例（跟随视频宽高比，横/竖兼容）。
+    private fun setPipAspect(w: Int, h: Int) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || w <= 0 || h <= 0) return
+        lastPipAspect = Rational(w.coerceAtLeast(1), h.coerceAtLeast(1))
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        try {
+            pipChannel?.invokeMethod("onPipModeChanged", isInPictureInPictureMode, null)
+        } catch (_: Exception) {
+        }
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         ensureChannel()
         lowMemChannel =
             MethodChannel(flutterEngine.dartExecutor.binaryMessenger, lowMemChannelName)
+        pipChannel =
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, pipChannelName)
+        pipChannel!!.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "enter" -> result.success(enterPip())
+                "isSupported" -> result.success(
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                        packageManager.hasSystemFeature(
+                            android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE
+                        )
+                )
+                "setAspectRatio" -> {
+                    setPipAspect(
+                        call.argument<Int>("width") ?: 0,
+                        call.argument<Int>("height") ?: 0
+                    )
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "xingmanxia/install")
             .setMethodCallHandler { call, result ->
                 when (call.method) {

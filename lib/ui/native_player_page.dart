@@ -18,6 +18,7 @@ import '../services/player_registry.dart';
 import '../sources/video_source.dart';
 import '../utils/anime4k.dart';
 import '../utils/danmaku.dart';
+import '../utils/pip_channel.dart';
 import 'anime_player_page.dart';
 import 'responsive.dart';
 import 'widgets/danmaku_overlay.dart';
@@ -258,6 +259,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     _boot();
     _loadDanmaku();
     _autoMatchSubtitle(); // 本地播放自动匹配同目录同名 SRT
+    // 系统画中画（Android 8+）：仅安装通道与状态监听，非 Android 静默跳过。
+    unawaited(PipChannel.install().then((ok) {
+      if (mounted && ok) setState(() {});
+    }));
     // 桌面端播放快捷键：空格 播放/暂停、←/→ 快退/快进、↑/↓ 音量、
     // M 静音、F 全屏、Esc 隐藏控制层。仅桌面注册，避免蓝牙键盘误触。
     if (DesktopUi.isDesktopPlatform) {
@@ -998,6 +1003,22 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       _unlockOrientation();
     }
     _bumpControls();
+  }
+
+  /// 进入系统画中画（Android 8+）：退出当前 UI 前先把视频纹理交给系统
+  /// PiP 窗口；成功后 Activity 转小窗，播放不中断。非 Android 静默忽略
+  /// （走手动的 [_minimizeToPip] App 内小窗）。
+  Future<void> _toggleSystemPip() async {
+    if (_vw > 0 && _vh > 0) {
+      await PipChannel.setAspectRatio(_vw, _vh);
+    }
+    final ok = await PipChannel.enter();
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('当前设备不支持画中画')),
+      );
+      _bumpControls();
+    }
   }
 
   /// 画中画：把当前 Player 移交迷你播放器并退出本页。
@@ -1880,6 +1901,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
               if (widget.episodes.isNotEmpty)
                 _textBtn('选集', _showEpisodePanel,
                     icon: Icons.playlist_play_rounded),
+              // 系统画中画：仅 Android（原生通道安装成功）显示；非 Android
+              // 走 App 内小窗（_minimizeToPip），入口在左上返回位。
+              if (PipChannel.inPip != null)
+                _barBtn(Icons.picture_in_picture_alt_rounded, _toggleSystemPip),
               _barBtn(Icons.fullscreen_exit_rounded, _toggleFullscreen),
             ]),
           ),
