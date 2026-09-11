@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../main.dart';
@@ -1622,6 +1623,20 @@ class _TextExportSheet extends StatelessWidget {
                 label: const Text('复制文本'),
               ),
             ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  await SharePlus.instance
+                      .share(ShareParams(text: text, subject: '我的书单'));
+                  if (!context.mounted) return;
+                  Navigator.pop(context);
+                },
+                icon: const Icon(Icons.ios_share_rounded, size: 16),
+                label: const Text('分享到…'),
+              ),
+            ),
           ],
         ),
       ),
@@ -1741,6 +1756,16 @@ class _ImageExportSheetState extends State<_ImageExportSheet> {
     });
   }
 
+  /// 把已保存的海报 PNG 丢进系统分享面板。
+  Future<void> _sharePoster() async {
+    final p = _savedPath;
+    if (p == null) return;
+    await SharePlus.instance.share(ShareParams(
+      files: [XFile(p, mimeType: 'image/png')],
+      subject: '我的书单海报',
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -1831,6 +1856,15 @@ class _ImageExportSheetState extends State<_ImageExportSheet> {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _sharePoster,
+                  icon: const Icon(Icons.ios_share_rounded, size: 16),
+                  label: const Text('分享图片'),
+                ),
               ),
             ],
           ],
