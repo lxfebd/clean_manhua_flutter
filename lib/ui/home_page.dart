@@ -797,6 +797,7 @@ class _Chip extends StatelessWidget {
       child: PressableScale(
         onTap: onTap,
         scale: 0.94,
+        focusable: true, // TV 遥控器 D-pad 焦点导航
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOutCubic,
@@ -997,6 +998,7 @@ class _FeaturedCard extends StatelessWidget {
       child: PressableScale(
         onTap: onTap,
         scale: 0.98,
+        focusable: true, // TV 遥控器 D-pad 焦点导航（轮播大卡）
         child: ClipRRect(
           borderRadius: BorderRadius.circular(R.card),
           child: Stack(
@@ -1168,6 +1170,7 @@ class _ComicCardState extends State<_ComicCard> {
       child: PressableScale(
         onTap: widget.onTap,
         scale: 0.97,
+        focusable: true, // TV 遥控器 D-pad 焦点导航（热榜网格卡）
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 240),
           curve: Curves.easeOutCubic,

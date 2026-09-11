@@ -587,6 +587,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
               child: PressableScale(
                 onTap: () => _switchMode('category', categoryId: c.id),
                 scale: 0.94,
+                focusable: true, // TV 遥控器 D-pad 焦点导航
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 240),
                   curve: Curves.easeOutCubic,
@@ -713,6 +714,7 @@ class _AnimeCardState extends State<_AnimeCard> {
       child: PressableScale(
         onTap: widget.onTap,
         scale: 0.97,
+        focusable: true, // TV 遥控器 D-pad 焦点导航（动漫网格卡）
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 240),
           curve: Curves.easeOutCubic,

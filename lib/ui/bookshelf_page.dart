@@ -2398,6 +2398,7 @@ class _ReadingCard extends StatelessWidget {
     return PressableScale(
       onTap: onTap,
       scale: 0.98,
+      focusable: true, // TV 遥控器 D-pad 焦点导航（书架卡片）
       child: Container(
         height: 80,
         decoration: BoxDecoration(
@@ -2520,6 +2521,7 @@ class _ShelfCard extends StatelessWidget {
     return PressableScale(
       onTap: onTap,
       scale: 0.96,
+      focusable: true, // TV 遥控器 D-pad 焦点导航（书架条目卡）
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -2625,6 +2627,7 @@ class _VideoRecordCard extends StatelessWidget {
     return PressableScale(
       onTap: onTap,
       scale: 0.98,
+      focusable: true, // TV 遥控器 D-pad 焦点导航（书架卡片）
       child: Container(
         height: 80,
         decoration: BoxDecoration(
@@ -2727,6 +2730,7 @@ class _BookmarkCard extends StatelessWidget {
     return PressableScale(
       onTap: onTap,
       scale: 0.98,
+      focusable: true, // TV 遥控器 D-pad 焦点导航（书架卡片）
       child: Container(
         height: 80,
         decoration: BoxDecoration(

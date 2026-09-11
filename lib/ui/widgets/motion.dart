@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// 渐入上滑动画：自动播放一次，子元素依次延迟。
 class FadeSlideIn extends StatefulWidget {
@@ -86,12 +87,20 @@ class PressableScale extends StatefulWidget {
   final VoidCallback? onTap;
   final double scale;
   final Duration duration;
+
+  /// 是否可作为遥控器/键盘焦点（Android TV D-pad 导航），语义与
+  /// `HoverEffect.focusable` 一致：聚焦放大 + OK/Enter 触发 onTap。
+  final bool focusable;
+  final FocusNode? focusNode;
+
   const PressableScale({
     super.key,
     required this.child,
     this.onTap,
     this.scale = 0.96,
     this.duration = const Duration(milliseconds: 120),
+    this.focusable = false,
+    this.focusNode,
   });
 
   @override
@@ -100,9 +109,22 @@ class PressableScale extends StatefulWidget {
 
 class _PressableScaleState extends State<PressableScale> {
   bool _down = false;
+  bool _focused = false;
+
+  KeyEventResult _handleKey(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent &&
+        widget.onTap != null &&
+        (event.logicalKey == LogicalKeyboardKey.select ||
+            event.logicalKey == LogicalKeyboardKey.enter)) {
+      widget.onTap!();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    final pressable = GestureDetector(
       onTapDown: (_) {
         if (widget.onTap == null) return;
         setState(() => _down = true);
@@ -111,10 +133,33 @@ class _PressableScaleState extends State<PressableScale> {
       onTapUp: (_) => setState(() => _down = false),
       onTap: widget.onTap,
       child: AnimatedScale(
-        scale: _down ? widget.scale : 1.0,
+        scale: (_down || _focused) && widget.onTap != null
+            ? widget.scale
+            : 1.0,
         duration: widget.duration,
         curve: Curves.easeOut,
         child: widget.child,
+      ),
+    );
+
+    if (!widget.focusable) return pressable;
+
+    // TV/键盘焦点导航：外圈 Focus 接 D-pad，聚焦时主色焦点环。
+    return Focus(
+      focusNode: widget.focusNode,
+      onKeyEvent: _handleKey,
+      onFocusChange: (f) => setState(() => _focused = f),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: _focused
+                ? Theme.of(context).colorScheme.primary
+                : Colors.transparent,
+            width: 2,
+          ),
+        ),
+        child: pressable,
       ),
     );
   }

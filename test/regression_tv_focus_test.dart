@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:xingmanxia/ui/responsive.dart';
+import 'package:xingmanxia/ui/widgets/motion.dart';
 
 /// Android TV 遥控器焦点导航回归测试。
 ///
@@ -126,6 +127,59 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
       expect(_hasPrimaryBorder(tester), true, reason: '聚焦后应显示主色焦点环');
+    });
+  });
+
+  group('PressableScale TV 焦点导航', () {
+    testWidgets('非 focusable（默认）无焦点环、无 OK 触发', (tester) async {
+      var taps = 0;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: PressableScale(
+              onTap: () => taps++,
+              child: const SizedBox(width: 80, height: 40),
+            ),
+          ),
+        ),
+      ));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.select);
+      await tester.pump();
+      expect(taps, 0);
+      expect(_hasPrimaryBorder(tester), false);
+    });
+
+    testWidgets('focusable 项聚焦后 OK/Enter 触发 onTap 且显示焦点环', (tester) async {
+      var taps = 0;
+      final focusNode = FocusNode(debugLabel: 'ps-item');
+      addTearDown(focusNode.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: PressableScale(
+              onTap: () => taps++,
+              focusable: true,
+              focusNode: focusNode,
+              child: const SizedBox(width: 80, height: 40),
+            ),
+          ),
+        ),
+      ));
+
+      expect(taps, 0);
+      focusNode.requestFocus();
+      await tester.pump();
+      expect(_hasPrimaryBorder(tester), true);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.select);
+      await tester.pump();
+      expect(taps, 1);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(taps, 2);
     });
   });
 }
