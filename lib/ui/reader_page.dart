@@ -2035,10 +2035,12 @@ class _ImageViewState extends State<_ImageView>
       !widget.horizontal && !_isJm && widget.resLevel >= 2;
 
   /// 是否启用自动上色。规则：
-  /// 由外层 _ReaderPageState 按真实阅读模式计算并传入（纵向滚动可用，
-  /// 横向翻页禁用）。此处不再使用 widget.horizontal——主页面横向 PageView
-  /// 的图片一律 horizontal:true，但 model 推理只限制于横向翻页场景。
+  /// - 仅桌面端启用（手机端不上色，256×256 本地推理耗时/卡顿不达标）；
+  /// - 由外层 _ReaderPageState 按真实阅读模式计算并传入（纵向滚动可用，
+  ///   横向翻页禁用）。此处不再使用 widget.horizontal——主页面横向 PageView
+  ///   的图片一律 horizontal:true，但 model 推理只限制于横向翻页场景。
   bool get _colorizeEnabled =>
+      DesktopUi.isDesktopPlatform &&
       widget.colorize &&
       !_isJm &&
       ColorizerManager.instance.enabled &&
@@ -2071,12 +2073,15 @@ class _ImageViewState extends State<_ImageView>
   void initState() {
     super.initState();
     _reportLayout();
-    // 懒探模型（幂等）：模型加载完成后重建一次，让 colorize: _colorizeEnabled
-    // 重新求值——否则 225MB 模型加载慢于图片时，colorize 快照恒 false，
-    // 上色永不触发（模型就绪后已 build 的图也不会重试）。
-    ColorizerManager.instance.ensureLoaded().then((_) {
-      if (mounted) setState(() {});
-    });
+    // 懒探模型（幂等）：仅桌面端做。手机端不上色（256×256 本地推理耗时/
+    // 卡顿不达标），不加载 225MB 模型，避免无谓 IO 与内存占用。
+    // 模型加载完成后重建一次，让 colorize: _colorizeEnabled 重新求值——
+    // 否则 225MB 模型加载慢于图片时，colorize 快照恒 false，上色永不触发。
+    if (DesktopUi.isDesktopPlatform) {
+      ColorizerManager.instance.ensureLoaded().then((_) {
+        if (mounted) setState(() {});
+      });
+    }
   }
 
   @override

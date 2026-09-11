@@ -507,9 +507,10 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
             const SizedBox(height: 28),
-            // 漫画上色（本地 AI）：默认关、仅 io + 有模型 + RAM≥4GB 可见。
-            // 自包含状态组件，不与本页其它开关耦合。
-            const _ColorizerSection(),
+            // 漫画上色（本地 AI）：默认关、仅桌面端（电脑）可见——256×256
+            // 本地推理在手机端耗时/卡顿不达标，手机端隐藏入口（组件保留给
+            // 电脑端）。自包含状态组件，不与本页其它开关耦合。
+            if (DesktopUi.isDesktopPlatform) const _ColorizerSection(),
             const SizedBox(height: 28),
             FadeSlideIn(
               delay: const Duration(milliseconds: 220),
