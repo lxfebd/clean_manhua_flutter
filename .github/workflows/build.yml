@@ -99,11 +99,19 @@ jobs:
       - name: Build APK
         run: flutter build apk --${{ steps.buildtype.outputs.type }} --dart-define=APP_VERSION=${{ steps.version.outputs.version }}
 
+      # 多架构拆分（release 仅）：arm64-v8a / armeabi-v7a / x86_64 独立包，
+      # 体积从 ~145MB 单包降到 ~40MB 每架构，弱网下载友好。
+      - name: Build split APKs (multi-arch)
+        if: steps.buildtype.outputs.type == 'release'
+        run: flutter build apk --release --split-per-abi --dart-define=APP_VERSION=${{ steps.version.outputs.version }}
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-${{ steps.buildtype.outputs.type }}
-          path: build/app/outputs/flutter-apk/app-${{ steps.buildtype.outputs.type }}.apk
+          path: |
+            build/app/outputs/flutter-apk/app-${{ steps.buildtype.outputs.type }}.apk
+            build/app/outputs/flutter-apk/app-*-release.apk
 
       # 临时：把 debug APK 分块推到 ci-apk 分支（GitHub 单文件推送上限 100MB，APK 约 145MB 需分块），
       # 之后经 raw.githubusercontent.com 取回各块本地合并，用于模拟器安装测试。
@@ -148,6 +156,62 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: 星漫匣 v${{ steps.version.outputs.version }}
           files: build/app/outputs/flutter-apk/app-release.apk
+          generate_release_notes: true
+
+  # ── 主分支内测包（Pre-release）────────────────────────────
+  # 每次 push 到 master（非 tag）构建 debug APK 并发布到 Pre-release，
+  # 供用户下载内测。功能与 release 构建共用 Android 环境，故独立轻量 job。
+  nightly:
+    if: github.ref_type == 'branch' && github.ref_name == 'master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: nightly-debug-apk
+      cancel-in-progress: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.44.0'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK & Android platform
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "ndk;28.2.13676358" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Set app version
+        id: version
+        run: |
+          V=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
+          echo "version=${V}" >> "$GITHUB_OUTPUT"
+
+      - name: Build debug APK
+        run: flutter build apk --debug --dart-define=APP_VERSION=${{ steps.version.outputs.version }}
+
+      - name: Publish Pre-release (debug)
+        uses: softprops/action-gh-release@v2
+        with:
+          name: 内测版 v${{ steps.version.outputs.version }} (debug)
+          tag_name: nightly-${{ github.sha }}
+          prerelease: true
+          files: build/app/outputs/flutter-apk/app-debug.apk
           generate_release_notes: true
 
   # ── Windows 电脑端（桌面版）构建 ──────────────────────────────────────
