@@ -18,6 +18,7 @@ import '../net/jm_scramble.dart';
 import '../net/local_store.dart';
 import '../net/smart_prefetch.dart';
 import 'responsive.dart';
+import 'reader_mode_geometry.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_http.dart';
 import '../sources/source_manager.dart';
@@ -66,41 +67,6 @@ class ReaderPage extends StatefulWidget {
 
 /// 阅读器右键菜单动作。
 enum _ReaderMenuAction { catalog, chapters, settings, download, bookmark }
-
-/// 阅读模式：纵向滚动 / 单页横向 / 双页并排（平板横屏）。
-enum ReaderMode {
-  vertical(0),
-  single(1),
-  double(2);
-
-  const ReaderMode(this.value);
-  final int value;
-
-  static ReaderMode fromValue(int v) => switch (v) {
-        0 => ReaderMode.vertical,
-        2 => ReaderMode.double,
-        _ => ReaderMode.single,
-      };
-}
-
-/// 双页模式下“视图”= 一屏左右两页。单页/纵向视图数=页数。
-int viewCountOf(int pageCount, ReaderMode mode) {
-  if (mode != ReaderMode.double) return pageCount;
-  // 双页：每视图两页，末视图允许单页（总数奇数时多出一页）。
-  return (pageCount / 2).ceil();
-}
-
-/// 视图 -> 起始页（双页模式下左页索引；右页为 +1）。
-int pageOfView(int view, ReaderMode mode) {
-  if (mode != ReaderMode.double) return view;
-  return view * 2;
-}
-
-/// 页 -> 所在视图（双页模式下两页共一个视图）。
-int viewOfPage(int page, ReaderMode mode) {
-  if (mode != ReaderMode.double) return page;
-  return page ~/ 2;
-}
 
 class _ReaderPageState extends State<ReaderPage>
     with WidgetsBindingObserver {
@@ -814,7 +780,9 @@ class _ReaderPageState extends State<ReaderPage>
           label: _downloading && _downloadTotal > 0
               ? '下载 $_downloadDone/$_downloadTotal'
               : _doublePage
-                  ? '${_curPage + 1}-${(_curPage + 2).clamp(1, _urls.length)} / ${_urls.length}'
+                  ? (_urls.length >= 3 && _curPage == 0
+                      ? '1 / ${_urls.length}'
+                      : '${_curPage + 1}-${(_curPage + 2).clamp(1, _urls.length)} / ${_urls.length}')
                   : '${_curPage + 1} / ${_urls.length}',
         ),
         // 底部悬浮玻璃工具栏
@@ -856,6 +824,8 @@ class _ReaderPageState extends State<ReaderPage>
   String _visibleImageUrl([Offset? at]) {
     if (_urls.isEmpty) return '';
     if (_doublePage) {
+      // 封面独立视图（≥3 页、当前在页 0）整屏只有封面页，直接返回。
+      if (_urls.length >= 3 && _curPage == 0) return _urls[0];
       final vw = MediaQuery.sizeOf(context).width;
       final onRight = at != null && at.dx >= vw / 2;
       final lead = _curPage.clamp(0, _urls.length - 1);
@@ -1834,7 +1804,16 @@ class _ReaderPageState extends State<ReaderPage>
             if (_doublePage) {
               // 双页视图：左右两页并排，共用视口高度（各占一半宽）。
               // RTL（日漫从右到左）：右页为奇数页（lead），左页为偶数页（lead+1）。
-              final lead = view * 2;
+              // 封面单独占页（≥3 页）：view 0 只渲染第 0 页（卷首彩页/封面）；
+              // 从 view 1 起两两并排（页 1 为 lead，其后每视图两页）。
+              if (_urls.length >= 3 && view == 0) {
+                return _ImageView(_urls[0],
+                    pageIndex: 0, totalPages: _urls.length,
+                    resLevel: _resLevel, horizontal: true,
+                    sourceId: widget.sourceId, trimBorder: _trimBorder,
+                    colorize: _readerMode == ReaderMode.vertical);
+              }
+              final lead = pageOfView(view, _readerMode);
               final lIdx = _rtl ? lead + 1 : lead;
               final rIdx = _rtl ? lead : lead + 1;
               return Row(

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:archive/archive.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
@@ -188,36 +189,49 @@ class ErrorLogger {
   /// 日志目录路径（导出用）。
   String? get logDirPath => _dir?.path;
 
-  /// 导出日志：把所有日志文件合并为一个文本文件（含设备信息头），
-  /// 返回文件路径。失败返回 null（目录不存在 / 无日志）。
+  /// 导出日志：打包为 zip 压缩包（含设备信息头 + 各日日志独立文件 +
+  /// 按日排序合并的 logs.txt），返回文件路径。失败返回 null（目录不存在 / 无日志）。
   Future<String?> exportLogs() async {
     final d = _dir;
     if (d == null || !d.existsSync()) return null;
     final files = d.listSync().whereType<File>().toList()
       ..sort((a, b) => a.path.compareTo(b.path));
     if (files.isEmpty) return null;
+    String outPath = '';
     try {
-      final out =
-          File('${d.path}/logs_${DateTime.now().millisecondsSinceEpoch}.txt');
-      final sink = out.openWrite();
-      try {
-        sink.write('== 星漫匣 错误日志 ==\n');
-        if (_deviceInfo.isNotEmpty) sink.write('$_deviceInfo\n');
-        sink.write('app version: v$_appVersion\n');
-        sink.write('exported: ${_fmt(DateTime.now())}\n');
-        sink.write('========================\n\n');
-        for (final f in files) {
-          sink.write('---- ${f.uri.pathSegments.last} ----\n');
-          // 日志文件为 UTF-8 文本，直接写字符串（字节列表会被 toString 成数字数组）
-          sink.write(f.readAsStringSync());
-          sink.write('\n\n');
-        }
-      } finally {
-        await sink.close();
+      outPath = '${d.path}/logs_${DateTime.now().millisecondsSinceEpoch}.zip';
+      // 1) 设备/版本头 + 各日志按日合并的 logs.txt（反馈快速浏览入口）
+      final combined = StringBuffer()
+        ..write('== 星漫匣 错误日志 ==\n')
+        ..write('${_deviceInfo.isEmpty ? 'device: unknown' : _deviceInfo}\n')
+        ..write('app version: v$_appVersion\n')
+        ..write('exported: ${_fmt(DateTime.now())}\n')
+        ..write('========================\n\n');
+      for (final f in files) {
+        combined
+          ..write('---- ${f.uri.pathSegments.last} ----\n')
+          ..write(f.readAsStringSync())
+          ..write('\n\n');
       }
-      return out.path;
+      // 2) 各日日志独立归档（便于按天查看/对比）
+      final archive = Archive()
+        ..addFile(
+            ArchiveFile('logs.txt', combined.toString().codeUnits.length,
+                combined.toString().codeUnits));
+      for (final f in files) {
+        final bytes = f.readAsBytesSync();
+        archive.addFile(
+            ArchiveFile(f.uri.pathSegments.last, bytes.length, bytes));
+      }
+      final zipBytes = ZipEncoder().encode(archive);
+      await File(outPath).writeAsBytes(zipBytes, flush: true);
+      return outPath;
     } catch (e) {
       debugPrint('ErrorLogger export failed: $e');
+      // 删除可能残留的半成品 zip
+      try {
+        if (outPath.isNotEmpty) File(outPath).deleteSync();
+      } catch (_) {}
       return null;
     }
   }

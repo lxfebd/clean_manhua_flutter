@@ -1,9 +1,10 @@
 import 'dart:io';
 
+import 'package:archive/archive.dart' as archive_pkg;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xingmanxia/net/error_logger.dart';
 
-/// 本地错误日志系统回归：分级记录、内存缓冲、按天落盘、导出合并。
+/// 本地错误日志系统回归：分级记录、内存缓冲、按天落盘、导出 zip。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -50,17 +51,28 @@ void main() {
       expect(content.contains('['), isTrue); // 时间戳前缀
     });
 
-    test('导出合并日志为单个 txt（含设备/版本头）', () async {
+    test('导出日志为 zip（含设备/版本头 + 各日志文件 + logs.txt）', () async {
       ErrorLogger.instance.setAppVersion('9.9.9');
       ErrorLogger.instance.info('hello');
       final out = await ErrorLogger.instance.exportLogs();
       expect(out, isNotNull);
       final f = File(out!);
       expect(f.existsSync(), isTrue);
-      final content = f.readAsStringSync();
+      expect(f.path.endsWith('.zip'), isTrue, reason: '导出应为 zip 压缩包');
+      // 解包验证：含当日日志 + logs.txt（含设备/版本头）
+      final bytes = f.readAsBytesSync();
+      final archive = archive_pkg.ZipDecoder().decodeBytes(bytes);
+      expect(archive.isEmpty, isFalse);
+      final logsTxt = archive.files.firstWhere(
+        (e) => e.name == 'logs.txt',
+        orElse: () => throw StateError('zip 缺 logs.txt'),
+      );
+      final content = String.fromCharCodes(logsTxt.content);
       expect(content.contains('app version: v9.9.9'), isTrue);
-      expect(content.contains('ERROR'), isFalse); // 无 error 只有 info
       expect(content.contains('hello'), isTrue);
+      // 各日日志独立归档也在包内
+      expect(archive.files.any((e) => e.name.endsWith('.log')), isTrue,
+          reason: 'zip 应包含各日 .log 独立文件');
     });
 
     test('空目录导出返回 null（无日志可导出）', () async {

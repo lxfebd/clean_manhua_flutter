@@ -645,13 +645,12 @@ class _SettingsPageState extends State<SettingsPage> {
       }
       // 移动端 saveFile 必须携带 bytes（桌面端仅弹出保存路径）。
       // 传 bytes 后 file_picker 会在用户选择的路径写入内容，全平台一致。
-      final logText = File(path).readAsStringSync();
-      final bytes = Uint8List.fromList(utf8.encode(logText));
+      final bytes = File(path).readAsBytesSync();
       final result = await FilePicker.saveFile(
         dialogTitle: '导出错误日志',
-        fileName: '星漫匣_日志_${DateTime.now().millisecondsSinceEpoch}.txt',
+        fileName: '星漫匣_日志_${DateTime.now().millisecondsSinceEpoch}.zip',
         type: FileType.custom,
-        allowedExtensions: ['txt'],
+        allowedExtensions: ['zip'],
         bytes: bytes,
       );
       if (result == null) return;

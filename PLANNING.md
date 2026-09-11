@@ -83,7 +83,7 @@ lib/ 93 dart 文件 / 43,836 行
 ├── ui/widgets/ cached_image / danmaku_overlay / mini_player / player_widgets …
 lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + AppTheme.light/dark
 启动链 main.dart：同步(:71-101) → 串行(:104-133) → 并行 Future.wait(:136-150) → bindFile(:161-164)
-测试：入库 10 个（UI/token 门禁为主）+ 本地 26 个 regression_*（gitignore，CI 跑不到，技术债 P1-14）
+测试：入库 10 个（UI/token 门禁为主）+ 本地 26 个 regression_*（gitignore，CI 跑不到，技术债 P1-14）※ 2026-09-11 复核：29 个 regression 测试已入库被 git 跟踪，此描述过时（详见 P1-14 ✅ 已修）
 ```
 
 ---
@@ -94,7 +94,7 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 
 | # | 债 | 位置 | 修法 |
 |---|---|---|---|
-| P0-1 | 小说章节**加载成功**误写 ERROR 级日志 + 重复 debugPrint | `novel_reader_page.dart:288,290` | 降级为 debug/info 级，删重复行 |
+| P0-1 | 小说章节**加载成功**误写 ERROR 级日志 + 重复 debugPrint | `novel_reader_page.dart:288,290` | ✅ 已修（2026-09-11 复核）：成功事件改 `ErrorLogger.debug` + 删重复行（`:288-290` 现为 debug 级 + 注释说明不污染错误计数） |
 | P0-2 | `UpdateChecker.init()` 并行段双调无幂等守卫 → 静态 `_cached` 并发写、日志版本窗口期错误 | `main.dart:138,142`；`update_checker.dart:46-51` | 加 `_inited` 幂等 + 合并为单次 init |
 
 ### P1（该修，数据正确性/可观测/性能）
@@ -114,7 +114,7 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 | P1-11 | `buildUrl` 不 URL 编码（CJK 搜索词） | `http_client.dart:588-600` | ✅ 已修（1.4.3+47）：Uri.replace(queryParameters) 编码 |
 | P1-12 | WebDAV pull 整包覆盖无合并；密钥裸 SHA256 无盐无迭代 | `webdav_sync.dart:276-282,326-334` | ✅ 已修（1.4.3+54）：密钥升级 PBKDF2-HMAC-SHA256（120k 迭代 + 固定盐 `xingmanxia-webdav-v2`），新文件写 v2 魔数 `XMX-SYNC-2:`，旧 v1 文件仍可解密（历史备份兼容）；merge 三向判断仍按手动同步语义（pull 全量拉取+本地合并清单），不加自动合并 |
 | P1-13 | 日志可观测性≈0：38 处 debugPrint / 21 文件；ErrorLogger 四级只用 1/4 | 启动链 `main.dart:90-175` 8 处、持久化 catch 等 | ✅ 已修（1.4.3+47）：main.dart 10 处 debugPrint 全改 ErrorLogger.warn；剩余按页面改动顺带收敛 |
-| P1-14 | 26 个 regression_* 测试 gitignore，CI 跑不到（回归保护=0） | `.gitignore:57` | 拆「纯逻辑入库 / 真网络打活测不入库」 |
+| P1-14 | 26 个 regression_* 测试 gitignore，CI 跑不到（回归保护=0） | `.gitignore:57` | ✅ 已修（1.4.3+57，commit 20cc869）：29 个 regression_* 测试已入库并被 git 跟踪（`git ls-files` 验证），单个测试可跑通（regression_reader_mode_test 通过）；`.gitignore` 无 regression 规则确认；真网络打活测保持不入库 |
 | P1-15 | JM 纯 Dart 解码（单张 200-800ms）无原生降级路径——卡顿根因 | `jm_scramble.dart:88-116` | 长线：Android BitmapFactory MethodChannel；短期：分档限位解码保持 |
 | P1-16 | 6 个巨型文件 SRP 违规（35% 代码量） | reader/anime_player/bookshelf/native_player/local_store/http_client | 随 Riverpod 渐进重构顺带拆（不做单独大重构） |
 | P1-17 | token 落地不足：344 处内联 fontSize、252 处 borderRadius、66 处硬编码 Color；断点魔法数字 600 | `main.dart:241,280` 应引 `Responsive.compactBreakpoint`；tokens `S.x*` 几乎未用 | 页面级改造时顺带收敛，不单独立项 |
@@ -333,3 +333,47 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 6. **版本**：每个功能本地构建验证后版本号 +1（build 号）；发布需用户确认
 7. **提交**：中文 commit message
 8. **回归**：入库测试全绿才算完成；P0 债修完即跑全量
+
+---
+
+## 八、2026-09-11 全目标核对 + 由简到繁执行顺序
+
+> 背景：用户提供 5 方向 36 项迭代目标清单，要求「由简单到复杂安排任务顺序」。本日全量核对代码真实状态（非账本记忆），结论：36 项中 22 项已实现、6 项部分实现、8 项未实现。下表是剩余工作的排期基线，覆盖 §六 11 项计划之外的新增缺口。
+
+### 8.1 已实现（22 项，无需排期，仅保留实测项）
+
+双页横屏+RTL、条漫 OOM 分级、图片裁边（image_trim）、放大镜、本地 TXT/EPUB 导入（local_novel_source）、TTS（novel_tts_service）、色温/段间距/首行缩进（novel_reader_page）、SRT 字幕（subtitle_srt）、迷你窗（mini_player）、倍速 0.25-4x、书架分类（bookshelf_store）、桌面快捷键（keyboard_shortcuts）、搜索历史+收藏内搜索、HTTP/Socks5 代理（http_client:183-202）、图片多级降级、自定义源 JSON 导入、源市场（批次B）、源健康度（SourceHealthMonitor）、内存动态适配（memoryBudgetBytes）、启动优化、智能预加载（smart_prefetch）、免责声明（settings_page:526）、备份密码加密（BackupCipher）、全局限流（RateLimiter 3/s burst5）、WebDAV 同步（webdav_sync）。
+
+### 8.2 部分实现（6 项，需补强）
+
+| 项 | 已有 | 缺口 |
+|---|---|---|
+| 更新推送通知 | UpdateNotifier+启动补检 | 国产 ROM 系统通知存活未实测（验收项未勾） |
+| 年度阅读报告 | 周报+年度聚合（测试过） | 年度可视化/动效页未做 |
+| 书单导出 | 文本+海报导出+导入闭环 | Android share sheet 分享渠道未验证 |
+| Web 端 | alpha（build+浏览）✅ | beta 阅读器真实浏览器实测未做 |
+| 桌面快捷键 | 体系在 | 鼠标侧键返回/前进未验证 |
+| 本地 AI 上色 | 已隔离 | **归独立 agent 专项，本线不碰（红线）** |
+
+### 8.3 未实现（8 项，排期对象）+ 由简到繁顺序
+
+**第 1 批（单文件小改动，风险最低）——2026-09-11 实测后仅第 1 项需编码，第 2/3 项已存在**
+1. ✅ 双页「卷首彩页/封面单独占一页」——已完成（2026-09-11）：`ReaderMode` + `viewCountOf/pageOfView/viewOfPage` 抽到 `lib/ui/reader_mode_geometry.dart`（纯函数可单测），语义改为「≥3 页时第 0 页独占 view 0，从页 1 起两两并排」；itemBuilder 封面视图单页渲染、`_visibleImageUrl`/页码指示器同步适配；新增 `test/regression_reader_mode_geometry_test.dart` 9 项（含往返一致+全覆盖）全过；全量 244 测试绿
+2. ✅ 播放器音轨切换——**已存在**（native_player_page `:153` 音轨列表、`:534` 监听、`:2647` 切换面板、`:2673` setAudioTrack），核对时误排，无需编码
+3. ✅ 倍速变调补偿——**mpv 默认行为**（native_player 走 `setRate`，mpv `--audio-pitch-correction` 默认开 = 已补偿）；两播放器倍速档均已 0.25~4x 全集，无需编码
+
+**第 2 批（中等，多为已有骨架补全）**
+4. 系统 PiP（Android 8+/iOS 14+）——复用 mini_player 状态；桌面端已走 window_manager 置顶小窗
+5. ✅ 本地错误日志导出——已完成（2026-09-11）：`ErrorLogger.exportLogs()` 从合并 txt 升级为 **zip 压缩包**（`archive` 4.x `ZipEncoder` 内存编码，含设备/版本头 `logs.txt` 快速浏览 + 各日 `.log` 独立归档）；设置页保存类型改 zip；`regression_error_logger_test` 升级为解包断言（4 项过）；全量 244 测试绿
+6. 更新通知真机实测项——代码已全，等用户真机；本批仅补代码侧缺口
+
+**第 3 批（跨文件，需要规划）**
+7. 年度报告可视化页——复用 reading_stats 聚合 + profile 周报
+8. CI/CD 增强——GitHub Actions PR 自动 analyze/test、多平台产物、自动更新日志（**需用户同意远程操作**）
+
+**第 4 批（大改，最后）**
+9. Impeller 灰度（Android 高端机开启+Skia 兜底回退）
+10. Android TV 适配（遥控器导航+大屏 UI 分支）
+11. Web beta 实测 / 分享渠道 / 侧键验证——纯实测，等用户排期
+
+**不排入**：AI 上色（专项 agent）、Riverpod 重构（新页面用、旧页面不动，维持渐进，不单独立项）。
