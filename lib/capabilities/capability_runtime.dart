@@ -3,6 +3,7 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate' show Isolate;
 
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 
 import 'capability_artifact_store.dart';
@@ -113,16 +114,26 @@ class CapabilityRuntime {
     // 1. ABI 校验：桌面必须声明桌面 ABI（任意键即可，x64/arm64 细分 M3 再做）；
     //    Android 需声明当前 ABI 键。
     final abi = _currentAbi();
-    if (abi == 'android' &&
-        artifact.sha256.isNotEmpty &&
-        !artifact.sha256.containsKey(_androidAbi())) {
-      return CapabilityFailure(
-          id, '当前机型（${_androidAbi()}）没有对应构件，无法加载');
+    String? androidAbi;
+    if (abi == 'android') {
+      androidAbi = await _androidAbi();
+      if (artifact.sha256.isNotEmpty && !artifact.sha256.containsKey(androidAbi)) {
+        return CapabilityFailure(
+            id, '当前机型（$androidAbi）没有对应构件，无法加载');
+      }
     }
 
-    // 2. artifact 落盘校验：缺失/损坏 → 下载；下载失败给明确原因。
+    // 2. artifact 就绪校验：缺失/损坏 → 下载；失败给明确原因。
+    //    平台分流：Android 构建期 bundle（jniLibsFile / maven / embedded），
+    //    运行期系统 loader 直接从 nativeLibraryDir 加载，probe 只校验 ABI 键
+    //    （sha256 已声明）即视为就绪；其余平台走 url 直链下载 + SHA256 校验。
     final store = CapabilityArtifactStore.instance;
-    if (artifact.url != null) {
+    final isAndroid = abi == 'android';
+    if (isAndroid && (artifact.jniLibsFile != null || artifact.maven != null)) {
+      // 构建期 bundle：APK 签名保证完整性，版本钉死靠构建期（gradle 校验
+      // jniLibs 产物哈希与元数据一致）；运行期系统 loader 加载。
+      return CapabilityOk(id);
+    } else if (artifact.url != null) {
       final file = await store.download(id, artifact);
       if (file == null) {
         return CapabilityFailure(
@@ -139,7 +150,8 @@ class CapabilityRuntime {
     return CapabilityOk(id);
   }
 
-  /// 当前平台 ABI 判定（M2 桌面只区分 desktop/android；细分留给 M3）。
+  /// 当前平台 ABI 判定（M2 桌面只区分 desktop/android；M3 Android 精确到
+  /// arm64-v8a / armeabi-v7a / x86_64，与 release abiFilters 对齐）。
   static String _currentAbi() {
     if (kIsWeb) return 'web';
     if (Platform.isAndroid) return 'android';
@@ -149,10 +161,17 @@ class CapabilityRuntime {
     return 'unknown';
   }
 
-  static String _androidAbi() {
+  /// Android 当前 ABI（如 arm64-v8a / armeabi-v7a / x86_64），结果缓存。
+  /// 读 DeviceInfoPlugin().androidInfo（需在 async 上下文 await）。
+  static String? _abiCache;
+  static Future<String> _androidAbi() async {
+    if (_abiCache != null) return _abiCache!;
     try {
-      // 通过 Android Build 读取（若无插件直接返回 unknown；M3 接入时精确化）。
-      return 'unknown';
+      final info = await DeviceInfoPlugin().androidInfo;
+      final abis = info.supportedAbis;
+      final abi = abis.isEmpty ? 'unknown' : abis.first;
+      _abiCache = abi;
+      return abi;
     } catch (_) {
       return 'unknown';
     }

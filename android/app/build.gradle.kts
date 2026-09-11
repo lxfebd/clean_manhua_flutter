@@ -1,5 +1,6 @@
 import java.util.Properties
 import java.io.FileInputStream
+import java.security.MessageDigest
 
 plugins {
     id("com.android.application")
@@ -83,4 +84,32 @@ android {
 
 flutter {
     source = "../.."
+}
+
+// 构建期一致性守卫：校验 jniLibs 打包的演示 .so 与能力插件元数据 SHA256 一致。
+// 版本钉死：值来自 Dart 侧 DemoNativePlugin.androidSha256*，变更 .so 必须同步
+// 更新，否则构建即失败（fail-fast，杜绝运行期未知版本）。
+tasks.register("verifyDemoNativeSha") {
+    val expected = mapOf(
+        "arm64-v8a" to "8a6524084aa328ccceea9188ac6c1330dcc96165e234ff10fb76139edc8d7076",
+        "armeabi-v7a" to "15ed0631996d6bd5f6fa10ffb7c1ca056ee100ed4eaa25053763d03e3ebfd207",
+        "x86_64" to "749339d2fb0b2d80d5044fd9f8af7a98d620f498b53b0c8683377f13783faa41",
+    )
+    doLast {
+        expected.forEach { (abi, hash) ->
+            val f = file("src/main/jniLibs/$abi/libdemo_math.so")
+            if (!f.exists()) {
+                throw GradleException("缺 $abi/libdemo_math.so（先跑 test/assets/demo_native/build_android_so.bat）")
+            }
+            val sha = MessageDigest.getInstance("SHA-256")
+                .digest(f.readBytes()).joinToString("") { "%02x".format(it) }
+            if (sha != hash) {
+                throw GradleException("$abi/libdemo_math.so SHA256 与元数据不一致，需同步更新或重编译")
+            }
+        }
+    }
+}
+
+tasks.named("preBuild") {
+    dependsOn("verifyDemoNativeSha")
 }

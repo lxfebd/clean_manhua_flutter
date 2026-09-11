@@ -352,7 +352,7 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
   - **M4 对接独立 agent**：与 colorizer 团队对齐契约（输入/输出/互斥/目录），本线只接 metadata shell + 市场条目；契约文档 + 联调
 - 验收清单：
   - [x] M1：演示能力全流程（装→启→调→禁→卸）MuMu 实测 + 单测绿（2026-09-11，v1.4.3+68）
-  - [ ] M2：桌面 FFI 全链路（下载→SHA256→load→Isolate→降级）实测
+  - [x] M2：桌面 FFI 全链路（SHA256→Isolate load→调用→降级）单测绿，真实 DLL 加载+调用+失败明确原因（2026-09-11，v1.4.3+70，commit f42e72b）；真实下载（example.com 占位 URL）待桌面 GUI 实测
   - [ ] M3：Android per-ABI .so + 权重下载真机/MuMu 实测
   - [ ] M4：colorizer 契约文档 + 联调（**不触碰 colorizer*.dart 代码**，仅 metadata shell）
 - ⚠️ 红线：M4 之前完全不碰 `colorizer*.dart`；`.model_cache/` 保持为空（权重仅运行时下载）；不 push

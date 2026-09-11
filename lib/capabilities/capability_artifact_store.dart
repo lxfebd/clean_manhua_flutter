@@ -67,7 +67,10 @@ class CapabilityArtifactStore {
     }
   }
 
-  /// 下载单个 artifact（桌面直链），SHA256 校验，返回本地文件。
+  /// 下载/就绪单个 artifact，返回本地文件。
+  /// - 桌面（[CapabilityArtifact.url]）：直链下载到应用支持目录。
+  /// - Android：构建期 bundle（jniLibs / Maven AAR），运行期系统 loader 直接
+  ///   加载，不经过本方法（见 CapabilityRuntime.probe 的 embedded 分支）。
   /// 失败返回 null（原因可由调用方通过 [lastError] 读取）。
   Future<File?> download(
     String id,

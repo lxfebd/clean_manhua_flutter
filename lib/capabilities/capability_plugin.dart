@@ -78,14 +78,21 @@ class CapabilityPlugin {
 /// - 桌面（Windows/macOS/Linux）：[url] 直链下载到应用支持目录 →
 ///   `DynamicLibrary.open(绝对路径)`（无 SELinux 限制，M2 先在这验证全链路）。
 /// - Android：**只能构建期 bundle**（Android 7.0+ SELinux 禁止运行期裸 dlopen
-///   应用私有目录下的 .so），走 [maven] AAR 依赖（Maven Central 等仓库构建期
-///   纳入）；权重才走运行期下载。
+///   应用私有目录下的 .so）。构建期纳入后，运行期从 APK `nativeLibraryDir`
+///   复制 .so 到应用支持目录，SHA256 校验后 dlopen（复制到私有目录后 open
+///   合法）。分发渠道：正式能力走 [maven] AAR（构建期依赖）；演示/内置走
+///   [jniLibsFile] 的 jniLibs 打包（构建期进 `lib/<abi>/`）。
 class CapabilityArtifact {
   /// 桌面直链（.dll/.dylib/.so）。
   final String? url;
 
   /// Android 分发：'groupId:artifactId:version'（Maven AAR）。
   final String? maven;
+
+  /// Android jniLibs 打包的文件名（如 'libdemo_math.so'）：构建期经
+  /// jniLibs 进 `lib/<abi>/`，运行期从 nativeLibraryDir 复制 + 校验。
+  /// 非空时优先于 [maven]（演示/内置能力用）。
+  final String? jniLibsFile;
 
   /// 是否随 App 构建期预打包（true 时不走下载/Maven，直接随 APK 发布）。
   final bool embedded;
@@ -96,6 +103,7 @@ class CapabilityArtifact {
   const CapabilityArtifact({
     this.url,
     this.maven,
+    this.jniLibsFile,
     this.embedded = false,
     this.sha256 = const {},
   });

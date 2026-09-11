@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../capabilities/capability_plugin.dart';
 import '../capabilities/capability_plugin_manager.dart';
+import '../capabilities/capability_runtime.dart';
+import '../capabilities/demo_native_capability.dart';
 import 'tokens.dart';
 
 /// 能力中心：查看/启用/禁用已安装的能力插件（内置 + 市场）。
@@ -38,6 +40,26 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
 
   Future<void> _toggle(CapabilityPlugin p, bool enabled) async {
     await CapabilityPluginManager.instance.setEnabled(p.id, enabled);
+  }
+
+  /// 原生构件自测：调用演示能力 sum()，展示结果或失败原因。
+  /// M2/M3 运行期验证入口（桌面 FFI / Android jniLibs 全链路）。
+  Future<void> _selfTestNative() async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(const SnackBar(content: Text('原生构件自测中…')));
+    final r = await DemoNativePlugin.sum(40, 2);
+    messenger.hideCurrentSnackBar();
+    if (r is CapabilityOk) {
+      final d = r.data as Map<String, dynamic>;
+      messenger.showSnackBar(SnackBar(
+        content: Text('自测通过：sum(40,2)=${d['sum']} · version=${d['version']}'),
+      ));
+    } else {
+      messenger.showSnackBar(SnackBar(
+        content: Text('自测失败：${(r as CapabilityFailure).reason}'),
+      ));
+    }
   }
 
   String _categoryLabel(String c) {
@@ -82,6 +104,7 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
                   enabled: enabled,
                   categoryLabel: _categoryLabel(p.category),
                   onToggle: (v) => _toggle(p, v),
+                  onSelfTest: p.id == 'utility.native' ? _selfTestNative : null,
                 );
               },
             ),
@@ -94,12 +117,14 @@ class _CapabilityCard extends StatelessWidget {
   final bool enabled;
   final String categoryLabel;
   final ValueChanged<bool> onToggle;
+  final VoidCallback? onSelfTest;
 
   const _CapabilityCard({
     required this.plugin,
     required this.enabled,
     required this.categoryLabel,
     required this.onToggle,
+    this.onSelfTest,
   });
 
   @override
@@ -176,6 +201,15 @@ class _CapabilityCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: S.x12),
+          if (onSelfTest != null)
+            Padding(
+              padding: const EdgeInsets.only(right: S.x8),
+              child: IconButton(
+                tooltip: '原生构件自测',
+                icon: const Icon(Icons.play_circle_outline),
+                onPressed: onSelfTest,
+              ),
+            ),
           Switch(
             value: enabled,
             // 内置能力可禁用（与源插件先例一致：启用状态持久化），仅卸载不可。

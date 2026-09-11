@@ -118,6 +118,40 @@ void main() {
     });
   });
 
+  group('M3 Android jniLibs 链路', () {
+    test('jniLibs 源码布局存在（三个 ABI）', () {
+      final root = Directory.current;
+      for (final abi in ['arm64-v8a', 'armeabi-v7a', 'x86_64']) {
+        final so = File(
+            '${root.path}/android/app/src/main/jniLibs/$abi/libdemo_math.so');
+        expect(so.existsSync(), isTrue, reason: '缺少 $abi jniLibs 演示 so');
+      }
+    });
+
+    test('jniLibs 产物与元数据 sha256 一致（版本钉死）', () async {
+      final store = CapabilityArtifactStore.instance;
+      final artifact = DemoNativePlugin().artifact!;
+      // 构建期 bundle：jniLibs 里的 so 必须与能力插件元数据 sha256 一致，
+      // 否则运行期加载的是未知版本（构建时应 fail-fast，此处单测兜底）。
+      for (final abi in ['arm64-v8a', 'armeabi-v7a', 'x86_64']) {
+        final so = File(
+            '${Directory.current.path}/android/app/src/main/jniLibs/$abi/libdemo_math.so');
+        final h = await store.sha256Of(so);
+        expect(h, artifact.sha256[abi], reason: '$abi so 与元数据 sha256 不一致');
+      }
+    });
+
+    test('Android probe：sha256 含当前 ABI 键即就绪（构建期 bundle）', () async {
+      // 注意：桌面测试环境 _currentAbi 返回 windows，无法走 Android 分支。
+      // 该分支由 MuMu 真机验证；此处仅验证元数据键集完整。
+      final artifact = DemoNativePlugin().artifact!;
+      expect(artifact.sha256.containsKey('arm64-v8a'), isTrue);
+      expect(artifact.sha256.containsKey('armeabi-v7a'), isTrue);
+      expect(artifact.sha256.containsKey('x86_64'), isTrue);
+      expect(artifact.jniLibsFile, 'libdemo_math.so');
+    });
+  });
+
   // 最后才加载 DLL：Windows 加载后会锁文件，其后的写/删用例会失败。
   // 组内同样：先「缺失」后「正常加载」（正常加载会锁文件）。
   group('Isolate 内 FFI 加载 + 调用', () {
