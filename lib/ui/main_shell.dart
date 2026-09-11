@@ -590,6 +590,7 @@ class _NavigationRailItem extends StatelessWidget {
 
     if (horizontal) {
       return HoverEffect(
+        focusable: true, // TV 遥控器 D-pad 焦点导航
         onTap: onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
@@ -632,6 +633,7 @@ class _NavigationRailItem extends StatelessWidget {
     }
 
     return HoverEffect(
+      focusable: true, // TV 遥控器 D-pad 焦点导航
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),

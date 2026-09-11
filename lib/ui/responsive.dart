@@ -779,6 +779,17 @@ class HoverEffect extends StatefulWidget {
   final double opacity;
   final Duration duration;
 
+  /// 是否可作为遥控器/键盘焦点（Android TV D-pad 导航）。
+  ///
+  /// 默认 false（桌面/触屏行为不变）；启用后：
+  /// - 方向键由 Flutter 焦点系统在可聚焦节点间移动
+  /// - D-pad 中心键 / Enter（[LogicalKeyboardKey.select]）触发 [onTap]
+  /// - 聚焦时显示焦点环 + 复用 hover 的放大/淡化效果
+  final bool focusable;
+
+  /// [focusable] 为 true 时的外部焦点节点；省略则内部自建。
+  final FocusNode? focusNode;
+
   const HoverEffect({
     super.key,
     required this.child,
@@ -786,6 +797,8 @@ class HoverEffect extends StatefulWidget {
     this.scale = 1.02,
     this.opacity = 0.9,
     this.duration = const Duration(milliseconds: 200),
+    this.focusable = false,
+    this.focusNode,
   });
 
   @override
@@ -794,10 +807,24 @@ class HoverEffect extends StatefulWidget {
 
 class _HoverEffectState extends State<HoverEffect> {
   bool _isHovered = false;
+  bool _isFocused = false;
+
+  /// 遥控器 OK / 键盘 Enter 触发 [onTap]；方向键返回不处理，
+  /// 交给 Flutter 焦点系统在可聚焦节点间移动（TV D-pad 导航）。
+  KeyEventResult _handleKey(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent &&
+        widget.onTap != null &&
+        (event.logicalKey == LogicalKeyboardKey.select ||
+            event.logicalKey == LogicalKeyboardKey.enter)) {
+      widget.onTap!();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
+    final focusWidget = MouseRegion(
       cursor:
           widget.onTap != null ? SystemMouseCursors.click : MouseCursor.defer,
       onEnter: (_) => setState(() => _isHovered = true),
@@ -807,16 +834,37 @@ class _HoverEffectState extends State<HoverEffect> {
         child: AnimatedContainer(
           duration: widget.duration,
           curve: Curves.easeOutCubic,
-          transform: _isHovered
+          transform: _isHovered || _isFocused
               ? (Matrix4.identity()..scaleByDouble(widget.scale, widget.scale, widget.scale, 1.0))
               : Matrix4.identity(),
           transformAlignment: Alignment.center,
           child: AnimatedOpacity(
-            opacity: _isHovered ? widget.opacity : 1.0,
+            opacity: _isHovered || _isFocused ? widget.opacity : 1.0,
             duration: widget.duration,
             child: widget.child,
           ),
         ),
+      ),
+    );
+
+    if (!widget.focusable) return focusWidget;
+
+    // TV/键盘焦点导航：外圈 Focus 接 D-pad，聚焦时画主色焦点环。
+    return Focus(
+      focusNode: widget.focusNode,
+      onKeyEvent: _handleKey,
+      onFocusChange: (f) => setState(() => _isFocused = f),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: _isFocused
+                ? Theme.of(context).colorScheme.primary
+                : Colors.transparent,
+            width: 2,
+          ),
+        ),
+        child: focusWidget,
       ),
     );
   }
