@@ -340,7 +340,7 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 
 > 背景：用户提供 5 方向 36 项迭代目标清单，要求「由简单到复杂安排任务顺序」。本日全量核对代码真实状态（非账本记忆），结论：36 项中 22 项已实现、6 项部分实现、8 项未实现。下表是剩余工作的排期基线，覆盖 §六 11 项计划之外的新增缺口。
 >
-> **2026-09-11 傍晚进度同步**：当日已按序完成封面单独占页（几何纯函数+9 单测）、zip 日志导出、系统 PiP 三项编码，并核对确认音轨切换/变调补偿/年度报告/Impeller/CI-CD 均已存在或完成（见各批 ✅ 标注）。**8 项未实现中 7 项已闭环 + TV 基础期完成，36 项真编码项全部收官；剩余仅 TV 增强期（需真机）与纯实测项（§8.5）**。
+> **2026-09-11 傍晚进度同步**：当日已按序完成封面单独占页（几何纯函数+9 单测）、zip 日志导出、系统 PiP 三项编码，并核对确认音轨切换/变调补偿/年度报告/Impeller/CI-CD 均已存在或完成（见各批 ✅ 标注）。**8 项未实现中 7 项已闭环 + TV 基础期/增强期大部分完成，36 项真编码项全部收官；剩余仅 TV 10ft 首页（需真机视觉确认）与纯实测项（§8.5）**。
 
 ### 8.1 已实现（22 项，无需排期，仅保留实测项）
 
@@ -389,10 +389,10 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 - [x] TV 启动入口：`android.app.leanback` category 的 intent-filter（LAUNCHER 之外加 `<category android:name="android.intent.category.LEANBACK_LAUNCHER"/>`）
 - [x] 遥控器焦点策略：`HoverEffect` 新增可选 `focusable`/`focusNode`（默认 false，桌面/触屏零影响）；聚焦时主色焦点环 + 复用 hover 放大；方向键交给 Flutter 焦点系统、`LogicalKeyboardKey.select`/`enter` 触发 onTap；侧边栏导航项 `focusable: true` 接入；新增 `test/regression_tv_focus_test.dart` 4 项（非 focusable 无焦点、OK/Enter 触发、方向键移动、焦点环渲染）全过；merged manifest 三声明验证生效；MuMu 装机无崩溃；全量 248 测试绿
 
-**增强期（需 TV 真机，等用户排期）**
-- [ ] 播放器遥控器按键：播放/暂停/快进/快退/音量 原生按键映射到 media_kit 控制
-- [ ] TV 专用首页（10ft UI：更大卡片间距、聚焦放大动画）
-- [ ] 启动器封面（`LEANBACK_LAUNCHER` banner `tv_banner` drawable）
+**增强期（2026-09-11 已部分闭环，1.4.3+66）**
+- [x] 播放器遥控器按键：native_player 与 anime_player 的 `_keyHandler` 补齐 TV 媒体键——`select`/`mediaPlayPause`→播放暂停、`mediaFastForward`/`mediaRewind`→±10s、`mediaTrackNext`/`mediaTrackPrevious`→上下集（复用既有 seek/切集路径）；`mediaPause`/`mediaPlay`/`mediaStop` 由 Android 系统在媒体会话层接管不重复处理；MuMu D-pad 中心键（keyevent 23）实测无崩溃
+- [x] 启动器封面：新增 `res/drawable/tv_banner.xml`（320×180 VectorDrawable，深墨底+白五角星，与「墨块+星」logo 同构），manifest `<application android:banner>` 引用；aapt 编译通过
+- [ ] TV 专用首页（10ft UI：更大卡片间距、聚焦放大动画）——需 TV 真机实测视觉，暂缓
 
 ### 8.5 纯实测项（代码已全，等用户排期）
 
