@@ -10,6 +10,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import '../net/local_store.dart';
 import '../sources/video_source.dart';
+import '../utils/desktop_fullscreen.dart';
 import 'desktop_webview.dart';
 import 'native_player_page.dart';
 import 'responsive.dart';
@@ -539,6 +540,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     WidgetsBinding.instance.removeObserver(this);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _unlockOrientation();
+    // 离开播放页时还原桌面窗口（防全屏状态残留）
+    DesktopFullscreen.set(false);
     super.dispose();
   }
 
@@ -1645,6 +1648,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   void _enterFullscreen() {
     if (_fullscreen) return;
     setState(() => _fullscreen = true);
+    // 桌面端把系统窗口本体切到真全屏（占满屏幕），移动端保持沉浸+横屏。
+    DesktopFullscreen.set(true);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     SystemChrome.setPreferredOrientations(
         [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
@@ -1653,6 +1658,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   void _exitFullscreen() {
     if (!_fullscreen) return;
     setState(() => _fullscreen = false);
+    DesktopFullscreen.set(false);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _unlockOrientation();
   }

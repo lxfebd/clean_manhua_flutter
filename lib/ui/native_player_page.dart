@@ -18,6 +18,7 @@ import '../services/player_registry.dart';
 import '../sources/video_source.dart';
 import '../utils/anime4k.dart';
 import '../utils/danmaku.dart';
+import '../utils/desktop_fullscreen.dart';
 import '../utils/pip_channel.dart';
 import 'anime_player_page.dart';
 import 'responsive.dart';
@@ -994,11 +995,14 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   void _toggleFullscreen() {
     setState(() => _fullscreen = !_fullscreen);
     if (_fullscreen) {
+      // 桌面端把系统窗口本体切到真全屏（占满屏幕），移动端保持沉浸+横屏。
+      DesktopFullscreen.set(true);
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
       SystemChrome.setPreferredOrientations(
           [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
     } else {
       _locked = false;
+      DesktopFullscreen.set(false);
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       _unlockOrientation();
     }
@@ -1056,6 +1060,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     // 全屏 → 竖屏回主界面悬停小窗
     if (_fullscreen) {
       _fullscreen = false;
+      DesktopFullscreen.set(false);
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       _unlockOrientation();
     }
@@ -1233,6 +1238,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     }
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _unlockOrientation();
+    // 离开播放页时还原桌面窗口（防全屏状态残留：下次进播放器仍是整屏窗口）
+    DesktopFullscreen.set(false);
     if (DesktopUi.isDesktopPlatform) {
       HardwareKeyboard.instance.removeHandler(_keyHandler);
     }
