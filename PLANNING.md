@@ -354,7 +354,7 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
   - [x] M1：演示能力全流程（装→启→调→禁→卸）MuMu 实测 + 单测绿（2026-09-11，v1.4.3+68）
   - [x] M2：桌面 FFI 全链路（SHA256→Isolate load→调用→降级）单测绿，真实 DLL 加载+调用+失败明确原因（2026-09-11，v1.4.3+70，commit f42e72b）；真实下载（example.com 占位 URL）待桌面 GUI 实测
   - [x] M3：Android per-ABI .so + jniLibs 打包 + 权重下载真机/MuMu 实测（2026-09-11，v1.4.3+71，commit ad1d2b4）；MuMu 实测「原生构件自测」sum(40,2)=42 · version=0x20260911 通过；12 native 测试 + 全量 270 绿；权重 `.model_cache/` 下载仍为 M4 后接
-  - [ ] M4：colorizer 契约文档 + 联调（**不触碰 colorizer*.dart 代码**，仅 metadata shell）
+  - [~] M4：colorizer 契约文档 + 联调（**不触碰 colorizer*.dart 代码**，仅 metadata shell）——契约文档已产出 `docs/colorizer-capability-contract.md`（2026-09-11，只读调研）；**核心定案：上色走主 isolate 直调 ColorizerManager（自带锁+超时），不包 `CapabilityRuntime.run`（Isolate 内拿到的 manager 是全新单例恒降级）；目录约定待统一（colorizer 用 `support/colorizer/` 私有 const，能力体系用 `.model_cache/`）；接口缺口待上色团队排期（批量/取消/进度/algoVersion/路径注入）**；metadata shell `ai_colorize_capability.dart` 未写（等评审）
 - ⚠️ 红线：M4 之前完全不碰 `colorizer*.dart`；`.model_cache/` 保持为空（权重仅运行时下载）；不 push
 
 ---
