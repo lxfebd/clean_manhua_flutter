@@ -340,7 +340,7 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 
 > 背景：用户提供 5 方向 36 项迭代目标清单，要求「由简单到复杂安排任务顺序」。本日全量核对代码真实状态（非账本记忆），结论：36 项中 22 项已实现、6 项部分实现、8 项未实现。下表是剩余工作的排期基线，覆盖 §六 11 项计划之外的新增缺口。
 >
-> **2026-09-11 傍晚进度同步**：当日已按序完成封面单独占页（几何纯函数+9 单测）、zip 日志导出、系统 PiP 三项编码，并核对确认音轨切换/变调补偿/年度报告/Impeller/CI-CD 均已存在或完成（见各批 ✅ 标注）。**8 项未实现中 7 项已闭环 + TV 基础期/增强期大部分完成，36 项真编码项全部收官；剩余仅 TV 10ft 首页（需真机视觉确认）与纯实测项（§8.5）**。
+> **2026-09-11 傍晚进度同步**：当日已按序完成封面单独占页（几何纯函数+9 单测）、zip 日志导出、系统 PiP 三项编码，并核对确认音轨切换/变调补偿/年度报告/Impeller/CI-CD 均已存在或完成（见各批 ✅ 标注）。**8 项未实现中 7 项已闭环 + TV 基础期/增强期全部完成（含 10ft 内容卡可聚焦化，1.4.3+67），36 项真编码项全部收官；剩余仅纯实测项（§8.5）与 10ft 大间距视觉微调（需 TV 真机）**。
 
 ### 8.1 已实现（22 项，无需排期，仅保留实测项）
 
@@ -392,7 +392,7 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 **增强期（2026-09-11 已部分闭环，1.4.3+66）**
 - [x] 播放器遥控器按键：native_player 与 anime_player 的 `_keyHandler` 补齐 TV 媒体键——`select`/`mediaPlayPause`→播放暂停、`mediaFastForward`/`mediaRewind`→±10s、`mediaTrackNext`/`mediaTrackPrevious`→上下集（复用既有 seek/切集路径）；`mediaPause`/`mediaPlay`/`mediaStop` 由 Android 系统在媒体会话层接管不重复处理；MuMu D-pad 中心键（keyevent 23）实测无崩溃
 - [x] 启动器封面：新增 `res/drawable/tv_banner.xml`（320×180 VectorDrawable，深墨底+白五角星，与「墨块+星」logo 同构），manifest `<application android:banner>` 引用；aapt 编译通过
-- [ ] TV 专用首页（10ft UI：更大卡片间距、聚焦放大动画）——需 TV 真机实测视觉，暂缓
+- [~] TV 专用首页（10ft UI）——**内容卡可聚焦已闭环**（2026-09-11）：`PressableScale` 新增可选 `focusable`/`focusNode`（默认 false，桌面零影响），聚焦放大 + 主色焦点环 + OK/Enter 触发；首页轮播大卡/热榜网格卡/分类 chip、动漫轮播/网格/分类 chip、书架继续阅读/条目/下载/标记 4 卡共 10 处接入；`regression_tv_focus_test` 增至 6 项全过；全量 250 测试绿；MuMu 装机无崩溃（1.4.3+67）。**剩余：大间距 10ft 布局与聚焦放大动画细节需 TV 真机视觉确认，暂缓**
 
 ### 8.5 纯实测项（代码已全，等用户排期）
 
