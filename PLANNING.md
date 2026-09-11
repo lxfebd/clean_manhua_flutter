@@ -339,6 +339,8 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 ## 八、2026-09-11 全目标核对 + 由简到繁执行顺序
 
 > 背景：用户提供 5 方向 36 项迭代目标清单，要求「由简单到复杂安排任务顺序」。本日全量核对代码真实状态（非账本记忆），结论：36 项中 22 项已实现、6 项部分实现、8 项未实现。下表是剩余工作的排期基线，覆盖 §六 11 项计划之外的新增缺口。
+>
+> **2026-09-11 傍晚进度同步**：当日已按序完成封面单独占页（几何纯函数+9 单测）、zip 日志导出、系统 PiP 三项编码，并核对确认音轨切换/变调补偿/年度报告/Impeller/CI-CD 均已存在或完成（见各批 ✅ 标注）。**8 项未实现中 7 项已闭环，36 项仅剩 1 项真编码项：Android TV 适配（§8.4），其余为纯实测项（§8.5）**。
 
 ### 8.1 已实现（22 项，无需排期，仅保留实测项）
 
@@ -357,23 +359,46 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 
 ### 8.3 未实现（8 项，排期对象）+ 由简到繁顺序
 
-**第 1 批（单文件小改动，风险最低）——2026-09-11 实测后仅第 1 项需编码，第 2/3 项已存在**
+**第 1 批（单文件小改动，风险最低）——2026-09-11 实测后仅第 1 项需编码，第 2/3 项已存在（本批已全部闭环）**
 1. ✅ 双页「卷首彩页/封面单独占一页」——已完成（2026-09-11）：`ReaderMode` + `viewCountOf/pageOfView/viewOfPage` 抽到 `lib/ui/reader_mode_geometry.dart`（纯函数可单测），语义改为「≥3 页时第 0 页独占 view 0，从页 1 起两两并排」；itemBuilder 封面视图单页渲染、`_visibleImageUrl`/页码指示器同步适配；新增 `test/regression_reader_mode_geometry_test.dart` 9 项（含往返一致+全覆盖）全过；全量 244 测试绿
 2. ✅ 播放器音轨切换——**已存在**（native_player_page `:153` 音轨列表、`:534` 监听、`:2647` 切换面板、`:2673` setAudioTrack），核对时误排，无需编码
 3. ✅ 倍速变调补偿——**mpv 默认行为**（native_player 走 `setRate`，mpv `--audio-pitch-correction` 默认开 = 已补偿）；两播放器倍速档均已 0.25~4x 全集，无需编码
 
 **第 2 批（中等，多为已有骨架补全）**
-4. 系统 PiP（Android 8+/iOS 14+）——复用 mini_player 状态；桌面端已走 window_manager 置顶小窗
+4. ✅ 系统 PiP——已完成（2026-09-11）：原生 `xingmanxia/pip` 通道 + `PipChannel` 封装（install/isSupported/setAspectRatio/enter + `inPip` ValueNotifier），Manifest `supportsPictureInPicture`/`resizeableActivity`，`MainActivity.kt` 实现 `enterPip`/`setPipAspect`/`onPictureInPictureModeChanged`；播放器全屏按钮旁接入 `_toggleSystemPip`（宽高取自 `_vw/_vh`），失败 Snackbar 提示；minSdk 24 + compileSdk 36 天然满足 API 26+；debug APK Gradle 编译过 + MuMu 装机无 FATAL（1.4.3+63）
 5. ✅ 本地错误日志导出——已完成（2026-09-11）：`ErrorLogger.exportLogs()` 从合并 txt 升级为 **zip 压缩包**（`archive` 4.x `ZipEncoder` 内存编码，含设备/版本头 `logs.txt` 快速浏览 + 各日 `.log` 独立归档）；设置页保存类型改 zip；`regression_error_logger_test` 升级为解包断言（4 项过）；全量 244 测试绿
 6. 更新通知真机实测项——代码已全，等用户真机；本批仅补代码侧缺口
 
 **第 3 批（跨文件，需要规划）**
-7. 年度报告可视化页——复用 reading_stats 聚合 + profile 周报
-8. CI/CD 增强——GitHub Actions PR 自动 analyze/test、多平台产物、自动更新日志（**需用户同意远程操作**）
+7. ✅ 年度报告——**已存在**（profile_page `_YearReportSheet`：12 个月柱状图 + 全年总秒数 + 有效阅读天数 + 周报），核对时误排，无需编码
+8. ✅ CI/CD 增强——已完成（2026-09-11，本地 commit 74ccbb8，**未 push**）：`build:` job 新增 release 场景 split-per-abi 多架构包 step（`app-*-release.apk` 三档 arm64-v8a/armeabi-v7a/x86_64），artifact glob 已含；新增顶层 `nightly:` job（仅 master push，`concurrency` 取消在途），构建 debug APK 并经 `softprops/action-gh-release@v2` 发布 `nightly-$sha` Pre-release（prerelease: true + 自动生成 release notes）；YAML 缩进结构审查通过；全量 244 测试绿（1.4.3+64）
 
 **第 4 批（大改，最后）**
-9. Impeller 灰度（Android 高端机开启+Skia 兜底回退）
-10. Android TV 适配（遥控器导航+大屏 UI 分支）
+9. ✅ Impeller——**已存在**（`AndroidManifest.xml` meta-data `io.flutter.embedding.android.ImpellerRenderer` 已开启；既有 Skia 回退注释），核对时误排，无需编码
+10. ⚠️ Android TV 适配（遥控器导航+大屏 UI 分支）——**唯一剩余真编码项**，见 §8.4
 11. Web beta 实测 / 分享渠道 / 侧键验证——纯实测，等用户排期
 
 **不排入**：AI 上色（专项 agent）、Riverpod 重构（新页面用、旧页面不动，维持渐进，不单独立项）。
+
+### 8.4 Android TV 适配（唯一剩余真编码项）
+
+> 范围评估（2026-09-11）：TV 归入现有 `ScreenSize.large/expanded` 大屏分支（>1200dp），UI 无需大改，缺口集中在 **遥控器焦点导航** 与 **平台声明**。拆两期，先做可本地验证的基础期，再做需真机验证的增强期。
+
+**基础期（本机可编译+模拟器/真机粗测）**
+- [ ] Manifest 声明 TV 平台：`uses-feature android.software.leanback required=false` + `android.hardware.touchscreen required=false`（保持手机可装、TV 可装）
+- [ ] TV 启动入口：`android.app.leanback` category 的 intent-filter（LAUNCHER 之外加 `<category android:name="android.intent.category.LEANBACK_LAUNCHER"/>`）
+- [ ] 遥控器焦点策略：全局 `FocusTraversalPolicy` 或按 `KeyEvent` 上/下/左/右/OK/返回 映射到列表/卡片导航（最小侵入：底部栏/侧边栏按钮加 `Focus` + `onKeyEvent` 上/下切换 tab）
+
+**增强期（需 TV 真机，等用户排期）**
+- [ ] 播放器遥控器按键：播放/暂停/快进/快退/音量 原生按键映射到 media_kit 控制
+- [ ] TV 专用首页（10ft UI：更大卡片间距、聚焦放大动画）
+- [ ] 启动器封面（`LEANBACK_LAUNCHER` banner `tv_banner` drawable）
+
+### 8.5 纯实测项（代码已全，等用户排期）
+
+| 项 | 状态 |
+|---|---|
+| 更新推送通知真机存活 | UpdateNotifier 链路全，国产 ROM 后台存活未实测 |
+| 书单分享 Android share sheet | 导出+导入闭环已测，share 渠道未验 |
+| Web beta 真实浏览器阅读 | alpha 构建/浏览过，beta 阅读器未在真实浏览器跑 |
+| 桌面鼠标侧键返回/前进 | 快捷键体系在，侧键映射未验证 |
