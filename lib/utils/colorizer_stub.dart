@@ -20,7 +20,7 @@ class WebColorizerBackend implements ColorizerBackend {
   Future<void> loadAsync() async {}
 
   @override
-  Uint8List infer(Uint8List rgba, int w, int h) {
+  Future<Float32List> inferAsync(Float32List inputTensor) {
     throw StateError('web 端不支持本地上色模型');
   }
 

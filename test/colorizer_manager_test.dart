@@ -1,8 +1,10 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xingmanxia/net/local_store.dart';
+import 'package:xingmanxia/utils/colorizer_backend.dart';
 import 'package:xingmanxia/utils/colorizer_manager.dart';
 
 /// 漫画上色管理器状态机单测。
@@ -99,4 +101,71 @@ void main() {
       expect(low, isA<bool>());
     });
   });
+
+  group('DDColor 全链路（fake backend）', () {
+    test('灰度进 → 彩色出：长度正确、输出带色差', () async {
+      // 构造一个 fake backend：输入 1×3×256×256 → 输出固定 ab 模式。
+      final m = ColorizerManager.instance;
+      _installFakeBackend(m);
+      // 纯灰渐变 64×64 RGB。
+      final w = 64, h = 64;
+      final rgb = Uint8List(w * h * 3);
+      for (var i = 0; i < w * h; i++) {
+        final v = (i * 255 ~/ (w * h)).clamp(0, 255);
+        rgb[i * 3] = v;
+        rgb[i * 3 + 1] = v;
+        rgb[i * 3 + 2] = v;
+      }
+      final out = await m.colorize(rgb, w, h);
+      expect(out, isNotNull);
+      expect(out!.length, w * h * 3);
+      // fake ab=+1.0 → 应有明显红蓝差（a 通道驱动）。
+      var maxDiff = 0;
+      for (var i = 0; i < w * h; i++) {
+        final p = i * 3;
+        final d = (out[p] - out[p + 2]).abs();
+        if (d > maxDiff) maxDiff = d;
+      }
+      expect(maxDiff, greaterThan(0), reason: 'ab≠0 时输出应带颜色');
+    });
+
+    test('输入长度不符 → 返回 null 不抛', () async {
+      final m = ColorizerManager.instance;
+      _installFakeBackend(m);
+      final out = await m.colorize(Uint8List(5), 2, 2); // 长度错
+      expect(out, isNull);
+    });
+  });
+}
+
+/// 给 manager 装上返回固定 ab 的 fake backend（走真实 DDColor 前后处理）。
+void _installFakeBackend(ColorizerManager m) {
+  // 反射注入不可取；改为给 manager 提供可替换的后端工厂钩子。
+  // 见 colorizer_manager.dart 顶部 `@visibleForTesting set backendForTest`。
+  m.backendForTest = _FakeDdcolorBackend();
+}
+
+class _FakeDdcolorBackend implements ColorizerBackend {
+  @override
+  bool get isAvailable => true;
+
+  @override
+  void load(String modelPath) {}
+
+  @override
+  Future<void> loadAsync() async {}
+
+  @override
+  Future<Float32List> inferAsync(Float32List inputTensor) async {
+    // 返回固定 ab：a=+1, b=-1（256×256 平铺）。
+    final out = Float32List(1 * 2 * 256 * 256);
+    for (var i = 0; i < 256 * 256; i++) {
+      out[i * 2] = 1.0;
+      out[i * 2 + 1] = -1.0;
+    }
+    return out;
+  }
+
+  @override
+  void dispose() {}
 }

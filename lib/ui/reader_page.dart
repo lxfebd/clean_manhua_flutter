@@ -5,13 +5,13 @@ import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:image/image.dart' as img;
 
 import '../net/download_manager.dart';
+import '../net/error_logger.dart';
 import '../net/http_client.dart';
 import '../net/image_cache.dart';
 import '../net/jm_scramble.dart';
@@ -418,11 +418,12 @@ class _ReaderPageState extends State<ReaderPage>
     _readerMode = ReaderMode.fromValue(await LocalStore.readerMode());
     _doublePage = _readerMode == ReaderMode.double;
     if (!mounted) return;
-    // 自适应双页：宽屏（平板横屏/桌面宽窗 ≥600dp）且持久化模式为单页时，
-    // 初始自动切双页（用户手动切过模式后 _userModeLocked 置位，不再自动干涉）。
+    // 自适应双页：仅持久化模式为「单页」且宽屏（≥600dp）时自动切双页；
+    // 用户已选纵向/双页则尊重用户选择（_userModeLocked 置位后也不再自动干涉）。
     if (_doublePage) {
       _autoDouble = true;
-    } else if (Responsive.widthOf(context) >= Responsive.compactBreakpoint) {
+    } else if (_readerMode == ReaderMode.single &&
+        Responsive.widthOf(context) >= Responsive.compactBreakpoint) {
       _autoDouble = true;
       _readerMode = ReaderMode.double;
       _doublePage = true;
@@ -1843,7 +1844,8 @@ class _ReaderPageState extends State<ReaderPage>
                         ? _ImageView(_urls[lIdx],
                             pageIndex: lIdx, totalPages: _urls.length,
                             resLevel: _resLevel, horizontal: true,
-                            sourceId: widget.sourceId, trimBorder: _trimBorder)
+                            sourceId: widget.sourceId, trimBorder: _trimBorder,
+                            colorize: _readerMode == ReaderMode.vertical)
                         : const ColoredBox(color: Colors.black),
                   ),
                   const SizedBox(width: 2),
@@ -1852,7 +1854,8 @@ class _ReaderPageState extends State<ReaderPage>
                         ? _ImageView(_urls[rIdx],
                             pageIndex: rIdx, totalPages: _urls.length,
                             resLevel: _resLevel, horizontal: true,
-                            sourceId: widget.sourceId, trimBorder: _trimBorder)
+                            sourceId: widget.sourceId, trimBorder: _trimBorder,
+                            colorize: _readerMode == ReaderMode.vertical)
                         : const ColoredBox(color: Colors.black),
                   ),
                 ],
@@ -1861,7 +1864,8 @@ class _ReaderPageState extends State<ReaderPage>
             return _ImageView(_urls[view],
                 pageIndex: view, totalPages: _urls.length, resLevel: _resLevel,
                 horizontal: true, sourceId: widget.sourceId,
-                trimBorder: _trimBorder);
+                trimBorder: _trimBorder,
+                colorize: _readerMode == ReaderMode.vertical);
           },
         ),
       ),
@@ -1921,7 +1925,7 @@ class _ReaderPageState extends State<ReaderPage>
                 padding: EdgeInsets.zero,
                 // 缓存前后页的高度按设备内存分级（低端机少缓存防 OOM，
                 // 高端机多缓存保证快速回翻不重建）。
-                scrollCacheExtent: ScrollCacheExtent.pixels(_verticalCacheExtent()),
+                cacheExtent: _verticalCacheExtent(),
                 itemCount: _urls.length + (_canContinue ? 1 : 0),
                 itemBuilder: (c, i) {
                   if (i >= _urls.length && _canContinue) {
@@ -1933,7 +1937,8 @@ class _ReaderPageState extends State<ReaderPage>
                   return _ImageView(_urls[i],
                       pageIndex: i, totalPages: _urls.length, resLevel: _resLevel,
                       onLayout: (h) => _observeLayout(i, h),
-                      sourceId: widget.sourceId, trimBorder: _trimBorder);
+                      sourceId: widget.sourceId, trimBorder: _trimBorder,
+                      colorize: true);
                 },
               ),
             ),
@@ -1993,12 +1998,16 @@ class _ImageView extends StatefulWidget {
   final String sourceId;
   final bool trimBorder;
 
+  /// 是否启用自动上色（本地 AI）。由外层按真实阅读模式计算：
+  /// 纵向滚动模式可用；横向翻页（单页/双页 PageView）禁用避免卡顿。
+  final bool colorize;
+
   /// 图片加载完成后回调实际高度（纵向模式用于精确跳页）。
   final ValueChanged<double?>? onLayout;
   const _ImageView(this.url,
       {required this.pageIndex, required this.totalPages, required this.resLevel,
       this.horizontal = false, this.sourceId = '', this.trimBorder = false,
-      this.onLayout});
+      this.colorize = false, this.onLayout});
 
   @override
   State<_ImageView> createState() => _ImageViewState();
@@ -2026,11 +2035,11 @@ class _ImageViewState extends State<_ImageView>
       !widget.horizontal && !_isJm && widget.resLevel >= 2;
 
   /// 是否启用自动上色。规则：
-  /// - 全局开关已开 + 模型就绪（ColorizerManager 内部兜底）；
-  /// - 横向翻页禁用（PageView 中长图推理叠加会卡）；
-  /// - JM 源禁用（彩色图床上色无意义）。
+  /// 由外层 _ReaderPageState 按真实阅读模式计算并传入（纵向滚动可用，
+  /// 横向翻页禁用）。此处不再使用 widget.horizontal——主页面横向 PageView
+  /// 的图片一律 horizontal:true，但 model 推理只限制于横向翻页场景。
   bool get _colorizeEnabled =>
-      !widget.horizontal &&
+      widget.colorize &&
       !_isJm &&
       ColorizerManager.instance.enabled &&
       ColorizerManager.instance.isAvailable;
@@ -2062,8 +2071,12 @@ class _ImageViewState extends State<_ImageView>
   void initState() {
     super.initState();
     _reportLayout();
-    // 懒探模型（幂等）：决定 _colorizeEnabled 前先确认模型是否就绪。
-    ColorizerManager.instance.ensureLoaded();
+    // 懒探模型（幂等）：模型加载完成后重建一次，让 colorize: _colorizeEnabled
+    // 重新求值——否则 225MB 模型加载慢于图片时，colorize 快照恒 false，
+    // 上色永不触发（模型就绪后已 build 的图也不会重试）。
+    ColorizerManager.instance.ensureLoaded().then((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -2298,7 +2311,6 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
   /// 任何一步失败返回 null，调用方保留原图（不打断阅读）。
   Future<Uint8List?> _tryColorize(Uint8List bytes) async {
     try {
-      _colorized = true;
       if (!ColorizerManager.instance.isAvailable) return null;
       final src = img.decodeImage(bytes);
       if (src == null) return null;
@@ -2306,7 +2318,12 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
       final rgb = src.getBytes(order: img.ChannelOrder.rgb);
       final out = await ColorizerManager.instance
           .colorize(rgb, src.width, src.height);
-      if (out == null || out.length != src.width * src.height * 3) return null;
+      if (out == null || out.length != src.width * src.height * 3) {
+        _colorized = true; // 推理失败/超时降级，同页不重试
+        return null;
+      }
+      _colorized = true; // 成功也置位：同页不重复推理
+      // 推理成功才置位（模型就绪重建时重跑 _load 才能触发上色）
       final colored = img.Image.fromBytes(
         width: src.width,
         height: src.height,
@@ -2314,7 +2331,8 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
         order: img.ChannelOrder.rgb,
       );
       return Uint8List.fromList(img.encodeJpg(colored, quality: 90));
-    } catch (_) {
+    } catch (e) {
+      ErrorLogger.instance.warn('Colorizer _tryColorize 异常: $e');
       return null;
     }
   }
@@ -2358,25 +2376,26 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
       }
       setState(() => _bytes = display);
 
-      if (!widget.superRes) return;
+      // 第二步：等滑动停止后做超分（防止滑动期间 Isolate 并发卡死）。
+      // 上色与超分彼此独立：超分不开也能上色，上色失败降级原图不打断阅读。
+      if (widget.superRes) {
+        await _waitForScrollEnd();
+        if (!mounted) return;
 
-      // 第二步：等滑动停止后再做超分（防止滑动期间 Isolate 并发卡死）
-      await _waitForScrollEnd();
-      if (!mounted) return;
-
-      // 超分缓存命中则秒换；未命中则排队做 Lanczos-3（全局互斥锁串行化）。
-      // 开启裁边时超分作用在裁边结果上，缓存 key 也要带上裁边标识避免串缓存。
-      final srKey = widget.trimBorder
-          ? '${_srKey()}|trim|${ImageTrim.algoVersion}'
-          : _srKey();
-      final sr = await ImageCacheManager.load(srKey,
-          headers: _headers(),
-          fetch: () async => await ImageSuperRes.upscale2x(display),
-          proxy: proxy);
-      if (mounted) {
-        setState(() {
-          _bytes = sr;
-        });
+        // 超分缓存命中则秒换；未命中则排队做 Lanczos-3（全局互斥锁串行化）。
+        // 开启裁边时超分作用在裁边结果上，缓存 key 也要带上裁边标识避免串缓存。
+        final srKey = widget.trimBorder
+            ? '${_srKey()}|trim|${ImageTrim.algoVersion}'
+            : _srKey();
+        final sr = await ImageCacheManager.load(srKey,
+            headers: _headers(),
+            fetch: () async => await ImageSuperRes.upscale2x(display),
+            proxy: proxy);
+        if (mounted) {
+          setState(() {
+            _bytes = sr;
+          });
+        }
       }
 
       // 自动上色：对最终显示字节做本地 AI 推理（失败降级原图，不打断阅读）。
