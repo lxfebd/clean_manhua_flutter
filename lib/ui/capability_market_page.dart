@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../capabilities/capability_market.dart';
 import '../capabilities/capability_plugin.dart' show CapabilityWeight;
+import '../capabilities/capability_plugin_manager.dart';
 import 'responsive.dart';
 
 /// 能力市场页：拉取远端索引展示 AI/视频/实用能力，支持一键安装/更新/卸载。
@@ -271,6 +272,19 @@ class _CapabilityMarketTileState extends State<_CapabilityMarketTile> {
   void initState() {
     super.initState();
     _computeState();
+    // 注册表变更（安装/卸载/启停）→ 重算本 tile 的安装状态。
+    // 不监听则安装成功后按钮仍停留「安装」（tile 同 key 复用不重建）。
+    CapabilityPluginManager.instance.revision.addListener(_onRevision);
+  }
+
+  @override
+  void dispose() {
+    CapabilityPluginManager.instance.revision.removeListener(_onRevision);
+    super.dispose();
+  }
+
+  void _onRevision() {
+    if (mounted) _computeState();
   }
 
   Future<void> _computeState() async {

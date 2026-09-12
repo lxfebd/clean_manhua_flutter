@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:xingmanxia/capabilities/builtin_capabilities.dart';
+import 'package:xingmanxia/capabilities/capability_artifact_store.dart';
 import 'package:xingmanxia/capabilities/capability_market.dart';
 import 'package:xingmanxia/capabilities/capability_plugin.dart';
 import 'package:xingmanxia/capabilities/capability_plugin_manager.dart';
@@ -122,6 +125,93 @@ void main() {
       await registerBuiltinCapabilities();
       final removed = await CapabilityMarket.uninstall('utility.stats');
       expect(removed, isFalse);
+    });
+
+    test('更新：同 id 不同版本替换旧实例，注册表留下新版本', () async {
+      final mgr = CapabilityPluginManager.instance;
+      await mgr.uninstall('ai.update.test'); // 清理可能残留
+      // 装上 v1
+      expect(
+        await CapabilityMarket.install(MarketCapabilityEntry(
+          id: 'ai.update.test',
+          name: '更新测试',
+          category: 'ai',
+          version: '1.0.0',
+          author: '测试',
+        )),
+        isTrue,
+      );
+      expect(mgr.byId('ai.update.test')!.version, '1.0.0');
+      // 市场条目宣称 v2 → 更新
+      expect(
+        await CapabilityMarket.install(MarketCapabilityEntry(
+          id: 'ai.update.test',
+          name: '更新测试',
+          category: 'ai',
+          version: '2.0.0',
+          author: '测试',
+        )),
+        isTrue,
+      );
+      expect(mgr.byId('ai.update.test')!.version, '2.0.0');
+      expect(mgr.installedIds, contains('ai.update.test')); // 仍在已安装清单
+      await mgr.uninstall('ai.update.test');
+      expect(mgr.byId('ai.update.test'), isNull);
+    });
+
+    test('安装后 byId 在 installedIds（市场安装清单），卸载后移除', () async {
+      final mgr = CapabilityPluginManager.instance;
+      await mgr.uninstall('ai.market.list.test');
+      expect(
+        await CapabilityMarket.install(MarketCapabilityEntry(
+          id: 'ai.market.list.test',
+          name: '清单测试',
+          category: 'ai',
+          version: '1.0.0',
+          author: '测试',
+        )),
+        isTrue,
+      );
+      expect(mgr.installedIds, contains('ai.market.list.test'));
+      await mgr.uninstall('ai.market.list.test');
+      expect(mgr.installedIds, isNot(contains('ai.market.list.test')));
+    });
+
+    test('卸载 purge 能力本地构件目录（artifact + 权重）', () async {
+      final mgr = CapabilityPluginManager.instance;
+      final store = CapabilityArtifactStore.instance;
+      final tmp = await Directory.systemTemp.createTemp('cap_purge_');
+      store.testOverrideDir = tmp;
+      addTearDown(() async {
+        store.testOverrideDir = null;
+        try {
+          await tmp.delete(recursive: true);
+        } catch (_) {}
+      });
+      await mgr.uninstall('ai.purge.test');
+      await CapabilityMarket.install(MarketCapabilityEntry(
+        id: 'ai.purge.test',
+        name: '清理测试',
+        category: 'ai',
+        version: '1.0.0',
+        author: '测试',
+        weights: const [
+          CapabilityWeight(
+              name: 'w.bin', url: 'https://x/w.bin', sizeBytes: 1, sha256: ''),
+        ],
+      ));
+      // 制造本地构件落盘（模拟下载完成的权重）。
+      final wdir = await store.weightDir('ai.purge.test');
+      final wf = File('${wdir!.path}/w.bin');
+      await wf.writeAsBytes([1, 2, 3]);
+      final adir = await store.artifactDir('ai.purge.test');
+      await File('${adir!.path}/a.bin').writeAsBytes([9]);
+      expect(await wf.exists(), isTrue);
+      expect(await adir.exists(), isTrue);
+      // 卸载 → 目录被 purge 清空（父目录可能保留，内部文件删除即可）。
+      await mgr.uninstall('ai.purge.test');
+      expect(await wf.exists(), isFalse);
+      expect(await File('${adir.path}/a.bin').exists(), isFalse);
     });
   });
 }

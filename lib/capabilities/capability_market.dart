@@ -157,20 +157,40 @@ class CapabilityMarket {
   }
 
   /// 安装（或更新）一个市场能力条目：构造 CapabilityPlugin 交给 Manager。
-  /// 返回是否成功（幂等：同 id 已存在则忽略）。
+  /// 返回是否成功。
+  ///
+  /// 幂等语义：
+  /// - 全新安装：manager.install 注册（已存在同 id 则忽略）。
+  /// - 更新（同 id 不同版本）：先把旧「市场安装」实例移出注册表 + purge
+  ///   旧构件，再装新版本——否则 registry 里卡住旧版本，[installed]（按
+  ///   id+version 比对）永远判 needsUpdate，且旧实现正文与新权重错配。
+  ///   内置能力同 id 冲突（如 utility.*）不入此路径：内置不可覆盖。
   static Future<bool> install(MarketCapabilityEntry entry) async {
-    final plugin = CapabilityPlugin(
-      id: entry.id,
-      name: entry.name,
-      category: entry.category,
-      version: entry.version,
-      author: entry.author,
-      description: entry.description,
-      builtin: false, // 市场安装：可卸载
-      weights: entry.weights,
-    );
-    await CapabilityPluginManager.instance.install(plugin);
-    return CapabilityPluginManager.instance.byId(entry.id) != null;
+    final mgr = CapabilityPluginManager.instance;
+    final cur = mgr.byId(entry.id);
+    if (cur == null) {
+      // 全新安装：直接注册（幂等）。
+      final plugin = CapabilityPlugin(
+        id: entry.id,
+        name: entry.name,
+        category: entry.category,
+        version: entry.version,
+        author: entry.author,
+        description: entry.description,
+        builtin: false, // 市场安装：可卸载
+        weights: entry.weights,
+      );
+      await mgr.install(plugin);
+      return mgr.byId(entry.id) != null;
+    }
+    // 已存在：仅当是市场安装（可卸载）且版本不同才走替换；同版本视为
+    // 已安装（幂等 no-op）。
+    if (cur.builtin || cur.version == entry.version) {
+      return true;
+    }
+    final ok = await uninstall(entry.id);
+    if (!ok) return false;
+    return install(entry);
   }
 
   /// 卸载一个市场能力（内置能力不可卸载，返回 false）。

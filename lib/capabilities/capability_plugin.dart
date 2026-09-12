@@ -70,6 +70,105 @@ class CapabilityPlugin {
 
   /// 收回实现正文（uninstall 时调用）。默认空实现（内置能力）。
   Future<void> unbind() async {}
+
+  /// 序列化为元数据快照（持久化 installed 集合用）。
+  /// 只存纯数据字段：实现正文（artifact 二进制/权重文件）随市场安装流程
+  /// 重建，不从快照恢复代码。
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'id': id,
+        'name': name,
+        'category': category,
+        'version': version,
+        'author': author,
+        'description': description,
+        'builtin': builtin,
+        'rank': rank,
+        'weights': weights
+            .map((w) => <String, dynamic>{
+                  'name': w.name,
+                  'url': w.url,
+                  'sizeBytes': w.sizeBytes,
+                  'sha256': w.sha256,
+                })
+            .toList(),
+        if (artifact != null)
+          'artifact': <String, dynamic>{
+            if (artifact!.url != null) 'url': artifact!.url,
+            if (artifact!.maven != null) 'maven': artifact!.maven,
+            if (artifact!.jniLibsFile != null) 'jniLibsFile': artifact!.jniLibsFile,
+            'embedded': artifact!.embedded,
+            'sha256': artifact!.sha256,
+          },
+      };
+
+  /// 从元数据快照重建市场能力实例（[CapabilityPluginManager.restore] 用）。
+  /// 快照损坏/缺关键字段返回 null（跳过该条目，不阻断恢复）。
+  static CapabilityPlugin? fromJson(Map<String, dynamic> json) {
+    final id = json['id'];
+    final name = json['name'];
+    if (id is! String || id.isEmpty || name is! String || name.isEmpty) {
+      return null;
+    }
+    CapabilityWeight? weightFromJson(dynamic w) {
+      if (w is! Map) return null;
+      final wn = w['name'];
+      final wu = w['url'];
+      if (wn is! String || wn.isEmpty || wu is! String || wu.isEmpty) {
+        return null;
+      }
+      return CapabilityWeight(
+        name: wn,
+        url: wu,
+        sizeBytes: (w['sizeBytes'] as num?)?.toInt() ?? 0,
+        sha256: (w['sha256'] as String?) ?? '',
+      );
+    }
+
+    final weights = <CapabilityWeight>[];
+    final wl = json['weights'];
+    if (wl is List) {
+      for (final w in wl) {
+        final cw = weightFromJson(w);
+        if (cw != null) weights.add(cw);
+      }
+    }
+    CapabilityArtifact? artifact;
+    final a = json['artifact'];
+    if (a is Map) {
+      final url = a['url'] as String?;
+      final maven = a['maven'] as String?;
+      final jniLibsFile = a['jniLibsFile'] as String?;
+      final embedded = a['embedded'] == true;
+      final sha = <String, String>{};
+      final sm = a['sha256'];
+      if (sm is Map) {
+        sm.forEach((k, v) {
+          if (k is String && v is String) sha[k] = v;
+        });
+      }
+      artifact = CapabilityArtifact(
+        url: (url == null || url.isEmpty) ? null : url,
+        maven: (maven == null || maven.isEmpty) ? null : maven,
+        jniLibsFile: (jniLibsFile == null || jniLibsFile.isEmpty)
+            ? null
+            : jniLibsFile,
+        embedded: embedded,
+        sha256: sha,
+      );
+    }
+    return CapabilityPlugin(
+      id: id,
+      name: name,
+      category: (json['category'] as String?) ?? 'utility',
+      version: (json['version'] as String?) ?? '0.0.0',
+      author: (json['author'] as String?) ?? '未知',
+      description: json['description'] as String?,
+      builtin: json['builtin'] == true,
+      rank: (json['rank'] as num?)?.toInt() ?? 0,
+      artifact: artifact,
+      weights: weights,
+    );
+  }
 }
 
 /// 原生构件声明：能力运行所需的动态库。
