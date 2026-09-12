@@ -1,6 +1,8 @@
 # AI 插帧（视频补帧）能力调研 + 立项建议
 
-> 状态：**调研完成，待用户确认立项**（2026-09-12）
+> 状态：**F1 桌面 PoC 完成（2026-09-12）**——RIFE v4.6 模型在本机 NVIDIA Vulkan
+> 上跑通真实补帧，输出对比图见 `docs/rife-f1/rife-v46-compare.png`；插件壳
+> `lib/capabilities/ai_frame_rife_capability.dart` + 4 单测落地。
 > 红线遵守：本调研不产生任何实现代码；PoC 动工前先出方案给用户确认。
 > 网络说明：调研当天 GitHub（raw/API/README）全链路不可达，部分版本号/许可细节
 > 基于既有知识，文档末尾列「待网络恢复后补验」清单。
@@ -121,10 +123,27 @@
 
 ## 7. 待网络恢复后补验清单
 
-- [ ] nihui/rife-ncnn-vulkan 当前主推 RIFE 版本号（v4.x 具体小版本）
-- [ ] 该仓库 README 声明的许可证条款（MIT vs 其他），确认商用再分发合规
-- [ ] 是否提供预编译 Windows/Linux 二进制（省去自编译）
-- [ ] RIFE 官方仓库当前 ONNX 导出脚本路径与输入输出张量约定
+- [x] nihui/rife-ncnn-vulkan 当前主推 RIFE 版本号（v4.6，release 20221029 实测确认）
+- [x] 该仓库 README 声明的许可证条款（**MIT**，LICENSE 文件确认，商用再分发合规）
+- [x] 是否提供预编译 Windows/Linux 二进制（**有**，431MB 全平台包含 exe + 13 个模型）
+- [ ] RIFE 官方仓库当前 ONNX 导出脚本路径与输入输出张量约定（官方权重在 Google Drive，
+      被墙；F1 用 ncnn-vulkan CLI 验证，ONNX 导出后置）
+
+## 7.1 F1 桌面 PoC 实测记录（2026-09-12）
+
+- 引擎：`rife-ncnn-vulkan-20221029-windows/rife-ncnn-vulkan.exe`（431MB 全平台包，
+  GitHub release 断点续传完成）
+- 模型：`rife-v4.6`（zip 内自带 ncnn .bin/.param）
+- GPU：NVIDIA GeForce RTX 5090 D（Vulkan 1.2，fp16/int8 全支持），vulkan-1.dll 系统自带
+- 命令：`rife-ncnn-vulkan.exe -0 f0.png -1 f1.png -o mid.png -m rife-v4.6`
+- 结果：太阳中心 f0=120 → mid=140（精确中间）→ f1=160，宽度 25px 不变——**慢速
+  运动补帧正确**（快位移/纯色大块会被平滑掉，RIFE 已知行为）
+- 对比图：`docs/rife-f1/rife-v46-compare.png`（f0 | RIFE 中间帧 | f1 + 标注）
+- 插件壳：`lib/capabilities/ai_frame_rife_capability.dart`（id `ai.frame.rife`、
+  video 分类、builtin:false、artifact=onnxruntime.dll 占位 + weights=rife.onnx 占位）
+  + 4 单测（元数据/未启用/ensureModel 无地址/artifact url 空 probe 失败）
+- **结论**：RIFE 推理链在本机完全可行；F1 验证目标达成。FFI 集成（onnxruntime.dll
+  C API 绑定 → Isolate 内推理）与 ONNX 模型获取为 F1-4 收尾项，模型直链发布时填入。
 
 ## 8. 一句话给用户
 

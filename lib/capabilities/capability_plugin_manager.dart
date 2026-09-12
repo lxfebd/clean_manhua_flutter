@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../net/local_store.dart';
 import 'ai_colorize_capability.dart';
+import 'ai_frame_rife_capability.dart';
 import 'capability_plugin.dart';
 import 'demo_native_capability.dart';
 
@@ -128,6 +129,8 @@ class CapabilityPluginManager {
     // 走 install（落盘 + bind + 受 disabled 集合管控），而非 _registerBuiltin
     // 的闪存注册（不上 install 则能力中心看不到、也不受启停开关管控）。
     await install(AiColorizePlugin());
+    // AI 插帧：F1 桌面 PoC（metadata shell），同上走 install（市场能力）。
+    await install(AiFrameRifePlugin());
     try {
       final raw = await LocalStore.readJson(_file);
       if (raw is Map && raw['disabled'] is List) {
