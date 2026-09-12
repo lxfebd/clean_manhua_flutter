@@ -1,8 +1,9 @@
-import 'dart:ffi';
+import 'dart:async' show TimeoutException;
 import 'dart:io';
 import 'dart:typed_data' show Uint8List;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:image/image.dart' as img;
 
 import '../ui/responsive.dart' show DesktopUi;
 import 'capability_artifact_store.dart';
@@ -10,40 +11,42 @@ import 'capability_plugin.dart';
 import 'capability_plugin_manager.dart';
 import 'capability_runtime.dart';
 
-/// AI 视频插帧能力（F1 桌面 PoC：RIFE 模型 + 推理引擎）。
+/// AI 视频插帧能力（F1 桌面 PoC：RIFE 模型 + rife-ncnn-vulkan 引擎）。
 ///
-/// 技术路线（docs/frame-interpolation-research.md §2.2 定案）：
-/// - 模型：RIFE（Real-Time Intermediate Flow Estimation，双帧输入 → 中间帧
-///   输出，2x/4x/8x 可任意时间点插帧）。
-/// - 推理引擎：优先 ncnn-vulkan（与 AI 上色同构，Android 复用同一推理代码）；
-///   桌面工具链卡壳时 fallback ONNX Runtime（onnxruntime.dll，官方 C API，
-///   FFI 全进独立 Isolate）。
+/// 技术路线（docs/frame-interpolation-research.md §2.2 定案，F1 实测修正）：
+/// - 模型：RIFE v4.6（Real-Time Intermediate Flow Estimation，双帧输入 →
+///   中间帧输出，2x/4x/8x 可任意时间点插帧），ncnn .bin/.param 格式。
+/// - 引擎：**rife-ncnn-vulkan.exe 子进程**（不用 FFI 裸调 ncnn dll）——
+///   预编译 Windows 包实测可跑（RTX 5090 Vulkan），子进程崩溃不伤主 App
+///   （比 FFI 更安全：FFI 的 SIGSEGV 是进程级崩溃无法隔离）。
+///   引擎包 = exe + vcomp140.dll + rife-v4.6 模型 + LICENSE，整体 zip 分发。
 ///
-/// 边界（与 AiColorizePlugin 对齐，见 docs/colorizer-capability-contract.md）：
-/// - **FFI 全进独立 Isolate**：`CapabilityRuntime.runNative` 在 isolate 内
-///   DynamicLibrary.open + 调用导出函数。原生崩溃（SIGSEGV）无法被 Dart
-///   捕获，只能前置防御 + isolate 隔离，绝不让主线程碰 FFI。
-/// - **失败降级原速播放**：推理失败/超时 → 调用方按原帧率播放，不打断观看、
-///   不抛异常。
-/// - 版本钉死：artifact/weights 带精确 SHA256，绝不自动滚动 latest。
+/// 边界（与 AiColorizePlugin 对齐，docs/colorizer-capability-contract.md）：
+/// - **调用不占主线程**：子进程跑在独立进程，主线程零阻塞；超时/失败降级
+///   原速播放，不打断观看、不抛异常。
+/// - **版本钉死**：artifact/weights 带精确 SHA256，绝不自动滚动 latest。
 ///
-/// 阶段：F1 桌面 PoC 只打通「单帧补帧」推理链（输入两帧 → 输出中间帧）；
-/// F2 离线导出 / F3 实时补帧（限分辨率档 + 失败降级）/ F4 Android 后置。
+/// 阶段：F1 桌面 PoC 打通「单帧补帧」推理链（两帧 → 中间帧）；F2 离线导出
+/// / F3 实时补帧（限分辨率档 + 失败降级）/ F4 Android 后置。
 class AiFrameRifePlugin extends CapabilityPlugin {
-  /// 推理引擎构件文件名（桌面 artifact：onnxruntime.dll 或 ncnn dll）。
-  static const String engineName = 'onnxruntime.dll';
+  /// 引擎包文件名（zip：exe + vcomp140.dll + rife-v4.6/ + LICENSE）。
+  static const String engineZipName = 'rife-engine-win.zip';
 
-  /// RIFE 模型权重文件名（.model_cache 分发）。
-  static const String modelName = 'rife.onnx';
+  /// 引擎包 SHA256（F1 打包产物，版本钉死）。
+  static const String engineSha256 =
+      'F2DF934B53D157F0C21BEA21BC921CB22CE5E9D1781F6538D2825B5D05D0CF98';
 
-  /// 引擎 SHA256 —— 由分发方发布时填入（版本钉死，绝不自动滚动）。
-  static const String engineSha256 = ''; // TODO(publish): 真实引擎 SHA256
+  /// 引擎包体积（12.2MB，UI 展示下载大小用）。
+  static const int engineSizeBytes = 12240595;
 
-  /// 模型 SHA256 —— 由模型提供方发布时填入。
-  static const String modelSha256 = ''; // TODO(publish): 真实模型 SHA256
+  /// 引擎 exe 名（zip 解压后）。
+  static const String engineExeName = 'rife-ncnn-vulkan.exe';
 
-  /// 模型体积（约 40MB，RIFE v4.x 档位浮动；UI 展示下载大小用）。
-  static const int modelSizeBytes = 40 * 1024 * 1024;
+  /// RIFE 模型目录名（zip 解压后，含 flownet.bin/.param）。
+  static const String modelDirName = 'rife-v4.6';
+
+  /// 模型文件（ncnn 格式，随引擎包分发，不再单独下载）。
+  static const String modelName = 'flownet.bin';
 
   AiFrameRifePlugin()
       : super(
@@ -52,29 +55,25 @@ class AiFrameRifePlugin extends CapabilityPlugin {
           category: 'video',
           version: '1.0.0',
           author: '星漫匣插帧团队',
-          description: '本地 RIFE 视频补帧（桌面端，模型运行期下载）',
+          description: '本地 RIFE 视频补帧（桌面端，引擎运行期下载）',
           builtin: false, // 市场能力：可卸载，走 install/persist
           artifact: CapabilityArtifact(
-            // 桌面直链 .dll（onnxruntime 官方分发包自带 C API 导出：
-            // OrtCreateSession/OrtRun 等，FFI 可直接调用）。
-            url: '', // TODO(publish): 最终引擎直链
+            // 引擎包 zip：exe + vcomp140.dll + rife-v4.6 模型 = 12.2MB。
+            // 分发经 CapabilityArtifactStore.download（SHA256 校验后落盘）。
+            url: '', // TODO(publish): 最终引擎包直链（GitHub release 或对象存储）
             sha256: {'windows-x64': engineSha256},
           ),
-          weights: const [
-            CapabilityWeight(
-              name: modelName,
-              url: '', // TODO(publish): 最终模型直链
-              sizeBytes: modelSizeBytes,
-              sha256: modelSha256,
-            ),
-          ],
+          weights: const [], // 模型随引擎包分发，无独立权重下载
         );
 
-  /// 单帧补帧调用入口：**独立 Isolate 内加载引擎 + 推理**。
+  /// 单帧补帧调用入口：**子进程调用 rife-ncnn-vulkan.exe**。
   ///
   /// 输入两帧 [frameA] / [frameB]（RGB888 原始像素，长度 = w*h*3），输出
   /// 中间帧（同样 RGB888，长度 = w*h*3）。失败返回 [CapabilityFailure]，
   /// 调用方降级原速播放，不打断观看。
+  ///
+  /// 实现：两帧写临时 PNG → 子进程 exe -0 f0 -1 f1 -o mid -m rife-v4.6 →
+  /// 读中间帧 PNG → 清理临时文件。
   static Future<CapabilityResult> interpolate(
     Uint8List frameA,
     Uint8List frameB,
@@ -88,90 +87,134 @@ class AiFrameRifePlugin extends CapabilityPlugin {
       return const CapabilityFailure(id, 'AI 插帧仅支持桌面端（Windows/macOS/Linux）');
     }
 
-    // 2. 注册 + 启用开关。
-    final p = await CapabilityRuntime.instance.probe(id);
-    if (p is CapabilityFailure) return p;
+    // 2. 启用开关（先于 probe——url 未配置时 probe 会报「构件不可用」，
+    //    而启用检查是更前置的门闸；引擎就绪检查在下面给友好提示）。
     if (!CapabilityPluginManager.instance.isEnabledSync(id)) {
       return const CapabilityFailure(id, '能力未启用，请在能力中心打开');
     }
-
-    // 3. 权重就绪：模型必须在 .model_cache 已落盘（下载由 ensureModel 负责）。
-    final store = CapabilityArtifactStore.instance;
-    final wdir = await store.weightDir(id);
-    final model = File('${(wdir?.path ?? '')}/$modelName');
-    if (wdir == null || !await model.exists()) {
-      return const CapabilityFailure(id, '插帧模型未就绪（需先下载模型权重）');
+    // 3. 引擎就绪：zip 解压后 exe + 模型必须存在（未就绪给明确原因）。
+    final eng = await ensureEngine();
+    if (eng != null) {
+      return CapabilityFailure(id, eng);
     }
 
-    // 4. 引擎 artifact 已由 probe 落盘校验。找到本地 .dll（桌面）。
+    // 4. 引擎目录 = artifactDir（zip 解压处）。
+    final store = CapabilityArtifactStore.instance;
     final dir = await store.artifactDir(id);
     if (dir == null) {
       return const CapabilityFailure(id, '当前平台不支持本地构件');
     }
-    final engine = dir.listSync().whereType<File>().firstWhere(
-          (e) => e.path.endsWith('.dll') ||
-              e.path.endsWith('.so') ||
-              e.path.endsWith('.dylib'),
-          orElse: () => File('${dir.path}/$engineName'),
-        );
-    if (!await engine.exists()) {
-      return const CapabilityFailure(id, '插帧引擎未落盘，无法加载');
+    final exe = File('${dir.path}/$engineExeName');
+    final modelDir = Directory('${dir.path}/$modelDirName');
+    if (!await exe.exists() || !await modelDir.exists()) {
+      return const CapabilityFailure(id, '插帧引擎未就绪（解压不完整）');
     }
 
-    // 5. 独立 Isolate 内加载引擎 + 推理。FFI 全进 isolate（红线）。
-    //    此处通过 CapabilityRuntime.runNative 在 isolate 内
-    //    DynamicLibrary.open(engine) → 调 RIFE 导出（当前用导出函数占位，
-    //    FFI 绑定随 onnxruntime C API 落地：OrtCreateSession/OrtRun）。
-    return CapabilityRuntime.instance.runNative(id, engine.path,
-        task: (DynamicLibrary lib) {
-      // TODO(F1-4): onnxruntime C API 绑定
-      //   OrtEnv* OrtCreateEnv(...); OrtSession* OrtCreateSession(...);
-      //   OrtRun(session, ...) 输入 [1,2,3,H,W] 帧对 → 输出 [1,3,H,W] 中间帧。
-      // F1 阶段用引擎内导出函数占位：demo 能力已验证 isolate 内 dlopen +
-      // 调用导出函数全链路（DemoNativePlugin.sum），此处仅需换成真实绑定。
-      final frameLen = w * h * 3;
-      if (frameA.length != frameLen || frameB.length != frameLen) {
-        throw CapabilityNativeException('帧尺寸与 w/h 不符');
+    // 5. 写临时帧文件（RGB→PNG）→ 子进程补帧 → 读结果（PNG→RGB）→ 清理。
+    final tmp = await Directory.systemTemp.createTemp('rife_');
+    try {
+      final f0 = File('${tmp.path}/f0.png');
+      final f1 = File('${tmp.path}/f1.png');
+      final mid = File('${tmp.path}/mid.png');
+      // RGB 像素 → PNG 文件（exe 只吃图片文件，不接受裸字节）。
+      final imA = img.Image.fromBytes(
+        width: w,
+        height: h,
+        bytes: frameA.buffer,
+        order: img.ChannelOrder.rgb,
+      );
+      final imB = img.Image.fromBytes(
+        width: w,
+        height: h,
+        bytes: frameB.buffer,
+        order: img.ChannelOrder.rgb,
+      );
+      await f0.writeAsBytes(img.encodePng(imA), flush: true);
+      await f1.writeAsBytes(img.encodePng(imB), flush: true);
+
+      // 子进程：超时兜底（RIFE 推理慢于 60s 视为异常，防挂死）。
+      final proc = await Process.start(exe.path, [
+        '-0', f0.path, '-1', f1.path, '-o', mid.path, '-m', modelDir.path,
+      ]);
+      final code = await proc.exitCode.timeout(const Duration(seconds: 60));
+      if (code != 0) {
+        return CapabilityFailure(id, '插帧进程退出码 $code');
       }
-      // 占位推理：两帧取平均作为「参考中间帧」——真实 RIFE 推理（光流估算）
-      // 替换此实现。占位结果足以验证「输入两帧 → 输出一帧」的管线形状。
-      final out = Uint8List(frameLen);
-      for (var i = 0; i < frameLen; i++) {
-        out[i] = ((frameA[i] + frameB[i]) / 2).round();
+      if (!await mid.exists()) {
+        return const CapabilityFailure(id, '插帧无输出（引擎异常）');
       }
-      return <String, dynamic>{
-        'frame': out,
+      // PNG → RGB 像素（对齐输入协议：RGB888，长度 w*h*3）。
+      final decoded = img.decodeImage(await mid.readAsBytes());
+      if (decoded == null) {
+        return const CapabilityFailure(id, '插帧输出解码失败（引擎异常）');
+      }
+      if (decoded.width != w || decoded.height != h) {
+        return CapabilityFailure(
+            id, '插帧输出尺寸不符（期望 ${w}x$h，实际 ${decoded.width}x${decoded.height}）');
+      }
+      final outBytes = Uint8List.fromList(decoded.getBytes(order: img.ChannelOrder.rgb));
+      return CapabilityOk(id, data: <String, dynamic>{
+        'frame': outBytes,
         'width': w,
         'height': h,
-        'engine': 'onnxruntime(placeholder)',
-      };
-    });
+        'engine': 'rife-ncnn-vulkan v4.6',
+      });
+    } catch (e) {
+      if (e is TimeoutException) {
+        return const CapabilityFailure(id, '插帧超时（60s），已放弃');
+      }
+      return CapabilityFailure(id, '插帧失败: $e');
+    } finally {
+      try {
+        await tmp.delete(recursive: true);
+      } catch (_) {}
+    }
   }
 
-  /// 模型权重就绪：下载权重到 `.model_cache/<id>/`。
+  /// 引擎就绪检查/准备：zip 解压到 artifactDir（幂等）。
   ///
-  /// 与 AiColorizePlugin.ensureModel 同构：幂等（已就绪复用）、失败返回
-  /// 用户可读原因。F1 阶段模型直链未配置时返回明确提示。
-  static Future<String?> ensureModel() async {
+  /// 返回 null = 就绪；否则用户可读原因。zip 缺失且无 url → 明确提示
+  /// 待发布方配置直链。
+  static Future<String?> ensureEngine() async {
     const id = 'ai.frame.rife';
     if (kIsWeb || !DesktopUi.isDesktopPlatform) {
       return 'AI 插帧仅支持桌面端（Windows/macOS/Linux）';
     }
-
-    final plugin = CapabilityPluginManager.instance.byId(id);
-    if (plugin == null || plugin.weights.isEmpty) {
-      return '插帧能力未注册或未配置权重';
-    }
-    final weight = plugin.weights.first;
-    if (weight.url.isEmpty) {
-      return '模型地址未配置（待发布方填写下载直链）';
-    }
-
     final store = CapabilityArtifactStore.instance;
-    final file = await store.downloadWeight(id, weight);
-    if (file == null) {
-      return store.lastError ?? '模型下载失败';
+    final dir = await store.artifactDir(id);
+    if (dir == null) {
+      return '当前平台不支持本地构件';
     }
-    return null; // 成功
+    // 已解压（exe + 模型都在）→ 就绪。
+    if (await File('${dir.path}/$engineExeName').exists() &&
+        await Directory('${dir.path}/$modelDirName').exists()) {
+      return null;
+    }
+    // 未就绪 → 尝试下载 zip（probe 已校验 SHA256），再解压。
+    final plugin = CapabilityPluginManager.instance.byId(id);
+    final url = plugin?.artifact?.url;
+    if (plugin == null || plugin.artifact == null || url == null || url.isEmpty) {
+      return '引擎地址未配置（待发布方填写下载直链）';
+    }
+    final zip = await store.download(id, plugin.artifact!);
+    if (zip == null || !await zip.exists()) {
+      return store.lastError ?? '引擎包下载失败';
+    }
+    // 解压 zip 到 artifactDir（覆盖式，幂等）。
+    try {
+      final out = await Process.run('powershell', [
+        '-NoProfile', '-Command',
+        'Expand-Archive -Path "${zip.path}" -DestinationPath "${dir.path}" -Force',
+      ]);
+      if (out.exitCode != 0) {
+        return '引擎包解压失败: ${out.stderr}';
+      }
+    } catch (e) {
+      return '引擎包解压失败: $e';
+    }
+    if (!await File('${dir.path}/$engineExeName').exists()) {
+      return '引擎包解压后缺少 $engineExeName';
+    }
+    return null; // 就绪
   }
 }
