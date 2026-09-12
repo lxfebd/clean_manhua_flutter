@@ -387,7 +387,7 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 | 项 | 已有 | 缺口 |
 |---|---|---|
 | 更新推送通知 | UpdateNotifier+启动补检 | 国产 ROM 系统通知存活未实测（验收项未勾） |
-| 年度阅读报告 | 周报+年度聚合（测试过） | 年度可视化/动效页未做 |
+| 年度阅读报告 | 周报+年度聚合（测试过） | 年度可视化/动效页已补全（2026-09-12，v1.4.3+75，commit 2e60b57）：`year_report_page.dart` 全屏页——柱子逐根生长动画+统计卡+最长连续（`LocalStore.yearReadingStreak`）+单日最长（`yearBestDay`）+空态；周报「查看年度报告」改 push 全屏页，`_YearReportSheet` 删除；+4 逻辑测试，全量 285 绿。剩真机视觉确认 |
 | 书单导出 | 文本+海报导出+导入闭环；**share sheet 已接入（share_plus，v1.4.3+72）** | Android 分享面板真机弹出未实测 |
 | Web 端 | alpha（build+浏览）✅ | beta 阅读器真实浏览器实测未做 |
 | 桌面快捷键 | 体系在 | 鼠标侧键返回/前进未验证 |
