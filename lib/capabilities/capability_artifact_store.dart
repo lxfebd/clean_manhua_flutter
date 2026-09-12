@@ -125,6 +125,58 @@ class CapabilityArtifactStore {
     }
   }
 
+  /// 下载/就绪单个权重（[CapabilityWeight]），返回本地文件。
+  ///
+  /// 统一落 `<support>/.model_cache/<id>/<name>`（项目红线：仅运行期下载）。
+  /// - 已存在且 SHA256 匹配 → 直接复用（幂等，避免重复下载 225MB）。
+  /// - 缺失/损坏 → 下载 + SHA256 校验，不匹配即删除并返回 null（明确失败）。
+  /// 失败返回 null（原因由调用方通过 [lastError] 读取）。
+  Future<File?> downloadWeight(
+    String id,
+    CapabilityWeight weight, {
+    String? proxy,
+  }) async {
+    final dir = await weightDir(id);
+    if (dir == null || weight.url.isEmpty) return null;
+    final target = File('${dir.path}/${weight.name}');
+
+    // 幂等：已存在且哈希匹配直接复用。
+    if (await target.exists()) {
+      final cur = await sha256Of(target);
+      if (weight.sha256.isEmpty || cur == weight.sha256) {
+        return target;
+      }
+      // 校验失败 → 删除损坏文件，重新下载。
+      try {
+        await target.delete();
+      } catch (_) {}
+    }
+
+    // 下载（Net.getBytesAuto：优先 Cronet；proxy 覆盖时走 dart:io）。
+    final List<int> bytes;
+    try {
+      bytes = await Net.getBytesAuto(weight.url, proxy: proxy);
+    } catch (e) {
+      _lastError = '权重下载失败: $e';
+      return null;
+    }
+    if (weight.sha256.isNotEmpty) {
+      final got = sha256.convert(bytes).toString();
+      if (got != weight.sha256) {
+        _lastError =
+            '权重 SHA256 校验失败（期望 ${weight.sha256}，实际 $got），已拒绝使用';
+        return null;
+      }
+    }
+    try {
+      await target.writeAsBytes(bytes, flush: true);
+      return target;
+    } catch (e) {
+      _lastError = '权重落盘失败: $e';
+      return null;
+    }
+  }
+
   /// 最近一次失败原因（供 UI 展示明确错误）。
   String? _lastError;
   String? get lastError => _lastError;

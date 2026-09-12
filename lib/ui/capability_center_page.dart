@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../capabilities/ai_colorize_capability.dart';
 import '../capabilities/capability_plugin.dart';
 import '../capabilities/capability_plugin_manager.dart';
 import '../capabilities/capability_runtime.dart';
@@ -62,6 +63,20 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
     }
   }
 
+  /// AI 上色模型权重：下载 + SHA256 校验 + 载入 colorizer（M4 契约 §5 过渡期）。
+  Future<void> _handleModelAction() async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(const SnackBar(content: Text('模型权重下载/载入中…')));
+    final err = await AiColorizePlugin.ensureModel();
+    messenger.hideCurrentSnackBar();
+    if (err == null) {
+      messenger.showSnackBar(const SnackBar(content: Text('模型已就绪')));
+    } else {
+      messenger.showSnackBar(SnackBar(content: Text('模型未就绪：$err')));
+    }
+  }
+
   String _categoryLabel(String c) {
     switch (c) {
       case 'ai':
@@ -105,6 +120,9 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
                   categoryLabel: _categoryLabel(p.category),
                   onToggle: (v) => _toggle(p, v),
                   onSelfTest: p.id == 'utility.native' ? _selfTestNative : null,
+                  onModelAction: p.id == 'ai.colorize.ddcolor'
+                      ? _handleModelAction
+                      : null,
                 );
               },
             ),
@@ -118,6 +136,7 @@ class _CapabilityCard extends StatelessWidget {
   final String categoryLabel;
   final ValueChanged<bool> onToggle;
   final VoidCallback? onSelfTest;
+  final VoidCallback? onModelAction;
 
   const _CapabilityCard({
     required this.plugin,
@@ -125,6 +144,7 @@ class _CapabilityCard extends StatelessWidget {
     required this.categoryLabel,
     required this.onToggle,
     this.onSelfTest,
+    this.onModelAction,
   });
 
   @override
@@ -208,6 +228,15 @@ class _CapabilityCard extends StatelessWidget {
                 tooltip: '原生构件自测',
                 icon: const Icon(Icons.play_circle_outline),
                 onPressed: onSelfTest,
+              ),
+            ),
+          if (onModelAction != null)
+            Padding(
+              padding: const EdgeInsets.only(right: S.x8),
+              child: IconButton(
+                tooltip: '下载/载入模型权重',
+                icon: const Icon(Icons.download_rounded),
+                onPressed: onModelAction,
               ),
             ),
           Switch(

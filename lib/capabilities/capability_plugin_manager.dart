@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../net/local_store.dart';
+import 'ai_colorize_capability.dart';
 import 'capability_plugin.dart';
 import 'demo_native_capability.dart';
 
@@ -123,6 +124,10 @@ class CapabilityPluginManager {
     if (_restored) return;
     _restored = true;
     await _registerBuiltin();
+    // AI 上色：M4 契约落地（metadata shell），作为可卸载的市场能力安装——
+    // 走 install（落盘 + bind + 受 disabled 集合管控），而非 _registerBuiltin
+    // 的闪存注册（不上 install 则能力中心看不到、也不受启停开关管控）。
+    await install(AiColorizePlugin());
     try {
       final raw = await LocalStore.readJson(_file);
       if (raw is Map && raw['disabled'] is List) {

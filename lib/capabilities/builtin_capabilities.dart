@@ -55,4 +55,7 @@ Future<void> registerBuiltinCapabilities() async {
   // 幂等：重复调用 install 对同 id 忽略。
   await mgr.install(ChapterStatsPlugin());
   await mgr.install(DemoNativePlugin());
+  // 注意：AI 上色（AiColorizePlugin）作为可卸载的市场能力，由
+  // CapabilityPluginManager.restore() 统一 install（非闪存内置注册），
+  // 此处不重复安装，避免多源头注册（单一事实源在 restore）。
 }
