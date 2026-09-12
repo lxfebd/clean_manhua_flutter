@@ -5,6 +5,7 @@ import '../capabilities/capability_plugin.dart';
 import '../capabilities/capability_plugin_manager.dart';
 import '../capabilities/capability_runtime.dart';
 import '../capabilities/demo_native_capability.dart';
+import 'capability_market_page.dart';
 import 'tokens.dart';
 
 /// 能力中心：查看/启用/禁用已安装的能力插件（内置 + 市场）。
@@ -95,7 +96,19 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
     final scheme = Theme.of(context).colorScheme;
     final plugins = CapabilityPluginManager.instance.plugins;
     return Scaffold(
-      appBar: AppBar(title: const Text('能力中心')),
+      appBar: AppBar(
+        title: const Text('能力中心'),
+        actions: [
+          TextButton.icon(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CapabilityMarketPage()),
+            ),
+            icon: const Icon(Icons.storefront_outlined, size: 18),
+            label: const Text('能力市场'),
+          ),
+        ],
+      ),
       body: plugins.isEmpty
           ? Center(
               child: Text(
