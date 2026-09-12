@@ -49,7 +49,9 @@ void main() {
       expect(p.category, 'video');
       expect(p.builtin, isFalse); // 市场能力：可卸载
       expect(p.artifact, isNotNull);
-      expect(p.artifact!.url, isEmpty); // 发布时填，当前占位
+      // models-v1 发布后：引擎包直链已填（空串 = 未发布占位）。
+      expect(p.artifact!.url, isNotEmpty);
+      expect(p.artifact!.url, contains('xingmanxia-sources'));
       expect(p.artifact!.sha256, isNotEmpty); // 版本钉死：SHA256 已填
       expect(p.weights, isEmpty); // 模型随引擎包分发，无独立权重
     });
@@ -69,10 +71,13 @@ void main() {
       await mgr.setEnabled('ai.frame.rife', true); // 还原
     });
 
-    test('ensureEngine 未配置直链 → 明确原因', () async {
+    test('ensureEngine 直链已配置但下载失败（网络错误）→ 明确原因', () async {
+      // 测试环境无真实网络（HttpClient 直接抛）→ 走到下载失败分支，
+      // 不再是「地址未配置」（地址已发布）。
       final err = await AiFrameRifePlugin.ensureEngine();
       expect(err, isNotNull);
-      expect(err, contains('引擎地址未配置'));
+      expect(err, isNot(contains('地址未配置')));
+      expect(err, anyOf(contains('下载'), contains('解压')));
     });
 
     test('引擎未就绪（无 zip 无 url）→ interpolate 失败含「引擎」原因', () async {

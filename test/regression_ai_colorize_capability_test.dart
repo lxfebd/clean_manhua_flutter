@@ -32,7 +32,9 @@ void main() {
       expect(p.builtin, isFalse);
       expect(p.weights, hasLength(1));
       expect(p.weights.first.name, 'ddcolor.tflite');
-      expect(p.weights.first.sha256, isEmpty); // 发布时填，当前占位
+      // models-v1 发布后：真实直链 + SHA256 钉死（空 = 未发布占位）
+      expect(p.weights.first.url, isNotEmpty);
+      expect(p.weights.first.sha256, hasLength(64));
     });
   });
 
@@ -67,12 +69,15 @@ void main() {
       expect((r as CapabilityFailure).reason, contains('模型未就绪'));
     });
 
-    test('ensureModel 无权重地址 → 明确原因', () async {
+    test('ensureModel 权重地址已配置但下载失败（网络错误）→ 明确原因', () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.windows;
       addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      // 测试环境无真实网络（dart:io 在 flutter_test 下无 channel，HttpClient
+      // 直接抛 400）→ 走到下载失败分支，而不是「地址未配置」。
       final err = await AiColorizePlugin.ensureModel();
       expect(err, isNotNull);
-      expect(err, contains('权重地址未配置'));
+      expect(err, isNot(contains('地址未配置'))); // 地址已发布，不再是占位空串
+      expect(err, contains('下载')); // 网络失败路径给明确下载原因
     });
   });
 }

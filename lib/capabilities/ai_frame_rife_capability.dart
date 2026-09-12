@@ -60,7 +60,8 @@ class AiFrameRifePlugin extends CapabilityPlugin {
           artifact: CapabilityArtifact(
             // 引擎包 zip：exe + vcomp140.dll + rife-v4.6 模型 = 12.2MB。
             // 分发经 CapabilityArtifactStore.download（SHA256 校验后落盘）。
-            url: '', // TODO(publish): 最终引擎包直链（GitHub release 或对象存储）
+            // models-v1 Release 附件直链（与索引 JSON 同源，SHA256 钉死）。
+            url: 'https://github.com/lxfebd/xingmanxia-sources/releases/download/models-v1/rife-engine-win.zip',
             sha256: {'windows-x64': engineSha256},
           ),
           weights: const [], // 模型随引擎包分发，无独立权重下载

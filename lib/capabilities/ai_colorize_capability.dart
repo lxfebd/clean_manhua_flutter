@@ -26,11 +26,12 @@ class AiColorizePlugin extends CapabilityPlugin {
   /// 权重文件名（.model_cache 分发 + 过渡期 importModel 共用）。
   static const String modelName = 'ddcolor.tflite';
 
-  /// 权重 SHA256 —— 由权重提供方发布时填入（版本钉死，绝不自动滚动）。
-  static const String modelSha256 = ''; // TODO(publish): 真实权重 SHA256
+  /// 权重 SHA256 —— models-v1 Release 唯一发布物（版本钉死，绝不自动滚动）。
+  static const String modelSha256 =
+      'c08aa1f86d84c7c514b6e80e8925a75a7dd51fa17df670c85610b28b7b813cc7';
 
-  /// 体积（约 225MB，reader_page 注释量级；UI 展示下载大小用）。
-  static const int modelSizeBytes = 225 * 1024 * 1024;
+  /// 体积（约 215MB，UI 展示下载大小用）。
+  static const int modelSizeBytes = 225863636;
 
   AiColorizePlugin()
       : super(
@@ -44,7 +45,8 @@ class AiColorizePlugin extends CapabilityPlugin {
           weights: const [
             CapabilityWeight(
               name: modelName,
-              url: '', // TODO(publish): 最终权重直链
+              // models-v1 Release 附件直链（与索引 JSON 同源，SHA256 钉死）。
+              url: 'https://github.com/lxfebd/xingmanxia-sources/releases/download/models-v1/ddcolor_fp32.tflite',
               sizeBytes: modelSizeBytes,
               sha256: modelSha256,
             ),
