@@ -77,4 +77,57 @@ void main() {
     final b = months[1]['month'] as String;
     expect(a.compareTo(b) <= 0, isTrue);
   });
+
+  test('yearReadingStreak 最长连续区间正确（含跨月连续）', () async {
+    await LocalStore.writeJson('reading_stats', {
+      // 2026-01-01 ~ 01-04 连续 4 天
+      '2026-01-01': 600,
+      '2026-01-02': 300,
+      '2026-01-03': 1200,
+      '2026-01-04': 60,
+      // 断一天 01-05
+      // 2026-01-06 ~ 01-07 连续 2 天
+      '2026-01-06': 900,
+      '2026-01-07': 100,
+      // 跨月连续：01-30、01-31、02-01 连续 3 天
+      '2026-01-30': 500,
+      '2026-01-31': 500,
+      '2026-02-01': 500,
+      // 非连续孤立天
+      '2026-03-15': 700,
+    });
+    final s = await LocalStore.yearReadingStreak(2026);
+    expect(s['maxStreak'], 4); // 01-01~01-04 最长
+    expect(s['bestStart'], '2026-01-01');
+    expect(s['bestEnd'], '2026-01-04');
+    // 最佳区间累计 = 600+300+1200+60
+    expect(s['bestSeconds'], 2160);
+  });
+
+  test('yearReadingStreak 空年份返回 0 连续', () async {
+    await LocalStore.writeJson('reading_stats', {'2025-12-31': 100});
+    final s = await LocalStore.yearReadingStreak(2026);
+    expect(s['maxStreak'], 0);
+    expect(s['bestStart'], isNull);
+    expect(s['bestSeconds'], 0);
+  });
+
+  test('yearReadingBestDay 单日最长记录正确', () async {
+    await LocalStore.writeJson('reading_stats', {
+      '2026-05-10': 1800,
+      '2026-05-11': 7200, // 最长
+      '2026-05-12': 3600,
+      '2025-12-31': 99999, // 非目标年份应被排除
+    });
+    final b = await LocalStore.yearBestDay(2026);
+    expect(b['day'], '2026-05-11');
+    expect(b['seconds'], 7200);
+  });
+
+  test('yearReadingBestDay 空年份返回 null day / 0 秒', () async {
+    await LocalStore.writeJson('reading_stats', {'2025-06-01': 100});
+    final b = await LocalStore.yearBestDay(2026);
+    expect(b['day'], isNull);
+    expect(b['seconds'], 0);
+  });
 }

@@ -845,6 +845,80 @@ class LocalStore {
     return count;
   }
 
+  /// 指定年份的最长连续阅读记录（纯读取，不落盘）。
+  ///
+  /// 从日粒度 reading_stats 聚合：把该年阅读秒数 > 0 的日期串成有序天集合，
+  /// 找最长连续区间，返回 { maxStreak, bestStart, bestEnd, bestSeconds }。
+  /// maxStreak=0 表示该年无任何阅读记录。
+  static Future<Map<String, dynamic>> yearReadingStreak(int year) async {
+    final m = (await _read('reading_stats')) as Map? ?? {};
+    final days = <String, int>{};
+    for (final entry in m.entries) {
+      final d = (entry.key as String?) ?? '';
+      if (d.length < 10 || !d.startsWith('$year-')) continue;
+      final sec = (entry.value as num?)?.toInt() ?? 0;
+      if (sec > 0) days[d] = sec;
+    }
+    if (days.isEmpty) return {'maxStreak': 0, 'bestStart': null, 'bestEnd': null, 'bestSeconds': 0};
+    final sorted = days.keys.toList()..sort();
+    var bestStart = sorted.first;
+    var bestEnd = sorted.first;
+    var curStart = sorted.first;
+    var curEnd = sorted.first;
+    var curStreak = 1;
+    var maxStreak = 1;
+    for (var i = 1; i < sorted.length; i++) {
+      final prev = DateTime.parse(sorted[i - 1]);
+      final cur = DateTime.parse(sorted[i]);
+      // 相邻两天（差 1 天）延续当前连续段；否则开新段
+      if (cur.difference(prev).inDays == 1) {
+        curEnd = sorted[i];
+        curStreak++;
+      } else {
+        curStart = sorted[i];
+        curEnd = sorted[i];
+        curStreak = 1;
+      }
+      if (curStreak > maxStreak) {
+        maxStreak = curStreak;
+        bestStart = curStart;
+        bestEnd = curEnd;
+      }
+    }
+    // 最佳连续区间内的累计时长
+    var bestSeconds = 0;
+    for (var d = DateTime.parse(bestStart);
+        !d.isAfter(DateTime.parse(bestEnd));
+        d = d.add(const Duration(days: 1))) {
+      final k = '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+      bestSeconds += days[k] ?? 0;
+    }
+    return {
+      'maxStreak': maxStreak,
+      'bestStart': bestStart,
+      'bestEnd': bestEnd,
+      'bestSeconds': bestSeconds,
+    };
+  }
+
+  /// 指定年份的单日最长阅读记录（纯读取）。
+  /// 返回 { day, seconds }；无记录时 seconds=0。
+  static Future<Map<String, dynamic>> yearBestDay(int year) async {
+    final m = (await _read('reading_stats')) as Map? ?? {};
+    String? bestDay;
+    var bestSec = 0;
+    for (final entry in m.entries) {
+      final d = (entry.key as String?) ?? '';
+      if (d.length < 10 || !d.startsWith('$year-')) continue;
+      final sec = (entry.value as num?)?.toInt() ?? 0;
+      if (sec > bestSec) {
+        bestSec = sec;
+        bestDay = d;
+      }
+    }
+    return {'day': bestDay, 'seconds': bestSec};
+  }
+
   static String _todayKey() => _dayKeyOf(DateTime.now());
 
   static String _dayKeyOf(DateTime d) =>

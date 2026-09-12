@@ -21,6 +21,7 @@ import 'responsive.dart';
 import 'settings_page.dart';
 import 'detail_page.dart';
 import 'tokens.dart';
+import 'year_report_page.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
 import 'widgets/settings_row.dart';
@@ -394,24 +395,13 @@ class ProfilePageState extends State<ProfilePage> {
     });
   }
 
-  /// 年度阅读报告弹窗：当前年份 12 个月柱状图 + 年度汇总。
+  /// 年度阅读报告：跳转全屏可视化页（YearReportPage）。
   Future<void> _showYearReport() async {
-    final now = DateTime.now();
-    final months = await LocalStore.yearReadingMonths(now.year);
-    final total = await LocalStore.yearReadingSeconds(now.year);
-    final active = await LocalStore.activeReadingDays(now.year);
     if (!mounted) return;
-    showResponsiveBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (_) => _YearReportSheet(
-        year: now.year,
-        months: months,
-        totalSeconds: total,
-        activeDays: active,
-      ),
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const YearReportPage()),
     );
+    if (mounted) _load();
   }
 
   /// 书单文本导出：书架全部条目转纯文本，写入剪贴板并提示。
@@ -1416,156 +1406,6 @@ class _ReadingReportSheet extends StatelessWidget {
   /// "2026-08-23" -> "08-23"。
   String _shortDay(String day) =>
       day.length >= 10 ? day.substring(5) : day;
-}
-
-/// 年度阅读报告弹窗：12 个月柱状图 + 年度汇总（时长 / 有效阅读天数）。
-class _YearReportSheet extends StatelessWidget {
-  final int year;
-  final List<Map<String, dynamic>> months;
-  final int totalSeconds;
-  final int activeDays;
-  const _YearReportSheet({
-    required this.year,
-    required this.months,
-    required this.totalSeconds,
-    required this.activeDays,
-  });
-
-  String _fmt(int sec) {
-    if (sec < 60) return '$sec秒';
-    if (sec < 3600) return '${sec ~/ 60}分钟';
-    final h = sec ~/ 3600;
-    final m = (sec % 3600) ~/ 60;
-    return m > 0 ? '$h小时$m分' : '$h小时';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    final maxSec = [
-      ...months.map((d) => (d['seconds'] as int?) ?? 0),
-      3600
-    ].reduce((a, b) => a > b ? a : b);
-    return SafeArea(
-      child: Container(
-        margin: const EdgeInsets.all(S.x12),
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: BorderRadius.circular(R.sheet),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SheetHandle(),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Icon(Icons.calendar_month_rounded,
-                    size: 18, color: scheme.primary),
-                const SizedBox(width: 8),
-                Text('$year 年度报告', style: text.titleLarge),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text('全年 12 个月阅读时长统计',
-                style: text.bodySmall?.copyWith(
-                  color: T.color(scheme.onSurface, TextTier.low,
-                      brightness: scheme.brightness),
-                )),
-            const SizedBox(height: S.x16),
-            if (totalSeconds <= 0)
-              Container(
-                height: 130,
-                width: double.infinity,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: T.color(scheme.onSurface, TextTier.fill,
-                      brightness: scheme.brightness),
-                  borderRadius: BorderRadius.circular(R.card),
-                ),
-                child: Text('$year 年还没有阅读记录',
-                    style: text.bodySmall?.copyWith(
-                      color: T.color(scheme.onSurface, TextTier.low,
-                          brightness: scheme.brightness),
-                    )),
-              )
-            else
-              SizedBox(
-                height: 130,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    for (var i = 0; i < months.length; i++) ...[
-                      Expanded(
-                        child: _Bar(
-                          seconds: (months[i]['seconds'] as int?) ?? 0,
-                          maxSeconds: maxSec,
-                          dayLabel: _shortMonth(months[i]['month'] as String),
-                          color: scheme.primary,
-                        ),
-                      ),
-                      if (i < months.length - 1) const SizedBox(width: 4),
-                    ],
-                  ],
-                ),
-              ),
-            const SizedBox(height: S.x16),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: scheme.primary.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(R.card),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _sumCell(context, scheme, _fmt(totalSeconds), '全年时长'),
-                  ),
-                  Container(
-                      width: 0.5,
-                      height: 26,
-                      color: T.color(scheme.onSurface, TextTier.hairline,
-                          brightness: scheme.brightness)),
-                  Expanded(
-                      child: _sumCell(context, scheme, '$activeDays天', '有效阅读')),
-                ],
-              ),
-            ),
-            const SizedBox(height: S.x12),
-            Text('数据仅统计本机阅读时长，不会上传',
-                style: text.labelSmall?.copyWith(
-                  color: T.color(scheme.onSurface, TextTier.disabled,
-                      brightness: scheme.brightness),
-                )),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _sumCell(BuildContext context, ColorScheme scheme, String value, String label) {
-    final text = Theme.of(context).textTheme;
-    return Column(
-      children: [
-        Text(value,
-            style: text.titleLarge?.copyWith(
-                fontWeight: FontWeight.w700, color: scheme.onSurface)),
-        const SizedBox(height: 2),
-        Text(label,
-            style: text.labelSmall?.copyWith(
-              color: T.color(scheme.onSurface, TextTier.low,
-                  brightness: scheme.brightness),
-            )),
-      ],
-    );
-  }
-
-  /// "2026-08" -> "08月"。
-  String _shortMonth(String month) =>
-      month.length >= 7 ? '${month.substring(5)}月' : month;
 }
 
 /// 文本导出预览弹窗：展示导出的文本，支持复制/关闭。
