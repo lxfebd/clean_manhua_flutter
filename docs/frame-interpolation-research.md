@@ -140,10 +140,16 @@
   运动补帧正确**（快位移/纯色大块会被平滑掉，RIFE 已知行为）
 - 对比图：`docs/rife-f1/rife-v46-compare.png`（f0 | RIFE 中间帧 | f1 + 标注）
 - 插件壳：`lib/capabilities/ai_frame_rife_capability.dart`（id `ai.frame.rife`、
-  video 分类、builtin:false、artifact=onnxruntime.dll 占位 + weights=rife.onnx 占位）
-  + 4 单测（元数据/未启用/ensureModel 无地址/artifact url 空 probe 失败）
-- **结论**：RIFE 推理链在本机完全可行；F1 验证目标达成。FFI 集成（onnxruntime.dll
-  C API 绑定 → Isolate 内推理）与 ONNX 模型获取为 F1-4 收尾项，模型直链发布时填入。
+  video 分类、builtin:false、artifact=引擎包 zip 直链占位 + SHA256 版本钉死）
+  + 5 单测（元数据/未启用/ensureEngine 未配置/引擎未就绪/**真实子进程补帧**）
+- **F1 收尾（2026-09-12，v1.4.3+77，commit b74849e）**：`interpolate` 从占位改为
+  **真实子进程调用 rife-ncnn-vulkan.exe**（RGB→PNG→exe→PNG→RGB，超时 60s 降级）；
+  `ensureEngine` 解压引擎包 zip（幂等）；引擎包 `rife-engine-win.zip` 12.2MB
+  （exe+vcomp140.dll+rife-v4.6 模型+MIT LICENSE），SHA256 版本钉死；
+  全量 290 测试通过（15 网络跳过）。**子进程方案替代 FFI**（SIGSEGV 不伤主 App）。
+- **结论**：F1 桌面 PoC 完整达成——RIFE 真实补帧正确、插件真实可调、降级路径明确。
+  待发布事项：引擎包 zip 直链（GitHub release 或对象存储）填入 artifact.url，
+  `.model_cache/` 保持为空（引擎包不入 git）。F2 离线导出 / F3 实时补帧 / F4 Android 后置。
 
 ## 8. 一句话给用户
 
