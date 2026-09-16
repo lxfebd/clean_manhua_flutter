@@ -1250,10 +1250,15 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 的 3:2 拉扯抖动（"连 24 帧都没有、一顿一顿"）。这是播放体验的基线，
   /// 不是用户可见的"功能开关"——UI 不提供开关，启动/首帧后统一自动设置。
   ///
+  /// 平台：**所有平台都走**。display-resample 是 mpv 内置显示同步（无音轨时
+  /// 自动回退 audio），不依赖桌面专属能力（无 shader/无超分/无 GPU 调优），
+  /// 是治「60Hz 屏上一顿一顿」的基线，不是画质功能——2026-09-16 曾误把
+  /// 它也划进「桌面专属」整体关闭，导致移动端回归默认 audio-sync 抖动。
+  /// 移动端只关桌面画质链（[_applyEnhance]/[_applySr]/[_healSrPipeline]）。
+  ///
   /// 注：mpv 自带的 interpolation（帧生成）已于 2026-09-16 按用户要求**从项目
   /// 移除**，本函数不再触碰 interpolation，只负责显示同步。
   Future<void> _applySync() async {
-    if (!DesktopUi.isDesktopPlatform) return;
     final native = _player?.platform;
     if (native is! NativePlayer) return;
     // web 端 NativePlayer 是 stub（无 libmpv），用 dynamic 分发让调用
@@ -1292,10 +1297,15 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       try {
         await dyn.setProperty('video-sync-max-factor', '1');
       } catch (_) {}
-      // 3) 固定目标刷新率（Windows ANGLE 读不到真实刷新率时兜底 60）。
-      //    它是 option 不是 property，走 command set；个别端缺此项也无碍。
+      // 3) 固定目标刷新率兜底 60Hz。仅桌面端（Windows ANGLE 读不到真实
+      //    刷新率）需要锁死；移动端（Android/iOS）真实 display-fps 可读，
+      //    不 override —— 90/120Hz 高刷屏上让 mpv 跟随真实刷新率，避免
+      //    被锁成 60Hz 反而失去高刷优势（真机高刷屏上 override 会导致
+      //    额外抖动）。它是 option 不是 property，走 command set。
       try {
-        await dyn.command(['set', 'override-display-fps', '$targetFps']);
+        if (DesktopUi.isDesktopPlatform) {
+          await dyn.command(['set', 'override-display-fps', '$targetFps']);
+        }
       } catch (_) {}
       // 4) 帧生成（mpv interpolation）已于 2026-09-16 从项目移除：
       //    这里**显式关掉**插值，覆盖用户之前的持久化值。
