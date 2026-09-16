@@ -207,22 +207,29 @@ class TvTfunVideoSource implements VideoSource {
         cover = Uri.decodeComponent(real);
       }
     }
+    // 主图 lain.bgm.tv 在部分网络下被 DNS 污染（解析到 Facebook 段 IP 导致
+    // 加载超时）；picThumb 是 QQ 图床（p.qpic.cn）缩略图，国内稳定可达。
+    // 有缩略图时直接用缩略图当主图，lain 图作为降级（加载失败再补），
+    // 避免封面长时间转圈后落到纯色占位图。
+    final thumb = (v['picThumb'] as String? ?? '').trim();
+    final primary = thumb.isNotEmpty ? thumb : cover;
+    final fallback = thumb.isNotEmpty ? cover : '';
     final score = v['score'];
     final hits = v['hitsMonth'] ?? v['hits'];
     return ComicItem(
       slug,
-      (v['name'] as String?) ?? '',
-      cover,
+      _unescape((v['name'] as String?) ?? ''),
+      primary,
     )
-      ..yname = (v['sub'] as String?) ?? ''
+      ..yname = _unescape((v['sub'] as String?) ?? '')
       ..score = score?.toString()
       ..hits = hits?.toString()
       ..content = (v['content'] as String?) ?? ''
       ..remarks = (v['remarks'] as String?) ?? ''
       ..lang = (v['lang'] as String?) ?? ''
-      // picThumb 是 QQ 图床（p.qpic.cn）缩略图，国内可达；
-      // 主图 lain.bgm.tv 被 DNS 污染时降级到它，避免封面纯色占位。
-      ..picFallback = (v['picThumb'] as String?) ?? '';
+      // 主图已被换成缩略图时，lain 图作为降级补上（个别条目缩略图缺失时
+      // 走 http_client 的 lain.bgm.tv 优选 IP 直连，绕过 DNS 污染）。
+      ..picFallback = fallback;
   }
 
   /// 解析剧集列表

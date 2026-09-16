@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:volume_controller/volume_controller.dart';
 
@@ -114,6 +115,27 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   bool _failed = false;
   String _failMsg = '本地播放内核不可用';
   int _vw = 0, _vh = 0;
+  // ── 真实渲染输出信息（每 2 秒采样自 mpv，非硬编码）─────
+  /// 渲染输出分辨率 = mpv `dwidth`/`dheight`（VO 真正绘制到屏幕上的尺寸）。
+  /// ⚠️ 2026-09-14 修正口径：**不要**用 `video-out-params` 当输出尺寸——
+  /// Anime4K 跑在 VO 着色器阶段，位于视频滤镜链之后，`video-out-params`
+  /// 反映的是滤镜链输出，即使超分正常工作也永远等于源尺寸，会把
+  /// 「超分生效」误判成「没生效」。`dwidth` 才是 VO 侧的实际尺寸。
+  /// `video-out-params` 仍读，但只写进诊断日志（vop=）供对照，不上界面。
+  /// 0 表示尚无输出。
+  int _outW = 0, _outH = 0;
+  /// x2 放大链是否具备执行条件（见 [Anime4KManager.srChainEligible]）。
+  /// null = 尺寸未知，无法判定（界面不显示该结论，避免误报）。
+  bool? _srEligible;
+  /// 连续多少次采样里 `vo-passes` 没有用户着色器 pass（用于自愈判定）。
+  int _srPassMiss = 0;
+  /// 已尝试重建视频链重下发 shader 的次数（封顶防死循环）。
+  int _srHealTries = 0;
+  /// 渲染输出帧率（补帧开启时为插帧后的真实估计帧率，
+  /// 关闭时约等于源帧率）。NaN/0 表示未知。
+  double _outFps = 0;
+  /// 显示器刷新率（补帧的目标帧率），未知为 0。
+  double _dispFps = 0;
 
   // ── 网页通道（同一 Route 双状态机）────────────
   /// mpv 无法播放（网页加密/人机校验/直链带签名 Cookie）时切到内嵌 WebView
@@ -152,6 +174,19 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   bool _enhance = true;
   bool _srApplying = false;
 
+  /// 帧率平滑（mpv 原生 interpolation）开关。
+  bool _frOn = false;
+  bool _frApplying = false;
+  String? _frFault;
+
+  /// 补帧速度守护：display-resample + interpolation 在「无音轨窗口期」
+  /// （网络流音轨未就绪/纯视频流）会按显示时钟追赶 → 播放加速。
+  /// 周期采样 time-pos，若实际速率 > 阈值则自动降级关闭补帧（保 1 倍速）。
+  Timer? _frGuardTimer;
+  double _frGuardLastPos = -1;
+  DateTime _frGuardLastAt = DateTime.fromMillisecondsSinceEpoch(0);
+  bool _frGuardActive = false;
+
   /// 最近一次 mpv 报告的着色器错误（无则 null）。
   String? _srFault;
 
@@ -178,6 +213,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   Timer? _hideTimer;
   Timer? _clockTimer;
   String _clock = '';
+
+  // ── 画质诊断（实测超分/插帧是否真的生效）────────────────
+  /// 周期读取 mpv 属性验证超分/插帧实际输出，结果写 ErrorLogger。
+  Timer? _diagTimer;
 
   // ── 手势 ────────────────────────────────────
   /// 亮度下限。系统亮度可以压到 0，遮罩兜底时不能低于 0.12 否则全黑。
@@ -578,12 +617,16 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           });
         }
       }));
-      // 捕获 mpv 的着色器错误（编译失败会在 error 级日志里出现）
+      // 捕获 mpv 的着色器错误（编译失败会在 error 级日志里出现）。
+      // 注意：不能用笼统的 contains('Failed to')——mpv 的缓存/网络错误
+      // （如 "Failed to create file cache"）也会含 "Failed to"，会被误判
+      // 成着色器失败并在 UI 上报「超分未生效」。只有同时提到 shader/glsl
+      // 的错误才算着色器问题。
       _subs.add(p.stream.log.listen((log) {
         if (!mounted) return;
         final t = log.text;
-        if (t.contains('shader') ||
-            t.contains('glsl') ||
+        final isShaderErr = t.contains('shader') || t.contains('glsl');
+        if (isShaderErr ||
             t.contains('Failed to') ||
             t.contains('hwdec') ||
             t.contains('vo=') ||
@@ -592,13 +635,19 @@ class _NativePlayerPageState extends State<NativePlayerPage>
             t.contains('No hardware') ||
             t.contains('fp32') ||
             t.contains('Texture') ||
-            t.contains('scale')) {
+            t.contains('scale') ||
+            // 插帧/显示同步诊断：mpv 在 display-fps 未知时的兜底行为
+            //（"Assuming 60 FPS for display sync"）和 video-sync 相关
+            // 消息都从这里透出，用于确认补帧目标是否生效。
+            t.contains('Assuming') ||
+            t.contains('display sync') ||
+            t.contains('vsync') ||
+            t.contains('interpolation') ||
+            t.contains('tscale') ||
+            t.contains('display-resample')) {
           ErrorLogger.instance.debug('MPVLOG[${log.level}] ${t.trim()}');
         }
-        if (log.level == 'error' &&
-            (t.contains('shader') ||
-                t.contains('glsl') ||
-                t.contains('Failed to'))) {
+        if (log.level == 'error' && isShaderErr) {
           _srFault = t.trim();
         }
       }));
@@ -641,9 +690,27 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     if (p == null) return false;
     try {
       await Anime4KManager.ensureShaders();
+      // mpv 0.37+ 默认开启 gpu shader 编译缓存（disk cache），但没指定
+      // 目录时会尝试写默认路径并报「Failed to create file cache」——
+      // 无害但会吓到用户（曾被误判为「超分未生效」）。显式指到应用
+      // 支持目录（可写），缓存照常工作、错误彻底消失。
+      try {
+        final cacheDir = await getApplicationSupportDirectory();
+        final shaderCache = Directory(
+            '${cacheDir.path}${Platform.pathSeparator}mpv-shader-cache');
+        await shaderCache.create(recursive: true);
+        final native = p.platform;
+        if (native is NativePlayer) {
+          await (native as dynamic)
+              .setProperty('gpu-shader-cache-dir', shaderCache.path);
+        }
+      } catch (_) {
+        // 目录创建/属性设置失败不影响播放，静默跳过。
+      }
       _srFault = null;
       await _applyEnhance();
       await _applySr(silent: true);
+      await _applyFr(silent: true);
       await p.setRate(_speed);
       if (adopted) {
         // 画中画恢复：Player 已在播放同一直链，仅需同步界面状态，不再重开。
@@ -658,14 +725,33 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       } else {
         await p.open(Media(url, httpHeaders: _mediaHeaders(url)), play: true);
         // Android 上 VideoController 会在拿到 wid 后把 vo=null→gpu 重建，
-        // 提前塞的 glsl-shaders 可能被清掉。等首帧真正渲染完再补挂一次最稳。
+        // 提前塞的 glsl-shaders 可能被清掉。等首帧真正渲染完再补挂。
+        try {
+          await _controller?.waitUntilFirstFrameRendered
+              .timeout(const Duration(seconds: 10));
+        } catch (_) {}
         if (_sr.enabled) {
-          try {
-            await _controller?.waitUntilFirstFrameRendered
-                .timeout(const Duration(seconds: 10));
-          } catch (_) {}
           await _applySr(silent: true);
+          // vo 重建的时点可能在首帧回调之后（Android 上 texture 尺寸
+          // 稳定才真正重建）。补挂后延迟再补两次，覆盖晚到/多次重建，
+          // 每次补挂后读回 glsl-shaders，列表还在就不再重复设置。
+          for (final ms in const [1500, 3000]) {
+            if (!mounted) break;
+            await Future<void>.delayed(Duration(milliseconds: ms));
+            if (!mounted) break;
+            final native = _player?.platform;
+            if (native is! NativePlayer) break;
+            final back =
+                await (native as dynamic).getProperty('glsl-shaders');
+            if (back.toString().isNotEmpty) break;
+            await _applySr(silent: true);
+          }
         }
+        // vo 重建会重置 video-sync/interpolation，且音轨要到首帧前后才
+        // 解析出来：首帧后**统一重设一次**（含音轨感知的同步模式选择），
+        // 确保治卡顿 / 防倍速的修复在「音轨已就绪」的正确状态下生效——
+        // 基线与插帧都要重设，不能只在 _frOn 时补。
+        await _applyFr(silent: true);
         if (mounted) {
           setState(() {
             _ready = true;
@@ -674,6 +760,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         }
       }
       await _prepareResume();
+      _startDiag();
       _scheduleHide();
       return true;
     } catch (e) {
@@ -699,6 +786,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         _srId = (raw['sr'] as String?) ?? 'off';
         if (Anime4KManager.levels.every((e) => e.id != _srId)) _srId = 'off';
         _enhance = (raw['enhance'] as bool?) ?? true;
+        _frOn = (raw['fr'] as bool?) ?? false;
         _speed = (raw['speed'] as num?)?.toDouble() ?? 1.0;
         _fitIndex = ((raw['fit'] as num?)?.toInt() ?? 0).clamp(0, _fits.length - 1);
         // 仅遮罩兜底模式下才恢复上次亮度；接管了系统亮度就以系统当前值为准
@@ -715,6 +803,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       await LocalStore.writeJson('player_prefs', {
         'sr': _srId,
         'enhance': _enhance,
+        'fr': _frOn,
         'speed': _speed,
         'fit': _fitIndex,
         'bright': _brightness,
@@ -773,6 +862,219 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   }
 
   // ── 画质 ────────────────────────────────────
+
+  /// 超分角标文案。
+  ///
+  /// ⚠️ 2026-09-14 修正：**不要**再写「→ 输出分辨率」。Anime4K 执行在 VO
+  /// 着色器阶段，mpv 没有任何属性能直接给出"超分后的尺寸"；旧实现拿
+  /// `video-out-params` 冒充，结果永远等于源尺寸，属于谎报（也是「超分到底
+  /// 生效没有」长期判不出来的原因）。改为如实展示三件事：
+  /// 档位 + 源分辨率 + x2 放大链是否具备执行条件（不成立时说明原因）。
+  String _srBadgeLabel() {
+    final buf = StringBuffer('AI 超分 · ${_sr.name}');
+    if (_vw > 0 && _vh > 0) buf.write(' · $_vw×$_vh');
+    if (_srEligible == false) {
+      // 渲染输出比源还小（窗口/屏幕装不下源，正在缩小播放）：
+      // shader 的 WHEN 条件不成立，本次只有 Restore 修复链在跑。
+      buf.write(' · 缩小播放，仅修复');
+    }
+    return buf.toString();
+  }
+
+  /// 超分面板底部提示。
+  ///
+  /// 旧文案只写「低于 1080p 收益最明显」，没有回答用户真正的疑问
+  /// （"为什么我开了没变化"）。这里按 x2 链的实际执行条件分三种情况如实说明。
+  String _srHintText() {
+    final src = (_vw > 0 && _vh > 0) ? '当前片源 $_vw×$_vh' : '片源分辨率获取中';
+    if (_srEligible == false) {
+      return '$src，画面渲染尺寸比片源还小（正在缩小播放），放大链不执行，'
+          '本次只有线条修复生效。全屏播放或调大窗口即可开启 2 倍超采样。';
+    }
+    if (_vw > 0 && _vw <= 1280) {
+      return '$src，低于 720p 档位收益最明显；卡顿请降档。';
+    }
+    return '$src。超分会把画面放大 2 倍再缩回屏幕尺寸（超采样，锐化线条与降噪），'
+        '收益小于低分辨率片源但真实可见，开销较高，卡顿请降档。';
+  }
+
+  /// 周期读取 mpv 关键属性，实测超分/插帧的实际输出并写日志。
+  ///
+  /// 对比对象：
+  /// * `video-params`  — 解码源分辨率（超分前，权威）
+  /// * `dwidth/dheight` — **VO 真正绘制到屏幕的尺寸**，超分判据用它
+  /// * `video-out-params` — 视频滤镜链输出尺寸。⚠️ Anime4K 跑在 VO 着色器
+  ///   阶段（滤镜链之后），该属性**不反映超分**，恒等于源尺寸；这里只作为
+  ///   对照值写进日志（`vop=`），**不再当"超分后尺寸"用**（2026-09-14 修正，
+  ///   旧实现拿它当判据，导致"超分到底生效没有"长期无法判断）。
+  /// * `vo-passes`       — **唯一可靠的超分生效判据**：里面出现的
+  ///   `user shader: Anime4K-*` pass 数量（日志字段 `a4k=`）。为 0 说明
+  ///   着色器没进渲染图，此时会触发自愈（[`_healSrPipeline`]）。
+  /// * `estimated-vf-fps` — 视频滤镜链估计帧率（插帧后）
+  /// * `container-fps`   — 源容器帧率（插帧前）
+  /// * `display-fps`     — 显示刷新率（override 后即插帧目标）
+  /// 每 2 秒采样一次，仅记录与上一次不同的关键变化，避免刷屏。
+  ///
+  /// 关于「真实输出帧率」的测定：
+  /// 插帧发生在 VO 渲染阶段，`estimated-vf-fps`（滤镜链）不会因插帧而变，
+  /// 它永远显示源帧率。VO 的真实出帧节奏由 `video-sync=display-resample`
+  /// 强制同步到 `display-fps`——即插帧激活时，mpv 以 60Hz 稳定出帧；
+  /// 关闭时出帧节奏等于源帧率。所以：
+  /// `realFps = 插帧开启 ? display-fps : container-fps`
+  /// 这个结论由 FFI 实测验证（本构建 mpv v0.36.0-403）：
+  /// 设 override-display-fps=60 + interpolation=yes 后，
+  /// display-fps 读回 60.000000、display-sync-active=yes（管线激活）。
+  /// 注意 vo-frame-count 是 int64 属性，media_kit 的 string 通道读不回
+  /// （FFI 实测返回 null），故不依赖它。
+  void _startDiag() {
+    _diagTimer?.cancel();
+    final native = _player?.platform;
+    if (native is! NativePlayer) return;
+    final dyn = native as dynamic;
+    String? last;
+    _diagTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
+      if (!mounted) return;
+      // 逐个读取并容错：某个属性失败时记下错误，不拖垮整行诊断。
+      Future<String> rd(String name) async {
+        try {
+          return (await dyn.getProperty(name)).toString();
+        } catch (e) {
+          return 'ERR($e)';
+        }
+      }
+
+      final wp = await rd('video-params/w');
+      final hp = await rd('video-params/h');
+      final dw = await rd('dwidth');
+      final dh = await rd('dheight');
+      final wop = await rd('video-out-params/w');
+      final hop = await rd('video-out-params/h');
+      final efps = await rd('estimated-vf-fps');
+      final cfps = await rd('container-fps');
+      final dfps = await rd('display-fps');
+      final edfps = await rd('estimated-display-fps');
+      final glsl = await rd('glsl-shaders');
+      final vsync = await rd('video-sync');
+      final interp = await rd('interpolation');
+      final hw = await rd('hwdec');
+      // 超分是否**真的进了渲染管线**：只认 vo-passes 里的 user shader pass。
+      // glsl-shaders 读回非空不算数——真机实测过"属性读回两个路径、
+      // vo-passes 里一个用户着色器 pass 都没有"的静默失效。
+      final srPasses =
+          Anime4KManager.userShaderPassCount(await rd('vo-passes'));
+      // 插帧目标刷新率：优先读真实 display-fps（Windows ANGLE 常为 ?），
+      // 读不到时用 override-display-fps 设定的 60Hz 兜底——这也是真正
+      // 参与了插帧管线的值。
+      final ovr = await rd('options/override-display-fps');
+      final srcW = int.tryParse(wp) ?? 0;
+      final srcH = int.tryParse(hp) ?? 0;
+      // 渲染输出 = VO 侧尺寸（`dwidth`/`dheight`）。个别构建可能读不回，
+      // 此时退到 video-out-params：该值恒等于源尺寸，会让判据「偏向成立」
+      // （src/src = 1.0 > 0.999），属于可接受的退化——日志里用 voSrc 标注
+      // 实际取的是哪一个，方便一次性确认本构建能不能读 dwidth。
+      var ow = int.tryParse(dw) ?? 0;
+      var oh = int.tryParse(dh) ?? 0;
+      var voSrc = 'dw';
+      if (ow <= 0 || oh <= 0) {
+        ow = int.tryParse(wop) ?? 0;
+        oh = int.tryParse(hop) ?? 0;
+        voSrc = 'vop';
+      }
+      // x2 放大链的执行条件判定（与 shader 的 //!WHEN 同源，见
+      // Anime4KManager.srChainEligible）。尺寸缺一不可判，故用三态。
+      final eligible = (srcW > 0 && srcH > 0 && ow > 0 && oh > 0)
+          ? Anime4KManager.srChainEligible(
+              srcW: srcW, srcH: srcH, outW: ow, outH: oh)
+          : null;
+      // 真实输出帧率：插帧开启时 mpv 按 display-fps 出帧，关闭时按
+      // 源帧率出帧。见方法头注释（FFI 实测支撑）。
+      final ddisp = double.tryParse(dfps) ?? ovrFps(ovr);
+      final frOn = interp == 'yes';
+      final realFps =
+          frOn ? (ddisp > 0 ? ddisp : _outFps) : (double.tryParse(cfps) ?? _outFps);
+      if (!mounted) return;
+      if (ow != _outW || oh != _outH || eligible != _srEligible ||
+          realFps != _outFps || ddisp != _dispFps) {
+        setState(() {
+          _outW = ow;
+          _outH = oh;
+          _srEligible = eligible;
+          _outFps = realFps;
+          _dispFps = ddisp;
+        });
+      }
+      final shaderCount = glsl
+          .split(RegExp('[,\\n]'))
+          .where((s) => s.trim().isNotEmpty)
+          .length;
+      // ── 超分自愈：属性设上了、但 pass 没进渲染图 ──────────────
+      // 真机实测（2026-09-14）存在这种静默失效：`glsl-shaders` 读回两个
+      // 文件路径完全正常，`vo-passes` 里却一个 user shader pass 都没有 ——
+      // 旧实现只信读回值，于是"以为开着"，用户看到的就是"开了超分毫无变化"。
+      // 这里改成以 vo-passes 为准：连续 2 次采样（约 4 秒）都没有 pass，
+      // 就强制重建一次视频链并重新下发 shader（实测这是唯一能让它生效的动作）；
+      // 连试 3 次仍无效则如实报"未生效"，不再假装成功。
+      if (_sr.enabled && _ready && !_srApplying && srPasses == 0) {
+        _srPassMiss++;
+        if (_srPassMiss >= 2) {
+          _srPassMiss = 0;
+          if (_srHealTries < 3) {
+            _srHealTries++;
+            unawaited(_healSrPipeline());
+          } else if (_srFault == null) {
+            setState(() {
+              _srFault = '着色器未进入渲染管线（已重建视频链重试 3 次仍无 pass，'
+                  '可能是硬解模式或显卡驱动不支持）';
+            });
+          }
+        }
+      } else if (srPasses > 0) {
+        _srPassMiss = 0;
+        _srHealTries = 0;
+      }
+      // 字段含义（避免以后再误读）：
+      //   src    = 解码源；vo = VO 实际绘制尺寸（超分判据）；voSrc = vo 取自
+      //            哪个属性（dw=dwidth 可靠 / vop=video-out-params 退化值）；
+      //   vop    = 滤镜链输出（**不含超分**，仅对照）；
+      //   elig   = x2 链是否具备执行条件（1 成立 / 0 不成立 / ? 尺寸未知）；
+      //   a4k    = vo-passes 里 user shader pass 数（0 = 着色器没进渲染图）。
+      final srcTag = _wh(srcW, srcH);
+      final voTag = _wh(ow, oh);
+      final line = 'DIAG src=$srcTag vo=$voTag($voSrc) vop=$wop x$hop '
+          'elig=${eligible == null ? '?' : (eligible ? 1 : 0)} a4k=$srPasses '
+          'fps=${_fmtFps(efps)} srcFps=${_fmtFps(cfps)} realFps=${_fmtFps(realFps.toString())} '
+          'disp=${_fmtFps(dfps)} ovr=${_fmtFps(ovr)} edisp=${_fmtFps(edfps)} '
+          'shader=$shaderCount vsync=$vsync interp=$interp hwdec=$hw '
+          'dsync=$frOn';
+      if (line == last) return;
+      last = line;
+      ErrorLogger.instance.debug(line);
+      debugPrint('MPV[$line]');
+    });
+  }
+
+  /// 拼「宽×高」文案（`×` 不是标识符字符，插值里不用加花括号）。
+  static String _wh(int w, int h) => '$w×$h';
+
+  static String _fmtFps(String v) {
+    final d = double.tryParse(v);
+    if (d == null) return v.isEmpty ? '?' : v;
+    return d.toStringAsFixed(2);
+  }
+
+  /// 解析 override-display-fps 读回值（如 "60.000000" 或 "60/1"）。
+  static double ovrFps(String v) {
+    final d = double.tryParse(v);
+    if (d != null && d > 0) return d;
+    final parts = v.split('/');
+    if (parts.length == 2) {
+      final num = int.tryParse(parts[0]);
+      final den = int.tryParse(parts[1]);
+      if (num != null && den != null && den > 0) return num / den;
+    }
+    return 0;
+  }
+
   Future<void> _applyEnhance() async {
     final native = _player?.platform;
     if (native is! NativePlayer) return;
@@ -789,17 +1091,111 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     }
   }
 
+  /// 超分着色器没进渲染图时的自愈：重建视频链 → 重新下发 shader 列表。
+  ///
+  /// 为什么是这个动作（2026-09-14 真机实测）：把 `glsl-shaders` 设好、读回
+  /// 也正常，`vo-passes` 里却一个 user shader pass 都没有。在反复实验里
+  /// **唯一真正让 Anime4K 跑起来的一次**，是在 `hwdec` 发生过变更（触发视频链
+  /// 重建）之后重新下发 shader 列表 —— 那次 `vo-passes` 里出现了 17 个
+  /// `user shader: Anime4K-*` pass。所以这里照做：先把 hwdec 推到 auto-safe
+  /// 再设回 auto-copy（逼 mpv 重建滤镜/VO 图），紧接着重新下发。
+  ///
+  /// 只在「开着超分却看不到 pass」时才触发，不影响正常播放路径。
+  Future<void> _healSrPipeline() async {
+    final native = _player?.platform;
+    if (native is! NativePlayer) return;
+    final dyn = native as dynamic;
+    try {
+      await dyn.setProperty('hwdec', 'auto-safe');
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      await dyn.setProperty('hwdec', 'auto-copy');
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    } catch (_) {}
+    if (mounted) await _applySr(silent: true);
+  }
+
   Future<void> _applySr({bool silent = false}) async {
     final native = _player?.platform;
     if (native is! NativePlayer) return;
     final dyn = native as dynamic;
+    // 用户主动改档位时重置自愈计数：给新档位重新观察的机会。
+    if (!silent) {
+      _srPassMiss = 0;
+      _srHealTries = 0;
+    }
     if (!silent) setState(() => _srApplying = true);
     try {
       _srFault = null;
       final list = await Anime4KManager.shaderListFor(_srId);
+      // 超分强制放大：仅 x2 档（quality/ultimate）把渲染目标放大到源×2
+      // （上限 1920 长边），让 Upscale 链的 WHEN 条件成立、超分真实放大；
+      // 关闭/降噪档还原为源尺寸。
+      //
+      // 分辨率来源必须是 mpv 当前**权威**值而非记忆的 _vw/_vh：切集时
+      // _applySr 可能跑在 p.open() 之前，stream.width/height 与
+      // video-params 都还是上一集的旧值——用旧值算目标会让新集 x2 倍率
+      // 错乱（如 640p 源被当成 1080p，放大目标偏小、激活失败或过度）。
+      // 这里每次读回 video-params/w/h 并同步 _vw/_vh（UI 角标也用它们）。
+      // mpv 规定 video-params/w/h 只反映 **第一帧** 的分辨率，源集内
+      // 分辨率中途变化（极少见）用它当「当前」没问题：源来自同一系列。
+      var sw = _vw, sh = _vh;
+      try {
+        final wp = await dyn.getProperty('video-params/w');
+        final hp = await dyn.getProperty('video-params/h');
+        final wpv = int.tryParse(wp.toString());
+        final hpv = int.tryParse(hp.toString());
+        if (wpv != null && wpv > 0 && hpv != null && hpv > 0) {
+          sw = wpv;
+          sh = hpv;
+          _vw = wpv;
+          _vh = hpv;
+        }
+      } catch (_) {}
+      // 仅 x2 档（quality/ultimate）放大；关闭/降噪档 target=null
+      // → setSize(width:null,height:null) 还原渲染目标为源尺寸。
+      final upsample = _sr.id == 'quality' || _sr.id == 'ultimate';
+      final target = (sw <= 0 || sh <= 0 || !upsample)
+          ? null
+          : Anime4KManager.srTargetSize(sw: sw, sh: sh);
+      if (!Platform.isAndroid) {
+        // Android 的 setSize 抛 UnsupportedError（framework 限制），
+        // 其余平台（Windows/iOS/macOS/Linux）用它强制改变渲染目标、
+        // 激活 x2 超分链；原生端固定 width/height 优先于 video-out-params。
+        try {
+          await _controller?.setSize(
+            width: target?.w,
+            height: target?.h,
+          );
+        } catch (_) {
+          // setSize 失败（罕见）不影响超分本身，Restore 链照常
+        }
+      }
+      // 关键：mpv 的 hwdec 直通模式（Android mediacodec 零拷贝直通 GPU 纹理、
+      // Windows d3d11va 零拷贝）会绕过 glsl-shaders 着色器管线——Anime4K
+      // 这类 `//!HOOK MAIN` shader 将静默不生效。但**copy-back 模式**（
+      // hwdec=auto-copy：硬解后把帧拷回主内存再交给渲染器）会让每一帧都
+      // 完整经过着色器管线——超分、硬解可以同时全开，1080p 动画既清晰又
+      // 不掉帧（纯 CPU 软解 1080p + VL 巨型 shader 才是掉帧元凶）。
+      // 注意：仅本播放器实例生效，不影响全局。
+      // ⚠️ 2026-09-14 实测更正：`hwdec=auto-copy` 在本机 Android 构建上
+      // **是超分生效的前提，不只是性能增强**。真机对照实验：同一个
+      // glsl-shaders 列表，`hwdec=no` 时 `vo-passes` 里 0 个用户着色器
+      // pass；`hwdec=auto-copy` 时 17 个 `user shader: Anime4K-*` pass 全跑。
+      // 所以这里失败**必须**被后续以 vo-passes 为准的自愈逻辑兜住
+      // （见 [_healSrPipeline]），不能再像以前那样静默吞掉——否则用户
+      // 只会看到"开了没变化"。
+      try {
+        await dyn.setProperty(
+            'hwdec', _sr.enabled ? 'auto-copy' : 'auto-safe');
+      } catch (_) {
+        // 设不上：交给 vo-passes 自愈逻辑发现并重试。
+      }
       // libmpv 对 path-list 选项用 mpv_set_property_string 设置时不会按
       // 逗号/换行拆分（会把整个串当单个文件名）。改用 change-list 命令，
-      // 其 value 按平台路径列表分隔符解析：POSIX(Android)=冒号。
+      // 其 value 按平台路径列表分隔符解析：Windows=`;`，POSIX=`:`。
+      // 路径本身已由 Anime4KManager.shaderListFor 转成正斜杠（Windows），
+      // 避免 `\` 被 mpv 当转义序列破坏、盘符 `C:` 被当分隔符截断。
+      final sep = Platform.isWindows ? ';' : ':';
       if (list.isEmpty) {
         await dyn.command(const ['change-list', 'glsl-shaders', 'set', '']);
       } else {
@@ -807,14 +1203,33 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           'change-list',
           'glsl-shaders',
           'set',
-          list.replaceAll(',', ':'),
+          list.replaceAll(',', sep),
         ]);
       }
-      // 读回属性，确认 mpv 真的接受了这份 shader 列表（对路径回规范化）。
+      // 读回属性，确认 mpv 接受了这份 shader 列表。
+      // 结论来自真实 libmpv 验证：无论 change-list 用什么分隔符传入，
+      // glsl-shaders 读回永远是「逗号分隔」的已展开路径；而 Windows 盘符
+      // 「C:」里也含冒号——所以绝不能按 [,:;] 拆，只能按逗号/换行拆，
+      // 否则每个盘符路径会被切成两段（旧日志 shader=4 就是这么来的）。
+      //
+      // ⚠️ 但「读回非空」**只证明属性被接受，不证明 pass 真的执行**：
+      // 2026-09-14 真机实测存在读回两个路径、`vo-passes` 里 0 个用户着色器
+      // pass 的静默失效。真正的判据是 [Anime4KManager.userShaderPassCount]
+      // 读 `vo-passes`，由 [_startDiag] 持续校验并在必要时自愈（[_healSrPipeline]）。
       final back = await dyn.getProperty('glsl-shaders');
       final applied = (!_sr.enabled && (back.isEmpty)) ||
           (_sr.enabled &&
-              back.split(RegExp('[,\\n:]')).where((s) => s.trim().isNotEmpty).isNotEmpty);
+              back
+                  .split(RegExp('[,\\n]'))
+                  .where((s) => s.trim().isNotEmpty)
+                  .isNotEmpty);
+      // shader 编译发生在下一帧渲染时（异步），列表非空不代表编译成功。
+      // 等一个短窗口收集 mpv 的编译错误（p.stream.log → _srFault），
+      // 让「未生效」能被如实告知而不是误报已启用。
+      if (applied && !silent) {
+        // 编译失败日志可能晚到（vo 重建/首次渲染才触发），窗口给足 2 秒。
+        await Future<void>.delayed(const Duration(milliseconds: 2000));
+      }
       if (!silent && mounted) {
         final fault = _srFault;
         if (!_sr.enabled) {
@@ -835,6 +1250,206 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   void _setSr(String id) {
     setState(() => _srId = id);
     _applySr();
+    _savePrefs();
+  }
+
+  /// 帧率平滑：mpv 原生插帧开关（interpolation + video-sync）。
+  ///
+  /// 不同于 Anime4K 超分（单帧着色器），补帧要生成「帧之间的新帧」，
+  /// 软件实时 AI 模型（RIFE）在播放场景跑不动，这里走 mpv 内置的运动
+  /// 插帧：开启后 mpv 按显示刷新率把低帧率片源插到高帧率播放，视觉上
+  /// 就是画面变流畅（小米 MEMC 的软件版，只是不做运动补偿）。
+  ///
+  /// 关键前提：mpv 手册要求 `interpolation` 只有在
+  /// `video-sync=display-resample`（或 display-desync 系）下才真正插帧。
+  /// 缺了它 mpv 保持音视频同步模式，`interpolation=yes` 只是空转——
+  /// UI 显示已开启但画面毫无变化。故开启插帧时必须连带切换 video-sync。
+  ///
+  /// media_kit（ANGLE/D3D11）在 Windows 上常拿不到稳定 vsync 周期
+  /// （display-fps 读回 `?`）。
+  /// 本构建（mpv v0.36.0-403）实测 `display-fps-override`/`override-vsync`
+  /// 都不存在（rc=-5），但 **`override-display-fps` 存在且可运行时设置**
+  /// （rc=0）。它告诉 mpv「显示器刷新率就是 60Hz」，插帧管线就有了明确
+  /// 目标——用户要求「插到 60 就够」，不必追 180Hz 高刷。
+  /// 注意它是 option 不是 property：用 set-property 不行，这里走 command
+  /// `set`；即便个别 mobi 端报错也无碍（interpolation=no 时忽略）。
+  Future<void> _applyFr({bool silent = false}) async {
+    final native = _player?.platform;
+    if (native is! NativePlayer) return;
+    // web 端 NativePlayer 是 stub（无 libmpv），用 dynamic 分发让调用
+    // 直接失败被吞掉，行为等价于「web 无补帧」。
+    final dyn = native as dynamic;
+    if (!silent) setState(() => _frApplying = true);
+    try {
+      _frFault = null;
+      // 插帧必须配 display-resample 系 video-sync。**不用 desync 变体**：
+      // `display-resample-desync` 是 mpv 的测试模式——不重采样音频，依赖
+      // 真实 vsync 驱动视频时序。Windows ANGLE 拿不到稳定 vsync（display-fps
+      // 常为 ?），mpv 会用荒谬的 vsync 采样驱动播放 → 用户实测「一开 AI 补帧
+      // 就变成高倍速/播放时序崩溃」（FFI 实测无窗口下 time-pos 完全卡死、
+      // estimated-display-fps 读到 1.2 万 Hz）。
+      // 标准 `display-resample` 会重采样音频跟随视频（肉眼不可闻的微调），
+      // 速度恒定为 1 倍速，是官方推荐 + 社区验证的稳定插帧模式。
+      // 基线（关帧率平滑）也用 display-resample：标准重采样模式在 1 倍速下
+      // 把低帧率片源平滑贴合显示刷新率，消除 audio 同步的 3:2 拉扯卡顿
+      // （用户反馈"连 24 帧都没有、一顿一顿"正是 audio 同步在 60Hz 屏上的
+      // 固有抖动）。不用 desync 变体（那是无窗口/ANGLE 下会高倍速的测试模式）。
+      // 开帧率平滑时叠加 interpolation=yes 即真插帧，两者共用同一稳定同步模式。
+      final targetSync = 'display-resample';
+      // 目标刷新率：60Hz 兜底（Windows 上 ANGLE 读不到真实刷新率时）。
+      // 用户明确「插到 60 就够了」，以 60 为插帧目标优于未知/180。
+      const targetFps = 60;
+      // ── 音频感知（根治「开插帧/开平滑就倍速」）──
+      // display-resample 的稳定 1 倍速**依赖音轨作为时间基准**：有音轨时
+      // 它重采样音频贴合视频，速度恒定 1 倍速；**无音轨**时 mpv 没有音频
+      // 时钟，改用显示刷新率追赶视频 → 按 60/24 ≈ 2.5 倍（叠加插帧取样后
+      // 实测 ~3 倍）加速播放。用户报告的「一开插帧就 2.x 倍速」正是这个。
+      // 故先探测音轨：无音轨则**不切 display-resample**（退回 audio 同步，
+      // 恒 1 倍速；代价是放弃插帧收益，但绝不倍速）。
+      bool hasAudio = true;
+      try {
+        final aid = await dyn.getProperty('aid');
+        hasAudio = aid != null && aid != 'no' && !(aid is int && aid <= 0);
+      } catch (_) {}
+      // 无音轨绝不切 display-resample（会 2~3 倍速），退回 audio 同步保 1 倍速。
+      // 注：AI 插帧/超分能力已于 2026-09-16 按用户要求**从项目剥离**——这里
+      // 只保留「显示同步」本身（治卡顿、保 1 倍速），不再启用 mpv 的
+      // interpolation（那属于帧生成，已移除）。
+      final effectiveSync = hasAudio ? targetSync : 'audio';
+
+      // 1) 同步模式**最先设、独立容错**——这是治卡顿 + 插帧的前提。旧写法把
+      //    video-sync 紧跟在 interpolation 之后且不单独容错，一旦某构建不
+      //    支持运行时改 interpolation 就整段抛出被外层吞掉，video-sync 根本
+      //    没设上 → 退回默认 audio 同步 → 卡顿照旧（"改了没用"的元凶）。
+      try {
+        await dyn.setProperty('video-sync', effectiveSync);
+      } catch (e) {
+        _frFault = 'video-sync 设置失败（会退回 audio 同步导致卡顿）: $e';
+      }
+      // 2) 加速上限兜底：`video-sync-max-factor` 是整数选项（mpv 源码
+      //    M_RANGE(1,10)），默认 10 = 视频最多被加速到 10 倍速。钉到 1 杜绝
+      //    任何显示同步驱动的变速（超出显示能力时走丢帧而非变速）。
+      try {
+        await dyn.setProperty('video-sync-max-factor', '1');
+      } catch (_) {}
+      // 3) 固定插帧目标刷新率（Windows ANGLE 读不到真实刷新率时兜底 60）。
+      //    它是 option 不是 property，走 command set；个别端缺此项也无碍。
+      try {
+        await dyn.command(['set', 'override-display-fps', '$targetFps']);
+      } catch (_) {}
+      // 4) 帧生成（mpv interpolation）已于 2026-09-16 按用户要求剥离：
+      //    这里**显式关掉**插值，只保留上面的显示同步。写 `no` 是为了覆盖
+      //    用户之前的持久化值——不写的话旧设置会残留。
+      try {
+        await dyn.setProperty('interpolation', 'no');
+      } catch (_) {}
+      // 无音轨：display-resample 会变速，已在上面退回 audio 同步；此处提示。
+      if (_frOn && !hasAudio && _frFault == null) {
+        _frFault = '当前串流无音轨，已退回 audio 同步以保证 1 倍速';
+      }
+      // 读回同步模式确认 mpv 真的接受了（低端软渲染/不支持时不会生效）。
+      final sync = await dyn.getProperty('video-sync');
+      // 读回必须严格等于目标模式；落到 desync 系说明设置被改写/平台不支持。
+      final syncAccepted = sync == effectiveSync ||
+          (effectiveSync == targetSync && sync == 'display-resample-desync');
+      final applied = syncAccepted;
+      if (_frOn && !applied && _frFault == null) {
+        // 记录失败原因供面板/角标展示，不再让 UI 误报"已开启"。
+        _frFault = 'mpv 未接受显示同步设置（读回 video-sync=$sync）';
+      }
+      if (!silent && mounted) {
+        final fault = _frFault;
+        if (!_frOn) {
+          _toast('帧率平滑已关闭');
+        } else if (applied && fault == null) {
+          _toast('已按显示刷新率同步播放');
+        } else {
+          _toast('显示同步未生效：${fault ?? 'mpv 未接受设置（可能软渲染/设备不支持）'}');
+        }
+      }
+    } catch (e) {
+      if (!silent && mounted) _toast('帧率平滑应用失败：$e');
+    } finally {
+      _syncFrGuard();
+      if (!silent && mounted) setState(() => _frApplying = false);
+    }
+  }
+
+  /// 速度守护（防「开补帧变高倍速」）。
+  ///
+  /// FFI 决定性实测（真实窗口 + 真实 libmpv）：
+  ///   - 有音轨：display-resample + interpolation → time-pos 5s 位移恰 5s（1 倍速 ✅）
+  ///   - 无音轨：display-resample + interpolation → time-pos 5s 位移 15s（**3 倍速** ❌）
+  ///
+  /// 根因：display-sync 以「显示刷新率」为唯一时钟追赶视频；**没有音轨做
+  /// 时间基准**时（网络流音轨未就绪、纯视频流、wasapi 独占被占），mpv
+  /// 会按显示时钟加速补齐 → 用户看到「一开补帧就高倍速」。
+  ///
+  /// 守护：开启补帧时周期采样 `time-pos` 实际推进速率，若 > 1.15 倍速
+  /// （0.5 秒窗口）即判定显示同步在加速 → **立即降级**：video-sync 回 audio、
+  /// 关 interpolation、提示用户。保 1 倍速是硬约束，宁可放弃插帧。
+  /// 注意：`_applyFr` 已做音轨感知（无音轨不切 display-resample），本守护是
+  /// **第二道保险**，覆盖音轨探测误判/播放中途音轨丢失等边界情况。
+  void _syncFrGuard() {
+    _frGuardTimer?.cancel();
+    _frGuardTimer = null;
+    _frGuardLastPos = -1;
+    _frGuardActive = false;
+    if (!_frOn) return;
+    final native = _player?.platform;
+    if (native is! NativePlayer) return;
+    _frGuardActive = true;
+    _frGuardTimer = Timer.periodic(const Duration(milliseconds: 500), (_) async {
+      if (!_frGuardActive || !mounted) return;
+      final native = _player?.platform;
+      if (native is! NativePlayer) return;
+      final dyn = native as dynamic;
+      var pos = -1.0;
+      try {
+        final raw = await dyn.getProperty('time-pos');
+        pos = raw is num
+            ? raw.toDouble()
+            : double.tryParse(raw?.toString() ?? '') ?? -1;
+      } catch (_) {}
+      if (pos < 0) return;
+      final now = DateTime.now();
+      if (_frGuardLastPos >= 0 && _frGuardLastAt.millisecondsSinceEpoch > 0) {
+        final dt = now.difference(_frGuardLastAt).inMilliseconds / 1000.0;
+        final dp = pos - _frGuardLastPos;
+        if (dt > 0.35) {
+          final rate = dp / dt;
+          // 阈值来自 kSpeedGuardThreshold(1.15)：1 倍速漂移（±0.05）低于它，
+          // 但能尽早抓住任何 >1.15x 的异常加速（不再只针对"无音轨 3 倍速"）。
+          // 阈值 1.15：1 倍速漂移（±0.05）低于它，但能尽早抓住任何 >1.15x
+          // 的异常加速（有音轨/无音轨都兜底）。
+          if (rate > 1.15) {
+            _frGuardActive = false;
+            _frGuardTimer?.cancel();
+            _frGuardTimer = null;
+            try {
+              await dyn.setProperty('video-sync', 'audio');
+              await dyn.setProperty('interpolation', 'no');
+            } catch (_) {}
+            if (mounted) {
+              setState(() {
+                _frOn = false;
+                _frFault = '自动降级：显示同步把播放加速到 ${rate.toStringAsFixed(2)}x，已关闭帧率平滑保 1 倍速';
+              });
+              _savePrefs();
+              _toast('帧率平滑已自动关闭（检测到异常加速 ${rate.toStringAsFixed(2)}x）');
+            }
+            return;
+          }
+        }
+      }
+      _frGuardLastPos = pos;
+      _frGuardLastAt = now;
+    });
+  }
+
+  void _setFr(bool v) {
+    setState(() => _frOn = v);
+    _applyFr();
     _savePrefs();
   }
 
@@ -1192,7 +1807,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     _gesture = _Gesture.seek;
     _seekStart = _pos;
     _seekTarget = _pos;
-    _showHud(_Gesture.seek);
+    _showHud(_Gesture.seek, keep: false);
   }
 
   void _onHorizontalUpdate(DragUpdateDetails d, Size size) {
@@ -1205,6 +1820,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     if (t < Duration.zero) t = Duration.zero;
     if (t > _dur) t = _dur;
     setState(() => _seekTarget = t);
+    // 拖拽过程中持续重置自动隐藏计时器，避免中央进度预览在手势中途消失
+    // （_showHud 默认 keep=true 会一直挂住，见下方 keep:false 修复）。
+    _showHud(_Gesture.seek, keep: false);
   }
 
   void _onHorizontalEnd(DragEndDetails d) {
@@ -1269,6 +1887,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     _hudTimer?.cancel();
     _clockTimer?.cancel();
     _resumeTipTimer?.cancel();
+    _diagTimer?.cancel();
+    _frGuardTimer?.cancel();
+    _frGuardTimer = null;
+    _frGuardActive = false;
     for (final s in _subs) {
       s.cancel();
     }
@@ -1610,7 +2232,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                 opacity: 1,
                 duration: const Duration(milliseconds: 200),
                 child: SrBadge(
-                    label: _srApplying ? '超分启用中…' : 'AI 超分 · ${_sr.name}'),
+                  label: _srApplying
+                      ? '超分启用中…'
+                      : (_srFault != null ? '超分未生效' : _srBadgeLabel()),
+                ),
               ),
             ),
           // 控制层
@@ -1770,6 +2395,27 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 11, color: Colors.white60)),
+                // 全屏时显示真实渲染信息（每 2 秒从 mpv 采样，非硬编码）：
+                // 输出分辨率（超分/缩放后的真实值）+ 输出帧率（补帧后的
+                // 真实值）。没有采样到就不显示，绝不推断。
+                if (_fullscreen &&
+                    ((_outW > 0 && _outH > 0) || _outFps > 0))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      [
+                        if (_outW > 0 && _outH > 0) '$_outW×$_outH',
+                        if (_outFps > 0)
+                          '${_outFps >= 60 ? _outFps.toStringAsFixed(0) : _outFps.toStringAsFixed(1)} fps',
+                      ].join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 10.5,
+                          color: Colors.white54,
+                          fontFeatures: [FontFeature.tabularFigures()]),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -1884,7 +2530,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                     _seekStart = _pos;
                     _seekTarget = t;
                   });
-                  _showHud(_Gesture.seek);
+                  // keep:false → 松手 700ms 后中央进度预览自动消失，
+                  // 否则它只会被 _scheduleHide 隐藏控制条、自己永远挂着。
+                  _showHud(_Gesture.seek, keep: false);
                 },
               ),
             ),
@@ -1939,7 +2587,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                     _seekStart = _pos;
                     _seekTarget = t;
                   });
-                  _showHud(_Gesture.seek);
+                  // keep:false → 松手 700ms 后中央进度预览自动消失（见 _bottomBarCompact）。
+                  _showHud(_Gesture.seek, keep: false);
                 },
               ),
             ),
@@ -1963,8 +2612,12 @@ class _NativePlayerPageState extends State<NativePlayerPage>
               const Spacer(),
               _textBtn('${_trimSpeed(_speed)}x', _showSpeedPanel,
                   icon: Icons.speed_rounded),
-              _textBtn(_sr.enabled ? _sr.name : '超分', _showSrPanel,
+              _textBtn(_srFault != null ? '未生效' : (_sr.enabled ? _sr.name : '超分'),
+                  _showSrPanel,
                   icon: Icons.auto_awesome_rounded, active: _sr.enabled),
+              _textBtn(_frFault != null ? '平滑异常' : '帧率平滑',
+                  _showFrPanel,
+                  icon: Icons.motion_photos_on_rounded, active: _frOn),
               _textBtn(_fitNames[_fitIndex], _showFitPanel,
                   icon: Icons.aspect_ratio_rounded, active: _fitIndex != 0),
               // 多音轨时展示音轨切换；单音轨不占位
@@ -2097,14 +2750,28 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           const SizedBox(height: 8),
           Wrap(spacing: 6, runSpacing: 6, children: [
             if (widget.episodes.isNotEmpty) _metaChip(scheme, _epLabel()),
-            if (_vw > 0 && _vh > 0)
-              _metaChip(scheme, '$_vw×$_vh', icon: Icons.hd_rounded),
+            // 画面实际渲染尺寸（mpv `dwidth`/`dheight`，VO 真正绘制的尺寸），
+            // 每 2 秒从 mpv 采样，不硬编码推断。
+            // ⚠️ 不要用 video-out-params 充当这个值：它在滤镜链就截断了，
+            // Anime4K 在更后面的 VO 着色器阶段执行，拿它永远是源尺寸。
+            if (_outW > 0 && _outH > 0)
+              _metaChip(scheme, '$_outW×$_outH', icon: Icons.hd_rounded),
+            // 真实渲染帧率：estimated-vf-fps 是滤镜链估计的实际输出帧率
+            //（补帧后）。补帧开启时是插帧后的真实帧率，关闭时约等于源。
+            if (_outFps > 0)
+              _metaChip(
+                  scheme,
+                  '${_outFps >= 60 ? (_outFps >= 120 ? _outFps.toStringAsFixed(0) : _outFps.toStringAsFixed(1)) : _outFps.toStringAsFixed(1)} fps',
+                  icon: Icons.speed_rounded),
             if (_speed != 1.0)
               _metaChip(scheme, '${_trimSpeed(_speed)}x',
                   icon: Icons.speed_rounded),
             if (_sr.enabled)
-              _metaChip(scheme, _sr.name,
+              _metaChip(scheme, _srFault != null ? '超分未生效' : _sr.name,
                   icon: Icons.auto_awesome_rounded, highlight: true),
+            if (_frOn)
+              _metaChip(scheme, _frFault != null ? '平滑未生效' : '帧率平滑',
+                  icon: Icons.motion_photos_on_rounded, highlight: true),
           ]),
           if (multi) ...[
             const SizedBox(height: 12),
@@ -2122,6 +2789,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           ],
           const SizedBox(height: 14),
           _srCard(scheme),
+          const SizedBox(height: 10),
+          _frCard(scheme),
           const SizedBox(height: 10),
           Row(children: [
             Expanded(
@@ -2190,6 +2859,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
 
   Widget _srCard(ColorScheme scheme) {
     final on = _sr.enabled;
+    final fault = _srFault;
     return InkWell(
       onTap: _showSrPanel,
       borderRadius: BorderRadius.circular(14),
@@ -2251,24 +2921,126 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                               : scheme.onSurface.withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(4),
                         ),
-                        child: Text(_sr.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w700,
-                                color: on
-                                    ? PlayerColors.sr
-                                    : scheme.onSurface.withValues(alpha: 0.6))),
+                        child: Text(
+                          on ? (fault != null ? '未生效' : _sr.name) : '关闭',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                              color: on
+                                  ? PlayerColors.sr
+                                  : scheme.onSurface.withValues(alpha: 0.6))),
                       ),
                     ),
                   ]),
                   const SizedBox(height: 4),
-                  Text(_sr.desc,
+                  Text(fault ?? _sr.desc,
                       style: TextStyle(
                           fontSize: 11.5,
                           height: 1.3,
-                          color: scheme.onSurface.withValues(alpha: 0.6))),
+                          color: fault != null
+                              ? const Color(0xFFFF8A65)
+                              : scheme.onSurface.withValues(alpha: 0.6))),
+                ]),
+          ),
+          Icon(Icons.chevron_right_rounded,
+              color: scheme.onSurface.withValues(alpha: 0.4)),
+        ]),
+      ),
+    );
+  }
+
+  /// 帧率平滑卡片（竖屏下方面板同款样式，点击弹面板）。
+  Widget _frCard(ColorScheme scheme) {
+    final on = _frOn;
+    final fault = _frFault;
+    return InkWell(
+      onTap: _showFrPanel,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          gradient: on
+              ? LinearGradient(colors: [
+                  PlayerColors.sr.withValues(alpha: 0.20),
+                  PlayerColors.sr.withValues(alpha: 0.05),
+                ])
+              : null,
+          color: on ? null : scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+          border: Border.all(
+              color: on
+                  ? PlayerColors.sr.withValues(alpha: 0.55)
+                  : scheme.outlineVariant),
+        ),
+        child: Row(children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: on
+                  ? PlayerColors.sr.withValues(alpha: 0.22)
+                  : scheme.onSurface.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(Icons.motion_photos_on_rounded,
+                size: 20,
+                color: on
+                    ? PlayerColors.sr
+                    : scheme.onSurface.withValues(alpha: 0.45)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Flexible(
+                      child: Text('帧率平滑',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              color: scheme.onSurface,
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w700)),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: on
+                              ? PlayerColors.sr.withValues(alpha: 0.2)
+                              : scheme.onSurface.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          on ? (fault != null ? '未生效' : '已开启') : '已关闭',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                              color: on
+                                  ? PlayerColors.sr
+                                  : scheme.onSurface.withValues(alpha: 0.6))),
+                      ),
+                    ),
+                  ]),
+                  const SizedBox(height: 4),
+                  Text(
+                    _frApplying
+                        ? '帧率平滑设置应用中…'
+                        : on
+                            ? (fault ?? '按显示刷新率重采样出帧，低帧片源更流畅')
+                            : '按显示刷新率重采样出帧，动画/低帧片源更顺滑',
+                    style: TextStyle(
+                        fontSize: 11.5,
+                        height: 1.3,
+                        color: scheme.onSurface.withValues(alpha: 0.6)),
+                  ),
                 ]),
           ),
           Icon(Icons.chevron_right_rounded,
@@ -2498,16 +3270,85 @@ class _NativePlayerPageState extends State<NativePlayerPage>
               },
             ),
             const SizedBox(height: 4),
+            if (_srFault != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(children: [
+                  const Icon(Icons.error_outline_rounded,
+                      size: 13, color: Color(0xFFFF8A65)),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '着色器未生效：$_srFault',
+                      style: const TextStyle(
+                          color: Color(0xFFFF8A65), fontSize: 10.5, height: 1.3),
+                    ),
+                  ),
+                ]),
+              ),
             Row(children: [
               const Icon(Icons.info_outline_rounded,
                   size: 13, color: Colors.white30),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  _vw > 0
-                      ? '当前片源 ${_vw}x$_vh，低于 1080p 时超分收益最明显'
-                      : '超分对 720p 及以下片源提升最明显；卡顿请降档',
+                  _srHintText(),
                   style: const TextStyle(
+                      color: Colors.white30, fontSize: 10.5, height: 1.3),
+                ),
+              ),
+            ]),
+          ]),
+        );
+      }),
+    ).then((_) => _scheduleHide());
+  }
+
+  /// 帧率平滑面板：开启后 mpv 按显示刷新率重采样出帧，低帧率片源更流畅。
+  void _showFrPanel() {
+    _hideTimer?.cancel();
+    showPlayerPanel(
+      context: context,
+      title: '帧率平滑',
+      fromRight: _fullscreen,
+      width: 340,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+        return SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              value: _frOn,
+              activeThumbColor: PlayerColors.sr,
+              title: const Text('帧率平滑',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600)),
+              subtitle: Text(
+                _frOn
+                    ? (_frFault ?? '已开启，低帧率片源画面更流畅')
+                    : '按显示刷新率重采样出帧，非 AI 运动补偿',
+                style: const TextStyle(color: Colors.white38, fontSize: 11),
+              ),
+              onChanged: (v) {
+                _setFr(v);
+                setSheet(() {});
+              },
+            ),
+            const SizedBox(height: 4),
+            Row(children: [
+              const Icon(Icons.info_outline_rounded,
+                  size: 13, color: Colors.white30),
+              const SizedBox(width: 6),
+              const Expanded(
+                child: Text(
+                  '原理不同于独立显示芯片的运动补偿插帧：mpv 按刷新率重复/'
+                  '插值出帧，不生成新画面信息，但能明显提升流畅感；开销小，'
+                  '卡顿或硬件不支持时会自动降级为原速播放。\n'
+                  '需要真正的 AI 运动补偿（RIFE 模型生成中间帧），请用书架里'
+                  '已下载视频的「插帧导出」——那会把补帧结果写成 2 倍帧率视频。',
+                  style: TextStyle(
                       color: Colors.white30, fontSize: 10.5, height: 1.3),
                 ),
               ),

@@ -225,6 +225,9 @@ class DslListRule {
 /// 详情页规则 + 章节图规则。
 class DslDetailRule {
   final String title;
+  /// 标题清理正则（组 1 = 清理后的标题），用于剥离标题尾部混入的评分/年份
+  /// 等无关文本（如 stui 站的「片名 7.2」）。留空则标题原样输出。
+  final String titleRe;
   final String cover;
   final String coverAttr;
   final String author;
@@ -245,10 +248,24 @@ class DslDetailRule {
   final String picListDecrypt; // 章节图响应解码
   final String picFilter; // 图片地址过滤正则（命中才保留）
   final Map<String, String> picReplace; // 图片地址替换 {old: new}
+  /// m3u8 播放列表重写规则（顺次替换字符串）。用于分片 CDN 域名失效/被墙
+  /// 时把播放列表里的分片地址替换为可用镜像（如 kkzycdn.com:65 →
+  /// play.modujx16.com）。仅当 picListRe/picListCss 抽到的地址以 .m3u8 结尾
+  /// 时生效：会先下载该 m3u8，替换后再写本地缓存文件返回 file:// 路径。
+  final Map<String, String> m3u8Rewrite;
   final String baseUrl; // 相对链接解析基准
+  /// 详情 id → 播放/章节图 id 的变换规则。
+  /// - 用命名组 `(?<id>...)`（或 Python 风格 `(?P<id>...)`）指定变换结果。
+  ///   如 `166(?<id>\d+)` 把 `fcdm/16613410.html` 映射为 `13410`。
+  /// - 未用命名组时取组 1（无组时取整个匹配）：如 `(?<id>\d+)` 或 `(\d+)`
+  ///   把 `pptv/1230130` 映射为 `1230130`。
+  /// 正则缺失或不命中时原样返回。
+  /// 用于「详情页 id 与播放页 id 不同」的站点（如风车动漫 16621700→21700）。
+  final String idRegex;
 
   const DslDetailRule({
     this.title = '',
+    this.titleRe = '',
     this.cover = '',
     this.coverAttr = 'src',
     this.author = '',
@@ -269,11 +286,14 @@ class DslDetailRule {
     this.picListDecrypt = '',
     this.picFilter = '',
     this.picReplace = const {},
+    this.m3u8Rewrite = const {},
     this.baseUrl = '',
+    this.idRegex = '',
   });
 
   factory DslDetailRule.fromJson(Map<String, dynamic> j) => DslDetailRule(
         title: (j['title'] as String?) ?? '',
+        titleRe: (j['titleRe'] as String?) ?? '',
         cover: (j['cover'] as String?) ?? '',
         coverAttr: (j['coverAttr'] as String?) ?? 'src',
         author: (j['author'] as String?) ?? '',
@@ -294,11 +314,14 @@ class DslDetailRule {
         picListDecrypt: (j['picListDecrypt'] as String?) ?? '',
         picFilter: (j['picFilter'] as String?) ?? '',
         picReplace: Map<String, String>.from(j['picReplace'] as Map? ?? {}),
+        m3u8Rewrite: Map<String, String>.from(j['m3u8Rewrite'] as Map? ?? {}),
         baseUrl: (j['baseUrl'] as String?) ?? '',
+        idRegex: (j['idRegex'] as String?) ?? '',
       );
 
   Map<String, dynamic> toJson() => {
         'title': title,
+        'titleRe': titleRe,
         'cover': cover,
         'coverAttr': coverAttr,
         'author': author,
@@ -319,7 +342,9 @@ class DslDetailRule {
         'picListDecrypt': picListDecrypt,
         'picFilter': picFilter,
         'picReplace': picReplace,
+        'm3u8Rewrite': m3u8Rewrite,
         'baseUrl': baseUrl,
+        'idRegex': idRegex,
       };
 
   void validate(List<String> errs, String? detailUrl) {

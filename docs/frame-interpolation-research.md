@@ -3,6 +3,9 @@
 > 状态：**F1 桌面 PoC 完成（2026-09-12）**——RIFE v4.6 模型在本机 NVIDIA Vulkan
 > 上跑通真实补帧，输出对比图见 `docs/rife-f1/rife-v46-compare.png`；插件壳
 > `lib/capabilities/ai_frame_rife_capability.dart` + 4 单测落地。
+> **F2 离线导出完成（2026-09-12）**——`lib/utils/frame_export_service.dart` +
+> 书架已下载动漫「插帧导出」入口 + 回归测试；真实管线
+> （ffmpeg 抽帧 → rife 批量补帧 2x → ffmpeg 重编码 + mux 原音频）实测通过。
 > 红线遵守：本调研不产生任何实现代码；PoC 动工前先出方案给用户确认。
 > 网络说明：调研当天 GitHub（raw/API/README）全链路不可达，部分版本号/许可细节
 > 基于既有知识，文档末尾列「待网络恢复后补验」清单。
@@ -99,7 +102,16 @@
   - 产出：`ai_frame_rife_capability.dart`（壳）+ artifact/weights 声明 + 单测
     （模型未就绪/未启用/失败降级路径）。
 - **F2 离线导出**：播放器/下载器「插帧导出」入口，补帧成片落盘。
-- **F3 实时补帧（可选）**：渲染层实时插入中间帧，限分辨率档 + 失败自动降级关闭。
+- **F3 实时补帧（已落地，mpv 原生插值形态）**：渲染层实时插入中间帧，限分辨率档 + 失败自动降级关闭。
+  - 实测约束：RIFE 单帧推理（10–50ms）在播放场景跑不动实时管线，落地形态为
+    **mpv 内置 `interpolation` + `video-sync=display-resample-desync`**（按显示刷新率插值出帧，
+    开销小、非运动补偿、失败自动降级原速）——见 `native_player_page.dart` 的
+    `_applyFr`（面板/卡片/偏好恢复/顶栏角标全齐）。
+  - **关键选项（FFI 实测确认，mpv v0.36.0-403）**：`override-display-fps=60` 钉死插帧目标
+    （rc=0 有效，`display-fps` 读回 60.000000）；`interpolation-threshold=0.85`（mpv 源码
+    `fabs(ratio-1.0)<threshold` 时跳过插帧：24fps 源 ratio=2.5 必插、60fps 源 ratio=1.0
+    不插，省 GPU）；`tscale=oversample`（采样保持，最平滑低开销）。`interpolation-clr`
+    **在 mpv 0.36 不存在（FFI rc=-5）**，已被上述组合取代。
 - **F4 Android（暂缓）**：maven AAR / jniLibs 构建期纳入，真机/MuMu 实测。
 
 ## 5. 性能基线（预估，需 PoC 实测校准）
@@ -150,6 +162,33 @@
 - **结论**：F1 桌面 PoC 完整达成——RIFE 真实补帧正确、插件真实可调、降级路径明确。
   待发布事项：引擎包 zip 直链（GitHub release 或对象存储）填入 artifact.url，
   `.model_cache/` 保持为空（引擎包不入 git）。F2 离线导出 / F3 实时补帧 / F4 Android 后置。
+
+## 7.2 F2 离线导出实测记录（2026-09-12）
+
+> ⚠️ **2026-09-14 管线已重做（v2 分块流式）**：本节所述"整段抽帧 → 整段 RIFE →
+> 整段编码"的峰值磁盘**正比于片长**（24 分钟 1080p 约 35GB，真实番剧更高），
+> 而且失败时不会清理工作目录。现行实现见 `lib/utils/frame_export_service.dart`
+> 头部注释与 `星漫匣_画质能力诊断_2026-09-14.md` §11 的实测数据。
+> 下面保留当时的架构与验证记录，作为历史对照。
+
+- **架构**：纯文件级管线，不碰解码器帧回调——
+  `ffmpeg 抽帧（-vsync 0 保持 1:1）→ frames/` → `rife-ncnn-vulkan -i 批量补帧
+  （-n N*2 每对原帧插 1 帧）→ mid/` → `ffmpeg image2（-framerate 2×源帧率）+
+  concat 原音频（-c:a copy）mux 输出`。任何源（本地/下载 mp4）都能导出。
+- **ffmpeg**：**分发框架已落地（2026-09-12）**——`lib/capabilities/ffmpeg_runtime.dart`：
+  复用 CapabilityArtifactStore（zip 直链 + SHA256 钉死 + 幂等下载解压 + 定位），
+  开发期回退工具目录捆绑 `tool/tts_env_312/.../imageio_ffmpeg/binaries/
+  ffmpeg-win-x86_64-v7.1.exe` / FFMPEG_PATH / PATH（libx264 + concat + image2 齐备）。
+  正式分发：发布方打包 ffmpeg zip（根目录含 ffmpeg(.exe)）上传后填
+  `FfmpegRuntime.zipUrl` / `zipSha256`（空值绝不下载，红线：SHA256 钉死）。
+- **实测（本机 RTX 5090 D）**：320x180 24fps 3s 测试视频 → 抽帧 72 →
+  RIFE 补帧 144（2x）→ 合成 48fps mp4，音轨 aac 原样保留、时长 3.00s 一致。
+- **代码**：`lib/utils/frame_export_service.dart`（服务：门闸/引擎就绪/管线/进度广播）
+  + 书架下载 Tab 已下载动漫卡片「插帧导出」入口（进度条/完成/失败内嵌展示）
+  + `test/regression_frame_export_service_test.dart`（4 用例：门闸×3 + 真实导出）。
+- **结论**：F2 达成——离线导出 2x 补帧全链路可跑、失败降级明确、UI 入口就绪。
+  遗留：ffmpeg 运行期下载分发框架（复用 CapabilityArtifactStore）、非 Windows
+  桌面端二进制路径、F3 实时补帧 / F4 Android 后置。
 
 ## 8. 一句话给用户
 

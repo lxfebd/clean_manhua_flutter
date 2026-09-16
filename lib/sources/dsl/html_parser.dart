@@ -92,7 +92,7 @@ class HtmlNode {
     }
 
     walk(this);
-    return sb.toString();
+    return htmlUnescape(sb.toString());
   }
 
   HtmlNode copyShallow() =>
@@ -220,8 +220,60 @@ HtmlNode parseHtml(String html) {
 void _parseAttrs(String raw, int nameEnd, Map<String, String> out) {
   final re = RegExp(r'''([a-zA-Z_:][a-zA-Z0-9_:.-]*)\s*(?:=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?''');
   for (final m in re.allMatches(raw.substring(nameEnd))) {
-    final key = m.group(1)!.toLowerCase();
+    final key = m.group(1)!;
     final val = m.group(2) ?? m.group(3) ?? m.group(4) ?? '';
-    out[key] = val;
+    out[key.toLowerCase()] = htmlUnescape(val);
   }
+}
+
+/// 常见命名实体表（站点高频字符）。
+const Map<String, String> _namedEntities = {
+  'amp': '&',
+  'lt': '<',
+  'gt': '>',
+  'quot': '"',
+  'apos': "'",
+  'nbsp': '\u00a0',
+  'hellip': '\u2026',
+  'mdash': '\u2014',
+  'ndash': '\u2013',
+  'lsquo': '\u2018',
+  'rsquo': '\u2019',
+  'ldquo': '\u201c',
+  'rdquo': '\u201d',
+  'times': '\u00d7',
+  'divide': '\u00f7',
+  'middot': '\u00b7',
+  'trade': '\u2122',
+  'copy': '\u00a9',
+  'reg': '\u00ae',
+  'laquo': '\u00ab',
+  'raquo': '\u00bb',
+  'deg': '\u00b0',
+  'plusmn': '\u00b1',
+  'prime': '\u2032',
+};
+
+final RegExp _numDecEntityRe = RegExp(r'&#([0-9]+);');
+final RegExp _numHexEntityRe = RegExp(r'&#x([0-9a-fA-F]+);');
+final RegExp _namedEntityRe = RegExp(r'&([a-zA-Z]+);');
+
+/// 解码 HTML 实体（数字十进制 / 十六进制 / 命名），单次扫描不回溯。
+///
+/// 鞍山影院等站点全页用数字实体转义中文（`&#28909;&#37324;`），
+/// 不解码则列表标题与详情字段都是乱码数字串。
+String htmlUnescape(String s) {
+  if (s.isEmpty || !s.contains('&')) return s;
+  s = s.replaceAllMapped(_numDecEntityRe, (m) {
+    final code = int.tryParse(m.group(1)!);
+    return (code == null || code > 0x10ffff) ? m.group(0)! : String.fromCharCode(code);
+  });
+  s = s.replaceAllMapped(_numHexEntityRe, (m) {
+    final code = int.tryParse(m.group(1)!, radix: 16);
+    return (code == null || code > 0x10ffff) ? m.group(0)! : String.fromCharCode(code);
+  });
+  return s.replaceAllMapped(_namedEntityRe, (m) {
+    final v = _namedEntities[m.group(1)!.toLowerCase()];
+    return v ?? m.group(0)!;
+  });
 }

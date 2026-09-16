@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:io';
 
 import '../../models/comic_item.dart';
+import '../../net/error_logger.dart';
 import '../../net/http_client.dart';
+import '../../net/local_store.dart';
 import '../comic_source.dart' show Category;
 import '../source_result.dart';
 import '../video_source.dart';
@@ -111,7 +113,7 @@ class DslVideoSource implements VideoSource {
     final cover = _queryAttr(root, d.cover, d.coverAttr, d.baseUrl);
     final item = ComicItem(
       videoId,
-      d.title.isNotEmpty ? _queryText(root, d.title) : '',
+      _cleanTitle(d.title.isNotEmpty ? _queryText(root, d.title) : '', d.titleRe),
       cover.isEmpty ? '' : _abs(def.detailUrl!, cover),
     )
       ..author = _queryText(root, d.author)
@@ -199,11 +201,12 @@ class DslVideoSource implements VideoSource {
     return last ?? -1;
   }
 
-  // 抽取线路号：纯数字直接用；含 's'/'线路'/'第' 则取其后的数字。
+  // 抽取线路号：纯数字直接用（含 0——风车等站 season 从 0 起编）；
+  // 含 's'/'线路'/'第' 则取其后的数字；非数字且无数字时回 1。
   int _seasonNum(String raw) {
     if (raw.isEmpty) return 1;
     final direct = int.tryParse(raw);
-    if (direct != null) return direct < 1 ? 1 : direct;
+    if (direct != null) return direct < 0 ? 1 : direct;
     final m = RegExp(r'(\d+)').firstMatch(raw);
     return m == null ? 1 : (int.tryParse(m.group(1) ?? '1') ?? 1);
   }
@@ -218,7 +221,12 @@ class DslVideoSource implements VideoSource {
     final seasonUrl = d.picListUrl
         .replaceAll('{season}', '$season')
         .replaceAll('{episode}', '$episode');
-    final html = await _fetch(seasonUrl, '$episode', d.picListDecrypt, videoId);
+    final html = await _fetch(
+      seasonUrl,
+      '$episode',
+      d.picListDecrypt,
+      _transformId(videoId, d.idRegex),
+    );
     final root = parseHtml(html);
     final nodes = d.picListCss.isNotEmpty
         ? root.querySelectorAll(d.picListCss)
@@ -249,14 +257,119 @@ class DslVideoSource implements VideoSource {
     if (filtered.isEmpty) {
       throw SourceError.parse('未匹配到播放地址');
     }
-    return filtered.first;
+    final first = filtered.first;
+    // 分片 CDN 失效重写：仅对 m3u8 播放列表生效。先下载播放列表内容，
+    // 把失效域名替换为可用镜像，再写本地缓存文件返回 file:// 路径，
+    // 让 mpv 走本地文件拉分片（分片域名已被换成可用 CDN）。
+    if (d.m3u8Rewrite.isNotEmpty && _isM3u8(first)) {
+      try {
+        return await _rewriteM3u8(first, d);
+      } catch (e) {
+        // 重写失败不阻断播放：退回原始直链（可能仍可播或由播放器侧兜底）
+        ErrorLogger.instance.warn('m3u8 重写失败，回落原始直链: $e');
+      }
+    }
+    return first;
+  }
+
+  bool _isM3u8(String url) {
+    final u = url.split('?').first.toLowerCase();
+    return u.endsWith('.m3u8');
+  }
+
+  /// 下载 master m3u8 → 若内含子列表（#EXT-X-STREAM-INF）则继续取最高码率
+  /// 子列表（最多 2 层）→ 把列表里所有 URI（分片/子列表/KEY/MAP）解析为基于
+  /// 当前列表所在目录的绝对地址 → 应用 [DslDetailRule.m3u8Rewrite] 替换失效
+  /// CDN 域名 → 写本地缓存文件返回 file://。mpv 走本地文件即可按重写后的
+  /// 分片地址拉流，绕过已失效的源分片 CDN。
+  Future<String> _rewriteM3u8(String url, DslDetailRule d) async {
+    var cur = url;
+    var body = '';
+    for (var depth = 0; depth < 2; depth++) {
+      // m3u8 列表为明文，不套 picListDecrypt 解码链
+      body = await _fetch(cur, null, '', '');
+      final sub = _firstSubList(body, cur);
+      if (sub == null) break;
+      cur = sub;
+    }
+    // 把列表内所有 URI 归一为绝对地址（相对路径按列表所在目录解析），
+    // 再应用 m3u8Rewrite 替换（如 kkzycdn.com:65 → play.modujx16.com）。
+    final out = _applyRewrite(_absolutizePlaylist(body, cur), d.m3u8Rewrite);
+    final dir = await LocalStore.downloadDir();
+    final sub = Directory('${dir.path}/m3u8_rewrite');
+    if (!sub.existsSync()) sub.createSync(recursive: true);
+    final f = File('${sub.path}/${url.hashCode}.m3u8');
+    await f.writeAsString(out, flush: true);
+    return 'file://${f.path}';
+  }
+
+  /// 取 master 列表里的第一个子列表绝对地址（#EXT-X-STREAM-INF 下一行 URI）。
+  /// 无子列表返回 null（已是最终播放列表）。
+  String? _firstSubList(String body, String listUrl) {
+    final lines = body.split('\n');
+    for (var i = 0; i < lines.length - 1; i++) {
+      if (lines[i].trim().startsWith('#EXT-X-STREAM-INF')) {
+        final u = lines[i + 1].trim();
+        if (u.isNotEmpty && !u.startsWith('#')) return _resolve(listUrl, u);
+      }
+    }
+    return null;
+  }
+
+  /// 把 HLS 列表里的 URI 归一为绝对地址：普通行（分片/子列表）与
+  /// URI="..." 形式（EXT-X-MAP/EXT-X-KEY）。注释行原样保留。
+  String _absolutizePlaylist(String body, String listUrl) {
+    final uriRe = RegExp(r'URI="([^"]+)"');
+    final lines = body.split('\n');
+    final out = <String>[];
+    for (final line in lines) {
+      if (line.trim().startsWith('#')) {
+        if (uriRe.hasMatch(line)) {
+          out.add(line.replaceAllMapped(uriRe, (m) {
+            final abs = _resolve(listUrl, m.group(1)!);
+            return 'URI="$abs"';
+          }));
+        } else {
+          out.add(line);
+        }
+        continue;
+      }
+      final t = line.trim();
+      if (t.isEmpty) {
+        out.add(line);
+        continue;
+      }
+      out.add(_resolve(listUrl, t));
+    }
+    return out.join('\n');
+  }
+
+  /// 按 [base] 解析相对 URL 为绝对地址（兼容 // 协议相对与 / 根相对）。
+  String _resolve(String base, String ref) {
+    if (ref.startsWith('http://') || ref.startsWith('https://')) return ref;
+    final b = Uri.parse(base);
+    if (ref.startsWith('//')) return '${b.scheme}:$ref';
+    if (ref.startsWith('/')) return '${b.scheme}://${b.authority}$ref';
+    return b.resolve(ref).toString();
+  }
+
+  /// 顺次应用替换规则。
+  String _applyRewrite(String body, Map<String, String> rules) {
+    var out = body;
+    rules.forEach((k, v) {
+      out = out.replaceAll(k, v);
+    });
+    return out;
   }
 
   // ---- 工具 ----
   Future<String> _fetch(String url, String? page, String? decrypt, String id) async {
     final u = url.replaceAll('{id}', id).replaceAll('{page}', page ?? '1');
     try {
-      final html = await Net.get(u, headers: def.headers);
+      // 优先 Cronet（Android 上 Chromium 网络栈，指纹类浏览器），
+      // 规避 16dns 等站对 dart:io HttpClient 指纹的 Cloudflare 质询 403；
+      // 非 Android / Cronet 不可用时会自动回退 dart:io。
+      final html = await Net.getCronet(u, headers: def.headers);
       if (decrypt == null || decrypt.isEmpty) return html;
       return DslDecrypt.apply(decrypt, html);
     } on SourceError {
@@ -318,6 +431,45 @@ class DslVideoSource implements VideoSource {
       out = out.replaceAll(k, v);
     });
     return out;
+  }
+
+  /// 按 `idRegex` 把详情 id 变换成播放/章节图 id（见字段注释），
+  /// 用正则命名组 `(?<id>...)` 或 `(?P<id>...)` 指定变换结果（组名 `id`）。
+  String _transformId(String videoId, String idRegex) {
+    if (idRegex.isEmpty) return videoId;
+    try {
+      final re = RegExp(idRegex);
+      final m = re.firstMatch(videoId);
+      if (m == null) return videoId;
+      if (idRegex.contains('?<id>') || idRegex.contains('?P<id>')) {
+        try {
+          final v = m.namedGroup('id');
+          if (v != null && v.isNotEmpty) return v;
+        } catch (_) {}
+      }
+      if (m.groupCount >= 1) {
+        final g = m.group(1);
+        if (g != null && g.isNotEmpty) return g;
+      }
+      final all = m.group(0);
+      return (all == null || all.isEmpty) ? videoId : all;
+    } catch (_) {
+      return videoId;
+    }
+  }
+
+  /// 按 `titleRe` 清理标题（组 1）；正则缺失/不命中时原样返回。
+  /// 用于剥离 stui 站标题尾部混入的评分（如「片名 7.2」）。
+  String _cleanTitle(String title, String titleRe) {
+    final t = title.trim();
+    if (titleRe.isEmpty) return t;
+    try {
+      final m = RegExp(titleRe).firstMatch(t);
+      final g = m?.group(1);
+      return (g == null || g.isEmpty) ? t : g.trim();
+    } catch (_) {
+      return t;
+    }
   }
 
   String _extract(HtmlNode e, String field) {

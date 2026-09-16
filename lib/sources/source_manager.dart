@@ -1,5 +1,6 @@
 import 'agedm_video_source.dart';
 import 'anime1_video_source.dart';
+import 'ashan_yingyuan_video_source.dart';
 import 'biquge_novel_source.dart';
 import 'comic_source.dart';
 import 'dm5_source.dart';
@@ -12,6 +13,7 @@ import 'source_config.dart';
 import 'source_plugin.dart';
 import 'tvtfun_video_source.dart';
 import 'video_source.dart';
+import 'wche_dm_video_source.dart';
 import 'xbiquge_novel_source.dart';
 import 'xifan_video_source.dart';
 
@@ -46,6 +48,8 @@ class SourceManager {
     TvTfunVideoSource(),
     XifanVideoSource(),
     Anime1VideoSource(),
+    WcheDmVideoSource(), // 风车动漫(16dns)：内嵌 WebView 兜底
+    AshanYingyuanVideoSource(), // 鞍山影院(dainyew)：搜索不可用，仅分类浏览
   ];
 
   static VideoSource? videoById(String id) {
@@ -186,14 +190,28 @@ class SourceManager {
   /// 动态注册视频源实现（幂等）。
   static bool addVideoSource(VideoSource src) {
     if (videoSources.any((s) => s.id == src.id)) return false;
+    // 内置源（agedm/tvtfun/wchedm…）有同名镜像站/升级版 DSL 时按名称去重，
+    // 避免源选择弹窗出现两个"风车动漫"让用户困惑；但**自定义源**（id 不在
+    // 内置列表里）不参与名称去重——用户主动导入的同名不同站是合法场景，
+    // 若被内置源挡住会永远注册不上。二者边界以 src.id 是否内置为准。
+    const builtinIds = {
+      'agedm', 'tvtfun', 'xifan', 'anime1', 'wchedm', 'ashanyy',
+    };
+    // 自定义源（id 不在内置列表）允许与内置源同名注册——用户主动导入的
+    // 同名不同站是合法场景；仅内置源之间才做名称去重防重名。
+    if (builtinIds.contains(src.id) &&
+        videoSources.any((s) => s.id != src.id && s.name == src.name)) {
+      return false;
+    }
     videoSources.add(src);
     return true;
   }
 
   static bool removeVideoSource(String id) {
-    if (id == 'agedm' || id == 'tvtfun' || id == 'xifan' || id == 'anime1') {
-      return false;
-    }
+    const builtinIds = {
+      'agedm', 'tvtfun', 'xifan', 'anime1', 'wchedm', 'ashanyy',
+    };
+    if (builtinIds.contains(id)) return false;
     final idx = videoSources.indexWhere((s) => s.id == id);
     if (idx < 0) return false;
     videoSources.removeAt(idx);

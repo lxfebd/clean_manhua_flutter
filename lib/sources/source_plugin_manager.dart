@@ -191,6 +191,8 @@ class SourcePluginManager {
       'tvtfun': 'TvTFun',
       'xifan': '希范动漫',
       'anime1': 'Anime1',
+      'wchedm': '风车动漫',
+      'ashanyy': '鞍山影院',
     };
     const novels = <String, String>{
       'biquge': '笔趣阁',

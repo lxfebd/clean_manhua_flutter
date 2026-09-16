@@ -56,6 +56,25 @@ class CapabilityArtifactStore {
     return d;
   }
 
+  /// jniLibs 提取目录里的候选文件路径（Android 专用）。
+  ///
+  /// ⚠️ Android 上 `Platform.resolvedExecutable` 是 `/system/bin/app_process64`
+  /// 而非 base.apk，**不能**用它推 nativeLibraryDir。这里从 `/proc/self/maps`
+  /// 提取本进程已加载的自身 so（libflutter.so 等）所在目录 —— extractNativeLibs
+  /// 开启时它就是 nativeLibraryDir（`/data/app/…/lib/<abi>`，ABI 子目录名与
+  /// jniLibs 目录名还不一致，如 `arm64-v8a`→`arm64`）。返回按优先级排序的候选。
+  static List<String> nativeLibCandidates(String fileName) {
+    if (kIsWeb || !Platform.isAndroid) return const [];
+    final cands = <String>[];
+    try {
+      final maps = File('/proc/self/maps').readAsStringSync();
+      final m = RegExp(r'(/data/app/[^/\s]+/[^/\s]+/lib/[a-zA-Z0-9_]+)/lib')
+          .firstMatch(maps);
+      if (m != null) cands.add('${m.group(1)}/$fileName');
+    } catch (_) {}
+    return cands;
+  }
+
   /// 计算本地文件 SHA256（hex 小写）。文件不存在返回 null。
   Future<String?> sha256Of(File f) async {
     try {

@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:volume_controller/volume_controller.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
+import '../net/http_client.dart';
 import '../net/local_store.dart';
 import '../sources/video_source.dart';
 import '../utils/desktop_fullscreen.dart';
@@ -134,6 +135,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   // 解析中：WebView 加载后先隐藏网页内容，等直链捕获后直接切原生播放器。
   // 5 秒超时后放弃隐藏（降级为 WebView 播放），避免卡在黑屏。
   bool _resolving = true;
+  // 直链解析已超时（真机 AGE 源排查用）：为 true 时轮询输出 Hls 诊断。
+  bool _resolveFault = false;
   Timer? _resolveTimer;
   // WebView 主页面加载失败（断网/超时/服务器错误）时记录，优先展示错误态而非黑屏。
   String? _webError;
@@ -198,13 +201,13 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       // 导航失败 / 加载状态变化，复用现有状态字段
       _desktopSubs.add(wv.loadErrors.listen((e) {
         if (!mounted) return;
+        // 记录错误态但不取消轮询：页面可能已在自动播放（有声音），
+        // 捕获到直链后自动切原生播放器并清除错误态。
         setState(() {
           _webError ??= '页面加载失败\n$e';
           _loading = false;
           _resolving = false;
         });
-        _resolveTimer?.cancel();
-        _videoPollTimer?.cancel();
       }));
       _desktopSubs.add(wv.loadingState.listen((loading) {
         if (!mounted) return;
@@ -234,6 +237,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       _resolveTimer = Timer(const Duration(seconds: 8), () {
         if (mounted && _resolving) {
           setState(() => _resolving = false);
+          _resolveFault = true;
         }
       });
     } catch (e) {
@@ -261,27 +265,37 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
             _webError = null;
           });
           _injectApiInterceptor();
+          // AGE 类源的直链是页面内 WASM 解密后交给 Hls.loadSource 的
+          // http m3u8（<video> 实际拿到的是 blob:）。必须在 WebView 里
+          // hook 住 Hls.loadSource 才能在真机上捕获真实直链切 mpv。
+          // 脚本自带 30s 重试，onPageStarted 注入一次即可覆盖后续 Hls 初始化。
+          _injectHlsHook();
         },
         onPageFinished: (_) {
           setState(() => _loading = false);
           _triggerAutoPlay();
+          // 页面就绪后 Hls 可能已初始化完成，再补注入一次确保 hook 生效。
+          _injectHlsHook();
           // about:blank 导航到位：放行等待它的切原生播放器流程。
           final p = _pendingBlank;
           if (p != null && !p.isCompleted) p.complete();
         },
         onWebResourceError: (err) {
-          // 仅主框架加载失败（断网/超时/服务器错误）时展示错误态，
-          // 子资源（图片/接口）失败不影响播放，避免误报。
-          if (err.isForMainFrame != true || !mounted) return;
-          final desc = err.description.trim();
-          setState(() {
-            _webError ??=
-                '页面加载失败${desc.isNotEmpty ? '\n$desc' : ''}';
-            // 主框架失败时停止隐藏覆盖层，避免卡在黑屏
-            _resolving = false;
-          });
-          _resolveTimer?.cancel();
-          _videoPollTimer?.cancel();
+          // 主框架加载失败（断网/超时/服务器错误）时记录错误态。
+          // 注意：不能取消 _videoPollTimer/_resolveTimer——页面可能已在
+          // 自动播放（有声音），只是个别资源报错；轮询仍要跑，捕获到
+          // 直链后自动切原生播放器并清除错误态。
+          if (!mounted) return;
+          if (err.isForMainFrame == true && _webError == null) {
+            final desc = err.description.trim();
+            setState(() {
+              _webError =
+                  '页面加载失败${desc.isNotEmpty ? '\n$desc' : ''}';
+              // 主框架失败时结束静音解析态，让网页继续出声（有声音说明
+              // 页面实际可用），而非卡在黑屏 loading。
+              _resolving = false;
+            });
+          }
         },
       ))
       ..loadRequest(Uri.parse(widget.url), headers: _hostHeader(widget.url));
@@ -292,6 +306,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     _resolveTimer = Timer(const Duration(seconds: 8), () {
       if (mounted && _resolving) {
         setState(() => _resolving = false);
+        // 真机 AGE 源直链捕获长期失败时开启 Hls 诊断（排查用）
+        _resolveFault = true;
       }
     });
   }
@@ -309,6 +325,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     if (src == _hookedVideoUrl) return;
     _hookedVideoUrl = src;
     if (!mounted) return;
+    // 页面确实在播（拿到直链）→ 之前的加载失败提示是误报，清除错误态。
+    if (_webError != null) setState(() => _webError = null);
     // 同一 Route 内嵌模式（NativePlayerPage 持有 WebView 状态机）：
     // 由宿主切回 mpv 通道，本页不 pushReplacement，杜绝双页互跳。
     final cb = widget.onDirectUrl;
@@ -376,32 +394,67 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
 
   /// AGE 类（WASM 解密）Hls.loadSource 拦截：解密后的真实 m3u8
   /// 写入 window._resolvedVideoUrl，由轮询捕获后交原生播放器。
+  ///
+  /// AGE 的播放器在站内 iframe（/vip/ 页）里运行 Hls.js，移动端
+  /// runJavaScript 只能注入主 frame，够不到 iframe 的 window.Hls。
+  /// 故递归遍历文档里所有 iframe（同源可访问 contentWindow），
+  /// 把每一个 window.Hls 都 hook 住，url 统一写到主 window 上，
+  /// 轮询脚本（_videoPollJs）在主 frame 读取到后切原生播放器。
   static const String _hlsHookJs = '''
     (function(){
-      var tryHook = function(){
-        if (window.Hls && !window._hlsHooked) {
-          var _proto = window.Hls.prototype;
-          if (_proto && _proto.loadSource) {
-            window._hlsHooked = true;
-            var _ls = _proto.loadSource;
-            _proto.loadSource = function(url){
+      if (!window._rxHlsHookInstalled) {
+        window._rxHlsHookInstalled = true;
+        window._resolvedVideoUrl = '';
+        var hookWin = function(w){
+          try {
+            if (!w || !w.Hls || w.__rxHlsHooked) return;
+            var proto = w.Hls.prototype;
+            if (!proto || !proto.loadSource) return;
+            w.__rxHlsHooked = true;
+            var orig = proto.loadSource;
+            proto.loadSource = function(url){
               try {
-                if (url && url.indexOf('http') === 0 &&
-                    url.indexOf('blob:') !== 0) {
-                  window._resolvedVideoUrl = url;
+                // 无条件记录最后传给 loadSource 的 url，诊断用
+                window.__lastHlsUrl = '' + (url || '');
+                // 接受 http(s) 与协议相对（//host/xx.m3u8）两种直链形
+                var u = '' + (url || '');
+                if ((u.indexOf('http:') === 0 ||
+                     u.indexOf('https:') === 0 ||
+                     u.indexOf('//') === 0) &&
+                    u.indexOf('blob:') !== 0) {
+                  // 统一写到主 frame，脚本都跑在主 frame 的 JS 上下文
+                  window._resolvedVideoUrl = u;
                 }
               } catch(e){}
-              return _ls.apply(this, arguments);
+              return orig.apply(this, arguments);
             };
-          }
-        }
-      };
-      tryHook();
-      var t = setInterval(function(){
+          } catch(e){}
+        };
+        var hookDoc = function(doc){
+          try {
+            if (doc && doc.querySelectorAll) {
+              var frs = doc.querySelectorAll('iframe');
+              for (var i = 0; i < frs.length; i++) {
+                var f = frs[i];
+                try {
+                  hookWin(f.contentWindow);
+                  if (f.contentDocument) hookDoc(f.contentDocument);
+                } catch(e){}
+              }
+            }
+          } catch(e){}
+        };
+        var tryHook = function(){
+          hookWin(window);
+          hookDoc(document);
+        };
         tryHook();
-        if (window._hlsHooked) clearInterval(t);
-      }, 500);
-      setTimeout(function(){ clearInterval(t); }, 30000);
+        var t = setInterval(function(){
+          tryHook();
+          if (window.__rxHlsHooked) clearInterval(t);
+        }, 800);
+        setTimeout(function(){ clearInterval(t); }, 60000);
+      }
     })();
   ''';
 
@@ -434,6 +487,47 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     })()
   ''';
 
+  /// 诊断脚本：报告主 frame / iframe 的 Hls 与直链捕获状态。
+  /// 仅 AGE 类源直链捕获长期失败时用于真机排查，稳定后移除。
+  static const String _hlsDiagJs = '''
+    (function(){
+      var info = {
+        pageHref: (location.href || '').toString().slice(0, 90),
+        selfHls: typeof window.Hls !== 'undefined' ? 'yes' : 'no',
+        rxInstalled: window._rxHlsHookInstalled ? 'yes' : 'no',
+        rxHooked: (window.__rxHlsHooked ? 'yes' : 'no'),
+        resolved: (window._resolvedVideoUrl || '').toString().slice(0, 80),
+        lastHlsUrl: (window.__lastHlsUrl || '').toString().slice(0, 80),
+        videos: [],
+        iframes: [],
+        videoSrc: ''
+      };
+      try {
+        var vs = document.querySelectorAll('video');
+        for (var i = 0; i < vs.length; i++) {
+          info.videos.push((vs[i].currentSrc || vs[i].src || 'none').toString().slice(0, 60));
+        }
+        var frs = document.querySelectorAll('iframe');
+        for (var i = 0; i < frs.length && i < 3; i++) {
+          var f = frs[i];
+          try {
+            var w = f.contentWindow;
+            var doc = f.contentDocument || w.document;
+            info.iframes.push((doc.location ? doc.location.href : '?').toString().slice(0, 60) +
+              '|Hls:' + (w.Hls ? 'yes' : 'no'));
+            var v = doc.querySelector('video');
+            if (v) info.videoSrc = (v.currentSrc || v.src || '').toString().slice(0, 60);
+          } catch(e) {
+            info.iframes.push('CROSS:' + e.message);
+          }
+        }
+      } catch(e) {
+        info.iframes.push('ERR:' + e.message);
+      }
+      return JSON.stringify(info);
+    })()
+  ''';
+  
   void _hookVideoSource() {
     _videoPollTimer?.cancel();
     _videoPollTimer = Timer.periodic(const Duration(milliseconds: 900), (_) async {
@@ -485,6 +579,11 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
               ? (r.substring(1, r.length - 1))
               : r;
           if (decoded.isNotEmpty) src = decoded;
+        }
+        // 诊断：AGE 类源直链捕获状态（真机排查用，稳定后移除）
+        if (widget.sourceId == 'agedm' && mounted && _resolveFault) {
+          final diag = await _evalJs(_hlsDiagJs);
+          debugPrint('MPVSRC[${src ?? 'null'}] HlsDiag[$diag]');
         }
       } catch (_) {}
       if (src != null) await _onVideoSrcCaptured(src);
@@ -555,7 +654,23 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       window._videoUrlIntercepted = true;
       window._resolvedVideoUrl = '';
 
-      // 拦截 fetch 请求中匹配 resolve-play-url 的 API
+      // 判断是否为可交给原生播放器的直链（m3u8 / mp4 / flv / 部分 json 接口）
+      var isPlayable = function(u) {
+        if (typeof u !== 'string' || !u) return false;
+        if (u.indexOf('blob:') === 0 || u.indexOf('data:') === 0) return false;
+        if (u.indexOf('http:') !== 0 && u.indexOf('https:') !== 0 &&
+            u.indexOf('//') !== 0) return false;
+        var low = u.toLowerCase();
+        return low.indexOf('.m3u8') >= 0 ||
+               low.indexOf('.mp4') >= 0 ||
+               low.indexOf('.flv') >= 0;
+      };
+      // 统一写入
+      var mark = function(u) {
+        if (isPlayable(u)) window._resolvedVideoUrl = u;
+      };
+
+      // 拦截 fetch 请求中匹配 resolve-play-url 的 API，以及所有 m3u8 响应
       var origFetch = window.fetch;
       window.fetch = function(url, opts) {
         return origFetch.apply(this, arguments).then(function(response) {
@@ -566,12 +681,15 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                 window._resolvedVideoUrl = data.data.url;
               }
             }).catch(function(){});
+          } else if (isPlayable(urlStr)) {
+            // Hls.js 加载 m3u8 片段/主清单时同步捕获直链
+            mark(urlStr);
           }
           return response;
         });
       };
 
-      // 拦截 XMLHttpRequest 中匹配 resolve-play-url 的 API
+      // 拦截 XMLHttpRequest 中匹配 resolve-play-url 的 API / m3u8
       var origOpen = XMLHttpRequest.prototype.open;
       XMLHttpRequest.prototype.open = function(method, url) {
         this._requestUrl = url;
@@ -579,16 +697,20 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       };
       var origSend = XMLHttpRequest.prototype.send;
       XMLHttpRequest.prototype.send = function() {
-        if (this._requestUrl && typeof this._requestUrl === 'string' &&
-            this._requestUrl.indexOf('/api/videos/resolve-play-url') >= 0) {
-          this.addEventListener('load', function() {
-            try {
-              var data = JSON.parse(this.responseText);
-              if (data && data.data && data.data.url) {
-                window._resolvedVideoUrl = data.data.url;
-              }
-            } catch(e) {}
-          });
+        if (this._requestUrl && typeof this._requestUrl === 'string') {
+          var u = this._requestUrl;
+          if (u.indexOf('/api/videos/resolve-play-url') >= 0) {
+            this.addEventListener('load', function() {
+              try {
+                var data = JSON.parse(this.responseText);
+                if (data && data.data && data.data.url) {
+                  window._resolvedVideoUrl = data.data.url;
+                }
+              } catch(e) {}
+            });
+          } else if (isPlayable(u)) {
+            mark(u);
+          }
         }
         return origSend.apply(this, arguments);
       };
@@ -601,6 +723,16 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   /// 获取视频直链，然后交给 ArtPlayer 播放。该 API 返回的 URL 是 m3u8/mp4 直链，
   /// 捕获后可直接交给 NativePlayer（media_kit）原生播放，无需 WebView 中转。
   Future<void> _injectApiInterceptor() => _runJs(_apiInterceptorJs);
+
+  /// 在 WebView 里 hook Hls.loadSource，捕获 WASM 解密后的 http m3u8 直链。
+  ///
+  /// AGE 类源的播放页用 WASM 在页面内解密出真实 m3u8，再交给 Hls.js
+  /// 播放（<video> 实际拿到的是 blob: MSE 流）。原生播放器取不到 blob
+  /// 字节，但 m3u8 直链本身是 http URL——hook 住 Hls.loadSource 即可
+  /// 在真机上捕获直链切 mpv（Anime4K 超分）。桌面端已通过
+  /// injectOnDocumentCreated 预注入，此方法供移动端 onPageStarted /
+  /// onPageFinished 补注入。
+  Future<void> _injectHlsHook() => _runJs(_hlsHookJs);
 
   void _enableWebViewMediaPlayback() {
     try {
@@ -1411,7 +1543,29 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     }
   }
 
-  Future<void> _openInBrowser() => _launchExternal(widget.url);
+  Future<void> _openInBrowser() => _launchExternal(_browserFriendlyUrl(widget.url));
+
+  /// 打开系统浏览器前把地址修正为浏览器可访问的形态：
+  /// * tvtfun 等源在 App 内走「优选 IP 直连」（Host 头由 WebView 附带），
+  ///   系统浏览器无法设置 Host 头，直连 IP 必然证书/SNI 失败 → 改回真实域名。
+  String _browserFriendlyUrl(String url) {
+    try {
+      final u = Uri.parse(url);
+      final host = u.host;
+      if (RegExp(r'^\d{1,3}(\.\d{1,3}){3}$').hasMatch(host) &&
+          Net.preferredHostIps.entries.any((e) => e.value.contains(host))) {
+        // 找到该 IP 对应的真实域名并替换
+        final realHost = Net.preferredHostIps.entries
+            .firstWhere((e) => e.value.contains(host),
+                orElse: () => const MapEntry('', []))
+            .key;
+        if (realHost.isNotEmpty) {
+          return u.replace(host: realHost).toString();
+        }
+      }
+    } catch (_) {}
+    return url;
+  }
 
   Future<void> _launchExternal(String url) async {
     try {
@@ -1577,6 +1731,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     _resolveTimer = Timer(const Duration(seconds: 8), () {
       if (mounted && _resolving) {
         setState(() => _resolving = false);
+        // 真机 AGE 源直链捕获长期失败时开启 Hls 诊断（排查用）
+        _resolveFault = true;
       }
     });
     _hookVideoSource();
@@ -2320,9 +2476,12 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Text(
-                '提示：网页端仅为 CSS 滤镜增强，并非真实超分辨率；跨域播放器内的视频可能无法生效。',
+                '提示：网页端仅为 CSS 滤镜增强，并非真实超分辨率；跨域播放器内的视频可能无法生效。\n'
+                '需要真正超分请使用「App 内原生播放器」（捕获直链后自动进入，'
+                'Anime4K CNN 超分）。',
                 style: TextStyle(
                   fontSize: 12,
+                  height: 1.5,
                   color: Theme.of(context)
                       .colorScheme
                       .onSurface

@@ -145,6 +145,20 @@ class SourceConfigStore {
           hosts: ['https://www.tvtfun.net'],
         ),
         const SourceConfig(
+          engineId: 'wchedm',
+          id: 'wchedm',
+          name: '风车动漫',
+          tier: SourceTier.fallback,
+          hosts: ['https://www.16dns.com'],
+        ),
+        const SourceConfig(
+          engineId: 'ashanyy',
+          id: 'ashanyy',
+          name: '鞍山影院',
+          tier: SourceTier.fallback,
+          hosts: ['https://www.dainyew.com'],
+        ),
+        const SourceConfig(
           engineId: 'biquge',
           id: 'biquge',
           name: '笔趣阁',

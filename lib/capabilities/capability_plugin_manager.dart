@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart';
 
 import '../net/local_store.dart';
 import 'ai_colorize_capability.dart';
-import 'ai_frame_rife_capability.dart';
 import 'capability_artifact_store.dart';
 import 'capability_plugin.dart';
 import 'demo_native_capability.dart';
@@ -168,9 +167,8 @@ class CapabilityPluginManager {
     if (!_removed.contains(AiColorizePlugin().id)) {
       _registry[AiColorizePlugin().id] = AiColorizePlugin();
     }
-    if (!_removed.contains(AiFrameRifePlugin().id)) {
-      _registry[AiFrameRifePlugin().id] = AiFrameRifePlugin();
-    }
+    // （AI 插帧 ai.frame.rife 已于 2026-09-16 从项目剥离：
+    //   能力实现、导出服务、随包引擎 .so 均已移除，此处不再预注册。）
     try {
       final raw = await LocalStore.readJson(_file);
       if (raw is Map) {

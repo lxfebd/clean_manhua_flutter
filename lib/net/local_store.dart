@@ -255,6 +255,14 @@ class LocalStore {
 
   static Directory? _dir;
 
+  /// 测试专用：重置静态目录缓存与写队列，让后续读写重新走
+  /// path_provider（单测 mock 后必须调用，否则读到的是真实 AppData）。
+  @visibleForTesting
+  static void resetForTest() {
+    _dir = null;
+    _writeQueues.clear();
+  }
+
   /// 迁移历史：index = 从版本 i 升到 i+1 的钩子，只记录变更过的版本。
   /// 例：v1 新增某字段 → `_migrations[1] = (name) async {...}`。
   /// 钩子按序幂等执行，失败记日志不中断启动（下次启动重试）。

@@ -184,7 +184,10 @@ class DslNovelSource extends NovelSource {
   Future<String> _fetch(String url, String? page, String? decrypt, String id) async {
     final u = url.replaceAll('{id}', id).replaceAll('{page}', page ?? '1');
     try {
-      final html = await Net.get(u, headers: def.headers);
+      // 优先 Cronet（Android 上 Chromium 网络栈，指纹类浏览器），
+      // 规避部分站点对 dart:io HttpClient 指纹的 Cloudflare 质询 403；
+      // 非 Android / Cronet 不可用时会自动回退 dart:io。
+      final html = await Net.getCronet(u, headers: def.headers);
       if (decrypt == null || decrypt.isEmpty) return html;
       return DslDecrypt.apply(decrypt, html);
     } on SourceError {

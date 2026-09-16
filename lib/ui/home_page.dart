@@ -167,9 +167,12 @@ class _HomePageState extends State<HomePage> {
       if (mounted) {
         setState(() {
           // 源站榜单粘页时同一作品可能跨页重复，合并后整体去重。
+          // 必须先构造合并结果再一次性替换——先 clear() 再展开 _items
+          // 得到的是空列表，会把之前所有页顶掉（整页重刷、滚动位置丢失）。
+          final merged = _dedup([..._items, ...r]);
           _items
             ..clear()
-            ..addAll(_dedup([..._items, ...r]));
+            ..addAll(merged);
           _page++;
           _error = null;
         });

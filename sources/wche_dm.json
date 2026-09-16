@@ -1,0 +1,45 @@
+{
+  "id": "wche_dm",
+  "name": "风车动漫",
+  "type": "video",
+  "version": "1.0.0",
+  "author": "星漫匣",
+  "description": "stui 系动漫站（16dns 镜像）。详情页 id 带 166 前缀（如 fcdm/16613410.html），播放页 id 为剥离前缀值（13410），用 detail.idRegex 的 id 命名组做映射。播放页 URL 形如 /co_e/{id}-0-{ep}.html，第二段固定为 0，故 season 恒为 0，必须用 chaptersRe 的 season 命名组抽取（chapters CSS 路径会把 season 固定成 1）。chaptersRe 用负向前瞻排除详情页顶部的「立即播放」按钮（与第 0 集同 href，不排除会顶掉第 01 集的标题）。播放地址是播放页内联脚本变量 var now 的 m3u8 直链。标题尾部混有评分 span，用 titleRe 剥离。",
+  "baseUrl": "https://www.16dns.com",
+  "hosts": [
+    "www.16dns.com"
+  ],
+  "imageHosts": [
+    "www.mdzypic.com",
+    "tu.moduzytupian.com",
+    "www.moduzytuuu.com"
+  ],
+  "headers": {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "zh-CN,zh;q=0.9"
+  },
+  "requiresLogin": false,
+  "categoryListUrl": "https://www.16dns.com/html/{categoryId}-{page}.html",
+  "categoryList": {
+    "css": "a.stui-vodlist__thumb[data-original]",
+    "id": "href",
+    "name": "title",
+    "pic": "data-original"
+  },
+  "detailUrl": "https://www.16dns.com/{id}",
+  "detail": {
+    "title": "h1.title",
+    "titleRe": "^(.*?\\S)\\s*\\d{1,2}\\.\\d$",
+    "cover": "div.stui-content__thumb img",
+    "coverAttr": "data-original",
+    "description": "p.desc",
+    "chaptersRe": "<a[^>]*href=\"(?<href>/co_e/\\d+-(?<season>\\d+)-\\d+\\.html)\"[^>]*>(?!立即播放)(?<title>[^<]+)</a>",
+    "idRegex": "166(?<id>\\d+)",
+    "picListUrl": "https://www.16dns.com/co_e/{id}-0-{episode}.html",
+    "picListRe": "var\\s+now=\"([^\"]+)\"",
+    "m3u8Rewrite": {
+      "kkzycdn.com:65": "play.modujx16.com",
+      "https://kkzycdn.com:65": "https://play.modujx16.com"
+    }
+  }
+}

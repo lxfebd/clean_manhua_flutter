@@ -72,21 +72,29 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
                       fontSize: 15,
                       color: Theme.of(ctx).colorScheme.onSurface)),
             ),
-            for (final s in SourceManager.videoSources)
-              ListTile(
-                leading: Icon(
-                  s.id == _source.id ? Icons.radio_button_checked : Icons.radio_button_off,
-                  size: 20,
-                  color: s.id == _source.id
-                      ? Theme.of(ctx).colorScheme.primary
-                      : Theme.of(ctx).colorScheme.onSurface.withValues(alpha: 0.4),
-                ),
-                title: Text(s.name, style: const TextStyle(fontSize: 14)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _switchSource(s);
-                },
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                padding: EdgeInsets.zero,
+                children: [
+                  for (final s in SourceManager.videoSources)
+                    ListTile(
+                      leading: Icon(
+                        s.id == _source.id ? Icons.radio_button_checked : Icons.radio_button_off,
+                        size: 20,
+                        color: s.id == _source.id
+                            ? Theme.of(ctx).colorScheme.primary
+                            : Theme.of(ctx).colorScheme.onSurface.withValues(alpha: 0.4),
+                      ),
+                      title: Text(s.name, style: const TextStyle(fontSize: 14)),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _switchSource(s);
+                      },
+                    ),
+                ],
               ),
+            ),
             const SizedBox(height: 8),
           ],
         ),
@@ -126,6 +134,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
     _items.clear();
     _error = null;
     _noMore = false;
+    _autoLoadCount = 0;
     setState(() {});
     _loadMore();
   }
@@ -163,7 +172,15 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
           if (r.isEmpty) {
             _noMore = true;
           } else {
-            _items.addAll(r);
+            // 源站分页会漂移（同一作品跨页重复，如 tvtfun 的 331164 半妖的夜叉姬）；
+            // 合并后按 id 去重，避免往下拉时重复出现上面的动漫。
+            // 注意：必须先构造合并结果再一次性替换 —— 若先 clear() 再合并，
+            // 展开的 _items 已是空列表，后加载的页会把之前所有页"顶掉"，
+            // 表现为滚动到底后整页重刷（列表只剩加载页数据、滚动位置丢失）。
+            final merged = _dedup([..._items, ...r]);
+            _items
+              ..clear()
+              ..addAll(merged);
             _page++;
           }
         });
@@ -184,12 +201,23 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
     _refresh();
   }
 
+  /// 源站分页偶发返回重复条目（同一作品跨页重复）：按 id 去重后渲染。
+  static List<ComicItem> _dedup(List<ComicItem> items) {
+    final seen = <String>{};
+    return [for (final it in items) if (it.id.isNotEmpty && seen.add(it.id)) it];
+  }
+
   /// 内容不满一屏时自动续页，避免首屏太短时滚动分页不触发导致"很快到底"的错觉。
+  /// 最多续 3 页：封面加载慢/失败导致网格高度不足时，避免无限循环狂拉分页
+  /// 把请求队列打满（每页 20 张图并发加载 + 源站限流会明显卡顿）。
+  int _autoLoadCount = 0;
   void _maybeAutoLoadMore() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _loading || _noMore) return;
       if (_scrollCtrl.hasClients &&
           _scrollCtrl.position.maxScrollExtent <= 0) {
+        if (_autoLoadCount >= 3) return;
+        _autoLoadCount++;
         _loadMore();
       }
     });
@@ -259,7 +287,11 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
             ),
             delegate: SliverChildBuilderDelegate(
               (c, i) => FadeSlideIn(
-                delay: Duration(milliseconds: 50 * (i % 12)),
+                // 首屏前几行做入场动画；后续翻页加载的卡片不再逐张延迟，
+                // 避免追加新页时前 12 张又重播动画 + 定时器风暴造成卡顿。
+                delay: _items.length <= 24
+                    ? Duration(milliseconds: 50 * (i % 12))
+                    : Duration.zero,
                 offset: 16,
                 child: ContextMenuWrapper(
                   items: () => _cardMenu(_items[i]),
@@ -870,13 +902,14 @@ class _AnimeCardState extends State<_AnimeCard> {
                     ),
                   ),
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
+                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 7),
                     child: Text(
                       widget.item.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 12.5,
+                        height: 1.2,
                         fontWeight: FontWeight.w600,
                         color: scheme.onSurface,
                       ),

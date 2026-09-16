@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../capabilities/ai_colorize_capability.dart';
-import '../capabilities/ai_frame_rife_capability.dart';
 import '../capabilities/capability_plugin.dart';
 import '../capabilities/capability_plugin_manager.dart';
 import '../capabilities/capability_runtime.dart';
@@ -79,20 +78,6 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
     }
   }
 
-  /// AI 插帧引擎：下载引擎包（zip）+ SHA256 校验 + 解压。
-  Future<void> _handleEngineAction() async {
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(const SnackBar(content: Text('引擎下载/解压中…')));
-    final err = await AiFrameRifePlugin.ensureEngine();
-    messenger.hideCurrentSnackBar();
-    if (err == null) {
-      messenger.showSnackBar(const SnackBar(content: Text('引擎已就绪')));
-    } else {
-      messenger.showSnackBar(SnackBar(content: Text('引擎未就绪：$err')));
-    }
-  }
-
   String _categoryLabel(String c) {
     switch (c) {
       case 'ai':
@@ -151,9 +136,6 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
                   onModelAction: p.id == 'ai.colorize.ddcolor'
                       ? _handleModelAction
                       : null,
-                  onEngineAction: p.id == 'ai.frame.rife'
-                      ? _handleEngineAction
-                      : null,
                 );
               },
             ),
@@ -168,7 +150,6 @@ class _CapabilityCard extends StatelessWidget {
   final ValueChanged<bool> onToggle;
   final VoidCallback? onSelfTest;
   final VoidCallback? onModelAction;
-  final VoidCallback? onEngineAction;
 
   const _CapabilityCard({
     required this.plugin,
@@ -177,7 +158,7 @@ class _CapabilityCard extends StatelessWidget {
     required this.onToggle,
     this.onSelfTest,
     this.onModelAction,
-    this.onEngineAction,
+    // （onEngineAction 随 AI 插帧能力一并移除，2026-09-16）
   });
 
   @override
@@ -270,15 +251,6 @@ class _CapabilityCard extends StatelessWidget {
                 tooltip: '下载/载入模型权重',
                 icon: const Icon(Icons.download_rounded),
                 onPressed: onModelAction,
-              ),
-            ),
-          if (onEngineAction != null)
-            Padding(
-              padding: const EdgeInsets.only(right: S.x8),
-              child: IconButton(
-                tooltip: '下载插帧引擎',
-                icon: const Icon(Icons.download_rounded),
-                onPressed: onEngineAction,
               ),
             ),
           Switch(

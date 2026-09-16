@@ -178,6 +178,14 @@ class Net {
       '104.16.150.33',
       '104.16.151.88',
     ],
+    // lain.bgm.tv（Bangumi 图片 CDN，Cloudflare 托管）：部分网络下系统 DNS
+    // 被污染解析到 Facebook 段 IP 导致封面加载超时；直连真实 Cloudflare 节点
+    // IP + SNI（host=lain.bgm.tv）绕过 DNS 污染。真实 IP 由 doh.pub 解析所得。
+    'lain.bgm.tv': [
+      '104.26.8.23',
+      '104.26.9.23',
+      '172.67.73.67',
+    ],
   };
 
   /// 全局代理（`socks5://host:port` / `http://host:port` / `https://host:port`）。

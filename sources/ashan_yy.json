@@ -1,0 +1,42 @@
+{
+  "id": "ashan_yy",
+  "name": "鞍山影院",
+  "type": "video",
+  "version": "1.0.0",
+  "author": "星漫匣",
+  "description": "stui/ewave 模板影视站（dainyew 镜像，PowerCMS）。详情页 id 与播放页 id 一致（pptv/1230130），线路号写在 /tvplay/{id}-{season}-{episode}.html 里，用 chaptersRe 的 season 命名组提取，因此多线路影片能完整展开成多组剧集。站点整页用 HTML 数字实体转义中文（&#26757;&#27604;），htmlUnescape 已处理。播放地址在播放页 script 的 player_aaaa JSON 的 url 字段，斜杠被转义为 \\/，需 picReplace 还原为正常路径。",
+  "baseUrl": "https://www.dainyew.com",
+  "hosts": [
+    "www.dainyew.com"
+  ],
+  "imageHosts": [
+    "www.dainyew.com"
+  ],
+  "headers": {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "zh-CN,zh;q=0.9"
+  },
+  "requiresLogin": false,
+  "categoryListUrl": "https://www.dainyew.com/listnew/{categoryId}-{page}.html",
+  "categoryList": {
+    "css": "div.ewave-vodlist__thumb[data-original]",
+    "id": "a.thumb-link|href",
+    "name": "title",
+    "pic": "data-original"
+  },
+  "detailUrl": "https://www.dainyew.com/{id}",
+  "detail": {
+    "title": "h1.title",
+    "titleRe": "^(.*?\\S)\\s*\\d{1,2}\\.\\d$",
+    "cover": "div.ewave-content__thumb img",
+    "coverAttr": "data-original",
+    "description": "p.desc",
+    "chaptersRe": "<a[^>]*href=\"(?<href>/tvplay/\\d+-(?<season>\\d+)-(?<ep>\\d+)\\.html)\"[^>]*>(?<title>[^<]+)</a>",
+    "idRegex": "(?<id>\\d+)",
+    "picListUrl": "https://www.dainyew.com/tvplay/{id}-{season}-{episode}.html",
+    "picListRe": "\"url\":\"([^\"]+)\"",
+    "picReplace": {
+      "\\/": "/"
+    }
+  }
+}
