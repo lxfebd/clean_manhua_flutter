@@ -120,47 +120,40 @@ class JmScramble {
     return descramble(args[0] as Uint8List, args[1] as String);
   }
 
-  /// 解扰互斥锁：预取 3 页会并发 spawn 3 个 Isolate 跑纯 Dart 解码+重编码，
-  /// 低端机滑动时多个 Isolate 并发抢占 CPU 反而更卡。串行化让它们排队执行。
-  static Completer<void>? _mutex;
-
   /// 单页解扰最坏耗时（compute 超时）。
   static const Duration _computeTimeout = Duration(minutes: 2);
 
-  /// acquire 等待超时必须大于 [_computeTimeout]：持有者 compute 超时也有
-  /// onTimeout 兜底 + finally release，2min 内必释放；等待超时只在锁真正
-  /// 卡死（异常未被兜住）时触发。曾为 30s < 2min，等待者提前超时会覆盖
-  /// 在持锁锁对象，导致两个 compute 并发执行（串行化被打破）。
-  static const Duration _acquireTimeout =
-      Duration(minutes: 2, seconds: 30);
+  /// 解扰并发上限：全串行会让「翻到第 N 页」排在第 N-1/N-2… 的预取页后面，
+  /// 翻页后当前页要等前面所有页解扰完才轮到（一批预取 5 页 = 秒级卡死）。
+  /// 定成 2：允许≤2 个 compute 并行——低端机不全部打满核心（多核 R8 也不会
+  /// 崩），当前页最多等 1 个在途解扰即可轮到。
+  static const int _maxConcurrent = 2;
+  static int _running = 0;
+  static final List<Completer<void>> _waiters = [];
 
-  static Future<void> _acquire() async {
-    while (_mutex != null) {
-      final m = _mutex!;
-      try {
-        await m.future.timeout(_acquireTimeout);
-      } catch (_) {
-        // 只有在持锁锁对象仍是本对象时（未被先行的 release 换掉）才接管，
-        // 防止完成了一个已被替换的锁对象。
-        if (identical(_mutex, m)) {
-          _mutex = null;
-          m.complete();
-        }
-        break;
-      }
+  /// 信号量 acquire/release（有序 FIFO 等待，不会饥饿）。
+  static Future<void> _acquire() {
+    if (_running < _maxConcurrent) {
+      _running++;
+      return Future.value();
     }
-    _mutex = Completer<void>();
+    final c = Completer<void>();
+    _waiters.add(c);
+    return c.future;
   }
 
   static void _release() {
-    final m = _mutex;
-    _mutex = null;
-    m?.complete();
+    if (_waiters.isNotEmpty) {
+      _waiters.removeAt(0).complete();
+    } else {
+      _running--;
+    }
   }
 
   /// 在独立 Isolate 中执行解扰，避免 200-800ms 的 CPU 密集操作阻塞 UI 线程。
   /// 若 [bytes] 无需还原（aid < 220980 或解析失败），原样返回。
-  /// 全局串行化：多页并发解扰在低端机上会挤占 UI 线程，排队更顺滑。
+  /// 并发上限 [_maxConcurrent]：既避免低端机上多页并发挤占 UI 线程，
+  /// 也不会像全串行那样让当前页排在所有预取页之后。
   static Future<Uint8List> descrambleAsync(Uint8List bytes, String url) async {
     final aid = parseAid(url);
     if (aid == null) return bytes;

@@ -433,7 +433,7 @@ class ToolboxPageState extends State<ToolboxPage> {
           scheme,
           icon: Icons.extension_outlined,
           title: '能力中心',
-          subtitle: '管理能力插件（上色 / 插帧等）',
+          subtitle: '管理能力插件（上色等）',
           onTap: () => _push(const CapabilityCenterPage()),
         );
       default:
@@ -752,7 +752,7 @@ class ToolboxPageState extends State<ToolboxPage> {
               scheme,
               icon: Icons.extension_outlined,
               title: '能力中心',
-              subtitle: '管理能力插件（上色 / 插帧等）',
+              subtitle: '管理能力插件（上色等）',
               onTap: () => _push(const CapabilityCenterPage()),
             ),
           ],

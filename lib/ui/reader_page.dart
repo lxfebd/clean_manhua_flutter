@@ -488,6 +488,9 @@ class _ReaderPageState extends State<ReaderPage>
     final rem = _urls.length - _curPage;
     if (rem > 3) return; // 离章末还远，不提前拉取
     if (!_canContinue) return;
+    // JM 源跳过下章预取：解扰 compute 太重，章末同时叠 5 页下章预取
+    // 会打满核心；等用户真正翻到下一章再按需加载（体验不降）。
+    if (widget.sourceId == 'jm') return;
     final next = widget.chapters[_chapterIndex + 1];
     if (_chapterPicCache.containsKey(next.id)) return;
     try {
@@ -601,9 +604,13 @@ class _ReaderPageState extends State<ReaderPage>
   /// 预取 [urls] 中 [from, from+count) 区间（count 为 null 时按网络自适应）。
   /// 共享 JM 解扰/本地已下载跳过逻辑，供当前章与下一章预取复用。
   void _prefetchRange(List<String> urls, int from, int? count) {
-    final depth =
+    var depth =
         (count ?? SmartPrefetch.chapterDepth(SmartPrefetch.cachedNetwork()))
             .clamp(0, 12);
+    // JM 每页是 200-800ms 的纯 Dart 解扰（compute），Wi-Fi 档默认预取 5 页
+    // 会把所有核心同时打满、且把当前页压进解扰队列 → 翻页卡死。
+    // JM 源统一收紧到 2 页，配合 jm_scramble 里的并发上限 2 减轻 CPU 抢占。
+    if (widget.sourceId == 'jm' && depth > 2) depth = 2;
     for (var k = from; k < from + depth && k < urls.length; k++) {
       _preloadOne(urls[k]);
     }

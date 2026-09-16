@@ -155,6 +155,9 @@ class _JmScrambleImageWidgetState extends State<JmScrambleImageWidget> {
       filterQuality: widget.filterQuality,
       cacheWidth: cw,
       cacheHeight: ch,
+      // 翻页时该 widget 会被销毁重建（横向 PageView wantKeepAlive=false），
+      // 未开 gapless 时 provider 变更会先闪一帧空白 spinner 再出图。
+      gaplessPlayback: true,
       errorBuilder: (_, __, ___) => GestureDetector(
         onTap: _load,
         behavior: HitTestBehavior.opaque,
