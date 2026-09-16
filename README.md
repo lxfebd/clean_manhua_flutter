@@ -35,13 +35,34 @@ flutter build web --release     # Web 端（alpha）：静态产物 build/web（
 
 **漫画（4）**：动漫屋(DM5) ✅(国内免登录默认源) ｜ 豆包 ✅ ｜ 禁漫JM ⚠️(反爬+图片解扰) ｜ MangaDex ✅(英文兜底)
 
-**视频（4）**：AGE动漫 ✅ ｜ TvTFun ✅(需优选IP) ｜ 稀饭动漫 ✅(mp4直链) ｜ Anime1 ✅(WebView播放)
+**视频（6）**：AGE动漫 ✅ ｜ TvTFun ✅(需优选IP) ｜ 稀饭动漫 ✅(mp4直链) ｜ Anime1 ✅(WebView播放) ｜ 风车动漫 ✅(WebView兜底) ｜ 鞍山影院 ✅(仅分类浏览)
 
 **小说（2）**：笔趣阁 ✅(多镜像可换) ｜ 新笔趣阁 ✅(Base64 章节解密)
 
 ---
 
 ## 更新日志
+
+### v1.5.0（2026-09-16）
+- 🎨 **AI 漫画上色（桌面端）**：本地 DDColor 彩色化，TFLite 在独立 Isolate 推理，设置页开关 + 模型导入，阅读器接入；256×256 协议锁定、推理未就绪自动重试、互斥锁竞态修复；手机端本地推理卡顿不达标，**上色仅桌面端可见与启用**
+- 🎴 **系统级画中画 PiP**：Android 8+ 原生 `enterPictureInPictureMode` 通道封装 + 播放器按钮接入
+- 🖥️ **桌面真全屏**：`window_manager.setFullScreen` 把窗口本体切全屏（页面内全屏→占满屏幕），native/anime 双播放器接入，离开播放页自动还原
+- 📺 **TV 适配**：leanback 声明 + 遥控器 D-pad 焦点导航 + 播放器媒体键映射（播放暂停/快进快退/上下集）+ 启动器 banner + 10ft 可聚焦化（首页/动漫/书架关键内容卡）
+- 🔌 **能力插件框架**（M1–M4）：`CapabilityPlugin`/`CapabilityPluginManager`/`CapabilityRuntime` 三件套 + 能力中心 UI + 演示能力（章节字数统计）；桌面原生链路 FFI 加载真实 DLL + SHA256 钉死校验；Android jniLibs per-ABI `.so` 打包 + Gradle SHA256 守卫；上色能力插件壳（主 isolate 直调 colorizer）
+- 🎬 **AI 插帧引擎分发框架**：ffmpeg 运行期分发（复用能力构件库「下载→SHA256 校验→加载」套路），引擎包走 Release 附件分发（插帧能力本体已剥离）
+- 🛒 **能力市场**：远端索引拉取 + 市场页 + 能力中心入口；安装持久化 / 卸载 purge / 更新替换 / 下载入口链路收口，权重与引擎直链填齐（models-v1 Release，SHA256 钉死）
+- 📦 **源市场补缺**：索引缓存回退（远端不可达时仍能用上次缓存）+ RateLimiter 管控 + 已安装源可卸载
+- 🌐 **市场索引可靠性**：拉取超时 15s→30s + jsDelivr CDN 镜像按序回退（raw.githubusercontent 限速不再拖死市场页）
+- 📊 **年度阅读报告可视化页**：全屏独立页——年度高光、12 个月柱状动画、统计卡片、空态引导
+- 📋 **书单导入与海报导出**：剪贴板文本解析 + 跨源搜索入架；封面网格 PNG 海报（固定白底 780 宽 3 列，RepaintBoundary 截图）接入系统分享面板
+- 📝 **本章摘要**：小说阅读器底部面板——拆句 + 首尾位置加权 + 关键词加权取 topK，纯规则零模型依赖、离线可用
+- 🔗 **自定义源 DSL 绑定视频/小说**：`DslVideoSource`/`DslNovelSource` 复用同一套 DSL 规则接入视频与小说源接口，并补启动补检与本地推荐
+- 🎬 **新视频源**：风车动漫（16dns，WebView 兜底）+ 鞍山影院（dainyew，暂仅分类浏览）
+- ⚡ **移动端播放器性能回归**：恢复 `display-resample` 显示同步（治 60Hz 屏一顿一顿，无音轨保持默认）+ 回归 mpv 默认管线 + 禁漫解扰信号量并发收紧为 2/预取收紧
+- 🕸️ **Web beta io 收口**：设置页/工具箱平台功能灰置替代报错；书架动漫下载卡片、小说导入文件读取、阅读器图片/下载/本地文件链路补 web 守卫，`dart:io` 崩溃面清零
+- 🛡️ **技术债加固**：WebDAV 密钥升级 PBKDF2（v2 写入 + v1 兼容解密）；本地导入目录时序守卫；备份契约统一 + schema 迁移框架；锁超时对齐、RateLimiter 排队上限、下载索引防抖；dead code 清理 + regression 测试入库
+- 🚀 **CI 增强**：`--split-per-abi` 多架构分包 + master 分支 nightly 夜间内测 Pre-release
+- 🐛 **修复**：源切换弹窗横屏溢出、自定义源 DSL 正则分支崩溃、全局搜索吞结果、双页封面单独占页、日志导出升级 zip
 
 ### v1.4.3（2026-09-10）
 - 🎬 **播放器并成单页双通道**：动漫播放器从「双页互跳 + 兜底回退」重构为单一播放页，mpv 原生通道与内嵌 WebView 通道同页共存、按需接管——页面型地址走 WebView（完整浏览器指纹，可执行 Cloudflare JS 人机质询），捕获到直链后同页无缝切回 mpv，不再页面跳转
@@ -199,14 +220,17 @@ flutter build web --release     # Web 端（alpha）：静态产物 build/web（
 ---
 
 ## 设计要点
-- **源 = 插件化 + 声明式配置**：内置源通过统一接口注册（`ComicSource`/`VideoSource`/`NovelSource`），域名/镜像/请求头/登录开关外置到 `SourceConfig`（`lib/sources/source_config.dart`），支持插件化装卸；另开放**用户自定义源 DSL**（JSON 规则：解析选择器/正则/解密函数），设置页表单化配置并支持导出导入
+- **源 = 插件化 + 声明式配置**：内置源通过统一接口注册（`ComicSource`/`VideoSource`/`NovelSource`），域名/镜像/请求头/登录开关外置到 `SourceConfig`（`lib/sources/source_config.dart`），支持插件化装卸；另开放**用户自定义源 DSL**（JSON 规则：解析选择器/正则/解密函数），漫画/动漫/小说三类源统一声明式驱动，设置页表单化配置并支持导出导入、源市场一键安装
+- **能力插件框架**：上色/插帧等 AI 能力走 `CapabilityPlugin` 插件化注册 + 能力市场远端索引一键安装/卸载，模型权重与原生引擎经 Release 附件分发（SHA256 钉死），桌面 FFI / Android jniLibs 两条原生链路
 - **网络自愈**：候选 IP 轮询 + DNS 回退 + 短超时 + 每 host 熔断；单源代理 + 失败自动回退直连；每域名令牌桶限流（3req/s）+ 并发上限，避免对源站施压
 - **多类型聚合**：`MainShell` 底部 4 Tab（首页/书架/工具/我的），首页内 漫画/动漫/小说 三态切换
-- **阅读/播放体验**：小说 TTS 朗读 / TXT·EPUB 导入 / 色温护眼；漫画自动裁边 / 双页 / 条漫 / 局部放大；播放器倍速 0.25x–4x / 画中画 / 音轨切换
-- **桌面端**：全键盘快捷键 + 窗口状态记忆；**Windows 检查更新会自动选择 `-windows` zip 附件，不再误下手机 APK**
+- **阅读/播放体验**：小说 TTS 朗读 / TXT·EPUB 导入 / 色温护眼 / 本章摘要；漫画自动裁边 / 双页 / 条漫 / 局部放大 / AI 上色（桌面）；播放器倍速 0.25x–4x / 画中画 / 音轨切换
+- **桌面端**：全键盘快捷键 + 窗口状态记忆 + 真全屏；**Windows 检查更新会自动选择 `-windows` zip 附件，不再误下手机 APK**
 
 ---
 
 ## 架构速览
-- 源 = 插件化注册（实现 `ComicSource`/`VideoSource`/`NovelSource` 接口）+ 声明式 `SourceConfig` + 可选自定义源 DSL
-- 新增源：写实现类 → 插件注册 → `source_config.dart` 加默认配置（或直接导入自定义源 JSON）
+- 源 = 插件化注册（实现 `ComicSource`/`VideoSource`/`NovelSource` 接口）+ 声明式 `SourceConfig` + 自定义源 DSL（漫画/动漫/小说统一）
+- 能力 = `CapabilityPlugin` 插件化（`lib/capabilities/`）+ 能力市场远端索引 + Release 权重/引擎分发（SHA256 钉死）
+- 新增源：写实现类 → 插件注册 → `source_config.dart` 加默认配置（或直接导入自定义源 JSON / 源市场一键安装）
+- 新增能力：实现 `CapabilityPlugin` → 注册内置或发布市场条目 → 能力中心 UI 展示
