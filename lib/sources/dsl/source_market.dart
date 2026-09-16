@@ -50,8 +50,14 @@ class MarketSourceEntry {
 class SourceMarket {
   SourceMarket._();
 
+  /// 索引主地址（GitHub raw）。国内网络对 raw.githubusercontent.com 常限速
+  /// 到 8-10s 甚至超时，故配 jsDelivr CDN 镜像，按序回退（见 [fetchIndex]）。
   static const String _indexUrl =
       'https://raw.githubusercontent.com/lxfebd/xingmanxia-sources/main/index.json';
+
+  /// jsDelivr 镜像（与主 URL 同内容，CDN 国内可达性更好）。
+  static const String _indexMirror =
+      'https://cdn.jsdelivr.net/gh/lxfebd/xingmanxia-sources@main/index.json';
 
   /// 索引本地缓存域：网络失败时回退，避免整源市场空白。
   static const String _cacheFile = 'source_market_index';
@@ -60,18 +66,15 @@ class SourceMarket {
   /// 缓存也没有则抛异常（调用方给错误 UI）。
   static Future<List<MarketSourceEntry>> fetchIndex() async {
     try {
-      final host = Uri.parse(_indexUrl).host;
-      await RateLimiter.acquire(host);
-      try {
-        final bytes = await Net.getBytes(_indexUrl,
-            timeout: const Duration(seconds: 15));
-        final text = utf8.decode(bytes);
-        // 网络成功先落缓存（下次离线也能浏览市场）
-        await _cache(text);
-        return _parse(text);
-      } finally {
-        RateLimiter.release(host);
-      }
+      // raw 限速时整体可能很慢（实测 8-10s），放宽到 30s；镜像回退按序尝试。
+      final bytes = await Net.getBytesMirrors(
+        [_indexUrl, _indexMirror],
+        timeout: const Duration(seconds: 30),
+      );
+      final text = utf8.decode(bytes);
+      // 网络成功先落缓存（下次离线也能浏览市场）
+      await _cache(text);
+      return _parse(text);
     } catch (e) {
       final cached = await _readCache();
       if (cached != null) return _parse(cached);

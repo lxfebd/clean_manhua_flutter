@@ -560,6 +560,32 @@ class Net {
     return _getBytesWithFallback(urlStr, headers, timeout, proxy);
   }
 
+  /// 带镜像回退的 GET：按 [urls] 顺序逐个尝试，任一成功即返回其字节；
+  /// 全部失败抛最后一个错误。
+  ///
+  /// 用途：raw.githubusercontent 等域名在某些网络（尤其国内）会被限速/超时，
+  /// 但 jsDelivr 等 CDN 镜像可达。每个候选独立走 [_getBytesOnce]
+  /// （各自 timeout），互不影响；首 URL 成功即短路，不浪费流量。
+  /// 与 [_getBytesOnce] 一致，每个候选都受所在域名令牌桶限流。
+  static Future<List<int>> getBytesMirrors(List<String> urls,
+      {Map<String, String>? headers, Duration? timeout}) async {
+    if (urls.isEmpty) throw ArgumentError('urls 不能为空');
+    Object? lastErr;
+    for (final u in urls) {
+      final host = Uri.parse(u).host;
+      await RateLimiter.acquire(host);
+      try {
+        return await _getBytesOnce(u, headers, proxy: null, timeout: timeout);
+      } catch (e) {
+        lastErr = e;
+      } finally {
+        RateLimiter.release(host);
+      }
+    }
+    if (lastErr is Exception) throw lastErr;
+    throw StateError('镜像全部失败');
+  }
+
   static Future<List<int>> _getBytesOnce(String urlStr,
       Map<String, String>? headers, {String? proxy, Duration? timeout}) async {
     final t = timeout ?? _timeout;
