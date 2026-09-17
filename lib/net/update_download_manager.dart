@@ -116,10 +116,12 @@ class UpdateDownloadManager {
             done: true);
         _stateCtrl.add(_state);
         _notifyDone();
-        // 仅 Android 直接拉起系统安装器；Windows/macOS 下载完成后
-        // 提示用户到下载目录手动解压/安装（桌面端无安装器 channel）。
+        // Android 拉起系统安装器；Windows 有 NSIS 静默安装器（exe 附件）
+        // 则直接覆盖安装并自动重启到新版；macOS 无安装器，仅提示手动挂载 dmg。
         if (Platform.isAndroid) {
           await _triggerInstall();
+        } else if (Platform.isWindows && _fileName.endsWith('.exe')) {
+          _triggerWindowsInstall();
         }
         _running = false;
         return;
@@ -281,6 +283,45 @@ class UpdateDownloadManager {
     try {
       await _channel.invokeMethod('showInstall', {'path': path});
     } catch (_) {}
+  }
+
+  /// Windows NSIS 静默自动升级：启动安装器 → 等它起来 → 退出自身 → 安装器接管。
+  ///
+  /// NSIS 参数约定：/S 静默模式，/D= 指定安装目录且必须是最后一个参数、
+  /// 不能带引号。安装目标用当前运行 exe 所在目录 —— 与已安装位置一致，
+  /// 升级是原地覆盖；安装器内部先 Sleep 等待进程退出释放文件锁，再 RMDir
+  /// 清掉旧文件，File /r 拷入新版，最后 Section -Post 自动 Exec 新版 exe。
+  ///
+  /// 本方法不 await 安装器/退出流程：启动后立即返回，安装与重启由 NSIS
+  /// 脚本在后台完成（这是「全自动」的关键 —— 用户全程无感）。
+  void _triggerWindowsInstall() {
+    final installer = _downloadedPath;
+    if (installer == null) return;
+    final exeDir = File(Platform.resolvedExecutable).parent.path;
+    _triggerWindowsInstallAsync(installer, exeDir);
+  }
+
+  Future<void> _triggerWindowsInstallAsync(
+      String installer, String exeDir) async {
+    try {
+      // 直接启动 NSIS 安装器（不经 cmd/shell，避免引号与 /D 末位被改写）。
+      // Windows 子进程默认不受父进程退出影响，因此 fire-and-forget，
+      // 不 await 退出，安装与重启交给 NSIS 脚本。
+      await Process.start(installer, ['/S', '/D=$exeDir']);
+    } catch (e) {
+      _state = UpdateDownloadState(
+          error: '安装器启动失败：$e（可双击安装包手动安装）');
+      _stateCtrl.add(_state);
+      _notifyInstall(installer);
+      return;
+    }
+    // 等安装器真正起来（进程探测免初始化），再退出自身；
+    // 过早退出会让 cmd 的 start 失去父进程。
+    await Future<void>.delayed(const Duration(seconds: 1));
+    // 落盘待写队列，避免退出时丢数据。
+    await LocalStore.flushAll();
+    // 退出自身 → NSIS Sleep 等待文件锁释放 → RMDir/File 覆盖 → Exec 新版。
+    await UpdateChecker.quit();
   }
 
   String _fmtSpeed(double bytesPerSec) {

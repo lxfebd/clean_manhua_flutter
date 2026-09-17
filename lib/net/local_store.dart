@@ -370,6 +370,19 @@ class LocalStore {
     return next;
   }
 
+  /// 等待所有文件的写队列落盘完毕。
+  /// 自动更新的退出路径（Windows 静默安装前）必须调这个：否则排在队列里
+  /// 还没执行的写盘会被 ExitProcess 直接砍掉，丢数据。
+  static Future<void> flushAll() async {
+    if (kIsWeb) return;
+    final pending = _writeQueues.values.toList(growable: false);
+    for (final f in pending) {
+      try {
+        await f;
+      } catch (_) {}
+    }
+  }
+
   static dynamic _read(String name) async {
     try {
       if (kIsWeb) {

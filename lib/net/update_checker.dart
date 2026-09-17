@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'http_client.dart';
 
@@ -80,10 +81,15 @@ class UpdateChecker {
     final tag = json['tag_name'] as String? ?? '';
     final version = tag.startsWith('v') ? tag.substring(1) : tag;
 
-    // 按当前平台挑选附件：Windows→zip、macOS→dmg、Android→apk。
+    // 按当前平台挑选附件：Windows→exe 安装包（无 exe 退让 zip）、macOS→dmg、Android→apk。
     final assets = json['assets'] as List<dynamic>? ?? const [];
-    final picked =
-        pickAssetForPlatform(assets, platformKey: currentPlatformKey());
+    final picked = pickAssetForPlatform(
+      assets,
+      platformKey: currentPlatformKey(),
+      // Windows 上「检查更新」要能静默覆盖安装，因此优先 .exe 安装包；
+      // macOS 是 dmg（手动挂载）、Android 走 apk 分支，都不设优先后缀。
+      prefer: Platform.isWindows ? '.exe' : null,
+    );
     final apkUrl = picked?.url ??
         // 无附件时回退到 release body 里的直链
         _extractApkUrl(json['body'] as String?);
@@ -113,32 +119,59 @@ class UpdateChecker {
     return '';
   }
 
+  /// 当前平台是否支持一键自动安装。
+  /// Windows 走 NSIS 静默安装器（exe 附件），Android 拉起系统安装器；
+  /// macOS 仍是 dmg 手动挂载，Web 无自更新，都不算自动。
+  static bool get canAutoInstall => !kIsWeb && (Platform.isWindows || Platform.isAndroid);
+
+  /// 关闭应用（仅 Windows）。自动更新的前提：必须先退出自身，否则正在运行的
+  /// exe 处于文件锁状态，安装器覆盖会失败。
+  /// 用 window_manager.destroy() 走 WM_CLOSE → PostQuitMessage 正常退出链，
+  /// 触发 Flutter 引擎完整清理，比直接 ExitProcess 干净。
+  /// window_manager 是全平台依赖且已在 main.dart/desktop_fullscreen.dart 直接
+  /// import，Web 构建不受影响；本方法只在 Windows 分支被调用。
+  static Future<void> quit() async {
+    if (Platform.isWindows) {
+      await windowManager.destroy();
+    }
+  }
+
   /// 从 release 附件中按平台挑选下载项，找不到可下载附件返回 null。
   /// [platformKey] 非空时按平台关键字匹配文件名（如 -windows），
   /// 为空（Android）时取第一个 apk 附件。
+  ///
+  /// 同平台有多个候选时按 [prefer] 后缀优先 —— Windows 上同时挂了
+  /// `...-windows-1.5.0-setup.exe`（安装包）和 `...-windows-1.5.0.zip`（免安装），
+  /// 优先 exe，因为 app 内可以静默覆盖安装；只有旧 release 没打 exe 时才退让给 zip。
   static UpdateAsset? pickAssetForPlatform(
-      List<dynamic> assets, {required String platformKey}) {
-    if (platformKey.isNotEmpty) {
+      List<dynamic> assets,
+      {required String platformKey,
+      String? prefer}) {
+    // Android：第一个 apk 附件
+    if (platformKey.isEmpty) {
       for (final a in assets) {
         final m = a as Map<String, dynamic>;
         final name = m['name'] as String? ?? '';
-        if (name.contains(platformKey)) {
+        if (name.endsWith('.apk')) {
           final url = m['browser_download_url'] as String? ?? '';
           if (url.isNotEmpty) return UpdateAsset(name, url);
         }
       }
       return null;
     }
-    // Android：第一个 apk 附件
+
+    UpdateAsset? fallback;
     for (final a in assets) {
       final m = a as Map<String, dynamic>;
       final name = m['name'] as String? ?? '';
-      if (name.endsWith('.apk')) {
-        final url = m['browser_download_url'] as String? ?? '';
-        if (url.isNotEmpty) return UpdateAsset(name, url);
-      }
+      if (!name.contains(platformKey)) continue;
+      final url = m['browser_download_url'] as String? ?? '';
+      if (url.isEmpty) continue;
+      final asset = UpdateAsset(name, url);
+      if (prefer != null && name.endsWith(prefer)) return asset;
+      fallback ??= asset;
     }
-    return null;
+    return fallback;
   }
 
   /// 从 release body 文本中提取形如 https://xxx.apk 的直链。

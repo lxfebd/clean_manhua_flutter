@@ -3,6 +3,7 @@
 // 声明该符号，所以无歧义 —— 3.41.x 从 material 解析，3.44+ 从 cupertino 解析。
 // 不能写 `show CupertinoPageTransitionsBuilder`（v1.4.3 就这么写的、3.44 CI 能过），
 // 因为 show 会对「被点名的那个 import」做存在性校验，3.41.x 会报 undefined_shown_name。
+// ignore: unnecessary_import  // 3.41.x 上 material 已转出该符号，3.44 上则必须靠它
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';

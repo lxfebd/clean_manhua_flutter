@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../net/update_checker.dart';
 import '../../net/update_download_manager.dart';
 
 /// 弹出更新下载进度对话框，带进度条 + 字节数 + 百分比 + 取消按钮。
@@ -94,7 +95,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
             children: [
               Text(
                 done
-                    ? '安装包已就绪，请稍候…'
+                    ? _doneMessage()
                     : failed
                         ? '${_state.error}\n\n可稍后从「设置 → 检查更新」重试，或到 GitHub Releases 手动下载。'
                         : '后台下载中，关闭本窗口不会中断\n返回界面或退出 App 均继续下载',
@@ -147,6 +148,13 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
         ],
       ),
     );
+  }
+
+  /// 下载完成后的提示，按平台区分：Windows/Android 会静默安装并自动重启，
+  /// 因此文案提示「即将自动安装升级」；其余平台走向用户手动安装路径。
+  String _doneMessage() {
+    if (UpdateChecker.canAutoInstall) return '即将自动安装升级并重启，请稍候…';
+    return '安装包已就绪，请稍候…';
   }
 
   String _fmt(int bytes) {

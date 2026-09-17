@@ -255,14 +255,43 @@ jobs:
       - name: Analyze
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
-      - name: Build Windows desktop
-        run: flutter build windows --release
-
-      - name: Package Windows build
+      - name: Set app version
+        id: version
         shell: bash
         run: |
+          V=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
+          echo "version=${V}" >> "$GITHUB_OUTPUT"
+
+      - name: Build Windows desktop
+        run: flutter build windows --release --dart-define=APP_VERSION=${{ steps.version.outputs.version }}
+
+      - name: Setup NSIS
+        shell: pwsh
+        run: |
+          # NSIS 3.11 便携版（官方 SourceForge 项目文件），解压即用，无需管理员
+          $nsisVersion = "3.11"
+          $url = "https://downloads.sourceforge.net/project/nsis/NSIS%203/$nsisVersion/nsis-$nsisVersion.zip"
+          Invoke-WebRequest -Uri $url -OutFile nsis.zip
+          Expand-Archive -Path nsis.zip -DestinationPath . -Force
+          $makensis = (Resolve-Path ".\nsis-$nsisVersion\makensis.exe").Path
+          Add-Content $env:GITHUB_ENV "MAKENSIS=$makensis"
+          Write-Host "makensis: $makensis"
+
+      - name: Package Windows installer (NSIS exe)
+        shell: pwsh
+        run: |
+          # makensis 只认 UTF-16LE 或纯 ASCII 脚本；仓库里存 UTF-8，先转码再编译
+          $t = Get-Content -Raw -Encoding UTF8 windows/installer.nsi
+          [IO.File]::WriteAllText("$env:TEMP\installer_u16.nsi", $t, [Text.Encoding]::Unicode)
+          & $env:MAKENSIS -DAPP_VERSION=${{ steps.version.outputs.version }} "$env:TEMP\installer_u16.nsi"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem xingmanxia-windows-*.exe
+
+      - name: Package Windows zip (portable)
+        shell: bash
+        run: |
+          V=${{ steps.version.outputs.version }}
           cd build/windows/x64/runner/Release
-          V=$(grep '^version:' ../../../../../pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
           powershell -NoProfile -Command "Compress-Archive -Path '*' -DestinationPath '..\..\..\..\..\xingmanxia-windows-$V.zip' -Force"
           ls -la ../../../../../xingmanxia-windows-$V.zip
 
@@ -270,7 +299,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: app-windows
-          path: build/windows/x64/runner/Release/
+          path: |
+            build/windows/x64/runner/Release/
+            xingmanxia-windows-*-setup.exe
           if-no-files-found: error
 
       - name: Attach Windows build to Release
@@ -278,5 +309,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          files: xingmanxia-windows-*.zip
-          generate_release_notes: false
+          # 挂 exe 安装包 + zip 免安装包；app 内「检查更新」优先取 setup.exe
+          # 静默覆盖安装（UpdateChecker.pickAssetForPlatform prefer '.exe'），
+          # 旧 release 没打 exe 时回退 zip。
+          files: xingmanxia-windows-*
