@@ -35,6 +35,12 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # action 默认 packages 是 'tools platform-tools'，但 SDK 26+ 已移除 legacy
+          # "tools" 包（改名 cmdline-tools），action 仍硬编码该默认值 → sdkmanager
+          # 报 "Failed to find package 'tools'" 并以 exit code 1 失败。显式覆盖默认值；
+          # cmdline-tools 由下面 sdkmanager --licenses 所在步骤自行安装。
+          packages: platform-tools
 
       - name: Install NDK & Android platform
         run: |
@@ -187,6 +193,12 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # action 默认 packages 是 'tools platform-tools'，但 SDK 26+ 已移除 legacy
+          # "tools" 包（改名 cmdline-tools），action 仍硬编码该默认值 → sdkmanager
+          # 报 "Failed to find package 'tools'" 并以 exit code 1 失败。显式覆盖默认值；
+          # cmdline-tools 由下面 sdkmanager --licenses 所在步骤自行安装。
+          packages: platform-tools
 
       - name: Install NDK & Android platform
         run: |
