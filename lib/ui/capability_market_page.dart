@@ -22,6 +22,8 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
   List<MarketCapabilityEntry>? _entries;
   Object? _error;
   bool _loading = false;
+  String _query = '';
+  final TextEditingController _searchCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -300,6 +302,44 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
                           ),
                         ),
                         const Spacer(),
+                        if (Responsive.isLarge(context))
+                          SizedBox(
+                            width: 200,
+                            height: 34,
+                            child: TextField(
+                              controller: _searchCtrl,
+                              onChanged: (v) =>
+                                  setState(() => _query = v.trim()),
+                              style: const TextStyle(fontSize: 12.5),
+                              decoration: InputDecoration(
+                                hintText: '搜索能力名称/分类',
+                                hintStyle: TextStyle(
+                                    fontSize: 12,
+                                    color: theme.colorScheme.onSurface
+                                        .withValues(alpha: 0.4)),
+                                prefixIcon: Icon(Icons.search_rounded,
+                                    size: 17,
+                                    color: theme.colorScheme.onSurface
+                                        .withValues(alpha: 0.5)),
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 8),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: BorderSide(
+                                      color: theme.colorScheme.onSurface
+                                          .withValues(alpha: 0.15)),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: BorderSide(
+                                      color: theme.colorScheme.onSurface
+                                          .withValues(alpha: 0.15)),
+                                ),
+                              ),
+                            ),
+                          ),
+                        const SizedBox(width: 8),
                         TextButton.icon(
                           onPressed: _loading ? null : _load,
                           icon: const Icon(Icons.refresh_rounded, size: 16),
@@ -366,15 +406,34 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
     if (entries.isEmpty) {
       return const Center(child: Text('暂无可用能力'));
     }
+    final q = _query.toLowerCase();
+    final visible = q.isEmpty
+        ? entries
+        : entries
+            .where((e) =>
+                e.name.toLowerCase().contains(q) ||
+                e.category.toLowerCase().contains(q) ||
+                e.id.toLowerCase().contains(q))
+            .toList();
+    if (visible.isEmpty) {
+      return Center(
+        child: Text(
+          '没有匹配「$_query」的能力',
+          style: TextStyle(
+              fontSize: 13,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+        ),
+      );
+    }
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-      itemCount: entries.length,
+      itemCount: visible.length,
       separatorBuilder: (_, __) => const SizedBox(height: 8),
       itemBuilder: (_, i) => _CapabilityMarketTile(
-        entry: entries[i],
-        onInstall: () => _confirmInstall(entries[i]),
-        onUninstall: () => _uninstall(entries[i]),
-        onDetail: () => _showDetail(entries[i]),
+        entry: visible[i],
+        onInstall: () => _confirmInstall(visible[i]),
+        onUninstall: () => _uninstall(visible[i]),
+        onDetail: () => _showDetail(visible[i]),
       ),
     );
   }
