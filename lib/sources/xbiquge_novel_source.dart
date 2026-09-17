@@ -24,6 +24,11 @@ class XbiqugeNovelSource extends NovelSource {
   // 详情页头部导航按钮标题（非章节名，需跳过）
   static const Set<String> _navTitleLabels = {'开始阅读', '章节目录', '加入书架'};
 
+  // 单章分页上限：多页章节用 _{n}.html 后缀逐页聚合。站点若在末页
+  // 仍返回指向同章的下一页导航（页面结构漂移/404 残留），page 会无限
+  // 递增并持续发请求，正文也随之无限膨胀。设上限兜底，超限即停止聚合。
+  static const int _maxChapterPages = 50;
+
   // 章节列表：<a class="..." href="/books_{nid}/{cid}.html">章节名<span></span></a>
   // （href 前可能带 class 等属性；标题内可能有 <span>，故用惰性捕获再 _clean 去标签）
   static final RegExp _chapterRe = RegExp(
@@ -166,6 +171,9 @@ class XbiqugeNovelSource extends NovelSource {
       if (nextSeg != null && nextSeg.cid == currentCid) {
         // 同一章节的下一页（_{n}.html），继续聚合
         page++;
+        // 防站点畸形导航导致无限翻页：超上限即截断（nextChapterId 将为空，
+        // 用户可回目录重进该章；比无限请求/正文膨胀可控）
+        if (page >= _maxChapterPages) break;
         continue;
       }
       nextChapterId = _resolveChapter(nextHref, novelId, currentCid);

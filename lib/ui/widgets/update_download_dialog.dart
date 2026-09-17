@@ -36,7 +36,9 @@ Future<bool> showUpdateDownloadDialog(
     ),
   );
 
-  return completer.future;
+  // 防对话框销毁后 onResult 永不回调导致 future 永久 pending（调用方 await 悬挂）。
+  // 下载由全局 UpdateDownloadManager 管理，超时后调用方按失败处理，下载不受影响。
+  return completer.future.timeout(const Duration(minutes: 5), onTimeout: () => false);
 }
 
 class _DownloadProgressDialog extends StatefulWidget {
