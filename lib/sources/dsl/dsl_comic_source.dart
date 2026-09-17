@@ -57,12 +57,12 @@ class DslComicSource extends ComicSource {
     return _runRule(url, rule, (els) {
       final list = <Category>[];
       for (final e in els) {
-        final href = _attr(e, rule.url.isNotEmpty ? rule.url : 'href');
+        final href = _extract(e, rule.url.isNotEmpty ? rule.url : 'href');
         final name = rule.itemName != null && rule.itemName!.isNotEmpty
-            ? _attr(e, rule.itemName!)
+            ? _extract(e, rule.itemName!)
             : e.innerText.trim();
         final id = rule.itemUrl != null && rule.itemUrl!.isNotEmpty
-            ? _attr(e, rule.itemUrl!)
+            ? _extract(e, rule.itemUrl!)
             : href;
         list.add(Category(id.isEmpty ? href : id, name.isEmpty ? href : name));
       }
@@ -157,9 +157,11 @@ class DslComicSource extends ComicSource {
     if (chapters.isEmpty && d.chaptersRe.isNotEmpty) {
       final re = RegExp(d.chaptersRe);
       for (final m in re.allMatches(html)) {
-        final title = m.group(1) ?? '';
-        final href = m.group(2) ?? '';
-        if (title.isEmpty || href.isEmpty) continue;
+        // 与 novel 引擎一致：组 1 = 标题、组 2 = 链接；支持命名组 href/title。
+        final title = dslGroup(m, re, 'title', 1);
+        if (title.isEmpty) continue;
+        final href = dslGroup(m, re, 'href', 2);
+        if (href.isEmpty) continue;
         final cid = _extractId(href, comicId);
         if (cid.isEmpty) continue;
         chapters.add(Chapter(cid, title.trim()));
