@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../sources/dsl/custom_source_def.dart';
 import '../sources/dsl/custom_source_store.dart';
 import '../sources/dsl/source_market.dart';
 import 'responsive.dart';
@@ -126,6 +127,180 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
     if (ok == true) await _install(entry);
   }
 
+  /// 查看源详情：能力矩阵 + 各抽取通道方式（CSS/正则），装前预览。
+  void _showDetail(MarketSourceEntry entry) {
+    final def = entry.def;
+    final cap = <(String, IconData, bool)>[
+      ('搜索', Icons.search_rounded, (def.searchUrl ?? '').isNotEmpty),
+      ('分类导航', Icons.category_rounded, (def.categoriesUrl ?? '').isNotEmpty),
+      ('分类列表', Icons.list_alt_rounded,
+          (def.categoryListUrl ?? '').isNotEmpty),
+      ('排行榜', Icons.leaderboard_rounded, (def.rankUrl ?? '').isNotEmpty),
+      ('详情/章节', Icons.menu_book_rounded, (def.detailUrl ?? '').isNotEmpty),
+    ];
+
+    // 抽取方式摘要：列表通道 selector/regex，详情章节/pic 同理。
+    String method(DslListRule? r) => r == null
+        ? '—'
+        : (r.selector.isNotEmpty
+            ? 'CSS ${r.selector}'
+            : r.regex.isNotEmpty
+                ? '正则（捕获组 ${r.regex.length > 28 ? '${r.regex.substring(0, 28)}…' : r.regex}）'
+                : '—');
+    final d = def.detailRule;
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return AlertDialog(
+          title: Text(
+            '${entry.name} v${entry.version}',
+            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+          ),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${entry.type}源 · ${entry.provider}'
+                    '${entry.author.isNotEmpty ? ' · ${entry.author}' : ''}',
+                    style: TextStyle(
+                        fontSize: 12,
+                        color:
+                            theme.colorScheme.onSurface.withValues(alpha: 0.55)),
+                  ),
+                  if (entry.description != null &&
+                      entry.description!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Text(
+                        entry.description!,
+                        style: const TextStyle(fontSize: 13, height: 1.55),
+                      ),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 14, bottom: 6),
+                    child: Text('能力',
+                        style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: theme
+                                .colorScheme.onSurface.withValues(alpha: 0.8))),
+                  ),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final (label, icon, ok) in cap)
+                        Chip(
+                          avatar: Icon(icon,
+                              size: 14,
+                              color: ok
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.onSurface
+                                      .withValues(alpha: 0.3)),
+                          label: Text(
+                            label,
+                            style: TextStyle(
+                                fontSize: 11.5,
+                                color: theme.colorScheme.onSurface
+                                    .withValues(alpha: ok ? 0.85 : 0.4)),
+                          ),
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          backgroundColor: ok
+                              ? theme.colorScheme.primary.withValues(alpha: 0.08)
+                              : theme.colorScheme.surfaceContainerHighest
+                                  .withValues(alpha: 0.4),
+                          side: BorderSide.none,
+                        ),
+                    ],
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 14, bottom: 6),
+                    child: Text('抽取方式',
+                        style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: theme
+                                .colorScheme.onSurface.withValues(alpha: 0.8))),
+                  ),
+                  _detailRow(theme, '列表', method(def.categoryListRule)),
+                  _detailRow(theme, '搜索', method(def.searchRule)),
+                  _detailRow(
+                      theme,
+                      '分类',
+                      def.categoriesRule == null
+                          ? '—'
+                          : 'CSS ${def.categoriesRule!.selector}'),
+                  _detailRow(
+                      theme,
+                      '章节',
+                      d == null
+                          ? '—'
+                          : d.chapters.isNotEmpty
+                              ? 'CSS ${d.chapters}'
+                              : d.chaptersRe.isNotEmpty
+                                  ? '正则（命名组 href/title）'
+                                  : '—'),
+                  _detailRow(
+                      theme,
+                      '图片/播放',
+                      d == null
+                          ? '—'
+                          : d.picListCss.isNotEmpty
+                              ? 'CSS ${d.picListCss}'
+                              : d.picListRe.isNotEmpty
+                                  ? '正则（捕获组 1）'
+                                  : '—'),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('关闭'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// 详情对话框里的一行「通道 → 方式」。
+  Widget _detailRow(ThemeData theme, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 56,
+            child: Text(
+              label,
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                  fontSize: 12,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.75)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -240,6 +415,7 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
         entry: entries[i],
         onInstall: () => _confirmInstall(entries[i]),
         onUninstall: () => _uninstall(entries[i]),
+        onDetail: () => _showDetail(entries[i]),
       ),
     );
   }
@@ -250,11 +426,13 @@ class _SourceTile extends StatefulWidget {
   final MarketSourceEntry entry;
   final VoidCallback onInstall;
   final VoidCallback onUninstall;
+  final VoidCallback onDetail;
 
   const _SourceTile({
     required this.entry,
     required this.onInstall,
     required this.onUninstall,
+    required this.onDetail,
   });
 
   @override
@@ -318,54 +496,64 @@ class _SourceTileState extends State<_SourceTile> {
             ),
           ),
           const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        entry.name,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontSize: 15, fontWeight: FontWeight.w700),
-                      ),
+Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                entry.name,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontSize: 15, fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'v${entry.version}',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  color: theme.colorScheme.onSurface
+                                      .withValues(alpha: 0.5)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 3),
+                        if (entry.description != null &&
+                            entry.description!.isNotEmpty)
+                          Text(
+                            entry.description!,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 12,
+                                height: 1.4,
+                                color: theme.colorScheme.onSurface
+                                    .withValues(alpha: 0.65)),
+                          ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '${entry.type}源 · ${entry.provider}${entry.author.isNotEmpty ? ' · ${entry.author}' : ''}',
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: theme.colorScheme.onSurface
+                                  .withValues(alpha: 0.45)),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'v${entry.version}',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color:
-                              theme.colorScheme.onSurface.withValues(alpha: 0.5)),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 3),
-                if (entry.description != null && entry.description!.isNotEmpty)
-                  Text(
-                    entry.description!,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: 12,
-                        height: 1.4,
-                        color:
-                            theme.colorScheme.onSurface.withValues(alpha: 0.65)),
                   ),
-                const SizedBox(height: 3),
-                Text(
-                  '${entry.type}源 · ${entry.provider}${entry.author.isNotEmpty ? ' · ${entry.author}' : ''}',
-                  style: TextStyle(
-                      fontSize: 11,
-                      color:
-                          theme.colorScheme.onSurface.withValues(alpha: 0.45)),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    tooltip: '查看规则',
+                    visualDensity: VisualDensity.compact,
+                    icon: Icon(Icons.rule_rounded,
+                        size: 17,
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.4)),
+                    onPressed: widget.onDetail,
+                  ),
+                  const SizedBox(width: 8),
           isInstalled
               ? TextButton(
                   onPressed: widget.onUninstall,

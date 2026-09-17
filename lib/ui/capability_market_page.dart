@@ -129,6 +129,137 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
     if (ok == true) await _install(entry);
   }
 
+  /// 能力分类的中文标签（弹窗与 tile 共用语义）。
+  String _capCategory(String c) {
+    switch (c) {
+      case 'ai':
+        return 'AI 能力';
+      case 'video':
+        return '视频增强';
+      case 'utility':
+        return '实用工具';
+      default:
+        return c;
+    }
+  }
+
+  /// 查看能力详情：id/分类/作者/版本 + 权重清单（文件名/体积/SHA256 钉死）。
+  void _showDetail(MarketCapabilityEntry entry) {
+    final theme = Theme.of(context);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          entry.name,
+          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+        ),
+        content: SizedBox(
+          width: 420,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${entry.id} · v${entry.version}',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color:
+                          theme.colorScheme.onSurface.withValues(alpha: 0.55)),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${_capCategory(entry.category)} · ${entry.author}',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color:
+                          theme.colorScheme.onSurface.withValues(alpha: 0.55)),
+                ),
+                if (entry.description != null && entry.description!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Text(
+                      entry.description!,
+                      style: const TextStyle(fontSize: 13, height: 1.55),
+                    ),
+                  ),
+                if (entry.weights.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 14, bottom: 6),
+                    child: Text('依赖权重（下载后 SHA256 校验）',
+                        style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.8))),
+                  ),
+                for (final w in entry.weights)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest
+                            .withValues(alpha: 0.35),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.storage_rounded,
+                                  size: 14,
+                                  color: theme.colorScheme.primary),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  w.name,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                              Text(
+                                w.sizeBytes >= 1024 * 1024
+                                    ? '${(w.sizeBytes / (1024 * 1024)).toStringAsFixed(1)}MB'
+                                    : '${(w.sizeBytes / 1024).toStringAsFixed(0)}KB',
+                                style: TextStyle(
+                                    fontSize: 11.5,
+                                    color: theme.colorScheme.onSurface
+                                        .withValues(alpha: 0.55)),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'SHA256 ${w.sha256}',
+                            style: TextStyle(
+                                fontSize: 10,
+                                fontFamily: 'monospace',
+                                color: theme.colorScheme.onSurface
+                                    .withValues(alpha: 0.5)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -243,6 +374,7 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
         entry: entries[i],
         onInstall: () => _confirmInstall(entries[i]),
         onUninstall: () => _uninstall(entries[i]),
+        onDetail: () => _showDetail(entries[i]),
       ),
     );
   }
@@ -253,11 +385,13 @@ class _CapabilityMarketTile extends StatefulWidget {
   final MarketCapabilityEntry entry;
   final VoidCallback onInstall;
   final VoidCallback onUninstall;
+  final VoidCallback onDetail;
 
   const _CapabilityMarketTile({
     required this.entry,
     required this.onInstall,
     required this.onUninstall,
+    required this.onDetail,
   });
 
   @override
@@ -407,6 +541,15 @@ class _CapabilityMarketTileState extends State<_CapabilityMarketTile> {
                 ),
               ],
             ),
+          ),
+          const SizedBox(width: 4),
+          IconButton(
+            tooltip: '查看详情',
+            visualDensity: VisualDensity.compact,
+            icon: Icon(Icons.info_outline_rounded,
+                size: 17,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.4)),
+            onPressed: widget.onDetail,
           ),
           const SizedBox(width: 8),
           isInstalled
