@@ -81,6 +81,32 @@ void main() {
             <a href="finish">完结</a>
           </div>
         </body></html>''');
+      } else if (path.startsWith('/regex/search/')) {
+        // 搜索页（正则行式抽取，与列表页同结构）
+        req.response.headers.contentType = ContentType.html;
+        req.response.write('''
+        <html><body>
+          <div class="list">
+            <a href="/re/201.html" title="搜索结果一">搜索结果一</a>
+            <img data-src="/re/cover-201.jpg">
+            <a href="/re/202.html" title="搜索结果二">搜索结果二</a>
+            <img data-src="/re/cover-202.jpg">
+          </div>
+        </body></html>''');
+      } else if (path == '/ca/201.html') {
+        // 分类源详情页（css 章节目录 + 章节图片）
+        req.response.headers.contentType = ContentType.html;
+        req.response.write('''
+        <html><body>
+          <h1 class="book-title">热门漫画一</h1>
+          <div class="book-desc">分类演示源详情</div>
+          <div class="chapter-list">
+            <a href="/cc/201-1.html">第1话</a>
+            <a href="/cc/201-2.html">第2话</a>
+          </div>
+          <div class="read-img"><img data-original="/ca/p1.jpg"></div>
+          <div class="read-img"><img data-original="/ca/p2.jpg"></div>
+        </body></html>''');
       } else if (path == '/cat/hot.html') {
         // 分类内容页
         req.response.headers.contentType = ContentType.html;
@@ -94,6 +120,14 @@ void main() {
             <a href="/ca/202.html"><img data-original="/cat/c2.jpg"></a>
             <p><a href="/ca/202.html">热门漫画二</a></p>
           </div>
+        </body></html>''');
+      } else if (path == '/cc/201-1.html') {
+        // 章节图片页（category 源 picListUrl 是 {id} 替换成章节 id）
+        req.response.headers.contentType = ContentType.html;
+        req.response.write('''
+        <html><body>
+          <div class="read-img"><img data-original="/ca/p1.jpg"></div>
+          <div class="read-img"><img data-original="/ca/p2.jpg"></div>
         </body></html>''');
       } else {
         req.response.statusCode = 404;
@@ -121,6 +155,15 @@ void main() {
         'headers': const {'User-Agent': 'Mozilla/5.0'},
         'categoryListUrl': '$base/regex/list/{page}.html',
         'categoryList': {
+          'regex':
+              '<a href="([^"]+)" title="([^"]+)">[^<]*</a>[\\s\\S]*?<img data-src="([^"]+)"',
+          'id': 'r1',
+          'name': 'r2',
+          'pic': 'r3',
+          'url': 'r1',
+        },
+        'searchUrl': '$base/regex/search/{keyword}.html',
+        'search': {
           'regex':
               '<a href="([^"]+)" title="([^"]+)">[^<]*</a>[\\s\\S]*?<img data-src="([^"]+)"',
           'id': 'r1',
@@ -166,6 +209,16 @@ void main() {
           'id': 'p a|href',
           'url': 'p a|href',
           'pic': 'img|data-original',
+        },
+        'detailUrl': '$base/{id}',
+        'detail': {
+          'title': 'h1.book-title',
+          'description': '.book-desc',
+          'chapters': '.chapter-list a',
+          'chapterUrl': 'href',
+          'picListUrl': '$base/{id}',
+          'picListCss': '.read-img img',
+          'picAttr': 'data-original',
         },
       });
 
@@ -229,5 +282,31 @@ void main() {
     expect(items.length, 2);
     expect(items[0].name, '热门漫画一');
     expect(items[0].pic, '$base/cat/c1.jpg');
+  });
+
+  test('regex 源 search 正则搜索', () async {
+    final src = DslComicSource(regexDef());
+    final items = await src.search('搜索', 1);
+    expect(items.length, 2);
+    expect(items[0].name, '搜索结果一');
+    expect(items[0].id, 're/201.html');
+    expect(items[0].pic, '$base/re/cover-201.jpg');
+  });
+
+  test('category 源 detail 抽章节', () async {
+    final src = DslComicSource(categoryDef());
+    final d = await src.detail('ca/201.html');
+    expect(d.name, '热门漫画一');
+    expect(d.description, '分类演示源详情');
+    expect(d.chapters.length, 2);
+    expect(d.chapters[0].title, '第1话');
+  });
+
+  test('category 源 chapterPics 抽图片', () async {
+    final src = DslComicSource(categoryDef());
+    final pics = await src.chapterPics('cc/201-1.html');
+    expect(pics.length, 2);
+    expect(pics.first, '$base/ca/p1.jpg');
+    expect(pics[1], '$base/ca/p2.jpg');
   });
 }
