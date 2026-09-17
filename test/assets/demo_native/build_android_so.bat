@@ -1,6 +1,6 @@
 @echo off
 rem M3 demo .so cross compile (Windows + NDK clang).
-rem usage: build_android_so.bat <ndk_root>  e.g. J:/smter/smart/smart/android-sdk/ndk/28.2.13676358
+rem usage: build_android_so.bat <ndk_root>  e.g. C:\Android\Sdk\ndk\28.2.13676358
 rem output: libdemo_math.so per ABI dir (arm64-v8a/armeabi-v7a/x86_64)
 rem         for jniLibs bundling (build-time; Android forbids runtime dlopen).
 setlocal

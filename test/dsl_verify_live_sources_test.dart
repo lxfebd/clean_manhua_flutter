@@ -5,9 +5,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xingmanxia/sources/dsl/custom_source_def.dart';
 import 'package:xingmanxia/sources/dsl/dsl_video_source.dart';
 
-/// 离线端到端验证：用本机 HTTP 服务器把 `j:\xiangm_transfer\xiangm\back\tmpprobe\live\`
-/// 下存留的真实页面快照挂出去，跑完整链路
-/// `listByCategory → detail → playUrl`。
+/// 离线端到端验证：用本机 HTTP 服务器把本地保存的真实页面快照挂出去，
+/// 跑完整链路 `listByCategory → detail → playUrl`。
+/// 快照目录通过候选路径探测（见 [_findSnapshots]），不硬编码本机绝对路径。
 ///
 /// 这样既复用了 [DslVideoSource] 的真实 `_fetch`/`_extract`/`_transformId`，
 /// 又完全不依赖外部网络（16dns 与 dainyew 当前都对本机强制断连）。
@@ -18,7 +18,6 @@ late HttpServer _server;
 Directory _findSnapshots() {
   final root = Directory.current.absolute;
   final candidates = [
-    Directory(r'j:\xiangm_transfer\xiangm\back\tmpprobe\live'),
     Directory('${root.path}\\..\\tmpprobe\\live'),
     Directory('tmpprobe\\live'),
   ];

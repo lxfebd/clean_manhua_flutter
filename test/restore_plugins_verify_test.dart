@@ -37,10 +37,8 @@ void main() {
     // 写 LocalStore 数据目录：<support>/data/custom_sources.json
     final dataDir = Directory('${tmp.path}/data');
     dataDir.createSync(recursive: true);
-    final wche = File('j:/xiangm_transfer/xiangm/back/clean_manhua_flutter/sources/wche_dm.json')
-        .readAsStringSync();
-    final ashan = File('j:/xiangm_transfer/xiangm/back/clean_manhua_flutter/sources/ashan_yy.json')
-        .readAsStringSync();
+    final wche = File('sources/wche_dm.json').readAsStringSync();
+    final ashan = File('sources/ashan_yy.json').readAsStringSync();
     final combined = '[$wche,$ashan]';
     // 先校验 JSON 合法
     expect(() => jsonDecode(combined), returnsNormally, reason: '合并 JSON 必须合法');
