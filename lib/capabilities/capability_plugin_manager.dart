@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import 'ai_colorize_capability.dart';
 import 'capability_artifact_store.dart';
@@ -94,7 +95,8 @@ class CapabilityPluginManager {
       await plugin.onInstall();
       await plugin.bind();
     } catch (e) {
-      debugPrint('CapabilityPluginManager.install(${plugin.id}) failed: $e');
+      ErrorLogger.instance.warn(
+          'CapabilityPluginManager.install(${plugin.id}) failed: $e');
     }
     await persist();
     revision.value++;
@@ -117,7 +119,8 @@ class CapabilityPluginManager {
       // 卸载即清理本地构件（artifact / 权重），避免「卸载了还占几十~数百 MB」。
       await CapabilityArtifactStore.instance.purge(id);
     } catch (e) {
-      debugPrint('CapabilityPluginManager.uninstall($id) failed: $e');
+      ErrorLogger.instance.warn(
+          'CapabilityPluginManager.uninstall($id) failed: $e');
     }
     await persist();
     revision.value++;
@@ -188,11 +191,13 @@ class CapabilityPluginManager {
                 try {
                   await p.bind();
                 } catch (e) {
-                  debugPrint('CapabilityPluginManager restore bind(${p.id}) failed: $e');
+                  ErrorLogger.instance.warn(
+                      'CapabilityPluginManager restore bind(${p.id}) failed: $e');
                 }
               }
             } catch (e) {
-              debugPrint('CapabilityPluginManager restore item failed: $e');
+              ErrorLogger.instance
+                  .warn('CapabilityPluginManager restore item failed: $e');
             }
           }
         }
@@ -209,7 +214,7 @@ class CapabilityPluginManager {
         }
       }
     } catch (e) {
-      debugPrint('CapabilityPluginManager.restore disabled failed: $e');
+      ErrorLogger.instance.warn('CapabilityPluginManager.restore disabled failed: $e');
     }
   }
 

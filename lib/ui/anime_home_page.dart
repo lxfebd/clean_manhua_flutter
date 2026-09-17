@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../net/error_logger.dart';
 import '../models/comic_item.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
@@ -107,7 +108,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
       final cats = await _source.categories();
       if (mounted && cats.isNotEmpty) setState(() => _sourceCats = cats);
     } catch (e) {
-      debugPrint('loadSourceCats failed: $e');
+      ErrorLogger.instance.warn('loadSourceCats failed: $e');
     }
   }
 

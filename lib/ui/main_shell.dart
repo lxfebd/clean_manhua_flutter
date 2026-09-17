@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import '../net/update_checker.dart';
 import '../services/player_registry.dart';
@@ -206,7 +207,7 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
       if (info == null || !mounted) return;
       _showUpdateDialog(info);
     } catch (e) {
-      debugPrint('auto update check failed: $e');
+      ErrorLogger.instance.warn('auto update check failed: $e');
     }
   }
 

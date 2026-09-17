@@ -490,7 +490,6 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('[novel-reader] BUILD loading=$_loading error=${_error != null} content=${_content != null} title=${_content?.title ?? widget.title} theme=$_theme colorTemp=$_colorTemp surface=${Theme.of(context).colorScheme.surface} onSurface=${Theme.of(context).colorScheme.onSurface} surfaceTint=${Theme.of(context).colorScheme.surfaceTint} brightness=${Theme.of(context).brightness}');
     final scheme = Theme.of(context).colorScheme;
     final useCustomBg = _theme > 0;
     final bgColor = useCustomBg

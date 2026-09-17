@@ -980,7 +980,7 @@ class LocalStore {
           .map((e) => DownloadRecord.fromMap(e as Map<String, dynamic>))
           .toList();
     } catch (e) {
-      debugPrint('LocalStore.downloads() error: $e');
+      ErrorLogger.instance.warn('LocalStore.downloads() error: $e');
       return [];
     }
   }

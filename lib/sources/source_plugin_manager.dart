@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import 'source_config.dart';
 import 'source_plugin.dart';
@@ -84,7 +85,7 @@ class SourcePluginManager {
       await plugin.onInstall();
       await plugin.bind();
     } catch (e) {
-      debugPrint('SourcePluginManager.install(${plugin.id}) failed: $e');
+      ErrorLogger.instance.warn('SourcePluginManager.install(${plugin.id}) failed: $e');
     }
     revision.value++;
   }
@@ -100,7 +101,7 @@ class SourcePluginManager {
       await p.unbind();
       await p.onUninstall();
     } catch (e) {
-      debugPrint('SourcePluginManager.uninstall($id) failed: $e');
+      ErrorLogger.instance.warn('SourcePluginManager.uninstall($id) failed: $e');
     }
     await persist();
     revision.value++;
@@ -173,7 +174,7 @@ class SourcePluginManager {
           ..addAll((raw['disabled'] as List).whereType<String>());
       }
     } catch (e) {
-      debugPrint('SourcePluginManager.restore disabled failed: $e');
+      ErrorLogger.instance.warn('SourcePluginManager.restore disabled failed: $e');
     }
   }
 

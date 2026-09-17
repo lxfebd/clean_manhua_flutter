@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -6,7 +5,9 @@ import 'package:flutter/foundation.dart';
 
 import '../models/comic_item.dart';
 import '../sources/novel_source.dart';
+import '../utils/debounced_writer.dart';
 import '../utils/file_backup.dart';
+import 'error_logger.dart';
 import 'web_persist.dart';
 
 /// 小说本地书架：与漫画 [BookshelfStore] 分离，独立 JSON 文件，避免与漫画条目混淆。
@@ -14,11 +15,11 @@ import 'web_persist.dart';
 class NovelShelfStore {
   static File? _file;
   static Map<String, dynamic> _cache = {};
-  static Timer? _saveTimer;
-  /// 串行写盘队列：防抖触发后只允许一个 writeAsString 在途，杜绝并发写坏文件。
-  static Future<void> _writeTail = Future.value();
   /// 是否已从持久层加载（web 端避免重复读 localStorage）。
   static bool _loaded = false;
+  /// 防抖串行写盘（300ms 合并 + 单写盘在途），与 BookshelfStore 共用同一原语。
+  static final DebouncedSerialWriter _writer =
+      DebouncedSerialWriter(debugName: 'novel_shelf');
 
   static void bindFile(File file) {
     _file = file;
@@ -35,9 +36,9 @@ class NovelShelfStore {
     try {
       _cache = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
     } catch (e) {
-      debugPrint('novel_shelf 数据损坏，已备份原文件: $e');
+      ErrorLogger.instance.warn('novel_shelf 数据损坏，已备份原文件: $e');
       if (!f.backupCorrupt()) {
-        debugPrint('novel_shelf 备份失败: $e');
+        ErrorLogger.instance.warn('novel_shelf 备份失败: $e');
       }
       _cache = {};
     }
@@ -60,10 +61,8 @@ class NovelShelfStore {
   }
 
   /// 防抖异步写盘：300ms 内多次调用合并为一次写入。
-  /// 写入通过 [_writeTail] 串行排队，杜绝并发 writeAsString 交错。
   static void _save() {
-    _saveTimer?.cancel();
-    _saveTimer = Timer(const Duration(milliseconds: 300), () {
+    _writer.schedule(() async {
       final snapshot = jsonEncode(_cache);
       if (kIsWeb) {
         WebPersist.write('novel_shelf', snapshot);
@@ -71,16 +70,8 @@ class NovelShelfStore {
       }
       final f = _file;
       if (f == null) return;
-      _writeTail = _writeTail.then((_) => _writeAsync(f, snapshot));
+      await f.writeAsString(snapshot, flush: true);
     });
-  }
-
-  static Future<void> _writeAsync(File f, String data) async {
-    try {
-      await f.writeAsString(data, flush: true);
-    } catch (e) {
-      debugPrint('novel_shelf 写盘失败: $e');
-    }
   }
 
   static String _key(String sourceId, String novelId) => '$sourceId|$novelId';

@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
+import 'error_logger.dart';
 import 'http_client.dart';
 
 class RouteDiagnostic {
@@ -40,11 +40,11 @@ class RouteDiagnostic {
       final ok = await client.get(testUrl);
       client.close();
       if (ok) {
-        debugPrint('Route OK: $testUrl ${sw.elapsedMilliseconds}ms');
+        ErrorLogger.instance.debug('Route OK: $testUrl ${sw.elapsedMilliseconds}ms');
       }
       return ok;
     } catch (e) {
-      debugPrint('Route FAIL: $base${path ?? ""} ($e)');
+      ErrorLogger.instance.warn('Route FAIL: $base${path ?? ""} ($e)');
       return false;
     }
   }

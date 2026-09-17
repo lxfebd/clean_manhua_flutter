@@ -1,7 +1,8 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+
+import '../net/error_logger.dart';
 
 /// 朗读状态机：idle → speaking ↔ paused。
 enum TtsPlayState { idle, speaking, paused }
@@ -66,7 +67,7 @@ class NovelTtsService {
         _timer = Timer(const Duration(milliseconds: 550), _speakNext);
       });
     } catch (e) {
-      debugPrint('NovelTts init: $e');
+      ErrorLogger.instance.warn('NovelTts init: $e');
     }
   }
 
@@ -171,7 +172,7 @@ class NovelTtsService {
     try {
       await _tts.speak(text);
     } catch (e) {
-      debugPrint('NovelTts speak: $e');
+      ErrorLogger.instance.warn('NovelTts speak: $e');
       _accumulating = false;
       _setState(TtsPlayState.idle);
     }

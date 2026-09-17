@@ -1,7 +1,6 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
-
+import '../net/error_logger.dart';
 import '../net/http_client.dart';
 
 /// 弹幕条目：出现时间（秒）、文本、颜色（ARGB）、类型。
@@ -65,7 +64,7 @@ class DanmakuFetcher {
       if (epId == null) return const [];
       return await _comments(epId);
     } catch (e) {
-      debugPrint('danmaku fetch($title, $episode) failed: $e');
+      ErrorLogger.instance.warn('danmaku fetch($title, $episode) failed: $e');
       return const [];
     }
   }

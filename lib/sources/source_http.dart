@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../net/circuit_breaker.dart';
+import '../net/error_logger.dart';
 import '../net/http_client.dart';
 import 'source_config.dart';
 import 'source_result.dart';
@@ -32,7 +33,7 @@ class SourceHttp {
       final p = c.proxy?.trim() ?? '';
       return p.isEmpty ? null : p;
     } catch (e) {
-      debugPrint('proxyFor($engineId) failed: $e');
+      ErrorLogger.instance.warn('proxyFor($engineId) failed: $e');
       return null;
     }
   }

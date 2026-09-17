@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:pointycastle/export.dart';
 
+import 'error_logger.dart';
 import 'local_store.dart';
 
 /// 单集视频下载任务。
@@ -155,7 +156,7 @@ class VideoDownloadManager {
         }
       }
     } catch (e) {
-      debugPrint('VideoDownloadManager.init() 索引解析失败: $e');
+      ErrorLogger.instance.warn('VideoDownloadManager.init() 索引解析失败: $e');
     }
     _ready = true;
     _notify();
@@ -284,7 +285,7 @@ class VideoDownloadManager {
         final f = File(t.localPath!);
         if (f.existsSync()) f.deleteSync();
       } catch (e) {
-        debugPrint('删除下载文件失败 ${t.localPath}: $e');
+        ErrorLogger.instance.warn('删除下载文件失败 ${t.localPath}: $e');
       }
     }
     _drain();
@@ -627,7 +628,7 @@ class VideoDownloadManager {
       final list = _tasks.values.map((t) => t.toJson()).toList();
       await _indexFile.writeAsString(jsonEncode(list), flush: true);
     } catch (e) {
-      debugPrint('VideoDownloadManager 索引保存失败: $e');
+      ErrorLogger.instance.warn('VideoDownloadManager 索引保存失败: $e');
     }
   }
 }

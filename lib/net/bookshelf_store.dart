@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -6,7 +5,9 @@ import 'package:flutter/foundation.dart';
 
 import '../models/comic_item.dart';
 import '../sources/comic_source.dart';
+import '../utils/debounced_writer.dart';
 import '../utils/file_backup.dart';
+import 'error_logger.dart';
 import 'local_store.dart';
 import 'web_persist.dart';
 
@@ -15,13 +16,12 @@ import 'web_persist.dart';
 class BookshelfStore {
   static File? _file;
   static Map<String, dynamic> _cache = {};
-  static Timer? _saveTimer;
   static Map<String, String> _idIndex = {};
   /// 是否已从持久层加载（web 端避免重复读 localStorage）。
   static bool _loaded = false;
-  /// 串行写盘队列：防抖触发后只允许一个 writeAsString 在途，
-  /// 连点收藏/移出时不会并发写坏文件。
-  static Future<void> _writeTail = Future.value();
+  /// 防抖串行写盘（300ms 合并 + 单写盘在途），与 NovelShelfStore 共用同一原语。
+  static final DebouncedSerialWriter _writer =
+      DebouncedSerialWriter(debugName: 'bookshelf');
 
   // ---- 书架分类（文件夹） ----
   /// 分类存储文件名（独立于 bookshelf.json：书籍是条目级数据，
@@ -93,7 +93,7 @@ class BookshelfStore {
       _folderNames = names;
       _folderSort = sort;
     } catch (e) {
-      debugPrint('shelf_folders 解析失败（数据可能已损坏）: $e');
+      ErrorLogger.instance.warn('shelf_folders 解析失败（数据可能已损坏）: $e');
       _folderNames = {};
       _folderSort = {};
     }
@@ -219,9 +219,9 @@ class BookshelfStore {
     } catch (e) {
       // 数据损坏（写入中断/磁盘错误）：备份损坏文件再从空开始，
       // 避免静默清空导致用户书架"凭空消失"且无法追溯。
-      debugPrint('bookshelf 数据损坏，已备份原文件: $e');
+      ErrorLogger.instance.warn('bookshelf 数据损坏，已备份原文件: $e');
       if (!f.backupCorrupt()) {
-        debugPrint('bookshelf 备份失败: $e');
+        ErrorLogger.instance.warn('bookshelf 备份失败: $e');
       }
       _cache = {};
     }
@@ -239,10 +239,8 @@ class BookshelfStore {
   }
 
   /// 防抖异步写盘：300ms 内多次调用合并为一次写入。
-  /// 写入通过 [_writeTail] 串行排队，杜绝并发 writeAsString 交错。
   static void _save() {
-    _saveTimer?.cancel();
-    _saveTimer = Timer(const Duration(milliseconds: 300), () {
+    _writer.schedule(() async {
       final snapshot = jsonEncode(_cache);
       if (kIsWeb) {
         WebPersist.write('bookshelf', snapshot);
@@ -250,17 +248,8 @@ class BookshelfStore {
       }
       final f = _file;
       if (f == null) return;
-      _writeTail = _writeTail.then((_) => _writeAsync(f, snapshot));
+      await f.writeAsString(snapshot, flush: true);
     });
-  }
-
-  static Future<void> _writeAsync(File f, String data) async {
-    try {
-      await f.writeAsString(data, flush: true);
-    } catch (e) {
-      // 写盘失败（磁盘满/权限）需可观测，否则内存已更新但磁盘没落盘，下次启动丢失
-      debugPrint('bookshelf 写盘失败: $e');
-    }
   }
 
   static String _key(String sourceId, String comicId) => '$sourceId|$comicId';

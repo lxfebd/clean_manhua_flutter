@@ -1,7 +1,6 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
-
+import '../../net/error_logger.dart';
 import '../../net/local_store.dart';
 import '../source_manager.dart';
 import '../source_plugin.dart';
@@ -92,7 +91,7 @@ class CustomSourceStore {
     try {
       decoded = jsonDecode(json);
     } catch (e) {
-      debugPrint('CustomSourceStore.importJson decode failed: $e');
+      ErrorLogger.instance.warn('CustomSourceStore.importJson decode failed: $e');
       return 0;
     }
     final list = <Map<String, dynamic>>[];
@@ -108,7 +107,7 @@ class CustomSourceStore {
       final def = CustomSourceDef.fromJson(m);
       final errs = def.validate();
       if (errs.isNotEmpty) {
-        debugPrint('CustomSourceStore.importJson skip ${def.id}: $errs');
+        ErrorLogger.instance.warn('CustomSourceStore.importJson skip ${def.id}: $errs');
         continue;
       }
       await upsert(def);

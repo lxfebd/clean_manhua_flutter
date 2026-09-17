@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import '../sources/source_config.dart';
 import '../sources/source_manager.dart';
@@ -124,7 +125,7 @@ class SourceHealthMonitor {
         }
       }
     } catch (e) {
-      debugPrint('SourceHealthMonitor.restore failed: $e');
+      ErrorLogger.instance.warn('SourceHealthMonitor.restore failed: $e');
     }
   }
 
@@ -144,7 +145,7 @@ class SourceHealthMonitor {
             }).toList(),
       );
     } catch (e) {
-      debugPrint('SourceHealthMonitor.persist failed: $e');
+      ErrorLogger.instance.warn('SourceHealthMonitor.persist failed: $e');
     }
   }
 
@@ -174,7 +175,7 @@ class SourceHealthMonitor {
       await _persist();
       _revision?.value++;
     } catch (e) {
-      debugPrint('SourceHealthMonitor.runOnce failed: $e');
+      ErrorLogger.instance.warn('SourceHealthMonitor.runOnce failed: $e');
     } finally {
       _busy = false;
     }

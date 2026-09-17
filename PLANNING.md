@@ -95,7 +95,7 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 | # | 债 | 位置 | 修法 |
 |---|---|---|---|
 | P0-1 | 小说章节**加载成功**误写 ERROR 级日志 + 重复 debugPrint | `novel_reader_page.dart:288,290` | ✅ 已修（2026-09-11 复核）：成功事件改 `ErrorLogger.debug` + 删重复行（`:288-290` 现为 debug 级 + 注释说明不污染错误计数） |
-| P0-2 | `UpdateChecker.init()` 并行段双调无幂等守卫 → 静态 `_cached` 并发写、日志版本窗口期错误 | `main.dart:138,142`；`update_checker.dart:46-51` | 加 `_inited` 幂等 + 合并为单次 init |
+| P0-2 | `UpdateChecker.init()` 并行段双调无幂等守卫 → 静态 `_cached` 并发写、日志版本窗口期错误 | `main.dart:138,142`；`update_checker.dart:46-51` | ✅ 已修：`_inited` 幂等守卫 + main 启动链合并为单次 init（`main.dart:144-148` 注释「避免 UpdateChecker.init() 被双调」） |
 
 ### P1（该修，数据正确性/可观测/性能）
 
@@ -108,14 +108,14 @@ lib/ui/tokens.dart(167) + lib/theme.dart(287)：TypeScale 手机/平板双档 + 
 | P1-5 | 图片内存缓存 key 归一化不一致 | `image_cache.dart:213,220`（查 norm 写 url） | ✅ 已修：`_putMem(norm, ...)` 全收口（`:184,200,238,244`），`load()` 入口 norm 化 |
 | P1-6 | `_maybeTrimDisk` UI 线程同步全目录扫描（2000 文件 × 4 sync 调用） | `image_cache.dart:290-311` | ✅ 已修（1.4.3+54）：改单次惰性扫描（async 流式 + where 过滤，非阻塞累计），磁盘写后异步触发不阻塞 UI 线程 |
 | P1-7 | `getBytesAuto` 吞 timeout 参数 | `http_client.dart:467-474` | ✅ 已修：timeout 透传（`getBytesAuto` → `_getBytesOnce`/`_getWithFallback` 全链路带参，`:301-324,409-416`） |
-| P1-8 | 三套重复持久化栈 + 双写路径 | `local_store.dart` vs `bookshelf_store.dart`/`novel_shelf_store.dart` | 提取公共「串行队列+损坏备份」基类（低优先，功能正确性已在）；备份契约文档化 |
+| P1-8 | 三套重复持久化栈 + 双写路径 | `local_store.dart` vs `bookshelf_store.dart`/`novel_shelf_store.dart` | ✅ 已修（2026-09-17）：抽 `utils/debounced_writer.dart`（`DebouncedSerialWriter`：300ms 防抖 + 串行写链 + 失败 warn），bookshelf/novel_shelf 接入，删各自 `_saveTimer`/`_writeTail`/`_writeAsync` 三件套；local_store `_enqueue` 语义不同（per-key 读改写保护）保持独立，差异已在基类注释文档化 |
 | P1-9 | 每请求 `client.close(force:true)` 无连接复用 | `http_client.dart:376,497,551` | 主体走 Cronet 连接复用；dart:io 兜底因优选 IP/代理每请求新建（有意的连接策略，`client.close()` 仅剩探活路径 :527） |
 | P1-10 | `badCertificateCallback => true` 四处放行 MITM | `http_client.dart:186,210,223`、`webdav_sync.dart:158`、`update_download_manager.dart:150`、`update_checker.dart:183` | ✅ 已修（1.4.3+47）：新增 `Net.trustSelfSigned` 开关（设置页「网络」区，默认严格校验），5 处含 route_diagnostic 全收敛 |
 | P1-11 | `buildUrl` 不 URL 编码（CJK 搜索词） | `http_client.dart:588-600` | ✅ 已修（1.4.3+47）：Uri.replace(queryParameters) 编码 |
 | P1-12 | WebDAV pull 整包覆盖无合并；密钥裸 SHA256 无盐无迭代 | `webdav_sync.dart:276-282,326-334` | ✅ 已修（1.4.3+54）：密钥升级 PBKDF2-HMAC-SHA256（120k 迭代 + 固定盐 `xingmanxia-webdav-v2`），新文件写 v2 魔数 `XMX-SYNC-2:`，旧 v1 文件仍可解密（历史备份兼容）；merge 三向判断仍按手动同步语义（pull 全量拉取+本地合并清单），不加自动合并 |
-| P1-13 | 日志可观测性≈0：38 处 debugPrint / 21 文件；ErrorLogger 四级只用 1/4 | 启动链 `main.dart:90-175` 8 处、持久化 catch 等 | ✅ 已修（1.4.3+47）：main.dart 10 处 debugPrint 全改 ErrorLogger.warn；剩余按页面改动顺带收敛 |
+| P1-13 | 日志可观测性≈0：38 处 debugPrint / 21 文件；ErrorLogger 四级只用 1/4 | 启动链 `main.dart:90-175` 8 处、持久化 catch 等 | ✅ 已修：main.dart 全部改 ErrorLogger.warn；本次批次（2026-09-17）收敛剩余 12 文件 21 处（manager/store/http/UI 层），`lib/` 仅剩 5 处有意保留（error_logger 自身防递归 3 + MPV/HlsDiag 诊断，`flutter analyze` 0 告警） |
 | P1-14 | 26 个 regression_* 测试 gitignore，CI 跑不到（回归保护=0） | `.gitignore:57` | ✅ 已修（1.4.3+57，commit 20cc869）：29 个 regression_* 测试已入库并被 git 跟踪（`git ls-files` 验证），单个测试可跑通（regression_reader_mode_test 通过）；`.gitignore` 无 regression 规则确认；真网络打活测保持不入库 |
-| P1-15 | JM 纯 Dart 解码（单张 200-800ms）无原生降级路径——卡顿根因 | `jm_scramble.dart:88-116` | 长线：Android BitmapFactory MethodChannel；短期：分档限位解码保持 |
+| P1-15 | JM 纯 Dart 解码（单张 200-800ms）无原生降级路径——卡顿根因 | `jm_scramble.dart:88-116` | ✅ 已修（短期方案，2026-09-16）：`_maxConcurrent=2` 信号量（并发 compute 上限，不绝对串行）+ reader 预取 JM 收紧 2 页 + 跳过下章预取；长线（BitmapFactory MethodChannel）随 P1-16 拆分另立项 |
 | P1-16 | 6 个巨型文件 SRP 违规（35% 代码量） | reader/anime_player/bookshelf/native_player/local_store/http_client | 随 Riverpod 渐进重构顺带拆（不做单独大重构） |
 | P1-17 | token 落地不足：344 处内联 fontSize、252 处 borderRadius、66 处硬编码 Color；断点魔法数字 600 | `main.dart:241,280` 应引 `Responsive.compactBreakpoint`；tokens `S.x*` 几乎未用 | 页面级改造时顺带收敛，不单独立项 |
 | P1-18 | 本地工作区 229M 构建产物 | `app-debug-ci.apk`(117M) + `downloaded_release.apk`(111M) + `ci_parts/`(118M) | ✅ 已清理（1.4.3+47）|

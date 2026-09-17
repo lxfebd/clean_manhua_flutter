@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/comic_item.dart';
+import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
@@ -58,7 +59,7 @@ class _HomePageState extends State<HomePage> {
       final cats = await SourceManager.current.categories();
       if (mounted) setState(() => _cats = cats);
     } catch (e) {
-      debugPrint('loadCategories failed: $e');
+      ErrorLogger.instance.warn('loadCategories failed: $e');
     }
   }
 
@@ -103,7 +104,7 @@ class _HomePageState extends State<HomePage> {
       }
     } catch (e) {
       // 快照损坏/缺失：静默忽略，走正常网络加载
-      debugPrint('loadCachedSnapshot failed: $e');
+      ErrorLogger.instance.warn('loadCachedSnapshot failed: $e');
     }
   }
 
@@ -121,7 +122,7 @@ class _HomePageState extends State<HomePage> {
           _snapshotKey, _dedup(items).map((e) => e.toMap()).toList());
     } catch (e) {
       // 写快照失败不影响主流程
-      debugPrint('saveSnapshot failed: $e');
+      ErrorLogger.instance.warn('saveSnapshot failed: $e');
     }
   }
 

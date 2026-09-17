@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:volume_controller/volume_controller.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
+import '../net/error_logger.dart';
 import '../net/http_client.dart';
 import '../net/local_store.dart';
 import '../sources/video_source.dart';
@@ -241,7 +242,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
         }
       });
     } catch (e) {
-      debugPrint('WebView2 init failed: $e');
+      ErrorLogger.instance.warn('WebView2 init failed: $e');
       if (!mounted) return;
       setState(() {
         _webError = '网页播放器初始化失败\n$e\n请检查系统是否安装了 WebView2 运行时';
