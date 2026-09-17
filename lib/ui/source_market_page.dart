@@ -183,6 +183,17 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
                         style: const TextStyle(fontSize: 13, height: 1.55),
                       ),
                     ),
+                  if (def.picHeaders.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        '图片防盗链：${def.picHeaders.entries.map((e) => '${e.key}=${e.value}').join(', ')}',
+                        style: TextStyle(
+                            fontSize: 11.5,
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.6)),
+                      ),
+                    ),
                   Padding(
                     padding: const EdgeInsets.only(top: 14, bottom: 6),
                     child: Text('能力',

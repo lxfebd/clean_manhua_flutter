@@ -20,6 +20,8 @@ import '../net/smart_prefetch.dart';
 import 'responsive.dart';
 import 'reader_mode_geometry.dart';
 import '../sources/comic_source.dart';
+import '../sources/dsl/custom_source_def.dart';
+import '../sources/dsl/custom_source_store.dart';
 import '../sources/source_http.dart';
 import '../sources/source_manager.dart';
 import '../utils/image_super_res.dart';
@@ -206,6 +208,8 @@ class _ReaderPageState extends State<ReaderPage>
     if (DesktopUi.isDesktopPlatform) {
       HardwareKeyboard.instance.addHandler(_keyHandler);
     }
+    // 预热源 def（picHeaders 读图头用），不阻塞首屏。
+    _pendingDef();
     _init();
   }
 
@@ -667,9 +671,15 @@ class _ReaderPageState extends State<ReaderPage>
     }
   }
 
-  /// 部分图源 CDN 需要 Referer 头才返回图片（如 dm5 的 cdndm5.com），
-  /// 否则返回 403/404 导致「图片加载失败」。
-  static Map<String, String>? _headersForUrl(String url) {
+  /// 部分图源 CDN 需要 Referer 头才返回图片（如 dm5 的 cdndm5.com 或自定义
+  /// DSL 源配置的 picHeaders），否则 403/404 导致「图片加载失败」。
+  /// 合并 DSL 源级 picHeaders（源配置优先）+ 内置站点兜底。
+  Map<String, String>? _headersForUrl(String url) {
+    // 自定义 DSL 源配置的图片请求头（图片防盗链），优先于内置兜底。
+    final def = _defForSource(widget.sourceId);
+    if (def != null && def.picHeaders.isNotEmpty) {
+      return Map<String, String>.from(def.picHeaders);
+    }
     final host = Uri.tryParse(url)?.host ?? '';
     if (host.contains('cdndm5.com')) {
       // 从 URL 的 cid 参数还原章节页作为 Referer（CDN 校验 Referer 路径）
@@ -685,6 +695,19 @@ class _ReaderPageState extends State<ReaderPage>
     }
     return null;
   }
+
+  /// 异步读当前源的 CustomSourceDef（DSL 源才返回，内置源返回 null）。
+  Future<CustomSourceDef?>? _defFuture;
+  CustomSourceDef? _defCache;
+  Future<CustomSourceDef?> _pendingDef() => _defFuture ??= () async {
+    final def = await CustomSourceStore.byId(widget.sourceId);
+    _defCache = def;
+    return def;
+  }();
+
+  /// 同步取当前源 def（缓存命中直接返回，未命中返回 null——图片头仅在
+  /// 已有缓存时同步合并，首次加载靠 loader 异步通道）。
+  CustomSourceDef? _defForSource(String sourceId) => _defCache;
 
   int _downloadDone = 0;
   int _downloadTotal = 0;
@@ -2270,6 +2293,9 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
   bool _failed = false;
   bool _colorized = false; // 上色已执行（成功或降级都置位，避免重复推理）
 
+  /// 当前源的 CustomSourceDef 缓存（picHeaders 读图用）。
+  CustomSourceDef? _defCache;
+
   /// 与 _ImageView 一致：横向翻页关闭 keepAlive，翻走即销毁释放内存，
   /// 避免长条图在 PageView 中累积导致 OOM。
   @override
@@ -2278,7 +2304,16 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
   @override
   void initState() {
     super.initState();
+    _loadDef();
     _load();
+  }
+
+  /// 预载源 def（picHeaders 读图头用），首次失败不阻塞图片加载。
+  Future<void> _loadDef() async {
+    try {
+      final def = await CustomSourceStore.byId(widget.sourceId);
+      if (mounted && def != null) setState(() => _defCache = def);
+    } catch (_) {/* 忽略：无该源时读图走无头兜底 */}
   }
 
   @override
@@ -2292,9 +2327,28 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
     }
   }
 
-  /// 部分图源 CDN 需要 Referer 头才返回图片（如 dm5 的 cdndm5.com），
-  /// 否则返回 403/404 导致「图片加载失败」。与 _prefetch 保持一致的 headers。
-  Map<String, String>? _headers() => _ReaderPageState._headersForUrl(widget.url);
+  /// 部分图源 CDN 需要 Referer 头才返回图片（如 dm5 的 cdndm5.com 或自定义
+  /// DSL 源配置的 picHeaders），否则 403/404 导致「图片加载失败」。
+  /// 与 `_prefetch` 保持一致的 headers；源级 picHeaders 优先于内置兜底。
+  Map<String, String>? _headers() {
+    final def = _defCache;
+    if (def != null && def.picHeaders.isNotEmpty) {
+      return Map<String, String>.from(def.picHeaders);
+    }
+    final host = Uri.tryParse(widget.url)?.host ?? '';
+    if (host.contains('cdndm5.com')) {
+      final cid = Uri.tryParse(widget.url)?.queryParameters['cid'] ?? '';
+      return {
+        'Referer': cid.isNotEmpty
+            ? 'https://m.dm5.com/m$cid/'
+            : 'https://m.dm5.com/'
+      };
+    }
+    if (host.contains('doubaomanhua.com') || host.contains('bzcdn')) {
+      return {'Referer': 'https://www.doubaomanhua.com/'};
+    }
+    return null;
+  }
 
   String _srKey() => '${widget.url}|${ImageSuperRes.algoVersion}';
 

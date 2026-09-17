@@ -23,6 +23,8 @@ class CustomSourceDef {
   final List<String> hosts;
   final List<String> imageHosts;
   final Map<String, String> headers;
+  /// 图片请求头（防盗链 Referer 等），阅读器加载图源时携带。
+  final Map<String, String> picHeaders;
   final bool requiresLogin;
   final String? categoriesUrl;
   final DslListRule? categoriesRule;
@@ -46,6 +48,7 @@ class CustomSourceDef {
     this.hosts = const [],
     this.imageHosts = const [],
     this.headers = const {},
+    this.picHeaders = const {},
     this.requiresLogin = false,
     this.categoriesUrl,
     this.categoriesRule,
@@ -70,6 +73,7 @@ class CustomSourceDef {
         hosts: _strList(j['hosts']),
         imageHosts: _strList(j['imageHosts']),
         headers: _strMap(j['headers']),
+        picHeaders: _strMap(j['picHeaders']),
         requiresLogin: (j['requiresLogin'] as bool?) ?? false,
         categoriesUrl: j['categoriesUrl'] as String?,
         categoriesRule: _rule(j['categories']),
@@ -94,6 +98,7 @@ class CustomSourceDef {
         'hosts': hosts,
         'imageHosts': imageHosts,
         'headers': headers,
+        'picHeaders': picHeaders,
         'requiresLogin': requiresLogin,
         'categoriesUrl': categoriesUrl,
         'categories': categoriesRule?.toJson(),

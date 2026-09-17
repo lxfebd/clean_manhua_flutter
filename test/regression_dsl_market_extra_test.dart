@@ -152,6 +152,7 @@ void main() {
             '验证分类页下拉与分类内容列表。',
         'baseUrl': base,
         'headers': const {'User-Agent': 'Mozilla/5.0'},
+        'picHeaders': {'Referer': '$base/'},
         'categoriesUrl': '$base/cat/categories.html',
         'categories': {
           'css': 'div.nav a',
@@ -201,6 +202,16 @@ void main() {
 
   test('category 源 validate() 通过', () {
     expect(categoryDef().validate(), isEmpty);
+  });
+
+  test('picHeaders round-trip 保留', () {
+    final def = categoryDef();
+    expect(def.picHeaders, isNotEmpty);
+    expect(def.picHeaders['Referer'], '$base/');
+    final json = def.toJson();
+    json['baseUrl'] = base; // 序列化后 baseUrl 还是测试定义的，保持一致
+    final def2 = CustomSourceDef.fromJson(json);
+    expect(def2.picHeaders['Referer'], '$base/');
   });
 
   test('category 源 categories() 解析导航', () async {
