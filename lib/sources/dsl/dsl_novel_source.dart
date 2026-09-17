@@ -25,9 +25,8 @@ import 'html_parser.dart';
 ///   （不命中的段落跳过）。
 ///
 /// 未实现（接口默认/空实现，jobs/shelf 走本地书架）：
-/// - `categories` / `listByCategory` / `rank`：返回空（这类站点通常无分类导航）
-/// - 上下章导航：返回 null。
 /// - `rank`：返回空列表。
+/// - 上下章导航：返回 null。
 ///
 /// 网络统一走全局 Net（http_client.dart）。
 class DslNovelSource extends NovelSource {
@@ -53,13 +52,43 @@ class DslNovelSource extends NovelSource {
   @override
   Future<ConnectionStatus> health() async => ConnectionStatus.unknown;
 
-  // ---- 未实现的部分：返回空（最小可行版）----
+  // ---- 分类导航（与漫画/视频引擎同一套 categories/listByCategory 通道）----
   @override
-  Future<List<Category>> categories() async => const [];
+  Future<List<Category>> categories() async {
+    final rule = def.categoriesRule;
+    final url = def.categoriesUrl;
+    if (rule == null || url == null) return const [];
+    final html = await _fetch(url, null, rule.decrypt, '');
+    final root = parseHtml(html);
+    if (rule.selector.isNotEmpty) {
+      final els = root.querySelectorAll(rule.selector);
+      final list = <Category>[];
+      for (final e in els) {
+        // 与 comic 引擎一致：itemName/itemUrl 支持 `text`/`innerText` 虚拟属性
+        // （走 _extract），href 是 HTML 属性（_attr）。
+        final href = _extract(e, rule.url.isNotEmpty ? rule.url : 'href');
+        final name = rule.itemName != null && rule.itemName!.isNotEmpty
+            ? _extract(e, rule.itemName!)
+            : e.innerText.trim();
+        final id = rule.itemUrl != null && rule.itemUrl!.isNotEmpty
+            ? _extract(e, rule.itemUrl!)
+            : href;
+        list.add(Category(id.isEmpty ? href : id, name.isEmpty ? href : name));
+      }
+      return list;
+    }
+    return const [];
+  }
 
   @override
-  Future<List<ComicItem>> listByCategory(String categoryId, int page) async =>
-      const [];
+  Future<List<ComicItem>> listByCategory(String categoryId, int page) async {
+    final rule = def.categoryListRule;
+    if (rule == null || def.categoryListUrl == null) return const [];
+    final url = def.categoryListUrl!
+        .replaceAll('{page}', '$page')
+        .replaceAll('{categoryId}', categoryId);
+    return _runList(url, rule);
+  }
 
   @override
   Future<List<ComicItem>> rank(int page) async => const [];

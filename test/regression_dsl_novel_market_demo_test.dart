@@ -65,6 +65,25 @@ void main() {
             <dd><a href="/8/8123/8123003.html">第三章 结局</a></dd></dl>
           </div>
         </body></html>''');
+      } else if (path == '/catindex.html') {
+        // 分类导航页
+        req.response.headers.contentType = ContentType.html;
+        req.response.write('''
+        <html><body>
+          <div class="nav">
+            <a href="xuanhuan">玄幻</a>
+            <a href="dushi">都市</a>
+            <a href="kehuan">科幻</a>
+          </div>
+        </body></html>''');
+      } else if (path == '/cat/xuanhuan.html') {
+        // 分类列表页
+        req.response.headers.contentType = ContentType.html;
+        req.response.write('''
+        <html><body><ul class="booklist">
+          <li><a href="/12/1201/">斗破苍穹</a></li>
+          <li><a href="/12/1202/">凡人修仙传</a></li>
+        </ul></body></html>''');
       } else if (path == '/8/8123/8123001.html') {
         // 正文页
         req.response.headers.contentType = ContentType.html;
@@ -110,6 +129,18 @@ void main() {
           'name': 'td a|text',
           'id': 'td a|href',
         },
+        'categoriesUrl': '$base/catindex.html',
+        'categories': {
+          'css': 'div.nav a',
+          'itemName': 'text',
+          'itemUrl': 'href',
+        },
+        'categoryListUrl': '$base/cat/{categoryId}.html',
+        'categoryList': {
+          'css': 'ul.booklist li',
+          'name': 'a|text',
+          'id': 'a|href',
+        },
         'detailUrl': '$base/{id}',
         'detail': {
           'title': 'h1.book-title',
@@ -150,5 +181,22 @@ void main() {
     expect(c.paragraphs.length, 2);
     expect(c.paragraphs[0], '第一段正文。');
     expect(c.paragraphs[1], '第二段正文。');
+  });
+
+  test('categories 解析分类导航', () async {
+    final src = DslNovelSource(def());
+    final cats = await src.categories();
+    expect(cats.length, 3);
+    expect(cats[0].name, '玄幻');
+    expect(cats[0].id, 'xuanhuan');
+    expect(cats[2].name, '科幻');
+  });
+
+  test('listByCategory 按分类拉小说列表', () async {
+    final src = DslNovelSource(def());
+    final items = await src.listByCategory('xuanhuan', 1);
+    expect(items.length, 2);
+    expect(items[0].name, '斗破苍穹');
+    expect(items[0].id, '12/1201/');
   });
 }
