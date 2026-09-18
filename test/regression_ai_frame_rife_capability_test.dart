@@ -217,5 +217,78 @@ void main() {
       expect(frame.length, w * h * 3);
       expect(data['engine'], contains('rife'));
     }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('真插帧铁证：白方块位移，中间帧方块居中（不是倍速假插帧）', () async {
+      if (!hasEngine) {
+        markTestSkipped('本机无引擎（$engineExe），跳过真实推理');
+        return;
+      }
+      final mgr = CapabilityPluginManager.instance;
+      if (mgr.byId('ai.frame.rife') == null) {
+        await mgr.install(AiFrameRifePlugin());
+      }
+      await mgr.setEnabled('ai.frame.rife', true);
+
+      // 引擎资产 → artifactDir（复用上一用例的部署方式）。
+      final dir = await CapabilityArtifactStore.instance.artifactDir('ai.frame.rife');
+      expect(dir, isNotNull);
+      await engineExe.copy('${dir!.path}/${AiFrameRifePlugin.engineExeName}');
+      await Directory('${dir.path}/${AiFrameRifePlugin.modelDirName}')
+          .create(recursive: true);
+      for (final f in modelDir.listSync()) {
+        if (f is File) {
+          await f.copy('${dir.path}/${AiFrameRifePlugin.modelDirName}/${f.uri.pathSegments.last}');
+        }
+      }
+
+      // 白方块：192x192，帧A在 x=20，帧B在 x=140，方块宽 24。
+      const w = 192, h = 192;
+      final a = Uint8List(w * h * 3);
+      final b = Uint8List(w * h * 3);
+      void fill(Uint8List buf, int offset) {
+        for (var y = 0; y < h; y++) {
+          for (var x = 0; x < w; x++) {
+            final i = (y * w + x) * 3;
+            buf[i] = 20; buf[i + 1] = 80; buf[i + 2] = 220; // 蓝底
+            if (x >= offset && x < offset + 24 && y >= 84 && y < 108) {
+              buf[i] = 240; buf[i + 1] = 240; buf[i + 2] = 240; // 白方块
+            }
+          }
+        }
+      }
+      fill(a, 20);
+      fill(b, 140);
+
+      // 找出帧中白方块最左像素 x（运动位置）. 0xFFFFFF 像素块.
+      int squareX(Uint8List buf) {
+        for (var y = 0; y < h; y++) {
+          for (var x = 0; x < w; x++) {
+            final i = (y * w + x) * 3;
+            if (buf[i] > 200 && buf[i + 1] > 200 && buf[i + 2] > 200) return x;
+          }
+        }
+        return -1;
+      }
+
+      final xA = squareX(a);
+      final xB = squareX(b);
+      expect(xA, 20);
+      expect(xB, 140);
+
+      // 插中间帧。
+      final r = await AiFrameRifePlugin.interpolate(a, b, w, h);
+      expect(r, isA<CapabilityOk>(), reason: '期望成功，实际: $r');
+      final data = (r as CapabilityOk).data as Map<String, dynamic>;
+      final mid = data['frame'] as Uint8List;
+      final xMid = squareX(mid);
+
+      // 铁证：中间帧方块位置应在 A 与 B 之间（≈居中 80），而不是等于 A 或 B。
+      expect(xMid, greaterThan(xA), reason: '中间帧方块应离开起始位置（x=$xA）');
+      expect(xMid, lessThan(xB), reason: '中间帧方块应未到终点（x=$xB）');
+      // ∵ f0=20, f1=140, 居中 t=0.5 → x ≈ 80。允许 ±30 容差（RIFE 对快位移
+      //   有平滑，且遮挡边缘可能让检测偏移几像素）。
+      expect((xMid - 80).abs(), lessThan(30),
+          reason: '中间帧方块应居中于 x≈80，实测 x=$xMid');
+    }, timeout: const Timeout(Duration(minutes: 2)));
   });
 }
