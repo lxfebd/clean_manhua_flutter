@@ -184,6 +184,18 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 插帧静默失效——如实报，不假装成功）。无则 null。
   String? _interpFault;
 
+  /// 补帧速度守护（防「开补帧变高倍速」）：
+  /// display-resample + interpolation 在「无音轨窗口期」（网络流音轨未
+  /// 就绪 / 纯视频流 / wasapi 独占被占）会按显示时钟追赶 → 播放加速
+  /// （FFI 实测：无音轨时 5s 位移 15s = 3 倍速）。开启补帧时周期采样
+  /// time-pos，实测速率 > 1.15x 即判定显示同步在加速 → 立即降级回 audio
+  /// 同步并关补帧，保 1 倍速是硬约束。这是音轨感知之外的第二道保险，
+  /// 覆盖音轨探测误判、播放中途音轨丢失等边界。
+  Timer? _interpGuardTimer;
+  bool _interpGuardActive = false;
+  double _interpGuardLastPos = -1;
+  DateTime _interpGuardLastAt = DateTime.fromMillisecondsSinceEpoch(0);
+
   // ── 播放参数 ────────────────────────────────
   double _speed = 1.0;
   int _fitIndex = 0;
@@ -970,6 +982,11 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       final hw = await rd('hwdec');
       final interp = await rd('interpolation');
       final thr = await rd('options/interpolation-threshold');
+      // 音频通路是否真的活着（设备被独占 / 网络流音轨未解码 / wasapi 被占
+      // 时 aid 非 no 但 channels 读不到 → 无音频时钟 → display-resample 会
+      // 按显示时钟追赶视频造成倍速）。这是定位「开补帧倍速」的关键证据。
+      final ach = await rd('audio-params/channels');
+      final aaid = await rd('aid');
       // 超分是否**真的进了渲染管线**：只认 vo-passes 里的 user shader pass。
       // glsl-shaders 读回非空不算数——真机实测过"属性读回两个路径、
       // vo-passes 里一个用户着色器 pass 都没有"的静默失效。
@@ -1056,7 +1073,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           'elig=${eligible == null ? '?' : (eligible ? 1 : 0)} a4k=$srPasses '
           'fps=${_fmtFps(efps)} srcFps=${_fmtFps(cfps)} realFps=${_fmtFps(realFps.toString())} '
           'disp=${_fmtFps(dfps)} ovr=${_fmtFps(ovr)} edisp=${_fmtFps(edfps)} '
-          'shader=$shaderCount vsync=$vsync hwdec=$hw interp=$interp thr=$thr';
+          'shader=$shaderCount vsync=$vsync hwdec=$hw interp=$interp thr=$thr '
+          'ach=$ach aid=$aaid';
       if (line == last) return;
       last = line;
       ErrorLogger.instance.debug(line);
@@ -1277,8 +1295,81 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     setState(() => _interpId = id);
     _applySync();
     _savePrefs();
+    _syncInterpGuard();
     final p = FrameInterpManager.presetById(id);
     _toast(p.enabled ? '补帧已开启（${p.name}）' : '补帧已关闭');
+  }
+
+  /// 速度守护（防「开补帧变高倍速」）——第二道保险。
+  ///
+  /// FFI 决定性实测（真实窗口 + 真实 libmpv，记录于 2026-09-16 移除前）：
+  ///   - 有音轨：display-resample + interpolation → time-pos 5s 位移恰 5s（1 倍速 ✅）
+  ///   - 无音轨：display-resample + interpolation → time-pos 5s 位移 15s（**3 倍速** ❌）
+  ///
+  /// 根因：display-sync 以「显示刷新率」为唯一时钟追赶视频；**没有音轨做
+  /// 时间基准**时（网络流音轨未就绪、纯视频流、wasapi 独占被占），mpv
+  /// 会按显示时钟加速补齐 → 用户看到「一开补帧就高倍速」。
+  ///
+  /// 守护：开启补帧时周期采样 `time-pos` 实际推进速率，若 > 1.15 倍速
+  /// （0.5 秒窗口）即判定显示同步在加速 → **立即降级**：video-sync 回 audio、
+  /// 关 interpolation、提示用户。保 1 倍速是硬约束，宁可放弃插帧。
+  /// 注：[_applySync] 已做音轨感知 + 读回确认（无音轨/未接受不切
+  /// display-resample、不设插帧），本守护是**第三道保险**，覆盖音轨探测
+  /// 误判、播放中途音轨丢失、mpv 实际行为偏离预期等边界情况。
+  void _syncInterpGuard() {
+    _interpGuardTimer?.cancel();
+    _interpGuardTimer = null;
+    _interpGuardLastPos = -1;
+    _interpGuardActive = false;
+    if (!_interp.enabled || _interpAndroidOff) return;
+    final native = _player?.platform;
+    if (native is! NativePlayer) return;
+    _interpGuardActive = true;
+    _interpGuardTimer = Timer.periodic(const Duration(milliseconds: 500), (_) async {
+      if (!_interpGuardActive || !mounted) return;
+      final native = _player?.platform;
+      if (native is! NativePlayer) return;
+      final dyn = native as dynamic;
+      var pos = -1.0;
+      try {
+        final raw = await dyn.getProperty('time-pos');
+        pos = raw is num
+            ? raw.toDouble()
+            : double.tryParse(raw?.toString() ?? '') ?? -1;
+      } catch (_) {}
+      if (pos < 0) return;
+      final now = DateTime.now();
+      if (_interpGuardLastPos >= 0 && _interpGuardLastAt.millisecondsSinceEpoch > 0) {
+        final dt = now.difference(_interpGuardLastAt).inMilliseconds / 1000.0;
+        final dp = pos - _interpGuardLastPos;
+        if (dt > 0.35) {
+          final rate = dp / dt;
+          // 阈值 1.15：1 倍速漂移（±0.05）低于它，但能尽早抓住任何 >1.15x
+          // 的异常加速（有音轨/无音轨都兜底）。
+          if (rate > 1.15) {
+            _interpGuardActive = false;
+            _interpGuardTimer?.cancel();
+            _interpGuardTimer = null;
+            try {
+              await dyn.setProperty('video-sync', 'audio');
+              await dyn.setProperty('interpolation', 'no');
+            } catch (_) {}
+            if (mounted) {
+              setState(() {
+                _interpId = 'off';
+                _interpFault = '自动降级：显示同步把播放加速到 ${rate.toStringAsFixed(2)}x，'
+                    '已关闭补帧保 1 倍速';
+              });
+              _savePrefs();
+              _toast('补帧已自动关闭（检测到异常加速 ${rate.toStringAsFixed(2)}x）');
+            }
+            return;
+          }
+        }
+      }
+      _interpGuardLastPos = pos;
+      _interpGuardLastAt = now;
+    });
   }
 
   /// 显示同步：mpv 原生 video-sync 调优（治卡顿，与画质无关）。
@@ -1320,6 +1411,17 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       try {
         final aid = await dyn.getProperty('aid');
         hasAudio = aid != null && aid != 'no' && !(aid is int && aid <= 0);
+        // 二次确认：aid 只说明「轨道存在」，不代表音频设备**此刻真的在
+        // 输出**——设备被独占（如用户另跑音频占用程序）、网络流音轨尚未
+        // 解码、wasapi 独占被占等情况下，aid 非 no 但实际无音频时钟。
+        // display-resample 在没有音频时钟时会按显示时钟追赶视频 → 倍速。
+        // 读 audio-params/channels 确认音频通路真的活着：读不到/为 0/出错
+        // 一律按无音轨处理（退回 audio 同步，恒 1 倍速）。
+        if (hasAudio) {
+          final ach = await dyn.getProperty('audio-params/channels');
+          final a = ach?.toString() ?? '';
+          hasAudio = a.isNotEmpty && !a.contains('ERR') && a != '0';
+        }
       } catch (_) {}
       final effectiveSync = hasAudio ? targetSync : 'audio';
 
@@ -1352,14 +1454,34 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       //    无音轨时 display-resample 会退回 audio 同步，插帧静默失效，此处
       //    如实记录原因（不假装成功）。每属性独立 try：某构建不支持运行时
       //    改插帧属性时不得连带 video-sync 失效（历史教训见第 1) 步注释）。
+      //    若开插帧但同步模式没被接受（读回非 display-resample），插帧属性
+      //    一律不设（防 audio 同步下追帧倍速），并如实报错。
       final interpOn =
           _interp.enabled && !_interpAndroidOff && hasAudio;
+      bool syncAccepted = false;
+      try {
+        final sync = await dyn.getProperty('video-sync');
+        final s = sync?.toString() ?? '';
+        syncAccepted =
+            s == effectiveSync || (effectiveSync == targetSync && s == 'display-resample-desync');
+      } catch (_) {
+        syncAccepted = false;
+      }
       if (_interp.enabled && !_interpAndroidOff && !hasAudio) {
         _interpFault ??= '片源无音轨，补帧需 display-resample 同步，暂不生效';
-      } else if (_interpFault != null) {
+      } else if (_interp.enabled &&
+          !_interpAndroidOff &&
+          !syncAccepted &&
+          _interpFault == null) {
+        _interpFault = 'mpv 未接受显示同步设置（读回 video-sync 异常），补帧暂不生效';
+      } else if (_interp.enabled &&
+          !_interpAndroidOff &&
+          syncAccepted &&
+          _interpFault != null &&
+          _interpFault!.contains('片源无音轨')) {
         _interpFault = null;
       }
-      final interpProps = interpOn
+      final interpProps = interpOn && syncAccepted
           ? FrameInterpManager.propsFor(_interpId)
           : const {'interpolation': 'no'};
       for (final e in interpProps.entries) {
@@ -1367,6 +1489,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           await dyn.setProperty(e.key, e.value);
         } catch (_) {}
       }
+      // 5) 与补帧开关状态对齐速度守护（防「开补帧变高倍速」）：开关开着就
+      //    起守护，关了/被读回拒绝就停掉（防残留 Timer 在 off 下空跑）。
+      _syncInterpGuard();
     } catch (_) {
       // 显示同步失败不影响播放本身，静默跳过（UI 不展示）。
     }
@@ -1807,6 +1932,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     _clockTimer?.cancel();
     _resumeTipTimer?.cancel();
     _diagTimer?.cancel();
+    _interpGuardTimer?.cancel();
+    _interpGuardTimer = null;
     for (final s in _subs) {
       s.cancel();
     }
