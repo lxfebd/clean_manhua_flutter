@@ -987,6 +987,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       // 按显示时钟追赶视频造成倍速）。这是定位「开补帧倍速」的关键证据。
       final ach = await rd('audio-params/channels');
       final aaid = await rd('aid');
+      // 真实播放速率：读回 `speed` 属性。若用户开补帧后 time-pos 推进偏快，
+      // 而 speed=1.0，说明不是 mpv 变速而是别处（片源时间戳/HLS PTS 跳变）
+      // 造成 time-pos 采样"快进"假象；若 speed≠1.0 则直接坐实 mpv 倍速。
+      final spd = await rd('speed');
       // 超分是否**真的进了渲染管线**：只认 vo-passes 里的 user shader pass。
       // glsl-shaders 读回非空不算数——真机实测过"属性读回两个路径、
       // vo-passes 里一个用户着色器 pass 都没有"的静默失效。
@@ -1074,7 +1078,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           'fps=${_fmtFps(efps)} srcFps=${_fmtFps(cfps)} realFps=${_fmtFps(realFps.toString())} '
           'disp=${_fmtFps(dfps)} ovr=${_fmtFps(ovr)} edisp=${_fmtFps(edfps)} '
           'shader=$shaderCount vsync=$vsync hwdec=$hw interp=$interp thr=$thr '
-          'ach=$ach aid=$aaid';
+          'ach=$ach aid=$aaid speed=$spd';
       if (line == last) return;
       last = line;
       ErrorLogger.instance.debug(line);
