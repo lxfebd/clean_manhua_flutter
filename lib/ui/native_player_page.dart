@@ -19,6 +19,7 @@ import '../services/player_registry.dart';
 import '../sources/video_source.dart';
 import '../utils/anime4k.dart';
 import '../utils/danmaku.dart';
+import '../utils/frame_interp.dart';
 import '../utils/desktop_fullscreen.dart';
 import '../utils/pip_channel.dart';
 import 'anime_player_page.dart';
@@ -176,6 +177,13 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 最近一次 mpv 报告的着色器错误（无则 null）。
   String? _srFault;
 
+  // ── 补帧（mpv 原生 interpolation，同超分：桌面专属）──
+  String _interpId = 'off';
+
+  /// 最近一次补帧无法生效的原因（如无音轨时 display-resample 不可用，
+  /// 插帧静默失效——如实报，不假装成功）。无则 null。
+  String? _interpFault;
+
   // ── 播放参数 ────────────────────────────────
   double _speed = 1.0;
   int _fitIndex = 0;
@@ -264,6 +272,13 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 用 [DesktopUi.isDesktopPlatform] 判定（测试可覆盖），而非 dart:io
   /// [Platform]——后者在 `flutter test` 下恒报宿主机，widget 测试会误判。
   bool get _srAndroidOff => !DesktopUi.isDesktopPlatform;
+
+  /// 补帧（mpv interpolation）同样仅桌面端：手机端不做补帧。
+  /// 用同一道 [DesktopUi.isDesktopPlatform] 门闸（测试可覆盖）。
+  bool get _interpAndroidOff => !DesktopUi.isDesktopPlatform;
+
+  FrameInterpPreset get _interp =>
+      FrameInterpManager.presetById(_interpId);
 
   int get _curIndex => widget.episodes.indexWhere(
       (e) => e.season == _curSeason && e.episode == _curEpisode);
@@ -786,6 +801,12 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         // 旧持久化里存了档位），不展示入口。
         if (!DesktopUi.isDesktopPlatform) _srId = 'off';
         _enhance = (raw['enhance'] as bool?) ?? true;
+        // 补帧同样仅桌面端：非法值兜底 off；移动端强制关（同 _srId）。
+        _interpId = (raw['interp'] as String?) ?? 'off';
+        if (FrameInterpManager.levels.every((e) => e.id != _interpId)) {
+          _interpId = 'off';
+        }
+        if (!DesktopUi.isDesktopPlatform) _interpId = 'off';
         _speed = (raw['speed'] as num?)?.toDouble() ?? 1.0;
         _fitIndex = ((raw['fit'] as num?)?.toInt() ?? 0).clamp(0, _fits.length - 1);
         // 仅遮罩兜底模式下才恢复上次亮度；接管了系统亮度就以系统当前值为准
@@ -802,6 +823,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       await LocalStore.writeJson('player_prefs', {
         'sr': _srId,
         'enhance': _enhance,
+        'interp': _interpId,
         'speed': _speed,
         'fit': _fitIndex,
         'bright': _brightness,
@@ -946,6 +968,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       final glsl = await rd('glsl-shaders');
       final vsync = await rd('video-sync');
       final hw = await rd('hwdec');
+      final interp = await rd('interpolation');
+      final thr = await rd('options/interpolation-threshold');
       // 超分是否**真的进了渲染管线**：只认 vo-passes 里的 user shader pass。
       // glsl-shaders 读回非空不算数——真机实测过"属性读回两个路径、
       // vo-passes 里一个用户着色器 pass 都没有"的静默失效。
@@ -974,7 +998,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           ? Anime4KManager.srChainEligible(
               srcW: srcW, srcH: srcH, outW: ow, outH: oh)
           : null;
-      // 真实输出帧率：插帧已移除（2026-09-16），输出帧率恒等于源容器帧率。
+      // 真实输出帧率：插帧开启时 mpv 按显示刷新率补帧/抽帧，VO 出帧节奏
+      // 跟随 display-fps 而不是源容器帧率；关闭时恒等于源容器帧率。
+      // 无直接"VO 出帧 fps"属性，用 container-fps 作源帧率、display-fps 作
+      // 补帧后目标（interp=yes 时 realFps 应接近 disp）。
       final ddisp = double.tryParse(dfps) ?? ovrFps(ovr);
       final realFps = double.tryParse(cfps) ?? _outFps;
       if (!mounted) return;
@@ -1029,7 +1056,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           'elig=${eligible == null ? '?' : (eligible ? 1 : 0)} a4k=$srPasses '
           'fps=${_fmtFps(efps)} srcFps=${_fmtFps(cfps)} realFps=${_fmtFps(realFps.toString())} '
           'disp=${_fmtFps(dfps)} ovr=${_fmtFps(ovr)} edisp=${_fmtFps(edfps)} '
-          'shader=$shaderCount vsync=$vsync hwdec=$hw';
+          'shader=$shaderCount vsync=$vsync hwdec=$hw interp=$interp thr=$thr';
       if (line == last) return;
       last = line;
       ErrorLogger.instance.debug(line);
@@ -1244,6 +1271,16 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     _savePrefs();
   }
 
+  void _setInterp(String id) {
+    // 补帧是桌面专属能力：移动端 UI 已隐藏入口，这里再挡一道行为门闸。
+    if (!DesktopUi.isDesktopPlatform) return;
+    setState(() => _interpId = id);
+    _applySync();
+    _savePrefs();
+    final p = FrameInterpManager.presetById(id);
+    _toast(p.enabled ? '补帧已开启（${p.name}）' : '补帧已关闭');
+  }
+
   /// 显示同步：mpv 原生 video-sync 调优（治卡顿，与画质无关）。
   ///
   /// 用途：把 video-sync 切到 `display-resample`，消除 audio 同步在 60Hz 屏上
@@ -1256,8 +1293,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 它也划进「桌面专属」整体关闭，导致移动端回归默认 audio-sync 抖动。
   /// 移动端只关桌面画质链（[_applyEnhance]/[_applySr]/[_healSrPipeline]）。
   ///
-  /// 注：mpv 自带的 interpolation（帧生成）已于 2026-09-16 按用户要求**从项目
-  /// 移除**，本函数不再触碰 interpolation，只负责显示同步。
+  /// 补帧（mpv interpolation）在同一函数内、紧跟同步设置后独立下发：
+  /// interpolatio 只在 display-resample 同步下生效，天然依托本函数建立的
+  /// 同步基线；桌面专属、由持久化开关 [_interpId] 驱动（2026-09-16 曾按
+  /// 用户要求把插帧移除并硬编码关闭，现按桌面需求恢复为可开关能力）。
   Future<void> _applySync() async {
     final native = _player?.platform;
     if (native is! NativePlayer) return;
@@ -1307,11 +1346,27 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           await dyn.command(['set', 'override-display-fps', '$targetFps']);
         }
       } catch (_) {}
-      // 4) 帧生成（mpv interpolation）已于 2026-09-16 从项目移除：
-      //    这里**显式关掉**插值，覆盖用户之前的持久化值。
-      try {
-        await dyn.setProperty('interpolation', 'no');
-      } catch (_) {}
+      // 4) 帧生成（mpv interpolation）：桌面专属、由开关驱动（恢复为可开关
+      //    能力，2026-09-16 曾硬编码关闭）。它只在 video-sync=display-resample
+      //    下生效——本函数第 1) 步已在有音轨时切到该模式，天然满足前置；
+      //    无音轨时 display-resample 会退回 audio 同步，插帧静默失效，此处
+      //    如实记录原因（不假装成功）。每属性独立 try：某构建不支持运行时
+      //    改插帧属性时不得连带 video-sync 失效（历史教训见第 1) 步注释）。
+      final interpOn =
+          _interp.enabled && !_interpAndroidOff && hasAudio;
+      if (_interp.enabled && !_interpAndroidOff && !hasAudio) {
+        _interpFault ??= '片源无音轨，补帧需 display-resample 同步，暂不生效';
+      } else if (_interpFault != null) {
+        _interpFault = null;
+      }
+      final interpProps = interpOn
+          ? FrameInterpManager.propsFor(_interpId)
+          : const {'interpolation': 'no'};
+      for (final e in interpProps.entries) {
+        try {
+          await dyn.setProperty(e.key, e.value);
+        } catch (_) {}
+      }
     } catch (_) {
       // 显示同步失败不影响播放本身，静默跳过（UI 不展示）。
     }
@@ -2718,6 +2773,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   Widget _srCard(ColorScheme scheme) {
     final on = _sr.enabled;
     final fault = _srFault;
+    final interpOn = _interp.enabled;
+    final interpFault = _interpFault;
     return InkWell(
       onTap: _showSrPanel,
       borderRadius: BorderRadius.circular(14),
@@ -2725,15 +2782,17 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(14),
-          gradient: on
+          gradient: on || interpOn
               ? LinearGradient(colors: [
                   PlayerColors.sr.withValues(alpha: 0.20),
                   PlayerColors.sr.withValues(alpha: 0.05),
                 ])
               : null,
-          color: on ? null : scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+          color: on || interpOn
+              ? null
+              : scheme.surfaceContainerHighest.withValues(alpha: 0.5),
           border: Border.all(
-              color: on
+              color: on || interpOn
                   ? PlayerColors.sr.withValues(alpha: 0.55)
                   : scheme.outlineVariant),
         ),
@@ -2742,14 +2801,14 @@ class _NativePlayerPageState extends State<NativePlayerPage>
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: on
+              color: on || interpOn
                   ? PlayerColors.sr.withValues(alpha: 0.22)
                   : scheme.onSurface.withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(Icons.auto_awesome,
+child: Icon(Icons.auto_awesome,
                 size: 20,
-                color: on
+                color: on || interpOn
                     ? PlayerColors.sr
                     : scheme.onSurface.withValues(alpha: 0.45)),
           ),
@@ -2774,7 +2833,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                         padding: const EdgeInsets.symmetric(
                             horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: on
+                          color: on || interpOn
                               ? PlayerColors.sr.withValues(alpha: 0.2)
                               : scheme.onSurface.withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(4),
@@ -2786,7 +2845,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                           style: TextStyle(
                               fontSize: 10.5,
                               fontWeight: FontWeight.w700,
-                              color: on
+                              color: on || interpOn
                                   ? PlayerColors.sr
                                   : scheme.onSurface.withValues(alpha: 0.6))),
                       ),
@@ -2800,6 +2859,19 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                           color: fault != null
                               ? const Color(0xFFFF8A65)
                               : scheme.onSurface.withValues(alpha: 0.6))),
+                  if (interpOn || interpFault != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      interpFault ??
+                          '补帧 ${_interp.name} · 按显示刷新率插帧，源 ${_outFps.toStringAsFixed(1)}→${_dispFps.toStringAsFixed(1)}fps',
+                      style: TextStyle(
+                          fontSize: 11.5,
+                          height: 1.3,
+                          color: interpFault != null
+                              ? const Color(0xFFFF8A65)
+                              : PlayerColors.sr.withValues(alpha: 0.9)),
+                    ),
+                  ],
                 ]),
           ),
           Icon(Icons.chevron_right_rounded,
@@ -2993,7 +3065,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     _hideTimer?.cancel();
     showPlayerPanel(
       context: context,
-      title: 'Anime4K 超分',
+      title: '超分与补帧',
       fromRight: _fullscreen,
       width: 340,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
@@ -3028,6 +3100,45 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                 setSheet(() {});
               },
             ),
+            const SizedBox(height: 6),
+            const Divider(color: Colors.white12, height: 18),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('补帧（mpv 原生，需音轨 + display-resample）',
+                    style: TextStyle(
+                        color: Colors.white38,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600)),
+              ),
+            ),
+            ...FrameInterpManager.levels.map((p) => PanelOptionTile(
+                  title: p.name,
+                  subtitle: p.desc,
+                  selected: p.id == _interpId,
+                  trailing: p.cost > 0 ? CostBar(cost: p.cost) : null,
+                  onTap: () {
+                    _setInterp(p.id);
+                    setSheet(() {});
+                  },
+                )),
+            if (_interpFault != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(children: [
+                  const Icon(Icons.error_outline_rounded,
+                      size: 13, color: Color(0xFFFF8A65)),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '补帧未生效：$_interpFault',
+                      style: const TextStyle(
+                          color: Color(0xFFFF8A65), fontSize: 10.5, height: 1.3),
+                    ),
+                  ),
+                ]),
+              ),
             const SizedBox(height: 4),
             if (_srFault != null)
               Padding(
@@ -3501,7 +3612,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
             if (!_srAndroidOff)
               PanelOptionTile(
                 title: '超分与画质',
-                subtitle: '${_sr.name}${_enhance ? ' · 画质增强开' : ''}',
+                subtitle:
+                    '${_sr.name}${_enhance ? ' · 画质增强开' : ''}${_interp.enabled ? ' · 补帧开' : ''}',
                 selected: false,
                 onTap: () {
                   Navigator.of(ctx).pop();
