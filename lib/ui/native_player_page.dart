@@ -195,6 +195,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   bool _interpGuardActive = false;
   double _interpGuardLastPos = -1;
   DateTime _interpGuardLastAt = DateTime.fromMillisecondsSinceEpoch(0);
+  int _interpGuardHits = 0;
 
   // ── 播放参数 ────────────────────────────────
   double _speed = 1.0;
@@ -1325,6 +1326,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     _interpGuardTimer = null;
     _interpGuardLastPos = -1;
     _interpGuardActive = false;
+    // 连续两次采样都超阈值才算真加速（防 seek/缓冲/切档瞬间的 time-pos
+    // 跳变误报——单次 >1.15x 很可能是跳变而非持续变速）。
+    _interpGuardHits = 0;
     if (!_interp.enabled || _interpAndroidOff) return;
     final native = _player?.platform;
     if (native is! NativePlayer) return;
@@ -1334,6 +1338,45 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       final native = _player?.platform;
       if (native is! NativePlayer) return;
       final dyn = native as dynamic;
+      // ① mpv 原生速度修正信号：display-resample 为追上视频会实时调整播放
+      //    速度，`video-speed-correction` 直接给出该修正因子（1.0=无修正）。
+      //    它比 time-pos 差分早半个周期发现加速，且无 EOF 假阳性——优先用它
+      //    判加速，time-pos 差分降为兜底。
+      // ⚠️ 重要：阈值**相对当前主动倍速**——用户可能故意 1.25/1.5/2x 播放，
+      //    video-speed-correction 反映的是「相对用户设定速率的修正」，正常
+      //    播放恒 1.0；仅当 display-resample 在用户设定之上额外加速才 >1.0。
+      //    用 1.15 绝对阈值会把「用户主动 2.42x」误判成异常（这是用户之前
+      //    「一开补帧就退回」的真正原因——_speed 残留 2.42x，守护把主动倍速
+      //    当成了补帧加速）。基准 = _speed（用户主动速率），只看额外修正。
+      var corr = 0.0;
+      try {
+        final raw = await dyn.getProperty('video-speed-correction');
+        corr = raw is num
+            ? raw.toDouble()
+            : double.tryParse(raw?.toString() ?? '') ?? 0;
+      } catch (_) {}
+      // 归一化：corr 是相对当前速率的因子，正常=1.0；相对 _speed 的超速即
+      // corr 本身 > 1.15（与 _speed 无关，因为 corr 已含用户速率）。但保险
+      // 起见同时要求 time-pos 实测速率确实 > _speed×1.15（见下方双向确认）。
+      if (corr > 1.15 && _speed >= 1.0) {
+        _interpGuardActive = false;
+        _interpGuardTimer?.cancel();
+        _interpGuardTimer = null;
+        try {
+          await dyn.setProperty('video-sync', 'audio');
+          await dyn.setProperty('interpolation', 'no');
+        } catch (_) {}
+        if (mounted) {
+          setState(() {
+            _interpId = 'off';
+            _interpFault = '自动降级：显示同步把播放加速到 ${corr.toStringAsFixed(2)}x'
+                '（video-speed-correction），已关闭补帧保 1 倍速';
+          });
+          _savePrefs();
+          _toast('补帧已自动关闭（检测到异常加速 ${corr.toStringAsFixed(2)}x）');
+        }
+        return;
+      }
       var pos = -1.0;
       try {
         final raw = await dyn.getProperty('time-pos');
@@ -1341,35 +1384,47 @@ class _NativePlayerPageState extends State<NativePlayerPage>
             ? raw.toDouble()
             : double.tryParse(raw?.toString() ?? '') ?? -1;
       } catch (_) {}
-      if (pos < 0) return;
+      if (pos < 0) {
+        _interpGuardHits = 0;
+        return;
+      }
       final now = DateTime.now();
+      var over = false;
       if (_interpGuardLastPos >= 0 && _interpGuardLastAt.millisecondsSinceEpoch > 0) {
         final dt = now.difference(_interpGuardLastAt).inMilliseconds / 1000.0;
         final dp = pos - _interpGuardLastPos;
         if (dt > 0.35) {
           final rate = dp / dt;
-          // 阈值 1.15：1 倍速漂移（±0.05）低于它，但能尽早抓住任何 >1.15x
-          // 的异常加速（有音轨/无音轨都兜底）。
-          if (rate > 1.15) {
-            _interpGuardActive = false;
-            _interpGuardTimer?.cancel();
-            _interpGuardTimer = null;
-            try {
-              await dyn.setProperty('video-sync', 'audio');
-              await dyn.setProperty('interpolation', 'no');
-            } catch (_) {}
-            if (mounted) {
-              setState(() {
-                _interpId = 'off';
-                _interpFault = '自动降级：显示同步把播放加速到 ${rate.toStringAsFixed(2)}x，'
-                    '已关闭补帧保 1 倍速';
-              });
-              _savePrefs();
-              _toast('补帧已自动关闭（检测到异常加速 ${rate.toStringAsFixed(2)}x）');
-            }
-            return;
-          }
+          // 阈值**相对 _speed**：用户主动 2x 时 rate≈2.0 属正常，仅当
+          // rate > _speed×1.15（在用户主动速率之上再被额外加速）才判定异常。
+          // 连续两次都超阈值才判定，单次跳变（seek/缓冲恢复）不误杀。
+          final base = _speed <= 0 ? 1.0 : _speed;
+          over = rate > base * 1.15;
         }
+      }
+      if (over) {
+        _interpGuardHits++;
+        if (_interpGuardHits >= 2) {
+          _interpGuardActive = false;
+          _interpGuardTimer?.cancel();
+          _interpGuardTimer = null;
+          try {
+            await dyn.setProperty('video-sync', 'audio');
+            await dyn.setProperty('interpolation', 'no');
+          } catch (_) {}
+          if (mounted) {
+            setState(() {
+              _interpId = 'off';
+              _interpFault = '自动降级：显示同步把播放加速到 ${((pos - _interpGuardLastPos) / (now.difference(_interpGuardLastAt).inMilliseconds / 1000.0)).toStringAsFixed(2)}x，'
+                  '已关闭补帧保 1 倍速';
+            });
+            _savePrefs();
+            _toast('补帧已自动关闭（检测到异常加速）');
+          }
+          return;
+        }
+      } else {
+        _interpGuardHits = 0;
       }
       _interpGuardLastPos = pos;
       _interpGuardLastAt = now;
