@@ -19,7 +19,6 @@ import '../services/player_registry.dart';
 import '../sources/video_source.dart';
 import '../utils/anime4k.dart';
 import '../utils/danmaku.dart';
-import '../utils/frame_interp.dart';
 import '../utils/desktop_fullscreen.dart';
 import '../utils/pip_channel.dart';
 import 'anime_player_page.dart';
@@ -177,26 +176,6 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 最近一次 mpv 报告的着色器错误（无则 null）。
   String? _srFault;
 
-  // ── 补帧（mpv 原生 interpolation，同超分：桌面专属）──
-  String _interpId = 'off';
-
-  /// 最近一次补帧无法生效的原因（如无音轨时 display-resample 不可用，
-  /// 插帧静默失效——如实报，不假装成功）。无则 null。
-  String? _interpFault;
-
-  /// 补帧速度守护（防「开补帧变高倍速」）：
-  /// display-resample + interpolation 在「无音轨窗口期」（网络流音轨未
-  /// 就绪 / 纯视频流 / wasapi 独占被占）会按显示时钟追赶 → 播放加速
-  /// （FFI 实测：无音轨时 5s 位移 15s = 3 倍速）。开启补帧时周期采样
-  /// time-pos，实测速率 > 1.15x 即判定显示同步在加速 → 立即降级回 audio
-  /// 同步并关补帧，保 1 倍速是硬约束。这是音轨感知之外的第二道保险，
-  /// 覆盖音轨探测误判、播放中途音轨丢失等边界。
-  Timer? _interpGuardTimer;
-  bool _interpGuardActive = false;
-  double _interpGuardLastPos = -1;
-  DateTime _interpGuardLastAt = DateTime.fromMillisecondsSinceEpoch(0);
-  int _interpGuardHits = 0;
-
   // ── 播放参数 ────────────────────────────────
   double _speed = 1.0;
   int _fitIndex = 0;
@@ -285,13 +264,6 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 用 [DesktopUi.isDesktopPlatform] 判定（测试可覆盖），而非 dart:io
   /// [Platform]——后者在 `flutter test` 下恒报宿主机，widget 测试会误判。
   bool get _srAndroidOff => !DesktopUi.isDesktopPlatform;
-
-  /// 补帧（mpv interpolation）同样仅桌面端：手机端不做补帧。
-  /// 用同一道 [DesktopUi.isDesktopPlatform] 门闸（测试可覆盖）。
-  bool get _interpAndroidOff => !DesktopUi.isDesktopPlatform;
-
-  FrameInterpPreset get _interp =>
-      FrameInterpManager.presetById(_interpId);
 
   int get _curIndex => widget.episodes.indexWhere(
       (e) => e.season == _curSeason && e.episode == _curEpisode);
@@ -814,12 +786,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         // 旧持久化里存了档位），不展示入口。
         if (!DesktopUi.isDesktopPlatform) _srId = 'off';
         _enhance = (raw['enhance'] as bool?) ?? true;
-        // 补帧同样仅桌面端：非法值兜底 off；移动端强制关（同 _srId）。
-        _interpId = (raw['interp'] as String?) ?? 'off';
-        if (FrameInterpManager.levels.every((e) => e.id != _interpId)) {
-          _interpId = 'off';
-        }
-        if (!DesktopUi.isDesktopPlatform) _interpId = 'off';
+        // 补帧（mpv interpolation）已移除（2026-09-18，见 _applySync），
+        // 旧存档里的 'interp' 键一律忽略。
         _speed = (raw['speed'] as num?)?.toDouble() ?? 1.0;
         _fitIndex = ((raw['fit'] as num?)?.toInt() ?? 0).clamp(0, _fits.length - 1);
         // 仅遮罩兜底模式下才恢复上次亮度；接管了系统亮度就以系统当前值为准
@@ -836,7 +804,6 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       await LocalStore.writeJson('player_prefs', {
         'sr': _srId,
         'enhance': _enhance,
-        'interp': _interpId,
         'speed': _speed,
         'fit': _fitIndex,
         'bright': _brightness,
@@ -1294,143 +1261,6 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     _savePrefs();
   }
 
-  void _setInterp(String id) {
-    // 补帧是桌面专属能力：移动端 UI 已隐藏入口，这里再挡一道行为门闸。
-    if (!DesktopUi.isDesktopPlatform) return;
-    setState(() => _interpId = id);
-    _applySync();
-    _savePrefs();
-    _syncInterpGuard();
-    final p = FrameInterpManager.presetById(id);
-    _toast(p.enabled ? '补帧已开启（${p.name}）' : '补帧已关闭');
-  }
-
-  /// 速度守护（防「开补帧变高倍速」）——第二道保险。
-  ///
-  /// FFI 决定性实测（真实窗口 + 真实 libmpv，记录于 2026-09-16 移除前）：
-  ///   - 有音轨：display-resample + interpolation → time-pos 5s 位移恰 5s（1 倍速 ✅）
-  ///   - 无音轨：display-resample + interpolation → time-pos 5s 位移 15s（**3 倍速** ❌）
-  ///
-  /// 根因：display-sync 以「显示刷新率」为唯一时钟追赶视频；**没有音轨做
-  /// 时间基准**时（网络流音轨未就绪、纯视频流、wasapi 独占被占），mpv
-  /// 会按显示时钟加速补齐 → 用户看到「一开补帧就高倍速」。
-  ///
-  /// 守护：开启补帧时周期采样 `time-pos` 实际推进速率，若 > 1.15 倍速
-  /// （0.5 秒窗口）即判定显示同步在加速 → **立即降级**：video-sync 回 audio、
-  /// 关 interpolation、提示用户。保 1 倍速是硬约束，宁可放弃插帧。
-  /// 注：[_applySync] 已做音轨感知 + 读回确认（无音轨/未接受不切
-  /// display-resample、不设插帧），本守护是**第三道保险**，覆盖音轨探测
-  /// 误判、播放中途音轨丢失、mpv 实际行为偏离预期等边界情况。
-  void _syncInterpGuard() {
-    _interpGuardTimer?.cancel();
-    _interpGuardTimer = null;
-    _interpGuardLastPos = -1;
-    _interpGuardActive = false;
-    // 连续两次采样都超阈值才算真加速（防 seek/缓冲/切档瞬间的 time-pos
-    // 跳变误报——单次 >1.15x 很可能是跳变而非持续变速）。
-    _interpGuardHits = 0;
-    if (!_interp.enabled || _interpAndroidOff) return;
-    final native = _player?.platform;
-    if (native is! NativePlayer) return;
-    _interpGuardActive = true;
-    _interpGuardTimer = Timer.periodic(const Duration(milliseconds: 500), (_) async {
-      if (!_interpGuardActive || !mounted) return;
-      final native = _player?.platform;
-      if (native is! NativePlayer) return;
-      final dyn = native as dynamic;
-      // ① mpv 原生速度修正信号：display-resample 为追上视频会实时调整播放
-      //    速度，`video-speed-correction` 直接给出该修正因子（1.0=无修正）。
-      //    它比 time-pos 差分早半个周期发现加速，且无 EOF 假阳性——优先用它
-      //    判加速，time-pos 差分降为兜底。
-      // ⚠️ 重要：阈值**相对当前主动倍速**——用户可能故意 1.25/1.5/2x 播放，
-      //    video-speed-correction 反映的是「相对用户设定速率的修正」，正常
-      //    播放恒 1.0；仅当 display-resample 在用户设定之上额外加速才 >1.0。
-      //    用 1.15 绝对阈值会把「用户主动 2.42x」误判成异常（这是用户之前
-      //    「一开补帧就退回」的真正原因——_speed 残留 2.42x，守护把主动倍速
-      //    当成了补帧加速）。基准 = _speed（用户主动速率），只看额外修正。
-      var corr = 0.0;
-      try {
-        final raw = await dyn.getProperty('video-speed-correction');
-        corr = raw is num
-            ? raw.toDouble()
-            : double.tryParse(raw?.toString() ?? '') ?? 0;
-      } catch (_) {}
-      // 归一化：corr 是相对当前速率的因子，正常=1.0；相对 _speed 的超速即
-      // corr 本身 > 1.15（与 _speed 无关，因为 corr 已含用户速率）。但保险
-      // 起见同时要求 time-pos 实测速率确实 > _speed×1.15（见下方双向确认）。
-      if (corr > 1.15 && _speed >= 1.0) {
-        _interpGuardActive = false;
-        _interpGuardTimer?.cancel();
-        _interpGuardTimer = null;
-        try {
-          await dyn.setProperty('video-sync', 'audio');
-          await dyn.setProperty('interpolation', 'no');
-        } catch (_) {}
-        if (mounted) {
-          setState(() {
-            _interpId = 'off';
-            _interpFault = '自动降级：显示同步把播放加速到 ${corr.toStringAsFixed(2)}x'
-                '（video-speed-correction），已关闭补帧保 1 倍速';
-          });
-          _savePrefs();
-          _toast('补帧已自动关闭（检测到异常加速 ${corr.toStringAsFixed(2)}x）');
-        }
-        return;
-      }
-      var pos = -1.0;
-      try {
-        final raw = await dyn.getProperty('time-pos');
-        pos = raw is num
-            ? raw.toDouble()
-            : double.tryParse(raw?.toString() ?? '') ?? -1;
-      } catch (_) {}
-      if (pos < 0) {
-        _interpGuardHits = 0;
-        return;
-      }
-      final now = DateTime.now();
-      var over = false;
-      if (_interpGuardLastPos >= 0 && _interpGuardLastAt.millisecondsSinceEpoch > 0) {
-        final dt = now.difference(_interpGuardLastAt).inMilliseconds / 1000.0;
-        final dp = pos - _interpGuardLastPos;
-        if (dt > 0.35) {
-          final rate = dp / dt;
-          // 阈值**相对 _speed**：用户主动 2x 时 rate≈2.0 属正常，仅当
-          // rate > _speed×1.15（在用户主动速率之上再被额外加速）才判定异常。
-          // 连续两次都超阈值才判定，单次跳变（seek/缓冲恢复）不误杀。
-          final base = _speed <= 0 ? 1.0 : _speed;
-          over = rate > base * 1.15;
-        }
-      }
-      if (over) {
-        _interpGuardHits++;
-        if (_interpGuardHits >= 2) {
-          _interpGuardActive = false;
-          _interpGuardTimer?.cancel();
-          _interpGuardTimer = null;
-          try {
-            await dyn.setProperty('video-sync', 'audio');
-            await dyn.setProperty('interpolation', 'no');
-          } catch (_) {}
-          if (mounted) {
-            setState(() {
-              _interpId = 'off';
-              _interpFault = '自动降级：显示同步把播放加速到 ${((pos - _interpGuardLastPos) / (now.difference(_interpGuardLastAt).inMilliseconds / 1000.0)).toStringAsFixed(2)}x，'
-                  '已关闭补帧保 1 倍速';
-            });
-            _savePrefs();
-            _toast('补帧已自动关闭（检测到异常加速）');
-          }
-          return;
-        }
-      } else {
-        _interpGuardHits = 0;
-      }
-      _interpGuardLastPos = pos;
-      _interpGuardLastAt = now;
-    });
-  }
-
   /// 显示同步：mpv 原生 video-sync 调优（治卡顿，与画质无关）。
   ///
   /// 用途：把 video-sync 切到 `display-resample`，消除 audio 同步在 60Hz 屏上
@@ -1443,10 +1273,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 它也划进「桌面专属」整体关闭，导致移动端回归默认 audio-sync 抖动。
   /// 移动端只关桌面画质链（[_applyEnhance]/[_applySr]/[_healSrPipeline]）。
   ///
-  /// 补帧（mpv interpolation）在同一函数内、紧跟同步设置后独立下发：
-  /// interpolatio 只在 display-resample 同步下生效，天然依托本函数建立的
-  /// 同步基线；桌面专属、由持久化开关 [_interpId] 驱动（2026-09-16 曾按
-  /// 用户要求把插帧移除并硬编码关闭，现按桌面需求恢复为可开关能力）。
+  /// 补帧（2026-09-18 移除）：mpv interpolation 不是插帧而是显示同步，
+  /// 会让播放按显示时钟变速（用户实测倍速），真插帧改走 `ai.frame.rife`
+  /// 能力插件（独立引擎，时间轴不动），不在这条同步链里。
   Future<void> _applySync() async {
     final native = _player?.platform;
     if (native is! NativePlayer) return;
@@ -1507,50 +1336,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           await dyn.command(['set', 'override-display-fps', '$targetFps']);
         }
       } catch (_) {}
-      // 4) 帧生成（mpv interpolation）：桌面专属、由开关驱动（恢复为可开关
-      //    能力，2026-09-16 曾硬编码关闭）。它只在 video-sync=display-resample
-      //    下生效——本函数第 1) 步已在有音轨时切到该模式，天然满足前置；
-      //    无音轨时 display-resample 会退回 audio 同步，插帧静默失效，此处
-      //    如实记录原因（不假装成功）。每属性独立 try：某构建不支持运行时
-      //    改插帧属性时不得连带 video-sync 失效（历史教训见第 1) 步注释）。
-      //    若开插帧但同步模式没被接受（读回非 display-resample），插帧属性
-      //    一律不设（防 audio 同步下追帧倍速），并如实报错。
-      final interpOn =
-          _interp.enabled && !_interpAndroidOff && hasAudio;
-      bool syncAccepted = false;
-      try {
-        final sync = await dyn.getProperty('video-sync');
-        final s = sync?.toString() ?? '';
-        syncAccepted =
-            s == effectiveSync || (effectiveSync == targetSync && s == 'display-resample-desync');
-      } catch (_) {
-        syncAccepted = false;
-      }
-      if (_interp.enabled && !_interpAndroidOff && !hasAudio) {
-        _interpFault ??= '片源无音轨，补帧需 display-resample 同步，暂不生效';
-      } else if (_interp.enabled &&
-          !_interpAndroidOff &&
-          !syncAccepted &&
-          _interpFault == null) {
-        _interpFault = 'mpv 未接受显示同步设置（读回 video-sync 异常），补帧暂不生效';
-      } else if (_interp.enabled &&
-          !_interpAndroidOff &&
-          syncAccepted &&
-          _interpFault != null &&
-          _interpFault!.contains('片源无音轨')) {
-        _interpFault = null;
-      }
-      final interpProps = interpOn && syncAccepted
-          ? FrameInterpManager.propsFor(_interpId)
-          : const {'interpolation': 'no'};
-      for (final e in interpProps.entries) {
-        try {
-          await dyn.setProperty(e.key, e.value);
-        } catch (_) {}
-      }
-      // 5) 与补帧开关状态对齐速度守护（防「开补帧变高倍速」）：开关开着就
-      //    起守护，关了/被读回拒绝就停掉（防残留 Timer 在 off 下空跑）。
-      _syncInterpGuard();
+      // 4) 补帧（mpv interpolation）已移除（2026-09-18）：它不是插帧而是
+      //    显示同步，会让播放按显示时钟变速（用户实测倍速），真插帧走
+      //    `ai.frame.rife` 能力插件（独立引擎，时间轴不动）。
+      //    这里不再设 interpolation / tscale / 相关 fault / 速度守护。
     } catch (_) {
       // 显示同步失败不影响播放本身，静默跳过（UI 不展示）。
     }
@@ -1991,8 +1780,6 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     _clockTimer?.cancel();
     _resumeTipTimer?.cancel();
     _diagTimer?.cancel();
-    _interpGuardTimer?.cancel();
-    _interpGuardTimer = null;
     for (final s in _subs) {
       s.cancel();
     }
@@ -2959,8 +2746,6 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   Widget _srCard(ColorScheme scheme) {
     final on = _sr.enabled;
     final fault = _srFault;
-    final interpOn = _interp.enabled;
-    final interpFault = _interpFault;
     return InkWell(
       onTap: _showSrPanel,
       borderRadius: BorderRadius.circular(14),
@@ -2968,17 +2753,17 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(14),
-          gradient: on || interpOn
+          gradient: on
               ? LinearGradient(colors: [
                   PlayerColors.sr.withValues(alpha: 0.20),
                   PlayerColors.sr.withValues(alpha: 0.05),
                 ])
               : null,
-          color: on || interpOn
+          color: on
               ? null
               : scheme.surfaceContainerHighest.withValues(alpha: 0.5),
           border: Border.all(
-              color: on || interpOn
+              color: on
                   ? PlayerColors.sr.withValues(alpha: 0.55)
                   : scheme.outlineVariant),
         ),
@@ -2987,14 +2772,14 @@ class _NativePlayerPageState extends State<NativePlayerPage>
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: on || interpOn
+              color: on
                   ? PlayerColors.sr.withValues(alpha: 0.22)
                   : scheme.onSurface.withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(10),
             ),
 child: Icon(Icons.auto_awesome,
                 size: 20,
-                color: on || interpOn
+                color: on
                     ? PlayerColors.sr
                     : scheme.onSurface.withValues(alpha: 0.45)),
           ),
@@ -3019,7 +2804,7 @@ child: Icon(Icons.auto_awesome,
                         padding: const EdgeInsets.symmetric(
                             horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: on || interpOn
+                          color: on
                               ? PlayerColors.sr.withValues(alpha: 0.2)
                               : scheme.onSurface.withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(4),
@@ -3031,7 +2816,7 @@ child: Icon(Icons.auto_awesome,
                           style: TextStyle(
                               fontSize: 10.5,
                               fontWeight: FontWeight.w700,
-                              color: on || interpOn
+                              color: on
                                   ? PlayerColors.sr
                                   : scheme.onSurface.withValues(alpha: 0.6))),
                       ),
@@ -3045,19 +2830,6 @@ child: Icon(Icons.auto_awesome,
                           color: fault != null
                               ? const Color(0xFFFF8A65)
                               : scheme.onSurface.withValues(alpha: 0.6))),
-                  if (interpOn || interpFault != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      interpFault ??
-                          '补帧 ${_interp.name} · 按显示刷新率插帧，源 ${_outFps.toStringAsFixed(1)}→${_dispFps.toStringAsFixed(1)}fps',
-                      style: TextStyle(
-                          fontSize: 11.5,
-                          height: 1.3,
-                          color: interpFault != null
-                              ? const Color(0xFFFF8A65)
-                              : PlayerColors.sr.withValues(alpha: 0.9)),
-                    ),
-                  ],
                 ]),
           ),
           Icon(Icons.chevron_right_rounded,
@@ -3288,43 +3060,6 @@ child: Icon(Icons.auto_awesome,
             ),
             const SizedBox(height: 6),
             const Divider(color: Colors.white12, height: 18),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text('补帧（mpv 原生，需音轨 + display-resample）',
-                    style: TextStyle(
-                        color: Colors.white38,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600)),
-              ),
-            ),
-            ...FrameInterpManager.levels.map((p) => PanelOptionTile(
-                  title: p.name,
-                  subtitle: p.desc,
-                  selected: p.id == _interpId,
-                  trailing: p.cost > 0 ? CostBar(cost: p.cost) : null,
-                  onTap: () {
-                    _setInterp(p.id);
-                    setSheet(() {});
-                  },
-                )),
-            if (_interpFault != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Row(children: [
-                  const Icon(Icons.error_outline_rounded,
-                      size: 13, color: Color(0xFFFF8A65)),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      '补帧未生效：$_interpFault',
-                      style: const TextStyle(
-                          color: Color(0xFFFF8A65), fontSize: 10.5, height: 1.3),
-                    ),
-                  ),
-                ]),
-              ),
             const SizedBox(height: 4),
             if (_srFault != null)
               Padding(
@@ -3799,7 +3534,7 @@ child: Icon(Icons.auto_awesome,
               PanelOptionTile(
                 title: '超分与画质',
                 subtitle:
-                    '${_sr.name}${_enhance ? ' · 画质增强开' : ''}${_interp.enabled ? ' · 补帧开' : ''}',
+                    '${_sr.name}${_enhance ? ' · 画质增强开' : ''}',
                 selected: false,
                 onTap: () {
                   Navigator.of(ctx).pop();
