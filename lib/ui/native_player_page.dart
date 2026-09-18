@@ -1283,12 +1283,33 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     // 直接失败被吞掉，行为等价于「web 无同步」。
     final dyn = native as dynamic;
     try {
-      // 不用 desync 变体（那是无窗口/ANGLE 下会高倍速的测试模式）。
-      // display-resample 重采样音频跟随视频，速度恒定 1 倍速，是官方推荐
-      // + 社区验证的稳定同步模式。
+      // ── 同步模式选型（2026-09-19 重写，根治「什么都没开也倍速」）──
+      // 背景：mpv 上游已知 bug（#18177/#10489/#11478，长期 open）——
+      // display-resample 的恒定 1 倍速**依赖 `estimated-display-fps`**，而该
+      // 估算在窗口跨屏 / ANGLE / 远程桌面 / 合成器故障时可能读到垃圾值
+      // （本机实测 edisp=4211→5512→6706→8922Hz，正常应 60/120/144）。
+      // 显示时钟错了，mpv 就按错时钟追帧 → 视频被倍速播放，且与任何
+      // 插帧/倍速开关无关（正好对应用户「我什么都没开，1 倍速，视频却是
+      // 倍速的」）。所以正确做法不是硬设某个 sync，而是**探测显示时钟，
+      // 不可靠就退回 `audio` 同步**——audio 同步以音频时钟为基准，恒 1 倍速，
+      // 永不倍速（宁可丢流畅也不变速）。
       final targetSync = 'display-resample';
       // 目标刷新率：60Hz 兜底（Windows ANGLE 读不到真实刷新率时）。
       const targetFps = 60;
+      // 合理显示刷新率区间：正常屏幕 30~250Hz。低于/高于此区间说明
+      // estimated-display-fps 是垃圾值（如远程桌面/ANGLE/双屏估算错误），
+      // display-resample 不可信，必须退回 audio 同步。
+      const kMinDispFps = 30.0;
+      const kMaxDispFps = 250.0;
+
+      // 读当前实际生效的显示刷新率估算。空/读错 → 不可信 → 走 audio。
+      double dispFps = 0;
+      try {
+        final edfps = await dyn.getProperty('estimated-display-fps');
+        dispFps = double.tryParse(edfps?.toString() ?? '') ?? 0;
+      } catch (_) {}
+      final dispOk = dispFps >= kMinDispFps && dispFps <= kMaxDispFps;
+
       // ── 音频感知（根治「倍速」）──
       // display-resample 的稳定 1 倍速**依赖音轨作为时间基准**：有音轨时
       // 它重采样音频贴合视频，速度恒定；**无音轨**时 mpv 没有音频时钟，
@@ -1311,7 +1332,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           hasAudio = a.isNotEmpty && !a.contains('ERR') && a != '0';
         }
       } catch (_) {}
-      final effectiveSync = hasAudio ? targetSync : 'audio';
+      // 最终决策：显示时钟可信 **且** 音轨在 → display-resample（平滑）；
+      // 任一不可靠 → audio 同步（恒 1 倍速，绝不倍速）。
+      final effectiveSync = (dispOk && hasAudio) ? targetSync : 'audio';
 
       // 1) 同步模式**最先设、独立容错**——这是治卡顿的前提。旧写法把
       //    video-sync 紧跟在 interpolation 之后且不单独容错，一旦某构建不
