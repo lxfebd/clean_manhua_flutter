@@ -34,6 +34,13 @@ class AiFrameRifePlugin extends CapabilityPlugin {
   /// 引擎包文件名（zip：rife.exe + flownet.bin/.param + LICENSE）。
   static const String engineZipName = 'rife-engine-win.zip';
 
+  /// 引擎包 SHA256（2026-09-18 从 xmq-video-ai 构建产物打包，版本钉死）。
+  static const String engineSha256 =
+      '48a0b0fc040b50bcd98b07ebe62a574016fcfed3a4a3e9f707eb129d9c03b5c0';
+
+  /// 引擎包体积（13.1MB，UI 展示下载大小用）。
+  static const int engineSizeBytes = 13131869;
+
   /// 引擎 exe 名（zip 解压后）。
   static const String engineExeName = 'rife.exe';
 
@@ -57,10 +64,10 @@ class AiFrameRifePlugin extends CapabilityPlugin {
           description: '本地 RIFE 视频补帧（桌面端，引擎运行期下载）',
           builtin: false, // 市场能力：可卸载，走 install/persist
           artifact: CapabilityArtifact(
-            // 引擎包 zip：rife.exe + flownet.bin/.param + LICENSE。
+            // 引擎包 zip：rife.exe + flownet.bin/.param。
             // 分发经 CapabilityArtifactStore.download（SHA256 校验后落盘）。
             url: '', // TODO(publish): 最终引擎包直链（GitHub release 或对象存储）
-            sha256: const {'windows-x64': ''}, // 版本钉死：发布时填实际 SHA256
+            sha256: const {'windows-x64': engineSha256},
           ),
           weights: const [], // 模型随引擎包分发，无独立权重下载
         );

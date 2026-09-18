@@ -95,6 +95,77 @@ void main() {
   });
 
   group('AiFrameRifePlugin 真实补帧', () {
+    test('引擎 zip 就绪（解压）→ ensureEngine 就绪 → 子进程补帧出中间帧', () async {
+      if (!hasEngine) {
+        markTestSkipped('本机无引擎（$engineExe），跳过真实推理');
+        return;
+      }
+      final mgr = CapabilityPluginManager.instance;
+      if (mgr.byId('ai.frame.rife') == null) {
+        await mgr.install(AiFrameRifePlugin());
+      }
+      await mgr.setEnabled('ai.frame.rife', true);
+
+      // 引擎目录尚未就绪 → ensureEngine 应提示「引擎地址未配置」。
+      final dir = await CapabilityArtifactStore.instance.artifactDir('ai.frame.rife');
+      expect(dir, isNotNull);
+
+      // 把 zip 放到 artifactDir 并模拟 download 产物（download 的 SHA256
+      // 校验由 CapabilityArtifactStore.download 负责，此处直接验证解压链）。
+      final zip = File('${dir!.path}/${AiFrameRifePlugin.engineZipName}');
+      if (zip.existsSync()) zip.deleteSync();
+      // 从打包好的引擎 zip 复制过来（若本地没有打包 zip，现场打包）。
+      final prebuilt = File(
+          r'C:\Users\31672\AppData\Local\Temp\rife_engine_pack\rife-engine-win.zip');
+      if (prebuilt.existsSync()) {
+        await prebuilt.copy(zip.path);
+      } else {
+        await engineExe.copy(zip.path); // 兜底：至少 exe 能就绪
+      }
+      expect(zip.existsSync(), isTrue, reason: '引擎 zip 应存在');
+
+      // 解压（模拟 ensureEngine 成功路径：powershell Expand-Archive）。
+      final out = await Process.run('powershell', [
+        '-NoProfile', '-Command',
+        'Expand-Archive -Path "${zip.path}" -DestinationPath "${dir.path}" -Force',
+      ]);
+      expect(out.exitCode, 0, reason: '解压引擎包失败: ${out.stderr}');
+      expect(File('${dir.path}/${AiFrameRifePlugin.engineExeName}').existsSync(),
+          isTrue, reason: '解压后应有 rife.exe');
+      expect(
+          Directory('${dir.path}/${AiFrameRifePlugin.modelDirName}').existsSync(),
+          isTrue, reason: '解压后应有模型目录');
+
+      // ensureEngine 现在应返回 null（就绪）。
+      final eng = await AiFrameRifePlugin.ensureEngine();
+      expect(eng, isNull, reason: '引擎应就绪，实际: $eng');
+
+      // 构造两帧（256x256 蓝底 + 白方块位移）→ 补帧 → 应有输出帧。
+      const w = 256, h = 256;
+      final a = Uint8List(w * h * 3);
+      final b = Uint8List(w * h * 3);
+      void fill(Uint8List buf, int offset) {
+        for (var y = 0; y < h; y++) {
+          for (var x = 0; x < w; x++) {
+            final i = (y * w + x) * 3;
+            buf[i] = 20; buf[i + 1] = 80; buf[i + 2] = 220; // 蓝底
+            if (x >= offset && x < offset + 24 && y >= 60 && y < 90) {
+              buf[i] = 240; buf[i + 1] = 240; buf[i + 2] = 240; // 白方块
+            }
+          }
+        }
+      }
+      fill(a, 20);
+      fill(b, 160);
+
+      final r = await AiFrameRifePlugin.interpolate(a, b, w, h);
+      expect(r, isA<CapabilityOk>(), reason: '期望成功，实际: $r');
+      final data = (r as CapabilityOk).data as Map<String, dynamic>;
+      final frame = data['frame'] as Uint8List;
+      expect(frame.length, w * h * 3);
+      expect(data['engine'], contains('rife'));
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     test('引擎就绪 → 子进程补帧出中间帧', () async {
       if (!hasEngine) {
         markTestSkipped('本机无引擎（$engineExe），跳过真实推理');
