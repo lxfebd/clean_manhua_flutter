@@ -79,29 +79,29 @@ void main() {
     });
   });
 
-  group('FrameInterpManager.speedDrifted（倍速守卫）', () {
-    test('speed=1.0 / 1.000001 → 不判变速（防数值抖动）', () {
-      expect(FrameInterpManager.speedDrifted('1.0'), isFalse);
-      expect(FrameInterpManager.speedDrifted('1.000001'), isFalse);
-      expect(FrameInterpManager.speedDrifted('0.999999'), isFalse);
+  group('FrameInterpManager.wallClockDrifted（墙钟倍速守卫）', () {
+    test('rate=1.0 / 1.05 → 不判变速（2s 拍长下自然抖动）', () {
+      expect(FrameInterpManager.wallClockDrifted(1.0), isFalse);
+      expect(FrameInterpManager.wallClockDrifted(1.05), isFalse);
+      expect(FrameInterpManager.wallClockDrifted(0.95), isFalse);
     });
 
-    test('真实倍速（2.5x / 0.5x）→ 判变速', () {
-      expect(FrameInterpManager.speedDrifted('2.5'), isTrue);
-      expect(FrameInterpManager.speedDrifted('0.5'), isTrue);
-      expect(FrameInterpManager.speedDrifted('1.1'), isTrue);
+    test('真实倍速（1.5x / 0.5x）→ 判变速', () {
+      expect(FrameInterpManager.wallClockDrifted(1.5), isTrue);
+      expect(FrameInterpManager.wallClockDrifted(0.5), isTrue);
+      expect(FrameInterpManager.wallClockDrifted(2.5), isTrue);
     });
 
-    test('非法 / 缺失 → false（不误伤）', () {
-      expect(FrameInterpManager.speedDrifted(null), isFalse);
-      expect(FrameInterpManager.speedDrifted(''), isFalse);
-      expect(FrameInterpManager.speedDrifted('abc'), isFalse);
-      expect(FrameInterpManager.speedDrifted('ERR(property)'), isFalse);
+    test('0 / 负数 / 非有限 → false（不误伤）', () {
+      expect(FrameInterpManager.wallClockDrifted(0), isFalse);
+      expect(FrameInterpManager.wallClockDrifted(-1), isFalse);
+      expect(FrameInterpManager.wallClockDrifted(double.nan), isFalse);
+      expect(FrameInterpManager.wallClockDrifted(double.infinity), isFalse);
     });
 
     test('自定义阈值生效', () {
-      expect(FrameInterpManager.speedDrifted('1.05'), isTrue);
-      expect(FrameInterpManager.speedDrifted('1.05', threshold: 0.1), isFalse);
+      expect(FrameInterpManager.wallClockDrifted(1.1), isFalse);
+      expect(FrameInterpManager.wallClockDrifted(1.1, threshold: 0.05), isTrue);
     });
   });
 }

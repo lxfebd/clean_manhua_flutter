@@ -184,12 +184,22 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 无音轨 / 显示时钟不可靠时 mpv 不会真正插帧，这里给出原因。
   String? _interpFault;
 
-  /// 速度守护第一拍标记：诊断循环连续两拍读到 speed 偏离 1.0 才真关。
+  /// 速度守护第一拍标记：诊断循环连续两拍检测到播放失衡（倍速）才真关。
   bool _interpSpeedFault = false;
 
-  /// 速度偏离 1.0 多大的窗口算「变速」：0.02 号防数值取整抖动
-  /// （speed 读回可能 1.000001 这种），真实倍速是 2.5x 这种量级。
-  static const double kInterpSpeedDriftThreshold = 0.02;
+  /// 墙钟守卫：上一拍记录的 time-pos（秒）。
+  double _lastPosSec = -1;
+
+  /// 墙钟守卫：上一拍记录的墙钟（Stopwatch，单调递增）。
+  final Stopwatch _posWatch = Stopwatch()..start();
+
+  /// 墙钟守卫判定阈值：time-pos 推进速度偏离 1.0 播放速度超过该值
+  /// （0.2 = ±20%）视为异常。mpv 的 `speed` 属性在时钟估算错误时读回
+  /// 恒 1.0 不可信，time-pos vs 墙钟是唯一可靠的倍速判据。
+  static const double kWallClockDriftThreshold = 0.2;
+
+  /// 墙钟守卫：插帧开启时真实播放速率（time-pos 推进 / 墙钟流逝）。
+  double _wallClockRate = 1.0;
 
   // ── 播放参数 ────────────────────────────────
   double _speed = 1.0;
@@ -910,7 +920,15 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 超分面板底部提示。
   ///
   /// 旧文案只写「低于 1080p 收益最明显」，没有回答用户真正的疑问
-  /// （"为什么我开了没变化"）。这里按 x2 链的实际执行条件分三种情况如实说明。
+  /// （"为什么我开了没变化"、"是超到 1080 还是 2K"）。这里按 x2 链的
+  /// 实际执行条件分三种情况如实说明。
+  ///
+  /// 2026-09-19 实测定案（渲染目标跟随窗口，删无效 setSize 后）：
+  /// Anime4K x2 链的 `//!WHEN OUTPUT.w > MAIN.w/0.999` 要求**渲染输出
+  /// （= mpv 渲染目标 = 窗口/全屏尺寸）比片源大**才执行；执行后画面
+  /// 被放大到 2×源分辨率再由 VO 缩回窗口尺寸（超采样）。所以：
+  /// * 全屏到 2K 屏（输出 2560×1440）播 1080p 源 → x2 链跑 → 真实 2K；
+  /// * 窗口化播 1080p 源 → 输出≈源尺寸 → WHEN 不成立 → 只有修复链生效。
   String _srHintText() {
     final src = (_vw > 0 && _vh > 0) ? '当前片源 $_vw×$_vh' : '片源分辨率获取中';
     if (_srEligible == false) {
@@ -918,10 +936,12 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           '本次只有线条修复生效。全屏播放或调大窗口即可开启 2 倍超采样。';
     }
     if (_vw > 0 && _vw <= 1280) {
-      return '$src，低于 720p 档位收益最明显；卡顿请降档。';
+      return '$src，低于 720p 档位收益最明显；卡顿请降档。'
+          'x2 档（极致画质）全屏到 2K 屏会自动放大到 2560×1440（2K 超采样）。';
     }
     return '$src。超分会把画面放大 2 倍再缩回屏幕尺寸（超采样，锐化线条与降噪），'
-        '收益小于低分辨率片源但真实可见，开销较高，卡顿请降档。';
+        '收益小于低分辨率片源但真实可见，开销较高，卡顿请降档。'
+        'x2 档（极致画质）全屏到 2K 屏即为 2K 超分。';
   }
 
   /// 周期读取 mpv 关键属性，实测超分的实际输出并写日志。
@@ -942,8 +962,11 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 每 2 秒采样一次，仅记录与上一次不同的关键变化，避免刷屏。
   ///
   /// 关于「真实输出帧率」的测定：
-  /// 插帧已移除（2026-09-16），VO 真实出帧节奏即源容器帧率，
-  /// 这里只保留显示同步相关的读数供诊断面板参考。
+  /// 插帧（mpv interpolation）在显示时钟可靠时会让 VO 出帧节奏接近
+  /// display-fps；时钟不可靠（用户机器 edisp 垃圾值）时绝不开插帧（见
+  /// [_applySync]），此时 VO 真实出帧节奏即源容器帧率。这里只保留
+  /// 显示同步相关的读数供诊断面板参考；真实播放速率用墙钟守卫
+  /// （time-pos vs 墙钟，日志字段 `wrate=`）测定，speed 属性不可信。
   void _startDiag() {
     _diagTimer?.cancel();
     final native = _player?.platform;
@@ -988,22 +1011,37 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       // 补帧后速度守护（2026-09-19，防「开了补帧就倍速」的最后防线）：
       // mpv 原生时序（display-resample/desync + interpolation）若因为时钟
       // 估算错误按错误频率追帧，会表现为 speed≠1.0（audio 同步则恒 1.0）。
-      // 诊断循环本来就是周期采样，这里顺便做闭环：开着插帧但读回 speed
-      // 明显偏离 1.0（阈值 0.02，防止数值取整抖动）连续 2 次 → 立刻强制关
-      // 插帧并还原同步（audio），同时记录 fault 让用户知道原因。这比启动
-      // 时一次性探测更可靠——相当于在真实播放状态下验证「补帧没把速度
-      // 带偏」，探测不到的时钟错误在这里兜住。守卫用静态函数 + 字段，
-      // 单测可直接覆盖判定逻辑。
-      final spdNum = double.tryParse(spd);
-      final speedDrift =
-          spdNum != null && _interp.enabled && !_interpAndroidOff &&
-              FrameInterpManager.speedDrifted(spd, threshold: kInterpSpeedDriftThreshold);
-      if (speedDrift && !_interpSpeedFault) {
+      // 墙钟守卫（2026-09-19 修正）：mpv 的 `speed` 属性在时钟估算错误时
+      // 读回恒 1.0（自认 1x），**不可信**——用户机器实测 desync 下
+      // edisp=419~525Hz 垃圾值、视频实时倍速、speed 却恒 1.000000。
+      // 唯一可靠的倍速判据是 **time-pos 推进 vs 墙钟**：真实 1 倍速播放时
+      // 两者同步；时钟错了 mpv 按错时钟追帧 → time-pos 比墙钟快（>20%）。
+      // 诊断循环每 2s 采样一次，连续两拍失衡 → 强制关插帧回 audio + 如实报。
+      // 不依赖 speed 属性，单测直接覆盖 [FrameInterpManager.wallClockDrifted]。
+      final pos = await rd('time-pos');
+      final posSec = double.tryParse(pos);
+      var wallDrift = false;
+      if (posSec != null && _posWatch.isRunning) {
+        final wallSec = _posWatch.elapsedMilliseconds / 1000.0;
+        if (_lastPosSec >= 0 && wallSec >= 1.0) {
+          final rate = (posSec - _lastPosSec) / wallSec;
+          _wallClockRate = rate;
+          wallDrift = _interp.enabled &&
+              !_interpAndroidOff &&
+              FrameInterpManager.wallClockDrifted(rate,
+                  threshold: kWallClockDriftThreshold);
+        }
+        _lastPosSec = posSec;
+        _posWatch
+          ..reset()
+          ..start();
+      }
+      if (wallDrift && !_interpSpeedFault) {
         _interpSpeedFault = true; // 第一拍记录；第二拍（约 2s 后）真关
-      } else if (speedDrift && _interpSpeedFault) {
-        // 连续两拍都偏 → 关闭插帧（还原 audio 同步），绝不硬撑。
+      } else if (wallDrift && _interpSpeedFault) {
+        // 连续两拍都失衡 → 关闭插帧（还原 audio 同步），绝不硬撑。
         _interpSpeedFault = false;
-        _interpFault = '补帧导致播放变速，已自动关闭（请检查显卡驱动）';
+        _interpFault = '补帧导致播放变速，已自动关闭（显示时钟不可靠）';
         if (mounted) {
           setState(() => _interpId = 'off');
         }
@@ -1118,7 +1156,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           'fps=${_fmtFps(efps)} srcFps=${_fmtFps(cfps)} realFps=${_fmtFps(realFps.toString())} '
           'disp=${_fmtFps(dfps)} ovr=${_fmtFps(ovr)} edisp=${_fmtFps(edfps)} '
           'shader=$shaderCount vsync=$vsync hwdec=$hw interp=$interp thr=$thr '
-          'ach=$ach aid=$aaid speed=$spd rvo=$rvo gapi=$rgapi gctx=$rgctx';
+          'ach=$ach aid=$aaid speed=$spd wrate=${_fmtFps(_wallClockRate.toStringAsFixed(3))} '
+          'rvo=$rvo gapi=$rgapi gctx=$rgctx';
       if (line == last) return;
       last = line;
       ErrorLogger.instance.debug(line);
@@ -1217,38 +1256,35 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       // 这里每次读回 video-params/w/h 并同步 _vw/_vh（UI 角标也用它们）。
       // mpv 规定 video-params/w/h 只反映 **第一帧** 的分辨率，源集内
       // 分辨率中途变化（极少见）用它当「当前」没问题：源来自同一系列。
-      var sw = _vw, sh = _vh;
       try {
         final wp = await dyn.getProperty('video-params/w');
         final hp = await dyn.getProperty('video-params/h');
         final wpv = int.tryParse(wp.toString());
         final hpv = int.tryParse(hp.toString());
         if (wpv != null && wpv > 0 && hpv != null && hpv > 0) {
-          sw = wpv;
-          sh = hpv;
           _vw = wpv;
           _vh = hpv;
         }
       } catch (_) {}
-      // 仅 x2 档（quality/ultimate）放大；关闭/降噪档 target=null
-      // → setSize(width:null,height:null) 还原渲染目标为源尺寸。
-      final upsample = _sr.id == 'quality' || _sr.id == 'ultimate';
-      final target = (sw <= 0 || sh <= 0 || !upsample)
-          ? null
-          : Anime4KManager.srTargetSize(sw: sw, sh: sh);
-      if (!Platform.isAndroid) {
-        // Android 的 setSize 抛 UnsupportedError（framework 限制），
-        // 其余平台（Windows/iOS/macOS/Linux）用它强制改变渲染目标、
-        // 激活 x2 超分链；原生端固定 width/height 优先于 video-out-params。
-        try {
-          await _controller?.setSize(
-            width: target?.w,
-            height: target?.h,
-          );
-        } catch (_) {
-          // setSize 失败（罕见）不影响超分本身，Restore 链照常
-        }
-      }
+      // 渲染目标尺寸 = VO 实际绘制尺寸（dwidth/dheight）。
+      //
+      // ⚠️ 2026-09-19 定案：`VideoController.setSize` 在 Windows 上**改不了**
+      // mpv 的渲染目标**还**——media_kit_video 的 `VideoOutput::SetSize`（
+      // video_output.cc:207-239）只改写 Flutter 纹理/EGL surface 的 width_/
+      // height_ 成员；`CheckAndResize`（241-266）仅在视频尺寸变化时才
+      // `Resize`，`Resize`（268+）只做 `surface_manager_->SetSize()` + 纹理
+      // 重注册。mpv 的渲染目标仍等于视频输出尺寸，Anime4K x2 链的
+      // `WHEN OUTPUT.w > MAIN.w` 恒不成立 → 之前 setSize 放大期待的效果
+      // （源 1080p → 2K）从未发生过。
+      //
+      // 真正能让 x2 链跑起来的只有**渲染目标跟随窗口/全屏尺寸**：全屏到
+      // 2K 屏（2560×1440）时 mpv 渲染输出即 2560×1440 > 源 1080p → WHEN 成立
+      // → 自动超采样到 2K。窗口化时渲染目标 = 窗口/纹理尺寸（常=源尺寸），
+      // x2 链不激活（不开降噪档时的正常表现，面板已提示）。
+      //
+      // 移除 setSize 后判据不变：诊断日志 `vo=`（dwidth/dheight）才是
+      // 「实际渲染输出」，超分是否放大看它。目标尺寸计算不再需要，
+      // Anime4KManager.srTargetSize 仅供算法参考（WHEN 门槛语义）。
       // 关键：mpv 的 hwdec 直通模式（Android mediacodec 零拷贝直通 GPU 纹理、
       // Windows d3d11va 零拷贝）会绕过 glsl-shaders 着色器管线——Anime4K
       // 这类 `//!HOOK MAIN` shader 将静默不生效。但**copy-back 模式**（
@@ -1385,21 +1421,6 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       } catch (_) {}
       final dispOk = dispFps >= kMinDispFps && dispFps <= kMaxDispFps;
 
-      // ── 插帧模式的显示频率证据（2026-09-19 实测修正）──
-      // `estimated-display-fps` 只在 display-resample/desync 激活时可读；
-      // 用户机器在 audio 同步下 edisp=?(读不到),但 `display-fps`
-      // （Windows 枚举 / override-display-fps=60 覆盖后的真实值）恒 60 可读。
-      // 插帧开启时用 display-fps 作为「显示频率已知」的证据走 desync；
-      // 若该估算仍不可靠导致倍速,由诊断循环的 speed 守卫闭环自动关停
-      // （连续两拍 speed 偏离 1.0 → 关插帧回 audio + fault 如实报）。
-      double realDispFps = 0;
-      try {
-        final dfps = await dyn.getProperty('display-fps');
-        realDispFps = double.tryParse(dfps?.toString() ?? '') ?? 0;
-      } catch (_) {}
-      final interpDispOk = realDispFps >= kMinDispFps &&
-          realDispFps <= kMaxDispFps;
-
       // ── 音频感知（根治「倍速」）──
       // display-resample 的稳定 1 倍速**依赖音轨作为时间基准**：有音轨时
       // 它重采样音频贴合视频，速度恒定；**无音轨**时 mpv 没有音频时钟，
@@ -1425,27 +1446,24 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       // 最终决策：显示时钟可信 **且** 音轨在 → display-resample（平滑）；
       // 任一不可靠 → audio 同步（恒 1 倍速，绝不倍速）。
       //
-      // 插帧只允许在 display-resample/desync 下生效（interpolation 需要
-      // 视频同步到显示时钟）。这里**两条路径分开判定**（2026-09-19 实测
-      // 修正）：
-      //   * 基线 display-resample 沿用 `edisp` 判定（dispOk）——这是已验证
-      //     安全的默认路径,绝不让不可靠时钟进 display 同步。
-      //   * 插帧走 desync 变体,改用 `display-fps`（realDispFps）判定
-      //     ——edisp 在 audio 模式下读不到（用户机器实测 edisp=?），用
-      //     display-fps（恒 60 可读）做插帧的证据；若该估算仍不可靠导致
-      //     倍速,由诊断循环的 speed 守卫闭环兜住（连续两拍偏离 1.0 →
-      //     关插帧回 audio + fault 如实报,用户能看到原因）。
-      // desync 变体**不改变 1 倍速**——倍速只来自显示时钟错误,而错误
-      // 时钟已由 dispOk/realDispFps 双重拦截 + speed 守卫兜底。
+      // 插帧只允许在 display-resample 系（含 desync）下生效（interpolation
+      // 需要视频同步到显示时钟）。2026-09-19 用户机器实测定案：
+      //   * `estimated-display-fps`（edisp）是 mpv 实际用于追帧的估算值，
+      //     在 display-resample/desync 下有值时是本机**真实**（或错）显示
+      //     时钟；用户机器实测 desync 下 edisp=419~525Hz 垃圾值 → mpv
+      //     按错时钟追帧 → 实时倍速（speed 属性读回恒 1.0 不可信）。
+      //   * `display-fps` 恒 60 可读，但它只反映**标称刷新率**，不能证明
+      //     mpv 的实际重采样时钟可靠——用它放行 desync 是上一版回归的
+      //     根源（插帧生效了但倍速）。
+      //   → 结论：edisp 不可靠（? 或 30~250 之外）时**绝不进任何
+      //     display-resample 系**：插帧不可用（如实报），同步退回 audio。
+      //     墙钟守卫（time-pos vs 墙钟）在诊断循环兜底，防探测不到的
+      //     时钟错误。
       final interpWanted = _interp.enabled && !_interpAndroidOff;
-      final interpSync = (interpWanted &&
-              interpDispOk &&
-              hasAudio)
-          ? 'display-resample-desync'
-          : '';
-      final effectiveSync = interpSync.isNotEmpty
-          ? interpSync
-          : ((dispOk && hasAudio) ? targetSync : 'audio');
+      final interpSync =
+          (interpWanted && dispOk && hasAudio) ? 'display-resample-desync' : '';
+      final effectiveSync =
+          interpSync.isNotEmpty ? interpSync : ((dispOk && hasAudio) ? targetSync : 'audio');
 
       // 1) 同步模式**最先设、独立容错**——这是治卡顿的前提。旧写法把
       //    video-sync 紧跟在 interpolation 之后且不单独容错，一旦某构建不
@@ -1455,8 +1473,13 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         await dyn.setProperty('video-sync', effectiveSync);
       } catch (_) {}
       // 2) 加速上限兜底：`video-sync-max-factor` 是整数选项（mpv 源码
-      //    M_RANGE(1,10)），默认 10 = 视频最多被加速到 10 倍速。钉到 1 杜绝
-      //    任何显示同步驱动的变速（超出显示能力时走丢帧而非变速）。
+      //    M_RANGE(1,10)），默认 10 = 视频最多被加速到 10 倍速。钉到 1 收紧
+      //    相对速率调整。⚠️ 2026-09-19 实测定案：它**挡不住** edisp 垃圾值
+      //    引起的倍速——max-factor 限制的是「相对基准速率的调整幅度」，
+      //    而 edisp=500Hz 时 mpv 把 500 当正常刷新率、自认 1 倍速，基准本身
+      //    就是错的，相对限制等于没挡（用户机器实测 max-factor=1 时仍倍速，
+      //    speed 属性还恒读回 1.0）。真正的防线是 _applySync 的 edisp 探测
+      //    + 诊断循环的墙钟守卫，这里仅作为兜底保留。
       try {
         await dyn.setProperty('video-sync-max-factor', '1');
       } catch (_) {}

@@ -36,6 +36,20 @@ class FrameInterpPreset {
 /// 桌面/合成器故障时读到垃圾值（本机实测 4211~8922Hz）导致视频被倍速。
 /// 因此插帧前置条件由 `_applySync` 的探测守护把关（显示时钟可靠 **且**
 /// 音轨在），时钟不可靠/无音轨时绝不开启插帧。
+///
+/// ⚠️ 用户机器插帧出路定案（2026-09-19 两轮实测）：
+///   * `override-display-fps=60` 只钉 `display-fps`（读回 60.000000），
+///     **不钉 `estimated-display-fps`**——display-resample/desync 追帧用的
+///     是 edisp 不是 display-fps。用户机器 desync 下 edisp=419~525Hz 垃圾值
+///     → mpv 按错时钟追帧 → 实时倍速（即使 `video-sync-max-factor=1` 也挡
+///     不住：max-factor 限相对调整幅度，基准速率本身是错的，等于没挡）。
+///   * 因此这台机器上 mpv 实时插帧**没有安全形态**：插帧必须进
+///     display-resample 系，而该系必然倍速。出路 = edisp 探测门闸（时钟
+///     不可靠绝不进 desync，插帧如实报障）+ 墙钟守卫兜底（诊断循环
+///     连续两拍 time-pos/墙钟失衡即强制关插帧）+ 低帧率源判据
+///     [fpsEligible]（时钟可靠时 24fps@60Hz 才真正插，避免无效开）。
+///     需要插帧但时钟不可靠的用户，替代形态是离线导出（F2，RIFE 子进程
+///     逐帧补帧落盘，见 docs/frame-interpolation-research.md）。
 class FrameInterpManager {
   FrameInterpManager._();
 
@@ -103,12 +117,17 @@ class FrameInterpManager {
     return videoFps < dispFps / 1.85;
   }
 
-  /// 速度守卫判定（纯函数，供单测）：读回的播放速率 [speed] 偏离 1.0
-  /// 是否达到「变速」标准。阈值 0.02 防数值取整抖动（speed 读回可能
-  /// 1.000001 这种），真实倍速是 2.5x 这种量级。null/非法 → false。
-  static bool speedDrifted(String? speed, {double threshold = 0.02}) {
-    final v = double.tryParse(speed ?? '');
-    if (v == null) return false;
-    return (v - 1.0).abs() > threshold;
+  /// 墙钟守卫判定（纯函数，供单测）：真实播放速率 [rate]（time-pos 推进 /
+  /// 墙钟流逝）偏离 1.0 是否达到「变速」标准。
+  ///
+  /// 2026-09-19 实测定案：mpv 的 `speed` 属性在显示时钟估算错误时读回
+  /// 恒 1.0（自认 1x），**不可信**——用户机器实测 desync 下 edisp=419~525Hz
+  /// 垃圾值、视频实时倍速、speed 却恒 1.000000。唯一可靠的倍速判据是
+  /// time-pos 推进速度 vs 墙钟：真实 1 倍速两者同步，时钟错了按错时钟追帧
+  /// → rate 明显偏离 1.0。阈值 0.2 = ±20%（诊断循环 2s 一拍，误差被平均）。
+  /// rate ≤ 0 / 非有限 → false（单测直接覆盖，不依赖 speed 属性）。
+  static bool wallClockDrifted(double rate, {double threshold = 0.2}) {
+    if (rate <= 0 || !rate.isFinite) return false;
+    return (rate - 1.0).abs() > threshold;
   }
 }
