@@ -102,4 +102,13 @@ class FrameInterpManager {
     if (videoFps <= 0 || dispFps <= 0) return false;
     return videoFps < dispFps / 1.85;
   }
+
+  /// 速度守卫判定（纯函数，供单测）：读回的播放速率 [speed] 偏离 1.0
+  /// 是否达到「变速」标准。阈值 0.02 防数值取整抖动（speed 读回可能
+  /// 1.000001 这种），真实倍速是 2.5x 这种量级。null/非法 → false。
+  static bool speedDrifted(String? speed, {double threshold = 0.02}) {
+    final v = double.tryParse(speed ?? '');
+    if (v == null) return false;
+    return (v - 1.0).abs() > threshold;
+  }
 }

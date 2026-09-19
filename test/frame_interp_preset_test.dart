@@ -78,4 +78,30 @@ void main() {
       expect(FrameInterpManager.fpsEligible(videoFps: 24, dispFps: -60), isFalse);
     });
   });
+
+  group('FrameInterpManager.speedDrifted（倍速守卫）', () {
+    test('speed=1.0 / 1.000001 → 不判变速（防数值抖动）', () {
+      expect(FrameInterpManager.speedDrifted('1.0'), isFalse);
+      expect(FrameInterpManager.speedDrifted('1.000001'), isFalse);
+      expect(FrameInterpManager.speedDrifted('0.999999'), isFalse);
+    });
+
+    test('真实倍速（2.5x / 0.5x）→ 判变速', () {
+      expect(FrameInterpManager.speedDrifted('2.5'), isTrue);
+      expect(FrameInterpManager.speedDrifted('0.5'), isTrue);
+      expect(FrameInterpManager.speedDrifted('1.1'), isTrue);
+    });
+
+    test('非法 / 缺失 → false（不误伤）', () {
+      expect(FrameInterpManager.speedDrifted(null), isFalse);
+      expect(FrameInterpManager.speedDrifted(''), isFalse);
+      expect(FrameInterpManager.speedDrifted('abc'), isFalse);
+      expect(FrameInterpManager.speedDrifted('ERR(property)'), isFalse);
+    });
+
+    test('自定义阈值生效', () {
+      expect(FrameInterpManager.speedDrifted('1.05'), isTrue);
+      expect(FrameInterpManager.speedDrifted('1.05', threshold: 0.1), isFalse);
+    });
+  });
 }

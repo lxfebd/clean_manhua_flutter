@@ -2,7 +2,8 @@
 //
 // 覆盖 Anime4KManager.srTargetSize 的所有边界：
 // * 640p 源 → 放大到 1280×720（x2 链激活的充分条件：OUTPUT.w > MAIN.w）
-// * 720p 源 → 顶到 1920 长边
+// * 720p 源 → 顶到 2560 长边（2K）
+// * 1080p 源 → 2560×1440（2K 超采样，x2 上限与 2K 取小）
 // * ≥2K 源 → 不放大（WHEN 本就满足，防 4K 纹理拖垮 GPU）
 // * 无效尺寸 → null
 import 'package:flutter_test/flutter_test.dart';
@@ -18,15 +19,19 @@ void main() {
       expect(t.h, 720);
     });
 
-    test('1280×720 源 → 1920×1080（顶到 cap 上限）', () {
+    test('1280×720 源 → 2560×1440（2K，顶到 cap 上限）', () {
       final t = Anime4KManager.srTargetSize(sw: 1280, sh: 720);
       expect(t, isNotNull);
-      expect(t!.w, 1920);
-      expect(t.h, 1080);
+      expect(t!.w, 2560);
+      expect(t.h, 1440);
     });
 
-    test('1920×1080 源 → null（无需放大，x2 链本就满足）', () {
-      expect(Anime4KManager.srTargetSize(sw: 1920, sh: 1080), isNull);
+    test('1920×1080 源 → 2560×1440（2K 超采样，2x 与 2K 取小）', () {
+      // cap=2560：1080p 长边 1920，2x=3840 > 2560，故顶到 2560×1440。
+      final t = Anime4KManager.srTargetSize(sw: 1920, sh: 1080);
+      expect(t, isNotNull);
+      expect(t!.w, 2560);
+      expect(t.h, 1440);
     });
 
     test('2560×1440 (2K) 源 → null（防 4K 纹理拖垮 GPU）', () {

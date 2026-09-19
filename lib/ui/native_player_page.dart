@@ -184,6 +184,13 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 无音轨 / 显示时钟不可靠时 mpv 不会真正插帧，这里给出原因。
   String? _interpFault;
 
+  /// 速度守护第一拍标记：诊断循环连续两拍读到 speed 偏离 1.0 才真关。
+  bool _interpSpeedFault = false;
+
+  /// 速度偏离 1.0 多大的窗口算「变速」：0.02 号防数值取整抖动
+  /// （speed 读回可能 1.000001 这种），真实倍速是 2.5x 这种量级。
+  static const double kInterpSpeedDriftThreshold = 0.02;
+
   // ── 播放参数 ────────────────────────────────
   double _speed = 1.0;
   int _fitIndex = 0;
@@ -978,6 +985,33 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       // 而 speed=1.0，说明不是 mpv 变速而是别处（片源时间戳/HLS PTS 跳变）
       // 造成 time-pos 采样"快进"假象；若 speed≠1.0 则直接坐实 mpv 倍速。
       final spd = await rd('speed');
+      // 补帧后速度守护（2026-09-19，防「开了补帧就倍速」的最后防线）：
+      // mpv 原生时序（display-resample/desync + interpolation）若因为时钟
+      // 估算错误按错误频率追帧，会表现为 speed≠1.0（audio 同步则恒 1.0）。
+      // 诊断循环本来就是周期采样，这里顺便做闭环：开着插帧但读回 speed
+      // 明显偏离 1.0（阈值 0.02，防止数值取整抖动）连续 2 次 → 立刻强制关
+      // 插帧并还原同步（audio），同时记录 fault 让用户知道原因。这比启动
+      // 时一次性探测更可靠——相当于在真实播放状态下验证「补帧没把速度
+      // 带偏」，探测不到的时钟错误在这里兜住。守卫用静态函数 + 字段，
+      // 单测可直接覆盖判定逻辑。
+      final spdNum = double.tryParse(spd);
+      final speedDrift =
+          spdNum != null && _interp.enabled && !_interpAndroidOff &&
+              FrameInterpManager.speedDrifted(spd, threshold: kInterpSpeedDriftThreshold);
+      if (speedDrift && !_interpSpeedFault) {
+        _interpSpeedFault = true; // 第一拍记录；第二拍（约 2s 后）真关
+      } else if (speedDrift && _interpSpeedFault) {
+        // 连续两拍都偏 → 关闭插帧（还原 audio 同步），绝不硬撑。
+        _interpSpeedFault = false;
+        _interpFault = '补帧导致播放变速，已自动关闭（请检查显卡驱动）';
+        if (mounted) {
+          setState(() => _interpId = 'off');
+        }
+        _savePrefs();
+        unawaited(_applySync());
+      } else {
+        _interpSpeedFault = false;
+      }
       // 超分是否**真的进了渲染管线**：只认 vo-passes 里的 user shader pass。
       // glsl-shaders 读回非空不算数——真机实测过"属性读回两个路径、
       // vo-passes 里一个用户着色器 pass 都没有"的静默失效。
@@ -1173,7 +1207,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       _srFault = null;
       final list = await Anime4KManager.shaderListFor(_srId);
       // 超分强制放大：仅 x2 档（quality/ultimate）把渲染目标放大到源×2
-      // （上限 1920 长边），让 Upscale 链的 WHEN 条件成立、超分真实放大；
+      // （上限 2560 长边 = 2K），让 Upscale 链的 WHEN 条件成立、超分真实放大；
       // 关闭/降噪档还原为源尺寸。
       //
       // 分辨率来源必须是 mpv 当前**权威**值而非记忆的 _vw/_vh：切集时
@@ -1351,6 +1385,21 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       } catch (_) {}
       final dispOk = dispFps >= kMinDispFps && dispFps <= kMaxDispFps;
 
+      // ── 插帧模式的显示频率证据（2026-09-19 实测修正）──
+      // `estimated-display-fps` 只在 display-resample/desync 激活时可读；
+      // 用户机器在 audio 同步下 edisp=?(读不到),但 `display-fps`
+      // （Windows 枚举 / override-display-fps=60 覆盖后的真实值）恒 60 可读。
+      // 插帧开启时用 display-fps 作为「显示频率已知」的证据走 desync；
+      // 若该估算仍不可靠导致倍速,由诊断循环的 speed 守卫闭环自动关停
+      // （连续两拍 speed 偏离 1.0 → 关插帧回 audio + fault 如实报）。
+      double realDispFps = 0;
+      try {
+        final dfps = await dyn.getProperty('display-fps');
+        realDispFps = double.tryParse(dfps?.toString() ?? '') ?? 0;
+      } catch (_) {}
+      final interpDispOk = realDispFps >= kMinDispFps &&
+          realDispFps <= kMaxDispFps;
+
       // ── 音频感知（根治「倍速」）──
       // display-resample 的稳定 1 倍速**依赖音轨作为时间基准**：有音轨时
       // 它重采样音频贴合视频，速度恒定；**无音轨**时 mpv 没有音频时钟，
@@ -1376,19 +1425,27 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       // 最终决策：显示时钟可信 **且** 音轨在 → display-resample（平滑）；
       // 任一不可靠 → audio 同步（恒 1 倍速，绝不倍速）。
       //
-      // 插帧只允许在 display-resample 下生效（interpolation 需要视频同步
-      // 到显示时钟）。这里区分两个 sync 值：
-      //   * 插帧开启 + 时钟/音轨都可靠 → display-resample-desync：允许
-      //     video/audio 轻微脱同步（<0.01s）换取按显示刷新率整倍数插帧，
-      //     这是 mpv 补帧生效的标准形态（docs/... F3 定案）。
-      //   * 否则 → display-resample（普通平滑）或 audio（退化）。
-      // 注意 desync 变体**不改变 1 倍速**——倍速只来自显示时钟错误，而
-      // 时钟错误已被 dispOk 拦截（走 audio 分支，插帧 fault 如实报）。
+      // 插帧只允许在 display-resample/desync 下生效（interpolation 需要
+      // 视频同步到显示时钟）。这里**两条路径分开判定**（2026-09-19 实测
+      // 修正）：
+      //   * 基线 display-resample 沿用 `edisp` 判定（dispOk）——这是已验证
+      //     安全的默认路径,绝不让不可靠时钟进 display 同步。
+      //   * 插帧走 desync 变体,改用 `display-fps`（realDispFps）判定
+      //     ——edisp 在 audio 模式下读不到（用户机器实测 edisp=?），用
+      //     display-fps（恒 60 可读）做插帧的证据；若该估算仍不可靠导致
+      //     倍速,由诊断循环的 speed 守卫闭环兜住（连续两拍偏离 1.0 →
+      //     关插帧回 audio + fault 如实报,用户能看到原因）。
+      // desync 变体**不改变 1 倍速**——倍速只来自显示时钟错误,而错误
+      // 时钟已由 dispOk/realDispFps 双重拦截 + speed 守卫兜底。
       final interpWanted = _interp.enabled && !_interpAndroidOff;
-      final interpSync =
-          (dispOk && hasAudio && interpWanted) ? 'display-resample-desync' : '';
-      final effectiveSync =
-          interpSync.isNotEmpty ? interpSync : ((dispOk && hasAudio) ? targetSync : 'audio');
+      final interpSync = (interpWanted &&
+              interpDispOk &&
+              hasAudio)
+          ? 'display-resample-desync'
+          : '';
+      final effectiveSync = interpSync.isNotEmpty
+          ? interpSync
+          : ((dispOk && hasAudio) ? targetSync : 'audio');
 
       // 1) 同步模式**最先设、独立容错**——这是治卡顿的前提。旧写法把
       //    video-sync 紧跟在 interpolation 之后且不单独容错，一旦某构建不
@@ -1419,7 +1476,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       //    desync）时才能真正生效；独立 try 逐项设属性，单个失败不连累
       //    其余属性与同步链。off 档显式还原默认值（幂等，可反复调用）。
       final interpEffective = interpSync.isNotEmpty;
-      if (_interpFault != null && !interpWanted) {
+      if (_interpFault != null && !interpWanted && !_interpSpeedFault &&
+          !(_interpFault?.startsWith('补帧导致播放变速') ?? false)) {
         _interpFault = null; // 用户关掉插帧 → 清历史原因
       } else if (interpWanted && !interpEffective) {
         // 如实报（仿 _srFault 风格），不假装成功：时钟或音轨不可靠。
@@ -1427,7 +1485,20 @@ class _NativePlayerPageState extends State<NativePlayerPage>
             ? '显示刷新率读取异常，插帧无法安全生效（自动退回原速）'
             : '片源无音轨，插帧需音频时钟打底，暂不生效';
       } else if (interpEffective) {
-        _interpFault = null;
+        // 速度守卫的 fault 是「真实变速后自动关闭」的残痕,保留让用户
+        // 看到原因;其余情况清除。
+        if (!(_interpFault?.startsWith('补帧导致播放变速') ?? false)) {
+          _interpFault = null;
+        }
+      }
+      // 速度守卫已在诊断循环里触发自动关闭（_interpId='off'）,这里
+      // 同步还原插帧属性为 off（幂等,下次手动开启时重置守卫状态）。
+      if (!interpWanted) {
+        for (final e in FrameInterpManager.propsFor('off').entries) {
+          try {
+            await dyn.setProperty(e.key, e.value);
+          } catch (_) {}
+        }
       }
       final interpProps = FrameInterpManager.propsFor(_interpId);
       for (final e in interpProps.entries) {
