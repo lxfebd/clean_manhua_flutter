@@ -18,6 +18,7 @@ import '../net/video_download_manager.dart';
 import '../services/player_registry.dart';
 import '../sources/video_source.dart';
 import '../utils/anime4k.dart';
+import '../utils/frame_interp.dart';
 import '../utils/danmaku.dart';
 import '../utils/desktop_fullscreen.dart';
 import '../utils/pip_channel.dart';
@@ -176,6 +177,13 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 最近一次 mpv 报告的着色器错误（无则 null）。
   String? _srFault;
 
+  // ── 插帧（mpv interpolation，桌面专属）────────────────────
+  String _interpId = 'off';
+
+  /// 插帧不生效的原因（无则 null）。如实报（仿 _srFault 风格）：
+  /// 无音轨 / 显示时钟不可靠时 mpv 不会真正插帧，这里给出原因。
+  String? _interpFault;
+
   // ── 播放参数 ────────────────────────────────
   double _speed = 1.0;
   int _fitIndex = 0;
@@ -258,12 +266,17 @@ class _NativePlayerPageState extends State<NativePlayerPage>
 
   String get _histKey => widget.historyKey ?? widget.url;
   SrPreset get _sr => Anime4KManager.presetById(_srId);
+  FrameInterpPreset get _interp => FrameInterpManager.presetById(_interpId);
 
   /// 超分（Anime4K）仅保留桌面端：手机端不做超分（2026-09-16 用户决策，
   /// AI 超分与插帧只在电脑端做）。移动端强制隐藏入口并锁定为 off。
   /// 用 [DesktopUi.isDesktopPlatform] 判定（测试可覆盖），而非 dart:io
   /// [Platform]——后者在 `flutter test` 下恒报宿主机，widget 测试会误判。
   bool get _srAndroidOff => !DesktopUi.isDesktopPlatform;
+
+  /// 插帧（mpv interpolation）同样仅桌面端：与超分同一决策，手机端
+  /// 强制 off 且不展示入口。
+  bool get _interpAndroidOff => !DesktopUi.isDesktopPlatform;
 
   int get _curIndex => widget.episodes.indexWhere(
       (e) => e.season == _curSeason && e.episode == _curEpisode);
@@ -786,8 +799,13 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         // 旧持久化里存了档位），不展示入口。
         if (!DesktopUi.isDesktopPlatform) _srId = 'off';
         _enhance = (raw['enhance'] as bool?) ?? true;
-        // 补帧（mpv interpolation）已移除（2026-09-18，见 _applySync），
-        // 旧存档里的 'interp' 键一律忽略。
+        // 插帧（mpv interpolation）：桌面专属，非法档位兜底 off；
+        // 移动端强制关闭（与超分同一决策，旧存档键一并覆盖）。
+        _interpId = (raw['interp'] as String?) ?? 'off';
+        if (FrameInterpManager.levels.every((e) => e.id != _interpId)) {
+          _interpId = 'off';
+        }
+        if (!DesktopUi.isDesktopPlatform) _interpId = 'off';
         _speed = (raw['speed'] as num?)?.toDouble() ?? 1.0;
         _fitIndex = ((raw['fit'] as num?)?.toInt() ?? 0).clamp(0, _fits.length - 1);
         // 仅遮罩兜底模式下才恢复上次亮度；接管了系统亮度就以系统当前值为准
@@ -804,6 +822,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       await LocalStore.writeJson('player_prefs', {
         'sr': _srId,
         'enhance': _enhance,
+        'interp': _interpId,
         'speed': _speed,
         'fit': _fitIndex,
         'bright': _brightness,
@@ -1009,13 +1028,24 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           .where((s) => s.trim().isNotEmpty)
           .length;
       // ── 超分自愈：属性设上了、但 pass 没进渲染图 ──────────────
-      // 真机实测（2026-09-14）存在这种静默失效：`glsl-shaders` 读回两个
+      // 真机实测（2026-09-14，Android）存在这种静默失效：`glsl-shaders` 读回两个
       // 文件路径完全正常，`vo-passes` 里却一个 user shader pass 都没有 ——
       // 旧实现只信读回值，于是"以为开着"，用户看到的就是"开了超分毫无变化"。
       // 这里改成以 vo-passes 为准：连续 2 次采样（约 4 秒）都没有 pass，
       // 就强制重建一次视频链并重新下发 shader（实测这是唯一能让它生效的动作）；
       // 连试 3 次仍无效则如实报"未生效"，不再假装成功。
-      if (_sr.enabled && _ready && !_srApplying && srPasses == 0) {
+      //
+      // ⚠️ 平台收口（2026-09-19 探针铁证）：`vo-passes` 只在真实 gpu VO 下可读。
+      // Windows/macOS/Linux 桌面走 media_kit 的 `vo=libmpv` 渲染 API——mpv 官方
+      // 证实该 API 只提供完整 VO 的一小部分能力（#10810），`vo-passes` **恒空**，
+      // 但 `glsl-shaders` 列表被接受、无编译错误（探针 GLSHADERS_READBACK 正常 +
+      // SHADERERR=0 + H/W D3D11/ANGLE 渲染）。若桌面端也按 vo-passes 判，会把
+      // 「shader 已接受」误报成「未生效」→ 连重建 3 次视频链 → 弹红条（用户
+      // 实测看到的假"超分没有"）。故自愈/红条只保留给能读 vo-passes 的
+      // Android；桌面端以「glsl-shaders 被接受 + 无编译错误」为准，不重建。
+      final canObservePasses = !DesktopUi.isDesktopPlatform;
+      if (canObservePasses &&
+          _sr.enabled && _ready && !_srApplying && srPasses == 0) {
         _srPassMiss++;
         if (_srPassMiss >= 2) {
           _srPassMiss = 0;
@@ -1029,7 +1059,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
             });
           }
         }
-      } else if (srPasses > 0) {
+      } else if (!canObservePasses || srPasses > 0) {
         _srPassMiss = 0;
         _srHealTries = 0;
       }
@@ -1041,12 +1071,20 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       //   a4k    = vo-passes 里 user shader pass 数（0 = 着色器没进渲染图）。
       final srcTag = _wh(srcW, srcH);
       final voTag = _wh(ow, oh);
+      // 渲染后端判定（2026-09-19 加）：超分「属性被接受但 vo-passes 0 pass」
+      // 的静默失效，最常是渲染后端不支持用户着色器——软件 Vulkan
+      // （vk_swiftshader）或 VO 回退到软渲染时 user shader 根本不执行。
+      // 读回实际生效的 vo / gpu-api / gpu-context，一眼定位是哪条链。
+      final rvo = await rd('vo');
+      final rgapi = await rd('gpu-api');
+      final rgctx = await rd('gpu-context');
       final line = 'DIAG src=$srcTag vo=$voTag($voSrc) vop=$wop x$hop '
-          'elig=${eligible == null ? '?' : (eligible ? 1 : 0)} a4k=$srPasses '
+          'elig=${eligible == null ? '?' : (eligible ? 1 : 0)} '
+          'a4k=${canObservePasses ? srPasses : "?"} '
           'fps=${_fmtFps(efps)} srcFps=${_fmtFps(cfps)} realFps=${_fmtFps(realFps.toString())} '
           'disp=${_fmtFps(dfps)} ovr=${_fmtFps(ovr)} edisp=${_fmtFps(edfps)} '
           'shader=$shaderCount vsync=$vsync hwdec=$hw interp=$interp thr=$thr '
-          'ach=$ach aid=$aaid speed=$spd';
+          'ach=$ach aid=$aaid speed=$spd rvo=$rvo gapi=$rgapi gctx=$rgctx';
       if (line == last) return;
       last = line;
       ErrorLogger.instance.debug(line);
@@ -1223,7 +1261,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       // 2026-09-14 真机实测存在读回两个路径、`vo-passes` 里 0 个用户着色器
       // pass 的静默失效。真正的判据是 [Anime4KManager.userShaderPassCount]
       // 读 `vo-passes`，由 [_startDiag] 持续校验并在必要时自愈（[_healSrPipeline]）。
-      final back = await dyn.getProperty('glsl-shaders');
+      final back = (await dyn.getProperty('glsl-shaders'))?.toString() ?? '';
       final applied = (!_sr.enabled && (back.isEmpty)) ||
           (_sr.enabled &&
               back
@@ -1273,9 +1311,12 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 它也划进「桌面专属」整体关闭，导致移动端回归默认 audio-sync 抖动。
   /// 移动端只关桌面画质链（[_applyEnhance]/[_applySr]/[_healSrPipeline]）。
   ///
-  /// 补帧（2026-09-18 移除）：mpv interpolation 不是插帧而是显示同步，
-  /// 会让播放按显示时钟变速（用户实测倍速），真插帧改走 `ai.frame.rife`
-  /// 能力插件（独立引擎，时间轴不动），不在这条同步链里。
+  /// 补帧（2026-09-19 重接）：mpv `interpolation` 本身不是变速源——2026-09-18
+  /// 用户实测的「开补帧倍速」根因已定位为 display-resample 读 `estimated-
+  /// display-fps` 垃圾值按错时钟追帧（见下方选型注释）。本函数**探测显示
+  /// 时钟 + 音轨**，全部可靠才给插帧生效条件（display-resample-desync），
+  /// 任一不可靠则退回 audio 同步恒 1 倍速且插帧强制不生效（fault 如实报）。
+  /// 真插帧引擎 `ai.frame.rife` 走离线子进程，不进实时播放链。
   Future<void> _applySync() async {
     final native = _player?.platform;
     if (native is! NativePlayer) return;
@@ -1334,7 +1375,20 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       } catch (_) {}
       // 最终决策：显示时钟可信 **且** 音轨在 → display-resample（平滑）；
       // 任一不可靠 → audio 同步（恒 1 倍速，绝不倍速）。
-      final effectiveSync = (dispOk && hasAudio) ? targetSync : 'audio';
+      //
+      // 插帧只允许在 display-resample 下生效（interpolation 需要视频同步
+      // 到显示时钟）。这里区分两个 sync 值：
+      //   * 插帧开启 + 时钟/音轨都可靠 → display-resample-desync：允许
+      //     video/audio 轻微脱同步（<0.01s）换取按显示刷新率整倍数插帧，
+      //     这是 mpv 补帧生效的标准形态（docs/... F3 定案）。
+      //   * 否则 → display-resample（普通平滑）或 audio（退化）。
+      // 注意 desync 变体**不改变 1 倍速**——倍速只来自显示时钟错误，而
+      // 时钟错误已被 dispOk 拦截（走 audio 分支，插帧 fault 如实报）。
+      final interpWanted = _interp.enabled && !_interpAndroidOff;
+      final interpSync =
+          (dispOk && hasAudio && interpWanted) ? 'display-resample-desync' : '';
+      final effectiveSync =
+          interpSync.isNotEmpty ? interpSync : ((dispOk && hasAudio) ? targetSync : 'audio');
 
       // 1) 同步模式**最先设、独立容错**——这是治卡顿的前提。旧写法把
       //    video-sync 紧跟在 interpolation 之后且不单独容错，一旦某构建不
@@ -1359,12 +1413,52 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           await dyn.command(['set', 'override-display-fps', '$targetFps']);
         }
       } catch (_) {}
-      // 4) 补帧（mpv interpolation）已移除（2026-09-18）：它不是插帧而是
-      //    显示同步，会让播放按显示时钟变速（用户实测倍速），真插帧走
-      //    `ai.frame.rife` 能力插件（独立引擎，时间轴不动）。
-      //    这里不再设 interpolation / tscale / 相关 fault / 速度守护。
+      // 4) 插帧（mpv interpolation，桌面专属；2026-09-18 曾移除，2026-09-19
+      //    重接——倍速根因已定为显示时钟垃圾值，不是 interpolation）。只有
+      //    用户开插帧 **且** 上面探测的时钟/音轨都可靠（interpSync 选中了
+      //    desync）时才能真正生效；独立 try 逐项设属性，单个失败不连累
+      //    其余属性与同步链。off 档显式还原默认值（幂等，可反复调用）。
+      final interpEffective = interpSync.isNotEmpty;
+      if (_interpFault != null && !interpWanted) {
+        _interpFault = null; // 用户关掉插帧 → 清历史原因
+      } else if (interpWanted && !interpEffective) {
+        // 如实报（仿 _srFault 风格），不假装成功：时钟或音轨不可靠。
+        _interpFault = hasAudio
+            ? '显示刷新率读取异常，插帧无法安全生效（自动退回原速）'
+            : '片源无音轨，插帧需音频时钟打底，暂不生效';
+      } else if (interpEffective) {
+        _interpFault = null;
+      }
+      final interpProps = FrameInterpManager.propsFor(_interpId);
+      for (final e in interpProps.entries) {
+        try {
+          await dyn.setProperty(e.key, e.value);
+        } catch (_) {}
+      }
     } catch (_) {
       // 显示同步失败不影响播放本身，静默跳过（UI 不展示）。
+    }
+  }
+
+  /// 切换插帧档位（桌面专属；移动端门闸在调用入口外另有 _loadPrefs 兜底）。
+  /// 即时重走 [_applySync]（重算 desync/display-resample 决策 + 设属性），
+  /// 并持久化。档位切换瞬间 mpv 可能重建视频链，属性在 [._open] 首帧后
+  /// 会再设一遍，幂等。
+  Future<void> _setInterp(String id) async {
+    if (_interpAndroidOff) return;
+    setState(() => _interpId = id);
+    _savePrefs();
+    // 先走完 _applySync 再 toast：fault 是它内部算出来的，不等的话
+    // toast 读到旧/空值必然错报。
+    await _applySync();
+    if (!mounted) return;
+    final p = FrameInterpManager.presetById(id);
+    if (p.enabled && _interpFault != null) {
+      _toast('补帧未生效：$_interpFault');
+    } else if (p.enabled) {
+      _toast('补帧：${p.name} 已启用（低帧率源生效）');
+    } else {
+      _toast('补帧已关闭');
     }
   }
 
@@ -3064,6 +3158,42 @@ child: Icon(Icons.auto_awesome,
                 )),
             const SizedBox(height: 6),
             const Divider(color: Colors.white12, height: 18),
+            // ── 补帧（mpv interpolation，桌面专属）──
+            const Padding(
+              padding: EdgeInsets.fromLTRB(0, 2, 0, 2),
+              child: Text('补帧',
+                  style: TextStyle(
+                      color: Colors.white54,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600)),
+            ),
+            ...FrameInterpManager.levels.map((p) => PanelOptionTile(
+                  title: p.name,
+                  subtitle: p.desc,
+                  selected: p.id == _interpId,
+                  onTap: () {
+                    unawaited(_setInterp(p.id));
+                    setSheet(() {});
+                  },
+                )),
+            if (_interpFault != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 2, bottom: 2),
+                child: Row(children: [
+                  const Icon(Icons.error_outline_rounded,
+                      size: 13, color: Color(0xFFFF8A65)),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '补帧未生效：$_interpFault',
+                      style: const TextStyle(
+                          color: Color(0xFFFF8A65), fontSize: 10.5, height: 1.3),
+                    ),
+                  ),
+                ]),
+              ),
+            const SizedBox(height: 6),
+            const Divider(color: Colors.white12, height: 18),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               dense: true,
@@ -3555,9 +3685,9 @@ child: Icon(Icons.auto_awesome,
             ),
             if (!_srAndroidOff)
               PanelOptionTile(
-                title: '超分与画质',
-                subtitle:
-                    '${_sr.name}${_enhance ? ' · 画质增强开' : ''}',
+                title: '超分与补帧',
+                subtitle: '${_sr.name} · 补帧${_interp.enabled ? '开' : '关'}'
+                    '${_enhance ? ' · 画质增强开' : ''}',
                 selected: false,
                 onTap: () {
                   Navigator.of(ctx).pop();
