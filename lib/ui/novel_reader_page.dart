@@ -192,6 +192,10 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     }
     _statsTimer?.cancel();
     _recordHistoryDebounce?.cancel();
+    // ScrollController dispose：detach 所有 scroll position，避免页面退出后
+    // listener 闭包（引用本 State）被 controller/position 长期持有。
+    _listController?.dispose();
+    _listController = null;
     _readWatch.stop();
     final elapsed = _readWatch.elapsed.inSeconds;
     if (elapsed > 0) LocalStore.addReadingSeconds(elapsed);
@@ -275,11 +279,9 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         }
       }
     } catch (e) {
+      ErrorLogger.instance.logError('[novel-reader] FAIL id=$chapterId err=$e');
       if (mounted) {
-        try {
-          ErrorLogger.instance.logError('[novel-reader] FAIL id=$chapterId err=$e');
-        } catch (_) {}
-        _error = '加载失败：$e';
+        _error = '章节加载失败，请重试';
       }
     } finally {
       if (mounted) setState(() => _loading = false);

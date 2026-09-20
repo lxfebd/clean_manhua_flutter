@@ -76,6 +76,9 @@ class _ReaderPageState extends State<ReaderPage>
   List<String> _urls = [];
   bool _loading = true;
   bool _loadError = false; // 章节/图片列表加载失败（错误态入口）
+  /// 切章代际：快速连点切章时旧请求返回作废，防止慢章节覆盖新章节
+  /// 的图片列表/页码（与 _loading 双保险）。
+  int _openGen = 0;
   ReaderMode _readerMode = ReaderMode.single;
   bool get _horizontal =>
       _readerMode != ReaderMode.vertical; // 单页/双页共用横向 PageView 基础设施
@@ -416,6 +419,8 @@ class _ReaderPageState extends State<ReaderPage>
   /// 读取/切换到一个章节（用于章内切章节 / 沉浸式连读）。
   Future<void> _openChapter(String chapterId, String chapterTitle,
       {int startPage = 0}) async {
+    if (_loading) return; // 防连点：一次只允许一个切章在途
+    final gen = ++_openGen;
     _hideTimer?.cancel();
     _resetPinch();
     _nextChapterTitle = null; // 换章后旧预取标题失效，重新按需拉取
@@ -441,7 +446,18 @@ class _ReaderPageState extends State<ReaderPage>
           ..clear()
           ..addAll(local);
       }
-      if (!mounted) return;
+      if (!mounted || gen != _openGen) return;
+      // 空章节（源返回空列表）：走友好占位而不是 clamp(0,-1) 抛异常。
+      if (urls.isEmpty) {
+        setState(() {
+          _urls = const [];
+          _activeTotalPages = 0;
+          _loading = false;
+          _curPage = 0;
+        });
+        _toast('本章暂无内容');
+        return;
+      }
       final target = startPage.clamp(0, urls.length - 1);
       setState(() {
         _urls = urls;
@@ -468,8 +484,9 @@ class _ReaderPageState extends State<ReaderPage>
       _prefetch(target);
       _prefetchNextChapter();
       _startAutoPage();
-    } catch (_) {
-      if (mounted) {
+    } catch (e) {
+      ErrorLogger.instance.warn('reader openChapter failed: $e');
+      if (mounted && gen == _openGen) {
         setState(() {
           _loading = false;
           _loadError = true;
@@ -763,6 +780,11 @@ class _ReaderPageState extends State<ReaderPage>
         } else {
           AppToast.error(context, ok.error ?? '下载未完成');
         }
+      }
+    } catch (e) {
+      ErrorLogger.instance.warn('reader download failed: $e');
+      if (mounted) {
+        AppToast.error(context, '下载失败，请重试');
       }
     } finally {
       if (mounted) setState(() => _downloading = false);
@@ -1305,30 +1327,39 @@ class _ReaderPageState extends State<ReaderPage>
     final c = widget.comicId;
     final ch = _activeChapterId;
     final page = _horizontal ? _curPage : 0; // 纵向整章标记，页固定 0
-    final all = await LocalStore.bookmarks();
-    final key = '$s::$c::$ch::$page';
-    if (_horizontal) {
-      if (all.any((b) => b.key == key)) {
-        await LocalStore.removeBookmark(s, c, ch, page);
+    try {
+      final all = await LocalStore.bookmarks();
+      final key = '$s::$c::$ch::$page';
+      if (_horizontal) {
+        if (all.any((b) => b.key == key)) {
+          await LocalStore.removeBookmark(s, c, ch, page);
+        } else {
+          await LocalStore.addBookmark(ComicBookmark(
+            book: _book, chapterId: ch, chapterTitle: _activeChapterTitle,
+            pageIndex: page, timestamp: DateTime.now().millisecondsSinceEpoch,
+          ));
+        }
       } else {
-        await LocalStore.addBookmark(ComicBookmark(
-          book: _book, chapterId: ch, chapterTitle: _activeChapterTitle,
-          pageIndex: page, timestamp: DateTime.now().millisecondsSinceEpoch,
-        ));
-      }
-    } else {
-      // 纵向：章节级书签——该章已有任意页书签则整体取消
-      final match = all.where((b) => b.book.key == '$s::$c' && b.chapterId == ch).toList();
-      if (match.isEmpty) {
-        await LocalStore.addBookmark(ComicBookmark(
-          book: _book, chapterId: ch, chapterTitle: _activeChapterTitle,
-          pageIndex: 0, timestamp: DateTime.now().millisecondsSinceEpoch,
-        ));
-      } else {
-        for (final b in match) {
-          await LocalStore.removeBookmark(s, c, b.chapterId, b.pageIndex);
+        // 纵向：章节级书签——该章已有任意页书签则整体取消
+        final match = all.where((b) => b.book.key == '$s::$c' && b.chapterId == ch).toList();
+        if (match.isEmpty) {
+          await LocalStore.addBookmark(ComicBookmark(
+            book: _book, chapterId: ch, chapterTitle: _activeChapterTitle,
+            pageIndex: 0, timestamp: DateTime.now().millisecondsSinceEpoch,
+          ));
+        } else {
+          for (final b in match) {
+            await LocalStore.removeBookmark(s, c, b.chapterId, b.pageIndex);
+          }
         }
       }
+    } catch (e) {
+      // 书签读写失败不翻转界面状态（磁盘与 UI 不失步），提示后返回。
+      ErrorLogger.instance.warn('reader toggleBookmark failed: $e');
+      if (mounted) {
+        AppToast.error(context, '书签操作失败，请重试');
+      }
+      return;
     }
     if (!mounted) return;
     setState(() => _bookmarked = !_bookmarked);

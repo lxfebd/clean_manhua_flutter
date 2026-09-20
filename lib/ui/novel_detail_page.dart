@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import '../sources/novel_source.dart';
 import '../sources/source_manager.dart';
@@ -69,7 +70,8 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
         _error = null;
       }
     } catch (e) {
-      if (mounted) _error = '加载失败：$e';
+      ErrorLogger.instance.warn('novel detail load failed: $e');
+      if (mounted) _error = '加载失败，请检查网络后重试';
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -79,7 +81,16 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
     final s = SourceManager.novelById(widget.sourceId);
     if (s == null || _detail == null) return;
     HapticFeedback.lightImpact();
-    await s.toggleBookshelf(_detail!);
+    try {
+      await s.toggleBookshelf(_detail!);
+    } catch (e) {
+      // 写书架失败不翻转状态（磁盘与 UI 不失步）。
+      ErrorLogger.instance.warn('novel toggle bookshelf failed: $e');
+      if (mounted) {
+        AppToast.error(context, '书架操作失败，请重试');
+      }
+      return;
+    }
     if (mounted) {
       setState(() => _saved = !_saved);
       AppToast.info(context, _saved ? '已加入书架' : '已移出书架',

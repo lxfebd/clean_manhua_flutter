@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
 import '../net/download_manager.dart';
+import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import 'reader_page.dart';
 import 'responsive.dart';
@@ -86,9 +87,10 @@ class _DetailPageState extends State<DetailPage> {
         });
       }
     } catch (e) {
+      ErrorLogger.instance.warn('comic detail load failed: $e');
       if (mounted) {
         setState(() {
-          _error = '加载失败：$e';
+          _error = '加载失败，请检查网络后重试';
           _loading = false;
         });
       }
@@ -717,8 +719,17 @@ class _DetailPageState extends State<DetailPage> {
   Future<void> _toggleSave() async {
     if (_detail == null) return;
     HapticFeedback.lightImpact();
-    final source = SourceManager.byId(widget.sourceId);
-    await source.toggleBookshelf(_detail!);
+    try {
+      final source = SourceManager.byId(widget.sourceId);
+      await source.toggleBookshelf(_detail!);
+    } catch (e) {
+      // 写书架失败不翻转状态（磁盘与 UI 不失步）。
+      ErrorLogger.instance.warn('toggle bookshelf failed: $e');
+      if (mounted) {
+        AppToast.error(context, '书架操作失败，请重试');
+      }
+      return;
+    }
     if (mounted) setState(() => _saved = !_saved);
     if (!mounted) return;
     AppToast.info(context, _saved ? '已加入书架' : '已移出书架');
@@ -978,7 +989,8 @@ class _DetailPageState extends State<DetailPage> {
                                       }
                                     } catch (e) {
                                       fail++;
-                                      firstErr ??= e.toString();
+                                      ErrorLogger.instance
+                                          .warn('batch download failed: $e');
                                     }
                                   }
                                   if (ctx.mounted) {
