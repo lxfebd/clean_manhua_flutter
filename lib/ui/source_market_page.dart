@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../sources/dsl/custom_source_def.dart';
 import '../sources/dsl/custom_source_store.dart';
 import '../sources/dsl/source_market.dart';
+import '../net/error_logger.dart';
 import 'responsive.dart';
 import 'widgets/app_toast.dart';
 
@@ -19,7 +20,7 @@ class SourceMarketPage extends StatefulWidget {
 
 class _SourceMarketPageState extends State<SourceMarketPage> {
   List<MarketSourceEntry>? _entries;
-  Object? _error;
+  String? _error;
   bool _loading = false;
   String _query = '';
   final TextEditingController _searchCtrl = TextEditingController();
@@ -55,9 +56,10 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
         });
       }
     } catch (e) {
+      ErrorLogger.instance.warn('source market index failed: $e');
       if (mounted) {
         setState(() {
-          _error = e;
+          _error = '拉取源市场失败，请检查网络后重试';
           _loading = false;
         });
       }
@@ -68,7 +70,9 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
   Future<List<CustomSourceDef>> _loadLocals() async {
     try {
       return await CustomSourceStore.all();
-    } catch (_) {
+    } catch (e) {
+      // 本地版本表读失败只回退空表（卡片全部显示未安装），但需可观测
+      ErrorLogger.instance.warn('read local custom sources failed: $e');
       return const <CustomSourceDef>[];
     }
   }

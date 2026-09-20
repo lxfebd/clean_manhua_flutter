@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../capabilities/capability_market.dart';
 import '../capabilities/capability_plugin.dart' show CapabilityWeight;
 import '../capabilities/capability_plugin_manager.dart';
+import '../net/error_logger.dart';
 import 'responsive.dart';
 import 'widgets/app_toast.dart';
 
@@ -21,7 +22,7 @@ class CapabilityMarketPage extends StatefulWidget {
 
 class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
   List<MarketCapabilityEntry>? _entries;
-  Object? _error;
+  String? _error;
   bool _loading = false;
   String _query = '';
   final TextEditingController _searchCtrl = TextEditingController();
@@ -46,9 +47,10 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
         });
       }
     } catch (e) {
+      ErrorLogger.instance.warn('capability market index failed: $e');
       if (mounted) {
         setState(() {
-          _error = e;
+          _error = '拉取能力市场失败，请检查网络后重试';
           _loading = false;
         });
       }
@@ -67,6 +69,12 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
           : '安装失败：${entry.name} 已存在或注册异常',
           error: !ok);
       setState(() {}); // 刷新 installed 状态
+    } catch (e) {
+      // install 内部异常：给用户明确反馈，不再静默（无任何提示用户会以为没点中）。
+      ErrorLogger.instance.warn('capability install failed: $e');
+      if (mounted) {
+        AppToast.error(context, '安装失败，请重试');
+      }
     } finally {
       if (mounted) setState(() => _installingIds.remove(entry.id));
     }
@@ -102,11 +110,18 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
       ),
     );
     if (ok != true) return;
-    final removed = await CapabilityMarket.uninstall(entry.id);
-    if (!mounted) return;
-    AppToast.show(context, removed ? '已卸载：${entry.name}' : '卸载失败：内置能力不可卸载',
-        error: !removed);
-    setState(() {}); // 刷新 installed 状态
+    try {
+      final removed = await CapabilityMarket.uninstall(entry.id);
+      if (!mounted) return;
+      AppToast.show(context, removed ? '已卸载：${entry.name}' : '卸载失败：内置能力不可卸载',
+          error: !removed);
+      setState(() {}); // 刷新 installed 状态
+    } catch (e) {
+      ErrorLogger.instance.warn('capability uninstall failed: $e');
+      if (mounted) {
+        AppToast.error(context, '卸载失败，请重试');
+      }
+    }
   }
 
   /// 确认安装对话框（第三方能力风险提示）。

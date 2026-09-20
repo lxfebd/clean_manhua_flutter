@@ -53,6 +53,16 @@ class _DownloadProgressDialog extends StatefulWidget {
 class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
   UpdateDownloadState _state = const UpdateDownloadState();
   StreamSubscription? _sub;
+  /// onResult 只允许触发一次：状态流 done/error 的 600ms 延迟、PopScope 返回、
+  /// 「取消/关闭」按钮三条路径可能撞在一起，重复触发会 pop 错路由并让
+  /// completer.complete 二次抛 StateError。
+  bool _resultFired = false;
+
+  void _fireResult(bool ok) {
+    if (_resultFired) return;
+    _resultFired = true;
+    widget.onResult(ok);
+  }
 
   @override
   void initState() {
@@ -62,7 +72,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
       if (mounted) setState(() => _state = s);
       if (s.done || s.error != null) {
         Future.delayed(const Duration(milliseconds: 600), () {
-          if (mounted) widget.onResult(s.done);
+          if (mounted) _fireResult(s.done);
         });
       }
     });
@@ -83,7 +93,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop && !done && failed == false) {
           // 返回不取消下载，仅关闭弹窗提示
-          widget.onResult(false);
+          _fireResult(false);
         }
       },
       child: AlertDialog(
@@ -138,13 +148,13 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
             TextButton(
               onPressed: () {
                 UpdateDownloadManager.instance.cancel();
-                widget.onResult(false);
+                _fireResult(false);
               },
               child: const Text('取消'),
             )
           else
             TextButton(
-              onPressed: () => widget.onResult(done),
+              onPressed: () => _fireResult(done),
               child: const Text('关闭'),
             ),
         ],

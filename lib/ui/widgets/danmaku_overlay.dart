@@ -50,17 +50,34 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   void initState() {
     super.initState();
     _lastPos = widget.position;
-    _ticker = createTicker(_onTick)..start();
+    _ticker = createTicker(_onTick);
+    // 开启且有数据才起转 Ticker；否则界面是空层，转了也只是空跑。
+    if (widget.settings.on && widget.items.isNotEmpty) {
+      _ticker!.start();
+    }
   }
 
   @override
   void didUpdateWidget(DanmakuOverlay old) {
     super.didUpdateWidget(old);
-    // 进度回退（重播 / seek 后退）或数据源变化：清空活跃并按新进度重调度
-    if (widget.position < _lastPos - 0.5 || widget.items != old.items) {
+    final nowOn = widget.settings.on && widget.items.isNotEmpty;
+    if (!nowOn) {
+      // 关闭/无数据：停转 Ticker 并清空活跃弹幕，避免每帧空 setState。
+      _ticker?.stop();
+      _active.clear();
+      _nextItem = 0;
+      _lastPos = widget.position;
+      return;
+    }
+    final wasOn = old.settings.on && old.items.isNotEmpty;
+    // 进度回退（重播 / seek 后退）、数据源变化、从关闭恢复：清空并按新进度重调度
+    if (!wasOn) {
+      _reset();
+    } else if (widget.position < _lastPos - 0.5 || widget.items != old.items) {
       _reset();
     }
     _lastPos = widget.position;
+    if (_ticker != null && !_ticker!.isActive) _ticker!.start();
     _spawnPending();
   }
 

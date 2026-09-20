@@ -498,21 +498,18 @@ class ProfilePageState extends State<ProfilePage> {
       backgroundColor: Colors.transparent,
       builder: (_) => const _ImageLoadingSheet(),
     );
-    final covers = <Uint8List?>[];
+    // 按 books 顺序填位（covers[i] = 第 i 本书封面）：Future.wait 是并发完成，
+    // 直接 add 会按完成先后而非书架顺序，导致海报 books[i] 配到别书封面。
+    final covers = List<Uint8List?>.filled(books.length, null);
     await Future.wait([
-      for (final b in books)
+      for (var i = 0; i < books.length; i++)
         (() async {
           try {
-            final url = b.pic;
-            if (url == null || url.isEmpty) {
-              covers.add(null);
-              return;
-            }
-            covers.add(await ImageCacheManager.load(url).timeout(
-                const Duration(seconds: 8)));
-          } catch (_) {
-            covers.add(null);
-          }
+            final url = books[i].pic;
+            if (url == null || url.isEmpty) return;
+            covers[i] = await ImageCacheManager.load(url).timeout(
+                const Duration(seconds: 8));
+          } catch (_) {}
         })(),
     ]);
     if (!mounted) return;
@@ -1894,6 +1891,7 @@ class _ImportBooklistSheetState extends State<_ImportBooklistSheet> {
     var done = 0;
     for (final e in widget.entries) {
       final found = await _findAndAdd(e, sources);
+      if (!mounted) return; // 弹窗被滑掉后 State 已销毁，停止后台导入
       if (found) {
         _hit++;
       } else {
@@ -1903,7 +1901,7 @@ class _ImportBooklistSheetState extends State<_ImportBooklistSheet> {
       done++;
       setState(() => _log = '$done/${widget.entries.length}');
     }
-    setState(() => _running = false);
+    if (mounted) setState(() => _running = false);
   }
 
   /// 跨已启用源按书名精确搜索（取第一个完全同名的结果），命中即写入书架。
