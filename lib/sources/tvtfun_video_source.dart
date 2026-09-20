@@ -185,14 +185,10 @@ class TvTfunVideoSource implements VideoSource {
   }
 
   /// 返回使用 Cloudflare 优选 IP 的播放页 URL（绕过 DNS 解析失败）。
-  /// 配合 [cloudflareHeaders] 使用，设置正确的 Host 头。
   String cloudflarePlayUrl(String videoId, int season, int episode) {
     final path = '/video/$videoId/play?source=0&episode=$episode';
     return 'https://$cloudflareIp$path';
   }
-
-  /// 返回使用 Cloudflare IP 直连时需要的请求头（Host 头）。
-  Map<String, String> get cloudflareHeaders => {'Host': 'www.tvtfun.net'};
 
   /// API 条目 -> ComicItem（带评分 / 更新提示 / 别名等元信息）
   ComicItem _toItem(Map<String, dynamic> v) {

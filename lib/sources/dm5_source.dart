@@ -227,6 +227,8 @@ class Dm5Source extends ComicSource {
   }
 
   String _decodePacker(String p, int a, int c, List<String> k) {
+    // c 直接来自站点 packer 参数，异常站点会给超大值造成同步大循环；护栏截断。
+    if (c < 0 || c > 4096) c = 4096;
     final d = <String, String>{};
     for (var i = 0; i < c; i++) {
       d[_packerKey(i, a)] = i < k.length ? k[i] : _packerKey(i, a);

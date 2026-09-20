@@ -99,10 +99,10 @@ class CapabilityArtifactStore {
     final dir = await artifactDir(id);
     if (dir == null || artifact.url == null) return null;
     final url = artifact.url!;
-    final fname = Uri.parse(url).pathSegments.isNotEmpty
-        ? Uri.parse(url).pathSegments.last
-        : '$id.artifact';
-    final target = File('${dir.path}/$fname');
+    final fname = Uri.parse(url).pathSegments
+        .where((s) => s.isNotEmpty)
+        .lastOrNull;
+    final target = File('${dir.path}/${fname ?? '$id.artifact'}');
 
     // 已存在且 SHA256 匹配 → 直接复用（幂等，避免重复下载）。
     final expected = artifact.sha256.values.isNotEmpty
@@ -172,9 +172,11 @@ class CapabilityArtifactStore {
     }
 
     // 下载（Net.getBytesAuto：优先 Cronet；proxy 覆盖时走 dart:io）。
+    // 权重可达数百 MB，必须给足超时（Net 默认 15s 会必超时失败）。
     final List<int> bytes;
     try {
-      bytes = await Net.getBytesAuto(weight.url, proxy: proxy);
+      bytes = await Net.getBytesAuto(weight.url,
+          proxy: proxy, timeout: const Duration(minutes: 10));
     } catch (e) {
       _lastError = '权重下载失败: $e';
       return null;

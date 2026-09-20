@@ -205,7 +205,12 @@ HtmlNode parseHtml(String html) {
             ..parent = node);
           pos += m.end;
         } else {
-          break;
+          // 脚本/样式未闭合（真实站点偶发）：把剩余内容按文本吞掉即可，
+          // 继续解析后续内容——直接 break 会丢掉整份剩余文档。
+          node.text = html.substring(pos);
+          node.children.add(HtmlNode('', const {}, text: node.text)
+            ..parent = node);
+          pos = html.length;
         }
       } else {
         stack.add(node);

@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:convert' show utf8;
 import 'dart:io';
+
+import 'package:crypto/crypto.dart' show md5;
 
 import '../../models/comic_item.dart';
 import '../../net/error_logger.dart';
@@ -298,8 +301,17 @@ class DslVideoSource implements VideoSource {
     final dir = await LocalStore.downloadDir();
     final sub = Directory('${dir.path}/m3u8_rewrite');
     if (!sub.existsSync()) sub.createSync(recursive: true);
-    final f = File('${sub.path}/${url.hashCode}.m3u8');
+    // 文件名用 URL 的 md5（String.hashCode 跨进程不稳定，不能作持久键）；
+    // 每次写入前清掉目录内旧文件，避免重写缓存无界累积。
+    final key = md5.convert(utf8.encode(url)).toString();
+    final f = File('${sub.path}/$key.m3u8');
     await f.writeAsString(out, flush: true);
+    // 写成功后清理目录内其余缓存（每次播放只会用到本次这个文件）。
+    try {
+      for (final e in sub.listSync()) {
+        if (e is File && e.path != f.path) e.deleteSync();
+      }
+    } catch (_) {}
     return 'file://${f.path}';
   }
 
@@ -375,12 +387,15 @@ class DslVideoSource implements VideoSource {
     } on SourceError {
       rethrow;
     } catch (e) {
+      ErrorLogger.instance.warn('[dsl-video] fetch failed ($id): $e');
       if (e is SocketException || e is TimeoutException) {
-        throw SourceError.network('$e');
+        throw SourceError.network('网络请求失败，请检查网络后重试');
       }
-      if (e is FormatException) throw SourceError.parse('$e');
-      if (e is HttpException) throw SourceError.service('$e');
-      throw SourceError.unknown('$e');
+      if (e is FormatException) {
+        throw SourceError.parse('页面数据解析失败');
+      }
+      if (e is HttpException) throw SourceError.service('站点服务异常');
+      throw SourceError.unknown('请求失败');
     }
   }
 

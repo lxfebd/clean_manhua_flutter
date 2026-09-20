@@ -135,7 +135,24 @@ class AiFrameRifePlugin extends CapabilityPlugin {
         f0.path,
         f1.path,
       ]);
-      final code = await proc.exitCode.timeout(inferTimeout);
+      // 排空 stdout/stderr：不 drain 会让管道缓冲填满，阻塞子进程直接卡死。
+      final drain = Future.wait([
+        proc.stdout.drain<void>().catchError((_) {}),
+        proc.stderr.drain<void>().catchError((_) {}),
+      ]);
+      final int code;
+      try {
+        code = await proc.exitCode.timeout(inferTimeout);
+      } on TimeoutException {
+        // 超时兜底：必须杀进程并等其回收，否则 rife 僵尸常驻、tmp 删不掉。
+        proc.kill();
+        try {
+          await proc.exitCode.timeout(const Duration(seconds: 5));
+        } catch (_) {}
+        return const CapabilityFailure(id, '插帧超时（已终止进程）');
+      } finally {
+        await drain;
+      }
       if (code != 0) {
         return CapabilityFailure(id, '插帧进程退出码 $code');
       }
@@ -155,9 +172,6 @@ class AiFrameRifePlugin extends CapabilityPlugin {
         'engine': 'rife v4.6',
       });
     } catch (e) {
-      if (e is TimeoutException) {
-        return const CapabilityFailure(id, '插帧超时（60s），已放弃');
-      }
       return CapabilityFailure(id, '插帧失败: $e');
     } finally {
       try {

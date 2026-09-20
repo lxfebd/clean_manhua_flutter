@@ -105,9 +105,14 @@ class FfmpegRuntime {
     // 解压 zip 到 artifactDir（覆盖式，幂等）。
     try {
       if (Platform.isWindows) {
+        // 参数用数组逐项传入，幂等命令由 dash args 组装——不把路径拼进
+        // 命令文本，避免含空格路径被错误引号破坏。
         final out = await Process.run('powershell', [
           '-NoProfile', '-Command',
-          'Expand-Archive -Path "${zip.path}" -DestinationPath "${dir.path}" -Force',
+          'Expand-Archive',
+          '-LiteralPath', zip.path,
+          '-DestinationPath', dir.path,
+          '-Force',
         ]);
         if (out.exitCode != 0) return 'ffmpeg 解压失败: ${out.stderr}';
       } else {

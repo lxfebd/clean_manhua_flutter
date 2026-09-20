@@ -37,12 +37,14 @@ class ImageSuperRes {
         await m.future.timeout(_acquireTimeout);
       } catch (_) {
         // 只有在持锁锁对象仍是本对象时（未被先行的 release 换掉）才接管，
-        // 防止完成了一个已被替换的锁对象。
+        // 防止完成了一个已被替换的锁对象。不论是否接管都要 re-check：
+        // 立即重试循环，由 while 条件的 identical(_mutex, m) 自然收敛——
+        // 绝不在 break 后无条件新建锁覆盖并发者刚换上的新锁。
         if (identical(_mutex, m)) {
           _mutex = null;
           m.complete();
         }
-        break;
+        continue;
       }
     }
     _mutex = Completer<void>();

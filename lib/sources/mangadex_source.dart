@@ -88,22 +88,31 @@ class MangaDexSource extends ComicSource {
     item.content = desc;
 
     final api2 = await _apiHost();
-    final chUrl = '$api2/manga/$comicId/feed?limit=500&order[chapter]=asc'
-        '&translatedLanguage[]=zh&translatedLanguage[]=zh-hk'
-        '&translatedLanguage[]=zh-tw&translatedLanguage[]=en';
-    final chBody = await _get(chUrl);
-    final chRoot = jsonDecode(chBody) as Map<String, dynamic>;
-    final chData = (chRoot['data'] as List? ?? []);
+    // MangaDex feed 每页最多 500 条，超长章节列表按 offset 续拉全量，
+    // 避免 >500 章的作品章节被硬截断。
+    const pageSize = 100;
+    var offset = 0;
     final chapters = <Chapter>[];
-    for (final c in chData) {
-      final a = c['attributes'] as Map<String, dynamic>;
-      final num = (a['chapter'] as String?) ?? '';
-      final title = (a['title'] as String?) ?? '';
-      final lang = (a['translatedLanguage'] as String?) ?? '';
-      final label = num.isNotEmpty
-          ? '第$num话${title.isNotEmpty ? ' $title' : ''}（$lang）'
-          : '番外 ${title.isNotEmpty ? title : ''}（$lang）'.trim();
-      chapters.add(Chapter(c['id'] as String, label));
+    while (true) {
+      final chUrl = '$api2/manga/$comicId/feed?limit=$pageSize&offset=$offset'
+          '&order[chapter]=asc'
+          '&translatedLanguage[]=zh&translatedLanguage[]=zh-hk'
+          '&translatedLanguage[]=zh-tw&translatedLanguage[]=en';
+      final chRoot =
+          jsonDecode(await _get(chUrl)) as Map<String, dynamic>;
+      final chData = (chRoot['data'] as List? ?? []);
+      for (final c in chData) {
+        final a = c['attributes'] as Map<String, dynamic>;
+        final num = (a['chapter'] as String?) ?? '';
+        final title = (a['title'] as String?) ?? '';
+        final lang = (a['translatedLanguage'] as String?) ?? '';
+        final label = num.isNotEmpty
+            ? '第$num话${title.isNotEmpty ? ' $title' : ''}（$lang）'
+            : '番外 ${title.isNotEmpty ? title : ''}（$lang）'.trim();
+        chapters.add(Chapter(c['id'] as String, label));
+      }
+      if (chData.length < pageSize) break;
+      offset += pageSize;
     }
     return ComicDetail(item, chapters);
   }
