@@ -712,8 +712,9 @@ class _SettingsPageState extends State<SettingsPage> {
       }
     } catch (e) {
       if (mounted) {
-        AppToast.error(context, '导出失败：$e');
+        AppToast.error(context, '导出失败，请重试');
       }
+      ErrorLogger.instance.warn('settings log export failed: $e');
     }
   }
 
@@ -827,8 +828,9 @@ class _SettingsPageState extends State<SettingsPage> {
       }
     } catch (e) {
       if (mounted) {
-        AppToast.error(context, '导出失败：$e');
+        AppToast.error(context, '导出失败，请重试');
       }
+      ErrorLogger.instance.warn('settings backup export failed: $e');
     }
   }
 
@@ -877,21 +879,32 @@ class _SettingsPageState extends State<SettingsPage> {
       }
     } catch (e) {
       if (mounted) {
-        AppToast.error(context, '恢复失败：$e');
+        AppToast.error(context, '恢复失败，请检查文件后重试');
       }
+      ErrorLogger.instance.warn('settings backup restore failed: $e');
     }
   }
 
     /// 系统通知开关：开启时请求通知权限（Android 13+ 运行时弹窗）。
   Future<void> _toggleNotify(bool value) async {
     setState(() => _notifyEnabled = value);
-    await UpdateNotifier.setEnabled(value);
-    if (value) {
-      await UpdateNotifier.instance.ensurePermission();
-      if (mounted) {
-        AppToast.show(context, '已开启：收藏更新时在通知栏提醒',
-            duration: const Duration(seconds: 2));
+    try {
+      await UpdateNotifier.setEnabled(value);
+      if (value) {
+        await UpdateNotifier.instance.ensurePermission();
       }
+    } catch (e) {
+      // 权限被拒/存储失败：回滚开关并提示，避免状态与真实配置不一致。
+      ErrorLogger.instance.warn('toggle notify failed: $e');
+      if (mounted) {
+        setState(() => _notifyEnabled = !value);
+        AppToast.error(context, value ? '通知开启失败，请检查权限' : '通知关闭失败，请重试');
+      }
+      return;
+    }
+    if (mounted && value) {
+      AppToast.show(context, '已开启：收藏更新时在通知栏提醒',
+          duration: const Duration(seconds: 2));
     }
   }
 
@@ -1063,7 +1076,15 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
     if (ok == true) {
-      await action();
+      try {
+        await action();
+      } catch (e) {
+        ErrorLogger.instance.warn('settings confirm action failed: $e');
+        if (mounted) {
+          AppToast.error(context, '操作失败，请重试');
+        }
+        return;
+      }
       if (mounted) {
         AppToast.info(context, successMsg);
       }
@@ -1282,26 +1303,40 @@ class _ColorizerSectionState extends State<_ColorizerSection> {
 
   Future<void> _refresh() async {
     final isWeb = kIsWeb;
-    await _m.restore();
-    await _m.ensureLoaded();
-    final lowEnd = await ColorizerManager.isLowEndDevice();
-    if (!mounted) return;
-    setState(() {
-      _lowEnd = lowEnd;
-      _enabled = _m.enabled && _m.isAvailable;
-      _subtitle = switch ((isWeb, lowEnd, _m.isAvailable, _m.modelPath)) {
-        (true, _, _, _) => 'Web 端不支持本地 AI 推理',
-        (false, true, _, _) => '低端机（内存 < 4GB）不可用',
-        (false, false, false, _) => '未导入模型（需 .tflite）',
-        (false, false, true, final p?) => '模型：${p.split('\\').last.split('/').last}',
-        _ => '已启用，可在阅读器内使用',
-      };
-    });
+    try {
+      await _m.restore();
+      await _m.ensureLoaded();
+      final lowEnd = await ColorizerManager.isLowEndDevice();
+      if (!mounted) return;
+      setState(() {
+        _lowEnd = lowEnd;
+        _enabled = _m.enabled && _m.isAvailable;
+        _subtitle = switch ((isWeb, lowEnd, _m.isAvailable, _m.modelPath)) {
+          (true, _, _, _) => 'Web 端不支持本地 AI 推理',
+          (false, true, _, _) => '低端机（内存 < 4GB）不可用',
+          (false, false, false, _) => '未导入模型（需 .tflite）',
+          (false, false, true, final p?) => '模型：${p.split('\\').last.split('/').last}',
+          _ => '已启用，可在阅读器内使用',
+        };
+      });
+    } catch (e) {
+      ErrorLogger.instance.warn('colorizer refresh failed: $e');
+      if (mounted) {
+        setState(() => _subtitle = '模型状态读取失败');
+      }
+    }
   }
 
   Future<void> _toggle(bool on) async {
     setState(() => _busy = true);
-    await _m.setEnabled(on);
+    try {
+      await _m.setEnabled(on);
+    } catch (e) {
+      ErrorLogger.instance.warn('colorizer toggle failed: $e');
+      if (mounted) {
+        AppToast.error(context, '上色功能切换失败，请重试');
+      }
+    }
     if (!mounted) return;
     setState(() {
       _enabled = on && _m.isAvailable;
@@ -1680,7 +1715,15 @@ class _GestureSettingsSheetState extends State<_GestureSettingsSheet> {
                     backgroundColor: scheme.primary,
                   ),
                   onPressed: () async {
-                    await LocalStore.setGestureConfig(_cfg);
+                    try {
+                      await LocalStore.setGestureConfig(_cfg);
+                    } catch (e) {
+                      ErrorLogger.instance.warn('save gesture config failed: $e');
+                      if (context.mounted) {
+                        AppToast.error(context, '手势配置保存失败，请重试');
+                      }
+                      return;
+                    }
                     if (context.mounted) Navigator.pop(context);
                   },
                   child: const Text('保存'),
@@ -1809,10 +1852,11 @@ class _WebDavSheetState extends State<_WebDavSheet> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _status = '$label失败：$e';
+          _status = '$label失败，请检查网络后重试';
           _statusOk = false;
         });
       }
+      ErrorLogger.instance.warn('webdav $label failed: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -1874,7 +1918,7 @@ class _WebDavSheetState extends State<_WebDavSheet> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _status = '连接失败：$e';
+          _status = '连接失败，请检查网络后重试';
           _statusOk = false;
         });
       }

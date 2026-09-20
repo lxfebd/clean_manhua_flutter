@@ -5,6 +5,7 @@ import '../capabilities/capability_plugin.dart';
 import '../capabilities/capability_plugin_manager.dart';
 import '../capabilities/capability_runtime.dart';
 import '../capabilities/demo_native_capability.dart';
+import '../net/error_logger.dart';
 import 'capability_market_page.dart';
 import 'tokens.dart';
 import 'widgets/app_toast.dart';
@@ -41,39 +42,59 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
     if (mounted) setState(() {});
   }
 
+  final Set<String> _busyIds = {};
+
   Future<void> _toggle(CapabilityPlugin p, bool enabled) async {
+    if (_busyIds.contains(p.id)) return; // 防连点：切换期间忽略再次拨动
+    _busyIds.add(p.id);
     try {
       await CapabilityPluginManager.instance.setEnabled(p.id, enabled);
     } catch (e) {
       if (!mounted) return;
-      AppToast.error(context, '「${p.name}」启停失败：$e');
+      AppToast.error(context, '「${p.name}」启停失败，请重试');
+      ErrorLogger.instance.warn('capability ${p.id} toggle failed: $e');
+    } finally {
+      _busyIds.remove(p.id);
+      if (mounted) setState(() {});
     }
   }
 
   /// 原生构件自测：调用演示能力 sum()，展示结果或失败原因。
   /// M2/M3 运行期验证入口（桌面 FFI / Android jniLibs 全链路）。
   Future<void> _selfTestNative() async {
-    AppToast.show(context, '原生构件自测中…');
-    final r = await DemoNativePlugin.sum(40, 2);
-    if (!mounted) return;
-    if (r is CapabilityOk) {
-      final d = r.data as Map<String, dynamic>;
-      AppToast.info(
-          context, '自测通过：sum(40,2)=${d['sum']} · version=${d['version']}');
-    } else {
-      AppToast.error(context, '自测失败：${(r as CapabilityFailure).reason}');
+    if (_busyIds.contains('self-test')) return;
+    _busyIds.add('self-test');
+    try {
+      AppToast.show(context, '原生构件自测中…');
+      final r = await DemoNativePlugin.sum(40, 2);
+      if (!mounted) return;
+      if (r is CapabilityOk) {
+        final d = r.data as Map<String, dynamic>;
+        AppToast.info(
+            context, '自测通过：sum(40,2)=${d['sum']} · version=${d['version']}');
+      } else {
+        AppToast.error(context, '自测失败：${(r as CapabilityFailure).reason}');
+      }
+    } finally {
+      _busyIds.remove('self-test');
     }
   }
 
   /// AI 上色模型权重：下载 + SHA256 校验 + 载入 colorizer（M4 契约 §5 过渡期）。
   Future<void> _handleModelAction() async {
-    AppToast.show(context, '模型权重下载/载入中…');
-    final err = await AiColorizePlugin.ensureModel();
-    if (!mounted) return;
-    if (err == null) {
-      AppToast.info(context, '模型已就绪');
-    } else {
-      AppToast.error(context, '模型未就绪：$err');
+    if (_busyIds.contains('model')) return;
+    _busyIds.add('model');
+    try {
+      AppToast.show(context, '模型权重下载/载入中…');
+      final err = await AiColorizePlugin.ensureModel();
+      if (!mounted) return;
+      if (err == null) {
+        AppToast.info(context, '模型已就绪');
+      } else {
+        AppToast.error(context, '模型未就绪：$err');
+      }
+    } finally {
+      _busyIds.remove('model');
     }
   }
 

@@ -85,6 +85,7 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
 
   /// 卸载已安装的能力（内置能力不可卸载，返回 false）。
   Future<void> _uninstall(MarketCapabilityEntry entry) async {
+    if (_installingIds.contains(entry.id)) return; // 防重入：与安装共用同一把锁
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -110,6 +111,8 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
       ),
     );
     if (ok != true) return;
+    if (_installingIds.contains(entry.id)) return; // 对话框期间可能已开始安装
+    _installingIds.add(entry.id);
     try {
       final removed = await CapabilityMarket.uninstall(entry.id);
       if (!mounted) return;
@@ -121,6 +124,8 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
       if (mounted) {
         AppToast.error(context, '卸载失败，请重试');
       }
+    } finally {
+      _installingIds.remove(entry.id);
     }
   }
 
@@ -505,15 +510,18 @@ class _CapabilityMarketTileState extends State<_CapabilityMarketTile> {
     if (mounted) _computeState();
   }
 
+  int _computeGen = 0;
+
   Future<void> _computeState() async {
+    final gen = ++_computeGen;
     final installed = await widget.entry.installed();
-    if (!mounted) return;
+    if (!mounted || gen != _computeGen) return;
     if (installed) {
       setState(() => _state = 'installed');
       return;
     }
     final needs = await widget.entry.needsUpdate();
-    if (!mounted) return;
+    if (!mounted || gen != _computeGen) return;
     setState(() => _state = needs ? 'update' : 'new');
   }
 

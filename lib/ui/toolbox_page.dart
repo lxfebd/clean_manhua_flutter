@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 
+import '../net/error_logger.dart';
 import '../net/image_cache.dart';
 import 'capability_center_page.dart';
 import 'responsive.dart';
@@ -51,19 +52,24 @@ class ToolboxPageState extends State<ToolboxPage> {
   }
 
   Future<void> _refreshCacheSize() async {
-    final files = await ImageCacheManager.diskFiles();
-    var sum = 0;
-    for (final f in files) {
-      try {
-        sum += await f.length();
-      } catch (_) {}
-    }
-    if (mounted) {
-      setState(() {
-        _cacheBytes = sum;
-        _cacheCount = files.length;
-        _cacheLoaded = true;
-      });
+    try {
+      final files = await ImageCacheManager.diskFiles();
+      var sum = 0;
+      for (final f in files) {
+        try {
+          sum += await f.length();
+        } catch (_) {}
+      }
+      if (mounted) {
+        setState(() {
+          _cacheBytes = sum;
+          _cacheCount = files.length;
+          _cacheLoaded = true;
+        });
+      }
+    } catch (e) {
+      ErrorLogger.instance.warn('toolbox cache scan failed: $e');
+      if (mounted) setState(() => _cacheLoaded = true);
     }
   }
 
@@ -76,6 +82,7 @@ class ToolboxPageState extends State<ToolboxPage> {
   }
 
   Future<void> _clearCache() async {
+    if (!mounted) return;
     setState(() => _busyCache = true);
     try {
       await ImageCacheManager.clear();
@@ -83,6 +90,12 @@ class ToolboxPageState extends State<ToolboxPage> {
         PaintingBinding.instance.imageCache.clear();
       } catch (_) {}
       await _refreshCacheSize();
+    } catch (e) {
+      ErrorLogger.instance.warn('toolbox clear cache failed: $e');
+      if (mounted) {
+        AppToast.error(context, '缓存清理失败，请重试');
+        return;
+      }
     } finally {
       if (mounted) setState(() => _busyCache = false);
     }
