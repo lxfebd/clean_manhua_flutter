@@ -4,6 +4,7 @@ import '../capabilities/capability_market.dart';
 import '../capabilities/capability_plugin.dart' show CapabilityWeight;
 import '../capabilities/capability_plugin_manager.dart';
 import 'responsive.dart';
+import 'widgets/app_toast.dart';
 
 /// 能力市场页：拉取远端索引展示 AI/视频/实用能力，支持一键安装/更新/卸载。
 ///
@@ -58,12 +59,10 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
   Future<void> _install(MarketCapabilityEntry entry) async {
     final ok = await CapabilityMarket.install(entry);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(ok
-          ? '已安装：${entry.name} v${entry.version}'
-          : '安装失败：${entry.name} 已存在或注册异常'),
-      duration: const Duration(seconds: 2),
-    ));
+    AppToast.show(context, ok
+        ? '已安装：${entry.name} v${entry.version}'
+        : '安装失败：${entry.name} 已存在或注册异常',
+        error: !ok);
     setState(() {}); // 刷新 installed 状态
   }
 
@@ -96,10 +95,8 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
     if (ok != true) return;
     final removed = await CapabilityMarket.uninstall(entry.id);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(removed ? '已卸载：${entry.name}' : '卸载失败：内置能力不可卸载'),
-      duration: const Duration(seconds: 2),
-    ));
+    AppToast.show(context, removed ? '已卸载：${entry.name}' : '卸载失败：内置能力不可卸载',
+        error: !removed);
     setState(() {}); // 刷新 installed 状态
   }
 
@@ -284,6 +281,7 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
                     child: Row(
                       children: [
                         IconButton(
+                          tooltip: '返回',
                           onPressed: () => Navigator.pop(context),
                           icon: Icon(
                               DesktopUi.isDesktopPlatform

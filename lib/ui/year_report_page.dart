@@ -124,6 +124,7 @@ class _YearReportPageState extends State<YearReportPage> {
     return Row(
       children: [
         IconButton(
+          tooltip: '返回',
           onPressed: () => Navigator.pop(context),
           icon: Icon(
               DesktopUi.isDesktopPlatform

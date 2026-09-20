@@ -10,6 +10,7 @@ import '../sources/novel_source.dart';
 import '../sources/source_manager.dart';
 import '../utils/novel_summarizer.dart';
 import 'responsive.dart';
+import 'widgets/app_toast.dart';
 
 /// 小说阅读器：渲染章节正文（段落列表），支持上下章导航与阅读进度记录。
 class NovelReaderPage extends StatefulWidget {
@@ -20,6 +21,10 @@ class NovelReaderPage extends StatefulWidget {
   final String novelName;
   final String novelPic;
   final String novelAuthor;
+
+  /// 上次读到的滚动偏移（像素）。>0 时打开章节后定位到该位置续读。
+  final double initialOffset;
+
   const NovelReaderPage({
     super.key,
     required this.sourceId,
@@ -29,6 +34,7 @@ class NovelReaderPage extends StatefulWidget {
     required this.novelName,
     required this.novelPic,
     required this.novelAuthor,
+    this.initialOffset = 0,
   });
 
   @override
@@ -52,6 +58,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   final Stopwatch _readWatch = Stopwatch();
   Timer? _statsTimer;
   ScrollController? _listController;
+  Timer? _recordHistoryDebounce; // 滚动位置防抖落盘（合并快速滚动为一次写盘）
 
   // ---- 朗读（TTS） ----
   final NovelTtsService _tts = NovelTtsService.instance;
@@ -116,12 +123,8 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     }
     if (!mounted) return;
     setState(() => _bookmarked = !_bookmarked);
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(
-        content: Text(_bookmarked ? '已添加书签' : '已取消书签'),
-        duration: const Duration(seconds: 1),
-      ));
+    AppToast.info(context, _bookmarked ? '已添加书签' : '已取消书签',
+        duration: const Duration(seconds: 1));
   }
 
   /// 章节目录：拉取全本目录（detail），点选跳章。
@@ -156,6 +159,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
                       style: Theme.of(ctx).textTheme.titleMedium),
                   const Spacer(),
                   IconButton(
+                    tooltip: '关闭',
                     onPressed: () => Navigator.pop(ctx),
                     icon: const Icon(Icons.close_rounded, size: 20),
                   ),
@@ -235,6 +239,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       HardwareKeyboard.instance.removeHandler(_keyHandler);
     }
     _statsTimer?.cancel();
+    _recordHistoryDebounce?.cancel();
     _readWatch.stop();
     final elapsed = _readWatch.elapsed.inSeconds;
     if (elapsed > 0) LocalStore.addReadingSeconds(elapsed);
@@ -283,7 +288,12 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       setState(() => _loading = true);
     }
     // 复用同一 controller：翻章时已由 _go 跳回顶部，卸载不清除以便重建 Focus。
-    _listController ??= ScrollController();
+    // 首次创建时挂滚动监听：活动中持续记录进度（防抖），退出后可按偏移续读。
+    _listController ??= ScrollController()
+      ..addListener(() {
+        if (_loading || _content == null) return;
+        _recordHistory(_content!.title);
+      });
     try {
       final c = await s.chapterContent(chapterId).timeout(const Duration(seconds: 15));
       // 成功事件用 debug 级，不写 ERROR 日志（避免污染 7 天滚动日志与错误计数）。
@@ -292,12 +302,25 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         _content = c;
         _curChapterId = chapterId;
         _error = null;
+        _autoNextFired = false; // 新章重置「章末自动加载」标记
         _recordHistory(c.title);
         // 换章后刷新朗读队列：内容加载期间朗读自然停在旧章末尾。
         _tts.reset();
         _tts.loadChapter(c.paragraphs);
         // 换章后刷新书签状态（B 键/目录高亮跟随当前章）。
         _initBookmark();
+        // 首次打开（从详情页进入）且有历史偏移：布局完成后定位到上次位置续读。
+        // 注意 _go(prev/next) 传入的是空偏移（0），不会触发恢复逻辑。
+        if (widget.initialOffset > 0 &&
+            chapterId == widget.chapterId &&
+            _listController != null) {
+          final target = widget.initialOffset;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            final sc = _listController;
+            if (sc == null || !sc.hasClients) return;
+            sc.jumpTo(target.clamp(0, sc.position.maxScrollExtent));
+          });
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -312,23 +335,39 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   }
 
   void _recordHistory(String chapterTitle) {
-    LocalStore.recordHistory(HistoryEntry(
-      book: Bookmark(
-        sourceId: widget.sourceId,
-        comicId: widget.novelId,
-        name: widget.novelName,
-        pic: widget.novelPic,
-        author: widget.novelAuthor,
-      ),
-      chapterId: _curChapterId,
-      chapterTitle: chapterTitle,
-      timestamp: DateTime.now().millisecondsSinceEpoch,
-    ));
+    // 快照当前章节与偏移：防抖期间若已切章（_go 先落盘再跳顶），
+    // 定时器触发时按快照写入，避免记成新章且偏移为 0。
+    final chapterId = _curChapterId;
+    final scrollOffset = (_listController?.hasClients ?? false)
+        ? _listController!.offset.toDouble()
+        : 0.0;
+    _recordHistoryDebounce?.cancel();
+    _recordHistoryDebounce = Timer(const Duration(milliseconds: 500), () {
+      LocalStore.recordHistory(HistoryEntry(
+        book: Bookmark(
+          sourceId: widget.sourceId,
+          comicId: widget.novelId,
+          name: widget.novelName,
+          pic: widget.novelPic,
+          author: widget.novelAuthor,
+        ),
+        chapterId: chapterId,
+        chapterTitle: chapterTitle,
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+        // 记录精确滚动偏移（像素）：重新打开本章时恢复到上次位置续读。
+        scrollOffset: scrollOffset,
+      ));
+    });
   }
 
   void _go(String? chapterId) {
     if (chapterId == null) return;
     HapticFeedback.lightImpact();
+    // 换章前落盘当前章进度（防抖计时器未触发就切走的情况）。
+    if (_content != null) _recordHistory(_content!.title);
+    // 同步置 loading：让 jumpTo(0) 触发的滚动监听跳过落盘，
+    // 避免把旧章位置覆盖成偏移 0（_load 里 setState 幂等）。
+    _loading = true;
     // 翻章时新章节从顶部开始读。
     if (_listController != null && _listController!.hasClients) {
       _listController!.jumpTo(0);
@@ -617,6 +656,21 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     );
   }
 
+  /// 防止「章末自动加载」在一次滚动中重复触发：滚到章末已自动加载过
+  /// 标记 true，换章（_load 成功）后重置为 false；加载下一章中也为 true。
+  bool _autoNextFired = false;
+  /// 章末自动加载下一章（到达底部且还有下一章时静默触发）。
+  void _maybeAutoNext(ScrollMetrics m) {
+    if (_autoNextFired) return;
+    if (_loading) return;
+    final nextId = _content?.nextChapterId;
+    if (nextId == null) return; // 无下一章
+    final trigger = m.maxScrollExtent - m.pixels;
+    if (trigger > m.viewportDimension * 0.25) return; // 还没到章末附近
+    _autoNextFired = true;
+    _go(nextId); // _load 成功后重置 _autoNextFired
+  }
+
   Widget _reader(scheme) {
     final paras = _content!.paragraphs;
     final useCustomBg = _theme > 0;
@@ -641,13 +695,19 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
 
     // 单一 ListView：挂 _listController（翻章回顶、桌面键滚动都依赖它），
     // 段间距独立可调（不再跟行距耦合）。
-    Widget list = ListView.separated(
-      controller: _listController,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      itemCount: paras.length,
-      separatorBuilder: (_, __) =>
-          SizedBox(height: _paragraphGap.toDouble()),
-      itemBuilder: (ctx, i) => para(i),
+    Widget list = NotificationListener<ScrollUpdateNotification>(
+      onNotification: (n) {
+        _maybeAutoNext(n.metrics);
+        return false;
+      },
+      child: ListView.separated(
+        controller: _listController,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        itemCount: paras.length,
+        separatorBuilder: (_, __) =>
+            SizedBox(height: _paragraphGap.toDouble()),
+        itemBuilder: (ctx, i) => para(i),
+      ),
     );
     // 桌面端：包裹 Focus + 键盘滚动，使空格/PageUp/PageDown 可直接滚动正文；
     // 仅在桌面启用，移动端物理键盘不影响触摸滚动。

@@ -36,7 +36,7 @@ class _WebviewPageState extends State<WebviewPage> {
             if (mounted) {
               setState(() {
                 _loading = false;
-                _error = '加载失败: ${e.description}';
+                _error = '加载失败：${e.description}';
               });
             }
           },
@@ -62,6 +62,7 @@ class _WebviewPageState extends State<WebviewPage> {
         title: Text(widget.title.isEmpty ? widget.url : widget.title),
         actions: [
           IconButton(
+            tooltip: '刷新',
             icon: const Icon(Icons.refresh_rounded),
             onPressed: () {
               setState(() { _error = null; _loading = true; });
@@ -69,6 +70,7 @@ class _WebviewPageState extends State<WebviewPage> {
             },
           ),
           IconButton(
+            tooltip: '浏览器打开',
             icon: const Icon(Icons.open_in_browser_rounded),
             onPressed: _openInBrowser,
           ),

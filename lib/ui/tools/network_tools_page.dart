@@ -8,6 +8,7 @@ import '../../net/cf_ip_picker.dart';
 import '../../net/http_client.dart';
 import '../../sources/source_config.dart';
 import '../responsive.dart';
+import '../widgets/app_toast.dart';
 
 /// 网络查询类工具：DNS 查询、Ping 测试、IP 归属地、天气。
 class NetworkToolsPage extends StatefulWidget {
@@ -576,8 +577,7 @@ class _CfPickerTabState extends State<_CfPickerTab> {
         _busy = false;
         _results = [];
       });
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('扫描失败：$e')));
+      AppToast.error(context, '扫描失败：$e');
     }
   }
 
@@ -594,8 +594,7 @@ class _CfPickerTabState extends State<_CfPickerTab> {
       _appliedDomain = host;
       _appliedIps = ips;
     });
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('已应用 $take 个优选 IP 到 $host，并已保存')));
+    AppToast.info(context, '已应用 $take 个优选 IP 到 $host，并已保存');
   }
 
   Future<void> _clearApplied() async {
@@ -847,8 +846,7 @@ class _SourceCheckTabState extends State<_SourceCheckTab> {
         _busy = false;
         _results = [];
       });
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('检测失败：$e')));
+      AppToast.error(context, '检测失败：$e');
     }
   }
 

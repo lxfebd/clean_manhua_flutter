@@ -12,6 +12,7 @@ import 'tools/image_tools_page.dart';
 import 'tools/network_tools_page.dart';
 import 'tools/text_tools_page.dart';
 import 'webview_page.dart';
+import 'widgets/app_toast.dart';
 import 'widgets/motion.dart';
 
 /// 工具箱：本地实用工具集合。
@@ -76,8 +77,7 @@ class ToolboxPageState extends State<ToolboxPage> {
       if (mounted) setState(() => _busyCache = false);
     }
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('图片缓存已清理')));
+    AppToast.info(context, '图片缓存已清理');
   }
 
   @override

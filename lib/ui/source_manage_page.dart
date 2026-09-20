@@ -10,6 +10,8 @@ import '../sources/source_manager.dart';
 import '../sources/source_plugin_manager.dart';
 import 'responsive.dart';
 import 'source_market_page.dart';
+import 'widgets/app_toast.dart';
+import 'widgets/state_view.dart';
 
 /// 数据源管理页：列出所有源，可启用/停用、编辑域名/图片CDN/代理/请求头/层级，
 /// 保存后持久化（源配置免发版更新），并同步 SourceManager 的启用列表。
@@ -72,9 +74,7 @@ class _SourceManagePageState extends State<SourceManagePage> {
     await SourceManager.ensureEnabledCurrent();
     await _load();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已保存「${updated.name}」的配置')),
-      );
+      AppToast.info(context, '已保存「${updated.name}」的配置');
     }
   }
 
@@ -143,6 +143,7 @@ class _SourceManagePageState extends State<SourceManagePage> {
               child: Row(
                 children: [
                   IconButton(
+                    tooltip: '返回',
                     onPressed: () => Navigator.pop(context),
                     icon: Icon(
                         DesktopUi.isDesktopPlatform
@@ -213,7 +214,11 @@ class _SourceManagePageState extends State<SourceManagePage> {
 
   Widget _buildList(ThemeData theme) {
     if (_error != null) {
-      return Center(child: Text('加载失败\n$_error'));
+      return StateView(
+        kind: StateViewKind.error,
+        message: '加载失败\n$_error',
+        onRetry: _load,
+      );
     }
     final cfgs = _cfgs;
     if (cfgs == null) {
@@ -629,9 +634,11 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
     if (text == null) return;
     final ok = await CustomSourceStore.importJson(text);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(ok > 0 ? '成功导入 $ok 个自定义源' : '导入失败：JSON 无效或未通过校验'),
-      ));
+      if (ok > 0) {
+        AppToast.info(context, '成功导入 $ok 个自定义源');
+      } else {
+        AppToast.error(context, '导入失败：JSON 无效或未通过校验');
+      }
     }
     await _load();
   }

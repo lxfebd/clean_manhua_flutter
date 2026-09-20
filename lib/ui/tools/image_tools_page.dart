@@ -235,6 +235,7 @@ class _ImageToolsPageState extends State<ImageToolsPage> {
                 if (_path.isNotEmpty) ...[
                   const SizedBox(width: 8),
                   IconButton(
+                    tooltip: '清空',
                     icon: Icon(Icons.close_rounded,
                         color: scheme.onSurface.withValues(alpha: 0.5)),
                     onPressed:

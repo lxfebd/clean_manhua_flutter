@@ -4,6 +4,7 @@ import '../sources/dsl/custom_source_def.dart';
 import '../sources/dsl/custom_source_store.dart';
 import '../sources/dsl/source_market.dart';
 import 'responsive.dart';
+import 'widgets/app_toast.dart';
 
 /// 源市场页：拉取远端索引展示社区/官方自定义源，支持一键安装/更新/查看详情。
 ///
@@ -56,12 +57,10 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
   Future<void> _install(MarketSourceEntry entry) async {
     final ok = await SourceMarket.install(entry);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(ok
-          ? '已安装：${entry.name} v${entry.version}'
-          : '安装失败：${entry.name} 校验未通过'),
-      duration: const Duration(seconds: 2),
-    ));
+    AppToast.show(context, ok
+        ? '已安装：${entry.name} v${entry.version}'
+        : '安装失败：${entry.name} 校验未通过',
+        error: !ok);
     setState(() {}); // 刷新 installed 状态
   }
 
@@ -94,10 +93,9 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
     if (ok != true) return;
     final removed = await CustomSourceStore.remove(entry.id);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(removed ? '已卸载：${entry.name}' : '卸载失败：${entry.name} 未找到'),
-      duration: const Duration(seconds: 2),
-    ));
+    AppToast.show(context,
+        removed ? '已卸载：${entry.name}' : '卸载失败：${entry.name} 未找到',
+        error: !removed);
     setState(() {}); // 刷新 installed 状态
   }
 
@@ -336,6 +334,7 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
                     child: Row(
                       children: [
                         IconButton(
+                          tooltip: '返回',
                           onPressed: () => Navigator.pop(context),
                           icon: Icon(
                               DesktopUi.isDesktopPlatform

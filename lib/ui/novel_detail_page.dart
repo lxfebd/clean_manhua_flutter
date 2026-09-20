@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../net/local_store.dart';
 import '../sources/novel_source.dart';
 import '../sources/source_manager.dart';
 import '../ui/novel_reader_page.dart';
 import '../ui/responsive.dart';
+import '../ui/widgets/app_toast.dart';
 import '../ui/widgets/cached_image.dart';
 import '../ui/widgets/motion.dart';
 
@@ -30,6 +32,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
   bool _loading = true;
   String? _error;
   bool _saved = false;
+  bool _descExpanded = false; // 平板左侧窄面板长简介折叠
 
   @override
   void initState() {
@@ -78,16 +81,27 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
     await s.toggleBookshelf(_detail!);
     if (mounted) {
       setState(() => _saved = !_saved);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(_saved ? '已加入书架' : '已移出书架'),
-        duration: const Duration(seconds: 1),
-      ));
+      AppToast.info(context, _saved ? '已加入书架' : '已移出书架',
+          duration: const Duration(seconds: 1));
     }
   }
 
-  void _openChapter(NovelChapter ch) {
+  void _openChapter(NovelChapter ch) async {
     HapticFeedback.selectionClick();
     final d = _detail!;
+    final hist = await LocalStore.history();
+    final key = Bookmark(
+            sourceId: widget.sourceId, comicId: widget.novelId, name: '', pic: '')
+        .key;
+    // 倒序找最新一条：同一章节被多次记录时取最近一次位置。
+    var scrollOffset = 0.0;
+    for (final h in hist.reversed) {
+      if (h.book.key == key && h.chapterId == ch.id) {
+        scrollOffset = h.scrollOffset;
+        break;
+      }
+    }
+    if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -99,6 +113,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
           novelName: d.name,
           novelPic: d.pic ?? '',
           novelAuthor: d.author ?? d.comic.author ?? '',
+          initialOffset: scrollOffset,
         ),
       ),
     );
@@ -116,6 +131,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
         actions: [
           if (_detail != null)
             IconButton(
+              tooltip: _saved ? '移出书架' : '加入书架',
               icon: Icon(_saved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded),
               onPressed: _toggleSave,
             ),
@@ -200,12 +216,27 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
               if (d.description != null && d.description!.isNotEmpty) ...[
                 const SizedBox(height: 14),
                 Text(d.description!,
-                    maxLines: 8,
-                    overflow: TextOverflow.ellipsis,
+                    maxLines: _descExpanded ? null : 4,
+                    overflow: _descExpanded ? null : TextOverflow.ellipsis,
                     style: TextStyle(
                         fontSize: 13,
                         height: 1.6,
                         color: scheme.onSurface.withValues(alpha: 0.8))),
+                if (d.description!.length > 100)
+                  GestureDetector(
+                    onTap: () =>
+                        setState(() => _descExpanded = !_descExpanded),
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                        _descExpanded ? '收起' : '展开',
+                        style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: scheme.primary),
+                      ),
+                    ),
+                  ),
               ],
             ],
           ),
@@ -299,11 +330,33 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Text(d.description!,
-                  style: TextStyle(
-                      fontSize: 13.5,
-                      height: 1.6,
-                      color: scheme.onSurface.withValues(alpha: 0.8))),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(d.description!,
+                      maxLines: _descExpanded ? null : 4,
+                      overflow: _descExpanded ? null : TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 13.5,
+                          height: 1.6,
+                          color: scheme.onSurface.withValues(alpha: 0.8))),
+                  if (d.description!.length > 100)
+                    GestureDetector(
+                      onTap: () =>
+                          setState(() => _descExpanded = !_descExpanded),
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          _descExpanded ? '收起' : '展开',
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: scheme.primary),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         SliverToBoxAdapter(

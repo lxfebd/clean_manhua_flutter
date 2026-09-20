@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../responsive.dart';
+import '../widgets/app_toast.dart';
 
 /// 文本加密类工具：加密(MD5/SHA/Base64)、摩斯密码、长度换算、二维码生成。
 class TextToolsPage extends StatefulWidget {
@@ -134,8 +135,7 @@ class _TextToolsPageState extends State<TextToolsPage>
     if (text.isEmpty) return;
     await Clipboard.setData(ClipboardData(text: text));
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('已复制')));
+    AppToast.info(context, '已复制');
   }
 
   Future<void> _saveQr() async {
@@ -146,8 +146,7 @@ class _TextToolsPageState extends State<TextToolsPage>
     final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
     final f = await _writeToGallery(bytes!.buffer.asUint8List());
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已保存：${f.path}')));
+    AppToast.info(context, '已保存：${f.path}');
   }
 
   Future<File> _writeToGallery(Uint8List bytes) async {

@@ -12,6 +12,7 @@ import 'reader_page.dart';
 import 'responsive.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
+import 'widgets/state_view.dart';
 
 /// 跨源统一搜索：输入关键词，并发搜索所有启用的漫画源，结果按源分组展示。
 class UnifiedSearchPage extends StatefulWidget {
@@ -25,6 +26,7 @@ class UnifiedSearchPage extends StatefulWidget {
 class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
   List<_SourceResult> _results = [];
   bool _loading = true;
+  String? _error; // 搜索失败原因（非空时展示错误态并提供重试）
   bool _loadingMore = false; // 正在加载下一页
   bool _hasMore = false; // 任一源还有下一页
   final _searchCtrl = TextEditingController();
@@ -62,7 +64,10 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
   Future<void> _search() async {
     final kw = _searchCtrl.text.trim();
     if (kw.isEmpty) return;
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null; // 开始新搜索时清除上一次的错误态
+    });
     try {
       final enabled = await SourceManager.enabledSources();
       final futures = <Future<List<ComicItem>>>[
@@ -93,9 +98,24 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
         _detailLoading = false;
       });
       _loadHistory(); // 刷新历史列表（若在展示）
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          // 明确进入错误态：展示失败原因 + 重试按钮，不再静默回到空页。
+          _error = '搜索失败：${_describeError(e)}';
+        });
+      }
     }
+  }
+
+  /// 把异常转成可读的原因文案（去掉 "Exception: " 之类的前缀）。
+  String _describeError(Object e) {
+    if (e is TimeoutException) return '请求超时，请检查网络后重试';
+    final msg = e
+        .toString()
+        .replaceFirst(RegExp(r'^(Exception|Error)(:\s*)?'), '');
+    return msg.isEmpty ? '未知错误，请稍后重试' : msg;
   }
 
   /// 搜索单页结果的大致容量（各源实际页容量可能不同，仅用于判断"还有没有更多"）。
@@ -213,6 +233,7 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
                     child: Row(
                       children: [
                         IconButton(
+                          tooltip: '返回',
                           onPressed: () => Navigator.maybePop(context),
                           icon: Icon(
                               DesktopUi.isDesktopPlatform
@@ -276,6 +297,15 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
   Widget _buildBody(ColorScheme scheme) {
     if (_loading) {
       return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    }
+    final error = _error;
+    if (error != null) {
+      // 错误态：展示失败原因 + 重试按钮，点击重试重新执行搜索。
+      return StateView(
+        kind: StateViewKind.error,
+        message: error,
+        onRetry: _search,
+      );
     }
     if (_results.isEmpty) {
       // 空状态：有历史展示历史（可点击重搜/清空），无历史展示空提示。

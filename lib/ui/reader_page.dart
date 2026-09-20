@@ -27,6 +27,7 @@ import '../sources/source_manager.dart';
 import '../utils/image_super_res.dart';
 import '../utils/image_trim.dart';
 import '../utils/colorizer_manager.dart';
+import 'widgets/app_toast.dart';
 import 'widgets/jm_scramble_image.dart';
 
 /// 阅读器（对齐 UI_v2 S5/S6）：沉浸式黑底 + 顶部返回/标题/菜单 +
@@ -733,10 +734,12 @@ class _ReaderPageState extends State<ReaderPage>
         },
       );
       if (mounted) {
-        setState(() => _downloaded = ok);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(ok ? '已下载到本地' : '下载未完成')),
-        );
+        setState(() => _downloaded = ok.ok);
+        if (ok.ok) {
+          AppToast.info(context, '已下载到本地');
+        } else {
+          AppToast.error(context, ok.error ?? '下载未完成');
+        }
       }
     } finally {
       if (mounted) setState(() => _downloading = false);
@@ -1306,12 +1309,8 @@ class _ReaderPageState extends State<ReaderPage>
     }
     if (!mounted) return;
     setState(() => _bookmarked = !_bookmarked);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(_bookmarked ? '已添加书签' : '已取消书签'),
-      behavior: SnackBarBehavior.floating,
-      width: 180,
-      duration: const Duration(milliseconds: 900),
-    ));
+    AppToast.show(context, _bookmarked ? '已添加书签' : '已取消书签',
+        duration: const Duration(milliseconds: 900));
   }
 
 /// 工具栏切换翻页模式：纵向滚动 → 单页横向 → 双页并排 → 纵向滚动。
@@ -1495,13 +1494,7 @@ class _ReaderPageState extends State<ReaderPage>
   /// 防误触提示 toast。
   void _toast(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        duration: const Duration(seconds: 2),
-        backgroundColor: Colors.black.withValues(alpha: 0.7),
-      ),
-    );
+    AppToast.show(context, msg);
   }
 
   /// 双击解锁/锁定触控（防躺卧误触）。
@@ -1661,6 +1654,7 @@ class _ReaderPageState extends State<ReaderPage>
               curve: Curves.easeOut));
         } else {
           _pageAnimating = false;
+          _toast('已经是本章第一页了'); // 越界提示，避免连点无反馈以为卡死
         }
       } else {
         _pageAnimating = false;
@@ -1668,6 +1662,7 @@ class _ReaderPageState extends State<ReaderPage>
     } else {
       final c = _scrollCtrl;
       if (c != null && c.hasClients) {
+        if (c.offset <= 0) _toast('已经是本章第一页了'); // 纵向也提示
         _runPageAnim(c.animateTo(
             (c.offset - 400).clamp(0, c.position.maxScrollExtent),
             duration: const Duration(milliseconds: 240),
@@ -1709,6 +1704,11 @@ class _ReaderPageState extends State<ReaderPage>
         if ((_curPage >= _urls.length - 1) && _canContinue) {
           _pageAnimating = false;
           _continueToNextChapter();
+          return;
+        }
+        if ((_curPage >= _urls.length - 1) && !_canContinue) {
+          _pageAnimating = false;
+          _toast('已经是最后一章了'); // 无下一章时到边界给明确反馈
           return;
         }
         _runPageAnim(c.animateTo(
@@ -2292,6 +2292,10 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
   Uint8List? _bytes;
   bool _failed = false;
   bool _colorized = false; // 上色已执行（成功或降级都置位，避免重复推理）
+  /// 自动重试次数：单张图最多自动重试 1 次，之后只保留手动点击重试，
+  /// 避免对源站反复轰炸（防抖 + 有限次数）。
+  int _autoRetries = 0;
+  Timer? _retryTimer;
 
   /// 当前源的 CustomSourceDef 缓存（picHeaders 读图用）。
   CustomSourceDef? _defCache;
@@ -2455,8 +2459,23 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
       if (mounted) {
         setState(() => _failed = true);
         widget.onError();
+        // 单张图失败自动重试 1 次（延迟 1.5s），降低偶发网络抖动对阅读流
+        // 的打断；仍失败则留在占位态，等待手动点击。
+        if (_autoRetries < 1 && _retryTimer == null) {
+          _autoRetries++;
+          _retryTimer = Timer(const Duration(milliseconds: 1500), () {
+            _retryTimer = null;
+            if (mounted) _load();
+          });
+        }
       }
     }
+  }
+
+  @override
+  void dispose() {
+    _retryTimer?.cancel();
+    super.dispose();
   }
 
   /// 等待滑动停止（事件驱动，非轮询）。滑动中不启动超分。

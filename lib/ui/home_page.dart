@@ -12,6 +12,7 @@ import 'responsive.dart';
 import 'tokens.dart';
 import 'unified_search_page.dart';
 import 'widgets/cached_image.dart';
+import 'widgets/app_toast.dart';
 import 'widgets/motion.dart';
 import 'widgets/state_view.dart';
 
@@ -35,6 +36,7 @@ class _HomePageState extends State<HomePage> {
   String _keyword = '';
   String? _error;
   bool _done = false; // 首屏请求是否已结束（区分加载中与空结果）
+  bool _loadMoreFailed = false; // 分页加载失败（非空列表时仅影响尾部重试条）
   final _searchCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   List<Category> _cats = [];
@@ -63,20 +65,26 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  /// 下拉刷新：清空并重拉首页数据（页数重置）
-  Future<void> _refresh() async {
+  /// 刷新首页数据：默认保留现有条目做背景更新，成功后原地替换并尽力恢复
+  /// 滚动位置，避免清屏重拉造成闪空/回顶。[keepItems=false] 用于首进等
+  /// 明确需要全新列表的场景。
+  Future<void> _refresh({bool keepItems = true}) async {
     _page = 1;
-    _items.clear();
     _error = null;
     _done = false;
+    _loadMoreFailed = false;
+    // 记录旧列表与滚动偏移：成功后替换数据并把滚动位置跳回原位。
+    final restoreOffset =
+        _items.isNotEmpty ? (_scrollCtrl.hasClients ? _scrollCtrl.offset : 0.0) : null;
+    if (!keepItems) _items.clear();
     setState(() {});
     _loadCategories();
     // 首屏本地快照打底：先渲染上次成功缓存的榜单，网络回来后覆盖。
     // 弱网/离线时首页不再空白，且首帧内容立即可见。
-    if (_mode == 'rank' && _page == 1) {
+    if (_mode == 'rank') {
       await _loadCachedSnapshot();
     }
-    await _loadMore();
+    await _loadMore(replaceFirst: keepItems, restoreOffset: restoreOffset);
     // 若当前源在源管理里被禁用，回退到第一个启用源
     await SourceManager.ensureEnabledCurrent().then((_) {
       if (mounted) setState(() {});
@@ -145,12 +153,14 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _loadMore() async {
+  Future<void> _loadMore(
+      {bool replaceFirst = false, double? restoreOffset}) async {
     if (_loading) return;
     _loading = true;
     // 异步续体可能在组件被 dispose 后恢复（切 tab / 换源），
     // 此时必须带 mounted 保护，否则 setState 在 _element 为 null 时抛 Null check。
     if (mounted && _items.isEmpty) setState(() => _error = null);
+    _loadMoreFailed = false;
     final source = SourceManager.current;
     final next = _page;
     try {
@@ -166,24 +176,46 @@ class _HomePageState extends State<HomePage> {
           r = await source.rank(next);
       }
       if (mounted) {
-        setState(() {
-          // 源站榜单粘页时同一作品可能跨页重复，合并后整体去重。
-          // 必须先构造合并结果再一次性替换——先 clear() 再展开 _items
-          // 得到的是空列表，会把之前所有页顶掉（整页重刷、滚动位置丢失）。
-          final merged = _dedup([..._items, ...r]);
-          _items
-            ..clear()
-            ..addAll(merged);
-          _page++;
-          _error = null;
-        });
+        if (replaceFirst) {
+          // 刷新模式：用第一页结果整体替换旧列表
+          setState(() {
+            _items
+              ..clear()
+              ..addAll(_dedup(r));
+            _page = 2;
+            _error = null;
+            _loadMoreFailed = false;
+          });
+        } else {
+          setState(() {
+            // 源站榜单粘页时同一作品可能跨页重复，合并后整体去重。
+            // 必须先构造合并结果再一次性替换——先 clear() 再展开 _items
+            // 得到的是空列表，会把之前所有页顶掉（整页重刷、滚动位置丢失）。
+            final merged = _dedup([..._items, ...r]);
+            _items
+              ..clear()
+              ..addAll(merged);
+            _page++;
+            _error = null;
+            _loadMoreFailed = false;
+          });
+        }
         // 首页第一页成功后更新快照（不阻塞主流程）
         if (next == 1 && _mode == 'rank') {
           _saveSnapshot(r);
         }
+        // 刷新模式替换数据后把滚动位置跳回原位，避免回顶闪空。
+        if (replaceFirst && restoreOffset != null && _scrollCtrl.hasClients) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && _scrollCtrl.hasClients) {
+              _scrollCtrl.jumpTo(restoreOffset.clamp(
+                  0.0, _scrollCtrl.position.maxScrollExtent));
+            }
+          });
+        }
       }
     } catch (e) {
-      if (mounted && _items.isEmpty) {
+      if (mounted) {
         String msg;
         if (kIsWeb && (e.toString().contains('Failed to fetch') ||
             e.toString().contains('CORS'))) {
@@ -191,7 +223,15 @@ class _HomePageState extends State<HomePage> {
         } else {
           msg = '加载失败，请检查网络\n$e';
         }
-        setState(() => _error = msg);
+        setState(() {
+          if (_items.isEmpty) {
+            // 首屏失败：整页错误态
+            _error = msg;
+          } else {
+            // 分页失败：保留已有内容，置分页失败标记供尾部重试条显示
+            _loadMoreFailed = true;
+          }
+        });
       }
     } finally {
       _loading = false;
@@ -202,7 +242,8 @@ class _HomePageState extends State<HomePage> {
   void _switchMode(String mode, {String? categoryId}) {
     _mode = mode;
     if (categoryId != null) _categoryId = categoryId;
-    _refresh();
+    // 切分类/搜索：全新列表，不清屏重拉。
+    _refresh(keepItems: false);
   }
 
   @override
@@ -311,6 +352,23 @@ class _HomePageState extends State<HomePage> {
                     strokeWidth: 2,
                     color: theme.colorScheme.primary,
                   ),
+                ),
+              ),
+            ),
+          ),
+        // 分页加载失败：尾部重试条（保留已加载内容，不做整页错误态）
+        if (_loadMoreFailed && !_loading)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Center(
+                child: TextButton.icon(
+                  onPressed: _loadMore,
+                  icon: Icon(Icons.refresh_rounded,
+                      size: 18, color: theme.colorScheme.primary),
+                  label: Text('加载失败，点击重试',
+                      style: TextStyle(
+                          fontSize: 12.5, color: theme.colorScheme.primary)),
                 ),
               ),
             ),
@@ -612,12 +670,7 @@ class _HomePageState extends State<HomePage> {
           onTap: () async {
             await Clipboard.setData(ClipboardData(text: it.name));
             if (!mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text('已复制「${it.name}」'),
-              behavior: SnackBarBehavior.floating,
-              width: 260,
-              duration: const Duration(seconds: 2),
-            ));
+            AppToast.info(context, '已复制「${it.name}」');
           },
         ),
       ];
@@ -754,6 +807,7 @@ class _SearchBarState extends State<_SearchBar> {
                           },
                         ),
                       IconButton(
+                        tooltip: '清空',
                         icon: Icon(Icons.close_rounded,
                             size: 18,
                             color: T.color(scheme.onSurface, TextTier.low,

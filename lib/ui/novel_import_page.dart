@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import '../sources/local_novel_source.dart';
 import 'novel_reader_page.dart';
+import 'widgets/app_toast.dart';
 
 /// 本地小说导入页：选择 TXT/EPUB 文件 → 解析（isolate）→ 入库 → 进入阅读。
 class NovelImportPage extends StatefulWidget {
@@ -117,8 +118,7 @@ class _NovelImportPageState extends State<NovelImportPage> {
 
   void _toast(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 2)));
+    AppToast.show(context, msg);
   }
 
   @override
@@ -243,13 +243,11 @@ class _NovelDetailPageLocalState extends State<NovelDetailPageLocal> {
     try {
       await LocalNovelSource.store.remove(widget.bookId);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已删除'), duration: Duration(seconds: 1)));
+      AppToast.info(context, '已删除', duration: const Duration(seconds: 1));
       Navigator.of(context).popUntil((r) => r.isFirst);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('删除失败：$e'), duration: Duration(seconds: 2)));
+        AppToast.error(context, '删除失败：$e');
       }
     } finally {
       if (mounted) setState(() => _deleting = false);

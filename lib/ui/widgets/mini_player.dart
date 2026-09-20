@@ -171,6 +171,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                       padding: EdgeInsets.zero,
                       constraints:
                           const BoxConstraints(minWidth: 36, minHeight: 36),
+                      tooltip: _playing ? '暂停' : '播放',
                       icon: Icon(
                         _playing
                             ? Icons.pause_rounded
@@ -188,6 +189,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                       padding: EdgeInsets.zero,
                       constraints:
                           const BoxConstraints(minWidth: 34, minHeight: 36),
+                      tooltip: '关闭',
                       icon: const Icon(Icons.close_rounded,
                           color: Colors.white70),
                       onPressed: widget.onClose,

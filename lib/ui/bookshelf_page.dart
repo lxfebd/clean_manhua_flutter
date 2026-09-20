@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io';
 
 import '../net/bookshelf_store.dart';
+import '../net/error_logger.dart';
 import '../net/shelf_updater.dart';
 import '../net/download_manager.dart';
 import '../net/video_download_manager.dart';
@@ -14,6 +15,7 @@ import 'native_player_page.dart';
 import 'reader_page.dart';
 import 'responsive.dart';
 import 'tokens.dart';
+import 'widgets/app_toast.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
 
@@ -27,7 +29,9 @@ import 'widgets/motion.dart';
 /// - 顶部：标签切换（横向滚动）
 /// - 下方：内容列表/网格
 class BookshelfPage extends StatefulWidget {
-  const BookshelfPage({super.key});
+  /// 空书架引导按钮回调（跳转首页/发现页）。为 null 时不显示按钮。
+  final VoidCallback? onGotoHome;
+  const BookshelfPage({super.key, this.onGotoHome});
 
   @override
   State<BookshelfPage> createState() => BookshelfPageState();
@@ -45,6 +49,9 @@ class BookshelfPageState extends State<BookshelfPage>
   List<VideoDownloadTask> _animeDownloads = [];
   int _tab = 0;
   bool _loading = true;
+  /// 本地数据读取失败原因：六组全败时置位（整页错误视图用）。
+  /// 部分失败时用空列表替代该组，不进错误态，不打扰用户。
+  String? _loadError;
   bool _refreshing = false;
   bool _editing = false;
   String? _tagFilter;
@@ -60,6 +67,12 @@ class BookshelfPageState extends State<BookshelfPage>
   int _sortMode = 0; // 0=最近更新 1=最近收藏 2=名称
   int _updateCount = 0;
   bool _checkingUpdate = false;
+  /// 用户主动取消本轮检查更新（转圈时再点一次按钮触发）。
+  bool _cancelUpdateCheck = false;
+  /// 检查更新进度文案（'12/156'），转圈时展示。
+  String _checkProgress = '';
+  /// 手机端最近阅读是否已展开（截断 6 条时点击「查看全部」置位）。
+  bool _recentExpanded = false;
 
   /// 续播解析中（防止 await playUrl 期间连点叠多个 dialog/播放器页）。
   bool _openingVideo = false;
@@ -73,21 +86,19 @@ class BookshelfPageState extends State<BookshelfPage>
     // 后台定时检查发现新更新时弹出提示（应用内横幅）。
     ShelfUpdater.instance.onUpdatesFound = (names) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('收藏有更新：${names.take(3).join('、')}${names.length > 3 ? ' 等' : ''}'),
-          duration: const Duration(seconds: 5),
-          behavior: SnackBarBehavior.floating,
-          action: SnackBarAction(
-            label: '查看',
-            onPressed: () {
-              setState(() {
-                _tab = 1;
-                _updateCount = names.length;
-                _applyFilters();
-              });
-            },
-          ),
+      AppToast.show(
+        context,
+        '收藏有更新：${names.take(3).join('、')}${names.length > 3 ? ' 等' : ''}',
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: '查看',
+          onPressed: () {
+            setState(() {
+              _tab = 1;
+              _updateCount = names.length;
+              _applyFilters();
+            });
+          },
         ),
       );
     };
@@ -100,17 +111,28 @@ class BookshelfPageState extends State<BookshelfPage>
           _loading = _items.isEmpty && _recent.isEmpty && _videos.isEmpty);
     }
     try {
-      final list = BookshelfStore.listAll();
-      final hist = await LocalStore.history();
-      final videos = await LocalStore.videoRecords();
-      final dl = await LocalStore.downloads();
+      // 六组本地数据相互独立：并行读取，总耗时 ≈ 最慢一组，
+      // 避免切 Tab 时串行等待造成卡顿/白屏。
+      // 每组独立容错：失败组用空列表替代，其余照常渲染（尽力恢复）。
+      final results = await Future.wait([
+        _readGroup(() => Future.value(BookshelfStore.listAll())),
+        _readGroup(() => LocalStore.history()),
+        _readGroup(() => LocalStore.videoRecords()),
+        _readGroup(() => LocalStore.downloads()),
+        _readGroup(() => Future.value(BookshelfStore.folders())),
+        _readGroup(() => LocalStore.bookmarks()),
+      ]);
+      final list = results[0].data as List<ComicDetail>;
+      final hist = results[1].data as List<HistoryEntry>;
+      final videos = results[2].data as List<VideoRecord>;
+      final dl = results[3].data as List<DownloadRecord>;
+      final folders = results[4].data as List<Map<String, dynamic>>;
+      final marks = results[5].data as List<ComicBookmark>;
+      final errors =
+          results.map((r) => r.error).whereType<String>().toList();
       final ani = VideoDownloadManager.instance.tasks
           .where((t) => t.state == 'done')
           .toList();
-      final marks = await LocalStore.bookmarks();
-      // 分类列表（含「全部」与「默认分类」）；若当前选中的分类已不存在
-      // （被删除/备份还原），回落「全部」，避免过滤后空白。
-      final folders = await BookshelfStore.folders();
       if (mounted) {
         setState(() {
           _items = list;
@@ -127,11 +149,36 @@ class BookshelfPageState extends State<BookshelfPage>
           _mangaDownloads = dl;
           _animeDownloads = ani;
           _loading = false;
+          // 六组全部失败（进度/历史文件损坏等极端情况）才进整页错误态；
+          // 单组失败只是用空列表兜底，不打扰用户。
+          if (errors.length == 6) {
+            _loadError = errors.take(3).join('；');
+          } else {
+            _loadError = null;
+          }
           _applyFilters();
         });
       }
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
+    } catch (e) {
+      // Future.wait 层面的兜底（理论不可达，_readGroup 已吞掉组内异常）：
+      // 不再静默白屏，展示错误视图 + 重试入口。
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadError = '$e';
+        });
+      }
+    }
+  }
+
+  /// 尽力恢复：单组本地数据读取失败时返回空列表 + 错误原因（供全败判定），
+  /// 不让一组损坏拖垮整页（其余数据照常渲染）。
+  Future<_GroupRead<E>> _readGroup<E>(Future<List<E>> Function() read) async {
+    try {
+      return _GroupRead(await read());
+    } catch (e) {
+      ErrorLogger.instance.warn('书架本地数据读取失败，已用空列表兜底: $e');
+      return _GroupRead(<E>[], error: '$e');
     }
   }
 
@@ -234,6 +281,68 @@ class BookshelfPageState extends State<BookshelfPage>
       );
     }
 
+    // 六组本地数据全部读取失败（文件损坏等极端情况）且无任何可渲染内容时，
+    // 用明确的错误视图替换空态：原因 + 重试入口（复用 reload）。
+    // 只要还有任何一组数据可用，就正常渲染（尽力恢复，不打扰用户）。
+    if (_loadError != null &&
+        _items.isEmpty &&
+        _recent.isEmpty &&
+        _videos.isEmpty &&
+        _mangaDownloads.isEmpty &&
+        _animeDownloads.isEmpty &&
+        _bookmarks.isEmpty) {
+      return Scaffold(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 88,
+                    height: 88,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: scheme.error.withValues(alpha: 0.1),
+                    ),
+                    child: Icon(Icons.error_outline_rounded,
+                        size: 40, color: scheme.error),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    '数据加载失败',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: scheme.onSurface,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '本地数据读取异常，书架暂时无法显示\n$_loadError',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          height: 1.5,
+                          color: T.color(scheme.onSurface, TextTier.disabled,
+                              brightness: scheme.brightness),
+                        ),
+                  ),
+                  const SizedBox(height: 20),
+                  FilledButton.tonalIcon(
+                    onPressed: reload,
+                    icon: const Icon(Icons.refresh_rounded, size: 18),
+                    label: const Text('重试'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     // 分栏布局：≥840dp（Expanded）才开左侧 200dp 筛选栏。
     // 600-839dp 时这个侧栏会吃掉约 1/3 屏宽，内容区过窄，仍沿用顶部标签。
     if (Responsive.isExpanded(context)) {
@@ -269,8 +378,10 @@ class BookshelfPageState extends State<BookshelfPage>
           ),
         ),
       IconButton(
-        tooltip: '检查更新',
-        onPressed: _checkingUpdate ? null : _checkUpdates,
+        tooltip: _checkingUpdate
+            ? '停止检查${_checkProgress.isNotEmpty ? '（$_checkProgress）' : ''}'
+            : '检查更新',
+        onPressed: _checkUpdates,
         icon: _checkingUpdate
             ? const SizedBox(
                 width: 20,
@@ -442,13 +553,25 @@ class BookshelfPageState extends State<BookshelfPage>
   /// 书架网格
   Widget _buildShelfGrid(ColorScheme scheme) {
     if (_items.isEmpty) {
-      return const SliverToBoxAdapter(
+      return SliverToBoxAdapter(
         child: Padding(
           padding: EdgeInsets.only(top: 120),
-          child: _TabEmpty(
-            icon: Icons.bookmark_outline_rounded,
-            text: '书架还是空的，去首页收藏几部吧',
-            subtitle: '在作品详情页点击收藏，就能在书架里随时找到',
+          child: Column(
+            children: [
+              const _TabEmpty(
+                icon: Icons.bookmark_outline_rounded,
+                text: '书架还是空的，去首页收藏几部吧',
+                subtitle: '在作品详情页点击收藏，就能在书架里随时找到',
+              ),
+              if (widget.onGotoHome != null) ...[
+                const SizedBox(height: 16),
+                FilledButton.tonalIcon(
+                  onPressed: widget.onGotoHome,
+                  icon: const Icon(Icons.explore_outlined, size: 18),
+                  label: const Text('去首页逛逛'),
+                ),
+              ],
+            ],
           ),
         ),
       );
@@ -876,21 +999,20 @@ class BookshelfPageState extends State<BookshelfPage>
     final failed = _failedManga;
     if (failed.isEmpty) return;
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('正在重试 ${failed.length} 话…'),
-        duration: const Duration(seconds: 2)));
+    AppToast.info(context, '正在重试 ${failed.length} 话…',
+        duration: const Duration(seconds: 2));
     var ok = 0;
     var keep = 0;
     for (final d in failed) {
       try {
         final source = SourceManager.byId(d.book.sourceId);
         final urls = await source.chapterPics(d.chapterId);
-        final success = await DownloadManager.retry(
+        final err = await DownloadManager.retry(
             '${d.book.sourceId}::${d.book.comicId}',
             d.chapterId,
             d.chapterTitle,
             urls);
-        if (success) {
+        if (err == null) {
           ok++;
         } else {
           keep++;
@@ -901,24 +1023,29 @@ class BookshelfPageState extends State<BookshelfPage>
     }
     await reload();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(keep == 0 ? '已重试完成：成功 $ok 话' : '重试完成：成功 $ok 话，$keep 话仍失败')));
+    if (keep > 0) {
+      AppToast.show(context, '重试完成：成功 $ok 话，$keep 话仍失败', error: true);
+    } else {
+      AppToast.info(context, '已重试完成：成功 $ok 话');
+    }
   }
 
   Future<void> _retryMangaDownload(DownloadRecord d) async {
     try {
       final source = SourceManager.byId(d.book.sourceId);
       final urls = await source.chapterPics(d.chapterId);
-      await DownloadManager.retry(
+      final err = await DownloadManager.retry(
           '${d.book.sourceId}::${d.book.comicId}', d.chapterId, d.chapterTitle, urls);
       await reload();
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('已重新加入下载')));
+      if (err == null) {
+        AppToast.info(context, '已重新加入下载');
+      } else {
+        AppToast.error(context, '重试失败：$err');
+      }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('重试失败：$e')));
+      AppToast.error(context, '重试失败：$e');
     }
   }
 
@@ -927,8 +1054,7 @@ class BookshelfPageState extends State<BookshelfPage>
     await LocalStore.removeDownload(d.key);
     await reload();
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('已删除下载记录')));
+    AppToast.info(context, '已删除下载记录');
   }
 
   void _confirmRemoveManga(DownloadRecord d) {
@@ -990,9 +1116,7 @@ class BookshelfPageState extends State<BookshelfPage>
     final p = t.localPath;
     if (kIsWeb || p == null || !File(p).existsSync()) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('未找到本地文件，可能无法离线播放')),
-      );
+      AppToast.info(context, '未找到本地文件，可能无法离线播放');
       return;
     }
     Navigator.push(
@@ -1012,8 +1136,7 @@ class BookshelfPageState extends State<BookshelfPage>
     await VideoDownloadManager.instance.remove(t.key);
     await reload();
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('已删除动漫下载')));
+    AppToast.info(context, '已删除动漫下载');
   }
 
   void _confirmRemoveAnime(VideoDownloadTask t) {
@@ -1140,8 +1263,8 @@ class BookshelfPageState extends State<BookshelfPage>
                   // 常驻「检查更新」入口：旧实现只在 _updateCount>0 时渲染角标，
                   // 导致永远点不到。现在无角标也可主动检查。
                   IconButton(
-                    tooltip: '检查更新',
-                    onPressed: _checkingUpdate ? null : _checkUpdates,
+                    tooltip: _checkingUpdate ? '停止检查' : '检查更新',
+                    onPressed: _checkUpdates,
                     icon: _checkingUpdate
                         ? const SizedBox(
                             width: 20,
@@ -1169,6 +1292,28 @@ class BookshelfPageState extends State<BookshelfPage>
                         color: T.color(scheme.onSurface, TextTier.mid,
                             brightness: scheme.brightness),
                       ),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: _checkUpdates,
+                    icon: _checkingUpdate
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.system_update_alt_rounded,
+                            size: 18),
+                    label: Text(_checkingUpdate
+                        ? (_checkProgress.isEmpty
+                            ? '检查中…'
+                            : _checkProgress)
+                        : '检查更新'),
+                    style: TextButton.styleFrom(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 10),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
                   ),
                 ],
@@ -1209,31 +1354,57 @@ class BookshelfPageState extends State<BookshelfPage>
                   Responsive.pagePadding(context), 8,
                   Responsive.pagePadding(context), 8),
               sliver: SliverList.separated(
-                itemCount: _getRecentCount(),
+                itemCount: _getRecentCount() + (_recentHidden > 0 ? 1 : 0),
                 separatorBuilder: (_, __) => const SizedBox(height: 8),
-                itemBuilder: (c, i) => Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 600),
-                    child: _ReadingCard(
-                      history: _recent[i],
-                      progress: _progressOf(_recent[i]),
-                      onTap: () => _openFromHistory(_recent[i]),
+                itemBuilder: (c, i) {
+                  if (i == _getRecentCount()) {
+                    // 截断 6 条后的「查看全部」入口：展开完整列表，避免
+                    // 超过 6 条的最近阅读藏在列表深处无法触达。
+                    return Center(
+                      child: TextButton.icon(
+                        onPressed: () =>
+                            setState(() => _recentExpanded = true),
+                        icon: const Icon(Icons.expand_more_rounded, size: 18),
+                        label: Text('查看全部 ${_recent.length} 条'),
+                      ),
+                    );
+                  }
+                  return Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 600),
+                      child: _ReadingCard(
+                        history: _recent[i],
+                        progress: _progressOf(_recent[i]),
+                        onTap: () => _openFromHistory(_recent[i]),
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
             )
         else if (_tab == 1) ...[
           if (_items.isNotEmpty)
             SliverToBoxAdapter(child: _shelfFilterBar()),
           if (_items.isEmpty)
-            const SliverToBoxAdapter(
+            SliverToBoxAdapter(
               child: Padding(
                 padding: EdgeInsets.only(top: 80),
-                child: _TabEmpty(
-                  icon: Icons.bookmark_outline_rounded,
-                  text: '书架还是空的，去首页收藏几部吧',
-                  subtitle: '在作品详情页点击收藏，就能在书架里随时找到',
+                child: Column(
+                  children: [
+                    const _TabEmpty(
+                      icon: Icons.bookmark_outline_rounded,
+                      text: '书架还是空的，去首页收藏几部吧',
+                      subtitle: '在作品详情页点击收藏，就能在书架里随时找到',
+                    ),
+                    if (widget.onGotoHome != null) ...[
+                      const SizedBox(height: 16),
+                      FilledButton.tonalIcon(
+                        onPressed: widget.onGotoHome,
+                        icon: const Icon(Icons.explore_outlined, size: 18),
+                        label: const Text('去首页逛逛'),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             )
@@ -1332,14 +1503,19 @@ class BookshelfPageState extends State<BookshelfPage>
     return 0.3;
   }
 
-  /// 根据屏幕尺寸返回最近阅读列表的最大显示数量
+  /// 根据屏幕尺寸返回最近阅读列表的最大显示数量。
+  /// 手机端默认截断到 6 条，用户点「查看全部」后展开完整列表。
   int _getRecentCount() {
     final h = MediaQuery.of(context).size.height;
     if (Responsive.isTablet(context)) {
       return h > 900 ? 10 : 8;
     }
+    if (_recentExpanded) return _recent.length;
     return _recent.length > 6 ? 6 : _recent.length;
   }
+
+  /// 手机端最近阅读被截断时的显示差异（0 表示不截断）。
+  int get _recentHidden => _recent.length - _getRecentCount();
 
   Future<void> _remove(ComicDetail d) async {
     final ok = await showDialog<bool>(
@@ -1437,9 +1613,7 @@ class BookshelfPageState extends State<BookshelfPage>
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('跳转书签失败：$e')),
-      );
+      AppToast.error(context, '跳转书签失败：$e');
     }
   }
 
@@ -1459,9 +1633,7 @@ class BookshelfPageState extends State<BookshelfPage>
       final src = SourceManager.videoById(r.sourceId);
       if (src == null) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('该视频源已不可用，无法续播')),
-        );
+        AppToast.error(context, '该视频源已不可用，无法续播');
         return;
       }
       if (!mounted) return;
@@ -1476,9 +1648,7 @@ class BookshelfPageState extends State<BookshelfPage>
       } catch (e) {
         if (mounted) {
           Navigator.of(context).pop();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('续播失败：$e')),
-          );
+          AppToast.error(context, '续播失败：$e');
         }
         return;
       }
@@ -1955,24 +2125,33 @@ class BookshelfPageState extends State<BookshelfPage>
       ];
 
   Future<void> _checkUpdates() async {
-    if (_checkingUpdate) return;
-    setState(() => _checkingUpdate = true);
+    if (_checkingUpdate) {
+      // 转圈时再点 = 停止本轮检查（书架几百本时等待过长，需要可中断）。
+      _cancelUpdateCheck = true;
+      return;
+    }
+    setState(() {
+      _checkingUpdate = true;
+      _cancelUpdateCheck = false;
+    });
     try {
-      final updated = await ShelfUpdater.checkNow();
-      if (mounted) {
-        setState(() {
-          _updateCount = updated.length;
-          _checkingUpdate = false;
-        });
-        if (updated.isEmpty || _updateCount == 0) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${updated.length} 部作品有更新${_newNames(updated)}'),
-            duration: const Duration(seconds: 4),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+      final updated = await ShelfUpdater.checkNow(
+        onProgress: (done, total) {
+          if (!mounted) return;
+          setState(() => _checkProgress = '$done/$total');
+        },
+        shouldCancel: () => _cancelUpdateCheck,
+      );
+      if (!mounted) return;
+      setState(() => _checkingUpdate = false);
+      if (updated == null) return;
+      _updateCount = updated.length;
+      if (updated.isEmpty || _updateCount == 0) return;
+      AppToast.show(
+        context,
+        '${updated.length} 部作品有更新${_newNames(updated)}',
+        duration: const Duration(seconds: 4),
+      );
     } catch (_) {
       if (mounted) setState(() => _checkingUpdate = false);
     }
@@ -2083,6 +2262,7 @@ class BookshelfPageState extends State<BookshelfPage>
                 suffixIcon: _searchQuery.isEmpty
                     ? null
                     : IconButton(
+                        tooltip: '清空搜索',
                         icon: const Icon(Icons.clear_rounded, size: 16),
                         onPressed: () {
                           _searchCtrl.clear();
@@ -2312,6 +2492,14 @@ class BookshelfPageState extends State<BookshelfPage>
 }
 
 // ─── 子组件 ──────────────────────────────────────────────────────────────
+
+/// 单组本地数据读取结果：成功返回 [data] 列表；失败时 [data] 为空列表、
+/// [error] 携带原因（用于「全部六组失败才进整页错误态」的判定与展示）。
+class _GroupRead<E> {
+  final List<E> data;
+  final String? error;
+  const _GroupRead(this.data, {this.error});
+}
 
 class _TabEmpty extends StatelessWidget {
   final IconData icon;
@@ -2685,6 +2873,7 @@ class _VideoRecordCard extends StatelessWidget {
               ),
             ),
             IconButton(
+              tooltip: '删除',
               icon: Icon(Icons.delete_outline,
                   size: 18,
                   color: scheme.error.withValues(alpha: 0.7)),
@@ -2800,6 +2989,7 @@ class _BookmarkCard extends StatelessWidget {
               ),
             ),
             IconButton(
+              tooltip: '删除',
               icon: Icon(Icons.delete_outline,
                   size: 18,
                   color: scheme.error.withValues(alpha: 0.7)),

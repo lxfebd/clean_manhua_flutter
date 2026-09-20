@@ -7,6 +7,7 @@ import '../net/download_manager.dart';
 import '../net/local_store.dart';
 import 'reader_page.dart';
 import 'responsive.dart';
+import 'widgets/app_toast.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
 
@@ -386,6 +387,7 @@ class _DetailPageState extends State<DetailPage> {
                         ),
                       ),
                     IconButton(
+                      tooltip: _saved ? '移出书架' : '加入书架',
                       icon: AnimatedSwitcher(
                         duration: const Duration(milliseconds: 280),
                         transitionBuilder: (c, a) =>
@@ -719,15 +721,7 @@ class _DetailPageState extends State<DetailPage> {
     await source.toggleBookshelf(_detail!);
     if (mounted) setState(() => _saved = !_saved);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(_saved ? '已加入书架' : '已移出书架'),
-        behavior: SnackBarBehavior.floating,
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.all(16),
-      ),
-    );
+    AppToast.info(context, _saved ? '已加入书架' : '已移出书架');
   }
 
   /// 按当前排序返回章节列表（带缓存）。
@@ -975,7 +969,12 @@ class _DetailPageState extends State<DetailPage> {
                                           currentTotal = t;
                                         }),
                                       );
-                                      if (okCh) ok++;
+                                      if (okCh.ok) {
+                                        ok++;
+                                      } else {
+                                        fail++;
+                                        firstErr ??= okCh.error ?? '下载失败';
+                                      }
                                     } catch (e) {
                                       fail++;
                                       firstErr ??= e.toString();
@@ -988,10 +987,9 @@ class _DetailPageState extends State<DetailPage> {
                                     final msg = fail == 0
                                         ? '已下载 $ok 话'
                                         : '$ok 话成功，$fail 话失败${firstErr == null ? '' : '：$firstErr'}';
-                                    ScaffoldMessenger.of(context)
-                                        .showSnackBar(SnackBar(
-                                      content: Text(msg),
-                                    ));
+                                    AppToast.show(
+                                        context, msg,
+                                        error: fail > 0);
                                   }
                                 },
                           icon: const Icon(Icons.download_rounded, size: 18),
@@ -1173,7 +1171,8 @@ class _DetailPageState extends State<DetailPage> {
     final hist = await LocalStore.history();
     final key = Bookmark(sourceId: widget.sourceId, comicId: _detail!.id,
         name: '', pic: '').key;
-    for (final h in hist) {
+    // 倒序找最新一条（同一章节可能被多次记录，页码取最近一次）。
+    for (final h in hist.reversed) {
       if (h.book.key == key && h.chapterId == ch.id && h.hasPage) {
         return h;
       }
@@ -1538,22 +1537,55 @@ class _CountPill extends StatelessWidget {
 
 // ─── 简介卡 ──────────────────────────────────────────────────────────────────
 
-class _DescCard extends StatelessWidget {
+class _DescCard extends StatefulWidget {
   final ComicDetail detail;
   const _DescCard({required this.detail});
 
   @override
+  State<_DescCard> createState() => _DescCardState();
+}
+
+class _DescCardState extends State<_DescCard> {
+  /// 长简介折叠：默认收起（>4 行时截断 + 显示「展开」），避免长介绍
+  /// 把封面/章节列表挤出首屏；手动展开后保留展开态。
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final desc = widget.detail.description ?? '';
     return Padding(
-      padding: EdgeInsets.fromLTRB(Responsive.pagePadding(context), 10, Responsive.pagePadding(context), 4),
-      child: Text(
-        detail.description!,
-        style: TextStyle(
-          fontSize: 13,
-          height: 1.75,
-          color: scheme.onSurface.withValues(alpha: 0.75),
-        ),
+      padding: EdgeInsets.fromLTRB(Responsive.pagePadding(context), 10,
+          Responsive.pagePadding(context), 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            desc,
+            maxLines: _expanded ? null : 4,
+            overflow: _expanded ? null : TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.75,
+              color: scheme.onSurface.withValues(alpha: 0.75),
+            ),
+          ),
+          if (desc.length > 120)
+            GestureDetector(
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  _expanded ? '收起' : '展开',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: scheme.primary,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

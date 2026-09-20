@@ -21,6 +21,8 @@ import '../utils/colorizer_manager.dart';
 import '../utils/danmaku.dart';
 import 'responsive.dart';
 import 'source_manage_page.dart';
+import 'keyboard_shortcuts.dart';
+import 'widgets/app_toast.dart';
 import 'widgets/update_download_dialog.dart';
 import 'widgets/motion.dart';
 
@@ -522,6 +524,23 @@ class _SettingsPageState extends State<SettingsPage> {
               child: _SettingsCard(
                 children: [
                   _SettingTile(
+                    icon: Icons.keyboard_alt_rounded,
+                    title: '键盘快捷键',
+                    subtitle: '全局 / 漫画阅读器 / 小说阅读器 / 视频播放器',
+                    onTap: () => Navigator.of(context).push(
+                      PageRouteBuilder<void>(
+                        opaque: false,
+                        barrierColor: Colors.transparent,
+                        pageBuilder: (_, __, ___) =>
+                            const ShortcutHelpOverlay(),
+                      ),
+                    ),
+                  ),
+                  Container(
+                    height: 0.5,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  ),
+                  _SettingTile(
                     icon: Icons.article_outlined,
                     title: '免责声明',
                     subtitle: '内容来源与版权说明',
@@ -565,9 +584,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         Clipboard.setData(
                           const ClipboardData(text: 'https://github.com/lxfebd'),
                         );
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('已复制 GitHub 地址')),
-                        );
+                        AppToast.info(context, '已复制 GitHub 地址');
                       },
                       child: Text.rich(
                         TextSpan(
@@ -637,9 +654,7 @@ class _SettingsPageState extends State<SettingsPage> {
       final path = await ErrorLogger.instance.exportLogs();
       if (path == null) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('暂无日志可导出')),
-          );
+          AppToast.info(context, '暂无日志可导出');
         }
         return;
       }
@@ -655,15 +670,11 @@ class _SettingsPageState extends State<SettingsPage> {
       );
       if (result == null) return;
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('已导出到 ${result.split('\\').last.split('/').last}')),
-        );
+        AppToast.info(context, '已导出到 ${result.split('\\').last.split('/').last}');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('导出失败：$e')),
-        );
+        AppToast.error(context, '导出失败：$e');
       }
     }
   }
@@ -690,7 +701,6 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<String?> _askBackupPassword(
       {required String title, String? prompt, bool allowSkip = false}) async {
     final controller = TextEditingController();
-    final messenger = ScaffoldMessenger.of(context);
     final pwd = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -734,8 +744,7 @@ class _SettingsPageState extends State<SettingsPage> {
           FilledButton(
             onPressed: () {
               if (controller.text.trim().isEmpty) {
-                messenger
-                    .showSnackBar(const SnackBar(content: Text('密码不能为空')));
+                AppToast.error(context, '密码不能为空');
                 return;
               }
               Navigator.of(ctx).pop(controller.text);
@@ -776,15 +785,11 @@ class _SettingsPageState extends State<SettingsPage> {
       );
       if (result == null) return;
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('已导出到 ${result.split('\\').last.split('/').last}')),
-        );
+        AppToast.info(context, '已导出到 ${result.split('\\').last.split('/').last}');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('导出失败：$e')),
-        );
+        AppToast.error(context, '导出失败：$e');
       }
     }
   }
@@ -809,9 +814,7 @@ class _SettingsPageState extends State<SettingsPage> {
           json = BackupCipher.decrypt(json, password);
         } catch (_) {
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('密码错误或文件已损坏')),
-            );
+            AppToast.error(context, '密码错误或文件已损坏');
           }
           return;
         }
@@ -819,9 +822,7 @@ class _SettingsPageState extends State<SettingsPage> {
       final data = jsonDecode(json) as Map<String, dynamic>;
       if (data['version'] == null) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('无效的备份文件')),
-          );
+          AppToast.error(context, '无效的备份文件');
         }
         return;
       }
@@ -834,15 +835,11 @@ class _SettingsPageState extends State<SettingsPage> {
       }
       final count = await LocalStore.restoreBackup(data);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('已恢复 $count 项数据（书架${data['bookshelf'] is Map ? ' +' : ''}${data['novel_shelf'] is Map ? '小说书架' : ''}）')),
-        );
+        AppToast.info(context, '已恢复 $count 项数据（书架${data['bookshelf'] is Map ? ' +' : ''}${data['novel_shelf'] is Map ? '小说书架' : ''}）');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('恢复失败：$e')),
-        );
+        AppToast.error(context, '恢复失败：$e');
       }
     }
   }
@@ -854,11 +851,8 @@ class _SettingsPageState extends State<SettingsPage> {
     if (value) {
       await UpdateNotifier.instance.ensurePermission();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('已开启：收藏更新时在通知栏提醒'),
-              duration: Duration(seconds: 2)),
-        );
+        AppToast.show(context, '已开启：收藏更新时在通知栏提醒',
+            duration: const Duration(seconds: 2));
       }
     }
   }
@@ -868,12 +862,12 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() => _trustSelfSigned = value);
     await Net.setTrustSelfSigned(value);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(value ? '已开启：信任自签证书（仅安全网络建议）' : '已关闭：严格校验服务器证书'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
+      AppToast.show(
+          context,
+          value
+              ? '已开启：信任自签证书（仅安全网络建议）'
+              : '已关闭：严格校验服务器证书',
+          duration: const Duration(seconds: 2));
     }
   }
 
@@ -915,14 +909,10 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted) return;
     ShelfUpdater.instance.applyFrequency(v);
     setState(() => _updateFreq = v);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(v == UpdateFreq.off
-            ? '已关闭收藏更新提醒'
-            : '已开启：${v.label}自动检查收藏更新'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+    AppToast.show(
+        context,
+        v == UpdateFreq.off ? '已关闭收藏更新提醒' : '已开启：${v.label}自动检查收藏更新',
+        duration: const Duration(seconds: 2));
   }
 
   Future<void> _checkUpdate() async {
@@ -932,17 +922,13 @@ class _SettingsPageState extends State<SettingsPage> {
       final info = await UpdateChecker.checkLatest();
       if (!mounted) return;
       if (info == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已是最新版本')),
-        );
+        AppToast.info(context, '已是最新版本');
         return;
       }
       _showUpdateDialog(info);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('检查更新失败，请稍后重试')),
-      );
+      AppToast.error(context, '检查更新失败，请稍后重试');
       ErrorLogger.instance.warn('检查更新失败：$e');
     } finally {
       if (mounted) setState(() => _checking = false);
@@ -1041,9 +1027,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (ok == true) {
       await action();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(successMsg)),
-        );
+        AppToast.info(context, successMsg);
       }
     }
   }
@@ -1306,9 +1290,11 @@ class _ColorizerSectionState extends State<_ColorizerSection> {
         _subtitle = '模型导入失败（文件无效或损坏）';
       }
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(ok ? '上色模型已导入' : '模型导入失败')),
-    );
+    if (ok) {
+      AppToast.info(context, '上色模型已导入');
+    } else {
+      AppToast.error(context, '模型导入失败');
+    }
   }
 
   Future<void> _unload() async {
@@ -1751,7 +1737,7 @@ class _WebDavSheetState extends State<_WebDavSheet> {
     if (c != null) {
       _urlCtrl.text = c['url'] as String? ?? '';
       _userCtrl.text = c['username'] as String? ?? '';
-      _passCtrl.text = c['password'] as String? ?? ''; // hasPassword 占位时为空
+      _passCtrl.text = ''; // 明文密码不落盘；有密码时用「已设置」占位提示
       _dirCtrl.text = c['dir'] as String? ?? '';
       _encrypt = (c['encrypt'] as bool?) ?? true;
     }
@@ -1794,7 +1780,9 @@ class _WebDavSheetState extends State<_WebDavSheet> {
     }
   }
 
-  void _save() {
+  /// 保存配置：先探测连通性（URL/账号/密码一次性校验），失败红字提示、
+  /// 不写配置不关面板；成功才落盘。
+  Future<void> _save() async {
     final url = _urlCtrl.text.trim();
     if (url.isEmpty) {
       setState(() {
@@ -1803,15 +1791,58 @@ class _WebDavSheetState extends State<_WebDavSheet> {
       });
       return;
     }
-    WebDavSync.saveConfig(
-      url: url,
-      username: _userCtrl.text.trim(),
-      password: _passCtrl.text,
-      dir: _dirCtrl.text.trim(),
-      encrypt: _encrypt,
-    );
-    widget.onChanged();
-    Navigator.of(context).maybePop();
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _status = '正在连接服务器…';
+      _statusOk = false;
+    });
+    try {
+      // 密码框留空 = 沿用已存密码（WebDavSync 内部处理），探测时同样沿用。
+      final pass = _passCtrl.text.isEmpty
+          ? (WebDavSync.config?['password'] as String? ?? '')
+          : _passCtrl.text;
+      if (pass.isEmpty && _userCtrl.text.trim().isNotEmpty) {
+        // 有账号但没密码：绝大多数 WebDAV 服务（坚果云/Nextcloud）都要求
+        // 认证，空密码探测只会得到 401/403，这里直接提示避免误伤。
+        setState(() {
+          _status = '请输入密码（或应用密码）';
+          _statusOk = false;
+        });
+        return;
+      }
+      await WebDavSync.probe(
+        url: url,
+        username: _userCtrl.text.trim(),
+        password: pass,
+        dir: _dirCtrl.text.trim(),
+      );
+      WebDavSync.saveConfig(
+        url: url,
+        username: _userCtrl.text.trim(),
+        password: _passCtrl.text,
+        dir: _dirCtrl.text.trim(),
+        encrypt: _encrypt,
+      );
+      widget.onChanged();
+      if (mounted) {
+        setState(() {
+          _status = '已保存并验证连接';
+          _statusOk = true;
+        });
+        // 先置状态再关面板（context 在 async gap 后已用 mounted 校验）
+        Navigator.of(context).maybePop();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _status = '连接失败：$e';
+          _statusOk = false;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   @override
@@ -1844,6 +1875,7 @@ class _WebDavSheetState extends State<_WebDavSheet> {
                 ),
                 const Spacer(),
                 IconButton(
+                  tooltip: '关闭',
                   icon: const Icon(Icons.close_rounded),
                   onPressed: () => Navigator.of(context).maybePop(),
                 ),
@@ -1890,11 +1922,12 @@ class _WebDavSheetState extends State<_WebDavSheet> {
                   child: TextField(
                     controller: _passCtrl,
                     obscureText: true,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: '密码 / 应用密码',
                       prefixIcon: Icon(Icons.key_rounded, size: 20),
                       border: OutlineInputBorder(),
                       isDense: true,
+                      hintText: WebDavSync.hasPassword ? '已设置（留空保持不变）' : null,
                     ),
                   ),
                 ),

@@ -7,6 +7,7 @@ import '../capabilities/capability_runtime.dart';
 import '../capabilities/demo_native_capability.dart';
 import 'capability_market_page.dart';
 import 'tokens.dart';
+import 'widgets/app_toast.dart';
 
 /// 能力中心：查看/启用/禁用已安装的能力插件（内置 + 市场）。
 ///
@@ -47,34 +48,27 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
   /// 原生构件自测：调用演示能力 sum()，展示结果或失败原因。
   /// M2/M3 运行期验证入口（桌面 FFI / Android jniLibs 全链路）。
   Future<void> _selfTestNative() async {
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(const SnackBar(content: Text('原生构件自测中…')));
+    AppToast.show(context, '原生构件自测中…');
     final r = await DemoNativePlugin.sum(40, 2);
-    messenger.hideCurrentSnackBar();
+    if (!mounted) return;
     if (r is CapabilityOk) {
       final d = r.data as Map<String, dynamic>;
-      messenger.showSnackBar(SnackBar(
-        content: Text('自测通过：sum(40,2)=${d['sum']} · version=${d['version']}'),
-      ));
+      AppToast.info(
+          context, '自测通过：sum(40,2)=${d['sum']} · version=${d['version']}');
     } else {
-      messenger.showSnackBar(SnackBar(
-        content: Text('自测失败：${(r as CapabilityFailure).reason}'),
-      ));
+      AppToast.error(context, '自测失败：${(r as CapabilityFailure).reason}');
     }
   }
 
   /// AI 上色模型权重：下载 + SHA256 校验 + 载入 colorizer（M4 契约 §5 过渡期）。
   Future<void> _handleModelAction() async {
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(const SnackBar(content: Text('模型权重下载/载入中…')));
+    AppToast.show(context, '模型权重下载/载入中…');
     final err = await AiColorizePlugin.ensureModel();
-    messenger.hideCurrentSnackBar();
+    if (!mounted) return;
     if (err == null) {
-      messenger.showSnackBar(const SnackBar(content: Text('模型已就绪')));
+      AppToast.info(context, '模型已就绪');
     } else {
-      messenger.showSnackBar(SnackBar(content: Text('模型未就绪：$err')));
+      AppToast.error(context, '模型未就绪：$err');
     }
   }
 

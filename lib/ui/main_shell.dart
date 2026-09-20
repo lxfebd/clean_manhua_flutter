@@ -281,7 +281,8 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
       HomePage(type: 0),
       AnimeHomePage(type: 1),
       NovelHomePage(type: 2),
-      BookshelfPage(key: _shelfKey),
+      BookshelfPage(
+          key: _shelfKey, onGotoHome: () => _onTab(0)),
       ToolboxPage(key: _toolboxKey),
       ProfilePage(key: _profileKey, onSwitchTab: _onTab),
     ];
@@ -839,17 +840,30 @@ class MangaAnimeTabs extends StatefulWidget {
 class _MangaAnimeTabsState extends State<MangaAnimeTabs> {
   int _type = 0;
 
+  /// 三个子页只创建一次、常驻内存（IndexedStack 保活），
+  /// 切换 _type 仅改变可见 index，滚动位置与已加载列表数据不丢失。
+  /// 各页 type 恒为自身下标（0/1/2），仅用于顶部 TypeSegment 的高亮态：
+  /// 该页可见时即当前选中项，无需随 _type 变化而重建。
+  late final List<Widget> _pages = [
+    HomePage(
+      type: 0,
+      onTypeChanged: (v) => setState(() => _type = v),
+    ),
+    AnimeHomePage(
+      type: 1,
+      onTypeChanged: (v) => setState(() => _type = v),
+    ),
+    NovelHomePage(
+      type: 2,
+      onTypeChanged: (v) => setState(() => _type = v),
+    ),
+  ];
+
   @override
   Widget build(BuildContext context) {
-    if (_type == 2) {
-      return NovelHomePage(
-          type: _type, onTypeChanged: (v) => setState(() => _type = v));
-    }
-    return _type == 0
-        ? HomePage(
-            type: _type, onTypeChanged: (v) => setState(() => _type = v))
-        : AnimeHomePage(
-            type: _type,
-            onTypeChanged: (v) => setState(() => _type = v));
+    return IndexedStack(
+      index: _type,
+      children: _pages,
+    );
   }
 }

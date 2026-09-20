@@ -23,6 +23,7 @@ import 'detail_page.dart';
 import 'tokens.dart';
 import 'year_report_page.dart';
 import 'widgets/cached_image.dart';
+import 'widgets/app_toast.dart';
 import 'widgets/motion.dart';
 import 'widgets/settings_row.dart';
 import 'widgets/state_view.dart';
@@ -409,8 +410,7 @@ class ProfilePageState extends State<ProfilePage> {
     final books = BookshelfStore.listAll();
     if (books.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('书架为空，暂无内容可导出')));
+      AppToast.info(context, '书架为空，暂无内容可导出');
       return;
     }
     final sb = StringBuffer()
@@ -428,10 +428,11 @@ class ProfilePageState extends State<ProfilePage> {
     final text = sb.toString();
     await Clipboard.setData(ClipboardData(text: text));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: const Text('书单已复制到剪贴板'),
+    AppToast.show(
+      context,
+      '书单已复制到剪贴板',
       action: SnackBarAction(label: '查看', onPressed: () => _previewBooklist(text)),
-    ));
+    );
   }
 
   /// 书单文本预览弹窗。
@@ -449,8 +450,7 @@ class ProfilePageState extends State<ProfilePage> {
     final books = BookshelfStore.listAll();
     if (books.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('书架为空，暂无内容可导出')));
+      AppToast.info(context, '书架为空，暂无内容可导出');
       return;
     }
     if (!mounted) return;
@@ -520,8 +520,7 @@ class ProfilePageState extends State<ProfilePage> {
     final entries = BooklistText.parse(text);
     if (entries.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('剪贴板中没有可识别的书单文本（格式：1. 书名 — 作者）')));
+      AppToast.info(context, '剪贴板中没有可识别的书单文本（格式：1. 书名 — 作者）');
       return;
     }
     if (!mounted) return;
@@ -1456,8 +1455,7 @@ class _TextExportSheet extends StatelessWidget {
                   await Clipboard.setData(ClipboardData(text: text));
                   if (!context.mounted) return;
                   Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('已复制到剪贴板')));
+                  AppToast.info(context, '已复制到剪贴板');
                 },
                 icon: const Icon(Icons.copy_rounded, size: 16),
                 label: const Text('复制文本'),

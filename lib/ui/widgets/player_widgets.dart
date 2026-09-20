@@ -452,6 +452,7 @@ class _PanelShell extends StatelessWidget {
               const Spacer(),
               IconButton(
                 visualDensity: VisualDensity.compact,
+                tooltip: '关闭',
                 icon: const Icon(Icons.close_rounded,
                     color: Colors.white54, size: 20),
                 onPressed: () => Navigator.of(context).pop(),
