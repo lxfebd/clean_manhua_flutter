@@ -48,7 +48,28 @@ class _MiniPlayerState extends State<MiniPlayer> {
   @override
   void initState() {
     super.initState();
-    final p = _player;
+    _bind(widget.handoff);
+  }
+
+  @override
+  void didUpdateWidget(covariant MiniPlayer old) {
+    super.didUpdateWidget(old);
+    // PlayerRegistry.publish 换新 handoff 时旧 Player 已被释放：
+    // 重建 controller 与订阅，避免对已 dispose 的 Player 操作（小窗黑屏）。
+    // VideoController 生命周期绑定 Player（player.dispose 时内部自动清理
+    // listeners 与 texture），无需也不应手动 dispose，这里只替换引用。
+    if (old.handoff.player != widget.handoff.player) {
+      for (final s in _subs) {
+        s.cancel();
+      }
+      _subs.clear();
+      _controller = null;
+      _bind(widget.handoff);
+    }
+  }
+
+  void _bind(PlayerHandoff handoff) {
+    final p = handoff.player;
     _controller = VideoController(p);
     _playing = p.state.playing;
     _pos = p.state.position;
@@ -78,17 +99,23 @@ class _MiniPlayerState extends State<MiniPlayer> {
     final sourceId = h.sourceId;
     final videoId = h.videoId;
     if (sourceId != null && videoId != null && sourceId.isNotEmpty) {
-      LocalStore.recordVideo(VideoRecord(
-        sourceId: sourceId,
-        videoId: videoId,
-        title: h.title,
-        cover: h.cover,
-        season: h.season,
-        episode: h.episode,
-        seconds: done ? _dur.inSeconds : sec,
-        duration: _dur.inSeconds,
-        timestamp: DateTime.now().millisecondsSinceEpoch,
-      ));
+      () async {
+        try {
+          await LocalStore.recordVideo(VideoRecord(
+            sourceId: sourceId,
+            videoId: videoId,
+            title: h.title,
+            cover: h.cover,
+            season: h.season,
+            episode: h.episode,
+            seconds: done ? _dur.inSeconds : sec,
+            duration: _dur.inSeconds,
+            timestamp: DateTime.now().millisecondsSinceEpoch,
+          ));
+        } catch (e) {
+          ErrorLogger.instance.warn('save mini video record failed: $e');
+        }
+      }();
     }
     () async {
       try {
@@ -107,6 +134,9 @@ class _MiniPlayerState extends State<MiniPlayer> {
     for (final s in _subs) {
       s.cancel();
     }
+    _subs.clear();
+    // VideoController 生命周期绑定 Player（PlayerRegistry 释放 Player 时
+    // 内部自动清理），此处只取消我们的订阅，不触碰 Player/controller。
     super.dispose();
   }
 

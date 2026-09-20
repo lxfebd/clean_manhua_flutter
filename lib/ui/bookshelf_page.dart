@@ -162,10 +162,11 @@ class BookshelfPageState extends State<BookshelfPage>
     } catch (e) {
       // Future.wait 层面的兜底（理论不可达，_readGroup 已吞掉组内异常）：
       // 不再静默白屏，展示错误视图 + 重试入口。
+      ErrorLogger.instance.warn('书架加载兜底失败: $e');
       if (mounted) {
         setState(() {
           _loading = false;
-          _loadError = '$e';
+          _loadError = '书架本地数据读取异常，请重试';
         });
       }
     }
@@ -190,6 +191,8 @@ class BookshelfPageState extends State<BookshelfPage>
 
   @override
   void dispose() {
+    // 解除全局更新回调，避免页面销毁后仍被后台检查触发（context 已失效）。
+    ShelfUpdater.instance.onUpdatesFound = null;
     _searchCtrl.dispose();
     super.dispose();
   }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/comic_item.dart';
+import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
@@ -41,6 +42,9 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
   String _fetchKey = ''; // 防竞态：只采纳最后一次请求的返回
   Timer? _selectDebounce;
   List<String> _history = []; // 搜索历史（空状态展示）
+  /// 搜索代际：_search/_loadMore 共用，旧请求返回时若代际已变则直接作废，
+  /// 防止快速搜「A」→「B」时慢的旧响应覆盖新结果或索引越界。
+  int _searchGen = 0;
 
   @override
   void initState() {
@@ -66,6 +70,7 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
   Future<void> _search() async {
     final kw = _searchCtrl.text.trim();
     if (kw.isEmpty) return;
+    final gen = ++_searchGen;
     setState(() {
       _loading = true;
       _error = null; // 开始新搜索时清除上一次的错误态
@@ -76,7 +81,7 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
         for (final s in enabled) _safeSearch(s, kw, 1),
       ];
       final all = await Future.wait(futures, eagerError: false);
-      if (!mounted) return;
+      if (!mounted || gen != _searchGen) return;
       var failed = 0;
       final list = <_SourceResult>[];
       var anyMore = false;
@@ -95,7 +100,13 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
         }
       }
       _fetchKey = ''; // 新搜索作废旧预览请求
-      LocalStore.addSearchHistory(kw); // 记录搜索历史（失败也记录，便于重试）
+      () async {
+        try {
+          await LocalStore.addSearchHistory(kw); // 记录搜索历史（失败也记录，便于重试）
+        } catch (e) {
+          ErrorLogger.instance.warn('add search history failed: $e');
+        }
+      }();
       if (!matched) {
         // 全部源都失败（断网/被墙）：进错误态而不是误导为"没有结果"。
         setState(() {
@@ -122,23 +133,15 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
       });
       _loadHistory(); // 刷新历史列表（若在展示）
     } catch (e) {
-      if (mounted) {
+      ErrorLogger.instance.warn('unified search failed: $e');
+      if (mounted && gen == _searchGen) {
         setState(() {
           _loading = false;
           // 明确进入错误态：展示失败原因 + 重试按钮，不再静默回到空页。
-          _error = '搜索失败：${_describeError(e)}';
+          _error = '搜索失败，请检查网络后重试';
         });
       }
     }
-  }
-
-  /// 把异常转成可读的原因文案（去掉 "Exception: " 之类的前缀）。
-  String _describeError(Object e) {
-    if (e is TimeoutException) return '请求超时，请检查网络后重试';
-    final msg = e
-        .toString()
-        .replaceFirst(RegExp(r'^(Exception|Error)(:\s*)?'), '');
-    return msg.isEmpty ? '未知错误，请稍后重试' : msg;
   }
 
   /// 搜索单页结果的大致容量（各源实际页容量可能不同，仅用于判断"还有没有更多"）。
@@ -147,24 +150,30 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
   /// 滚动到底加载下一页：所有源并发拉取下一页，按 id 去重追加。
   Future<void> _loadMore() async {
     if (_loading || _loadingMore || !_hasMore) return;
+    final gen = _searchGen;
     final kw = _searchCtrl.text.trim();
     if (kw.isEmpty || _results.isEmpty) return;
+    // 快照当前结果：期间 _search 可能完成并整体替换 _results（长度变化），
+    // 用快照迭代可避免 all[i] 越界/源错配。
+    final snapshot = List<_SourceResult>.of(_results);
     setState(() {
       _loadingMore = true;
       _loadMoreError = false;
     });
     try {
       final futures = <Future<(List<ComicItem>, bool)>>[
-        for (final r in _results) _safeSearch(r.source, kw, r.page + 1),
+        for (final r in snapshot) _safeSearch(r.source, kw, r.page + 1),
       ];
       final all = await Future.wait(futures, eagerError: false);
-      if (!mounted) return;
+      // 期间发起了新搜索（代际已变）：本页结果作废，防止旧页数据
+      // 叠加到新关键词的结果上。
+      if (!mounted || gen != _searchGen) return;
       // 该源下一页失败且当前没有任何结果时，先保留已有结果并提示可重试。
       final updated = <_SourceResult>[];
       var failedAny = false;
       var anyMore = false;
-      for (var i = 0; i < _results.length; i++) {
-        final r = _results[i];
+      for (var i = 0; i < snapshot.length; i++) {
+        final r = snapshot[i];
         final (newItems, isFailed) = all[i];
         if (isFailed) {
           failedAny = true;
@@ -192,8 +201,9 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
         _loadMoreError = failedAny;
         _hasMore = anyMore;
       });
-    } catch (_) {
-      if (mounted) {
+    } catch (e) {
+      ErrorLogger.instance.warn('search loadMore failed: $e');
+      if (mounted && gen == _searchGen) {
         setState(() {
           _loadingMore = false;
           _loadMoreError = true;

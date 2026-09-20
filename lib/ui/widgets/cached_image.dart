@@ -48,6 +48,9 @@ class _CachedImageState extends State<CachedImage> {
   Uint8List? _bytes;
   bool _failed = false;
   bool _loading = false;
+  /// 代际 token：didUpdateWidget 换 url 后旧请求结果作废，防止慢请求
+  /// 完成后把上一张图赋给当前 url（列表滚动复用脏加载）。
+  int _gen = 0;
 
   @override
   void initState() {
@@ -59,6 +62,7 @@ class _CachedImageState extends State<CachedImage> {
   void didUpdateWidget(covariant CachedImage old) {
     super.didUpdateWidget(old);
     if (old.url != widget.url || old.superRes != widget.superRes) {
+      _gen++;
       _bytes = null;
       _failed = false;
       _load();
@@ -85,6 +89,7 @@ class _CachedImageState extends State<CachedImage> {
 
   Future<void> _load() async {
     if (_loading || widget.url.isEmpty) return;
+    final gen = _gen;
     _loading = true;
     if (mounted) setState(() => _failed = false);
     try {
@@ -111,12 +116,12 @@ class _CachedImageState extends State<CachedImage> {
           // 尝试下一级
         }
       }
-      if (mounted) {
-        setState(() {
-          _bytes = ok;
-          _failed = ok == null;
-        });
-      }
+      // 期间 url 已被换走：旧请求结果作废，不污染当前 widget。
+      if (!mounted || gen != _gen) return;
+      setState(() {
+        _bytes = ok;
+        _failed = ok == null;
+      });
     } finally {
       _loading = false;
     }
