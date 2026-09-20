@@ -131,14 +131,6 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   Future<void> _showToc() async {
     final s = SourceManager.novelById(widget.sourceId);
     if (s == null) return;
-    List<NovelChapter> chapters = [];
-    try {
-      final d = await s.detail(widget.novelId).timeout(const Duration(seconds: 15));
-      chapters = d.chapters;
-    } catch (_) {
-      // 目录拉取失败时静默：无目录可展示。
-    }
-    if (!mounted) return;
     showResponsiveBottomSheet<void>(
       context: context,
       backgroundColor: Theme.of(context).colorScheme.surface,
@@ -146,59 +138,14 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (ctx) => SizedBox(
-        height: MediaQuery.of(ctx).size.height * 0.7,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
-              child: Row(
-                children: [
-                  Text('章节目录',
-                      style: Theme.of(ctx).textTheme.titleMedium),
-                  const Spacer(),
-                  IconButton(
-                    tooltip: '关闭',
-                    onPressed: () => Navigator.pop(ctx),
-                    icon: const Icon(Icons.close_rounded, size: 20),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            Expanded(
-              child: chapters.isEmpty
-                  ? const Center(child: Text('目录加载失败'))
-                  : ListView.builder(
-                      itemCount: chapters.length,
-                      itemBuilder: (ctx, i) {
-                        final ch = chapters[i];
-                        final cur = ch.id == _curChapterId;
-                        return ListTile(
-                          dense: true,
-                          selected: cur,
-                          title: Text(
-                            ch.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 13.5,
-                              color: cur
-                                  ? Theme.of(ctx).colorScheme.primary
-                                  : null,
-                            ),
-                          ),
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            _go(ch.id);
-                          },
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
+      builder: (ctx) => _TocSheet(
+        load: () => s.detail(widget.novelId)
+            .timeout(const Duration(seconds: 15)),
+        currentChapterId: _curChapterId,
+        onPick: (id) {
+          Navigator.pop(ctx);
+          _go(id);
+        },
       ),
     );
   }
@@ -561,7 +508,19 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         fit: StackFit.expand,
         children: [
           _loading
-              ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CircularProgressIndicator(strokeWidth: 2),
+                      const SizedBox(height: 14),
+                      Text(_content != null ? '正在加载下一章…' : '正在加载…',
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              color: scheme.onSurface.withValues(alpha: 0.5))),
+                    ],
+                  ),
+                )
               : _error != null
                   ? Center(
                       child: Column(
@@ -1188,6 +1147,125 @@ class _SummarySheet extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 章节目录底部弹窗：加载中/失败重试/列表三态。
+class _TocSheet extends StatefulWidget {
+  final Future<NovelDetail> Function() load;
+  final String currentChapterId;
+  final ValueChanged<String> onPick;
+
+  const _TocSheet({
+    required this.load,
+    required this.currentChapterId,
+    required this.onPick,
+  });
+
+  @override
+  State<_TocSheet> createState() => _TocSheetState();
+}
+
+class _TocSheetState extends State<_TocSheet> {
+  List<NovelChapter>? _chapters;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  Future<void> _fetch() async {
+    setState(() {
+      _chapters = null;
+      _failed = false;
+    });
+    try {
+      final d = await widget.load();
+      if (mounted) setState(() => _chapters = d.chapters);
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: MediaQuery.of(context).size.height * 0.7,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
+            child: Row(
+              children: [
+                Text('章节目录', style: Theme.of(context).textTheme.titleMedium),
+                const Spacer(),
+                IconButton(
+                  tooltip: '关闭',
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded, size: 20),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(child: _buildBody(scheme)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBody(ColorScheme scheme) {
+    final chapters = _chapters;
+    if (_failed) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.cloud_off_rounded,
+                size: 38, color: scheme.onSurface.withValues(alpha: 0.35)),
+            const SizedBox(height: 10),
+            const Text('目录加载失败，请重试'),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _fetch,
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('重试'),
+            ),
+          ],
+        ),
+      );
+    }
+    if (chapters == null) {
+      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    }
+    if (chapters.isEmpty) {
+      return const Center(child: Text('暂无目录'));
+    }
+    return ListView.builder(
+      itemCount: chapters.length,
+      itemBuilder: (ctx, i) {
+        final ch = chapters[i];
+        final cur = ch.id == widget.currentChapterId;
+        return ListTile(
+          dense: true,
+          selected: cur,
+          title: Text(
+            ch.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 13.5,
+              color: cur ? Theme.of(ctx).colorScheme.primary : null,
+            ),
+          ),
+          onTap: () => widget.onPick(ch.id),
+        );
+      },
     );
   }
 }

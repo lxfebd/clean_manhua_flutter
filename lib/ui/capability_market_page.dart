@@ -57,14 +57,23 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
 
   /// 安装/更新单个能力。
   Future<void> _install(MarketCapabilityEntry entry) async {
-    final ok = await CapabilityMarket.install(entry);
-    if (!mounted) return;
-    AppToast.show(context, ok
-        ? '已安装：${entry.name} v${entry.version}'
-        : '安装失败：${entry.name} 已存在或注册异常',
-        error: !ok);
-    setState(() {}); // 刷新 installed 状态
+    if (_installingIds.contains(entry.id)) return; // 防重入：同一能力并发安装
+    setState(() => _installingIds.add(entry.id));
+    try {
+      final ok = await CapabilityMarket.install(entry);
+      if (!mounted) return;
+      AppToast.show(context, ok
+          ? '已安装：${entry.name} v${entry.version}'
+          : '安装失败：${entry.name} 已存在或注册异常',
+          error: !ok);
+      setState(() {}); // 刷新 installed 状态
+    } finally {
+      if (mounted) setState(() => _installingIds.remove(entry.id));
+    }
   }
+
+  /// 正在安装的能力 id 集合（tile 按钮转 loading，禁用防重复点击）。
+  final Set<String> _installingIds = {};
 
   /// 卸载已安装的能力（内置能力不可卸载，返回 false）。
   Future<void> _uninstall(MarketCapabilityEntry entry) async {
@@ -430,6 +439,7 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
       itemBuilder: (_, i) => _CapabilityMarketTile(
         entry: visible[i],
         onInstall: () => _confirmInstall(visible[i]),
+        installing: _installingIds.contains(visible[i].id),
         onUninstall: () => _uninstall(visible[i]),
         onDetail: () => _showDetail(visible[i]),
       ),
@@ -443,12 +453,14 @@ class _CapabilityMarketTile extends StatefulWidget {
   final VoidCallback onInstall;
   final VoidCallback onUninstall;
   final VoidCallback onDetail;
+  final bool installing;
 
   const _CapabilityMarketTile({
     required this.entry,
     required this.onInstall,
     required this.onUninstall,
     required this.onDetail,
+    this.installing = false,
   });
 
   @override
@@ -619,15 +631,23 @@ class _CapabilityMarketTileState extends State<_CapabilityMarketTile> {
                   ),
                   child: const Text('卸载', style: TextStyle(fontSize: 12)),
                 )
-              : FilledButton.tonal(
-                  onPressed: widget.onInstall,
-                  style: FilledButton.styleFrom(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  ),
-                  child: Text(isUpdate ? '更新' : '安装',
-                      style: const TextStyle(fontSize: 12.5)),
-                ),
+              : widget.installing
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2)),
+                    )
+                  : FilledButton.tonal(
+                      onPressed: widget.onInstall,
+                      style: FilledButton.styleFrom(
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      ),
+                      child: Text(isUpdate ? '更新' : '安装',
+                          style: const TextStyle(fontSize: 12.5)),
+                    ),
         ],
       ),
     );

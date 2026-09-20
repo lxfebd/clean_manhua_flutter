@@ -75,6 +75,7 @@ class _ReaderPageState extends State<ReaderPage>
     with WidgetsBindingObserver {
   List<String> _urls = [];
   bool _loading = true;
+  bool _loadError = false; // 章节/图片列表加载失败（错误态入口）
   ReaderMode _readerMode = ReaderMode.single;
   bool get _horizontal =>
       _readerMode != ReaderMode.vertical; // 单页/双页共用横向 PageView 基础设施
@@ -421,6 +422,7 @@ class _ReaderPageState extends State<ReaderPage>
     if (mounted) {
       setState(() {
         _loading = true;
+        _loadError = false;
         _activeChapterId = chapterId;
         _activeChapterTitle = chapterTitle;
       });
@@ -467,7 +469,13 @@ class _ReaderPageState extends State<ReaderPage>
       _prefetchNextChapter();
       _startAutoPage();
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadError = true;
+        });
+        _toast('章节加载失败，请重试'); // 切章/连读失败不再静默
+      }
     }
   }
 
@@ -543,6 +551,7 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   Future<void> _load() async {
+    _loadError = false;
     try {
       final urls = await _chapterUrls(widget.chapterId);
       if (_downloaded) {
@@ -594,7 +603,21 @@ class _ReaderPageState extends State<ReaderPage>
       _prefetchNextChapter();
       _startAutoPage();
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadError = true;
+        });
+      }
+    }
+  }
+
+  /// 章节加载失败后的重试入口。
+  void _retryLoad() {
+    if (_loadError) {
+      _load();
+    } else {
+      _openChapter(_activeChapterId, _activeChapterTitle, startPage: _curPage);
     }
   }
 
@@ -1764,6 +1787,30 @@ class _ReaderPageState extends State<ReaderPage>
   Widget _buildBody() {
     if (_loading) {
       return const Center(child: CircularProgressIndicator(color: Colors.white));
+    }
+    if (_loadError) {
+      // 章节加载失败：明确错误 + 重试入口，不再静默黑屏。
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off_rounded, size: 40, color: Colors.white38),
+            const SizedBox(height: 12),
+            const Text('章节加载失败，请检查网络后重试',
+                style: TextStyle(color: Colors.white70)),
+            const SizedBox(height: 14),
+            OutlinedButton.icon(
+              onPressed: _retryLoad,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: BorderSide(color: Colors.white24),
+              ),
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('重试'),
+            ),
+          ],
+        ),
+      );
     }
     if (_urls.isEmpty) {
       final msg = widget.sourceId == 'mangadex'

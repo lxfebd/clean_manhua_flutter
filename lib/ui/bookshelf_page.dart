@@ -1575,6 +1575,8 @@ class BookshelfPageState extends State<BookshelfPage>
   /// 书签直达：先向源解析该章节的目录（拿到全章节列表供连读/切章），
   /// 再携带书签页码直接进入阅读器。
   Future<void> _openBookmark(ComicBookmark m) async {
+    if (_openingBookmark) return; // 防连点：detail await 期间忽略重复点击
+    _openingBookmark = true;
     final src = SourceManager.byId(m.book.sourceId);
     try {
       final detail = await src.detail(m.book.comicId);
@@ -1614,8 +1616,12 @@ class BookshelfPageState extends State<BookshelfPage>
     } catch (e) {
       if (!mounted) return;
       AppToast.error(context, '跳转书签失败：$e');
+    } finally {
+      _openingBookmark = false;
     }
   }
+
+  bool _openingBookmark = false; // 书签跳转防连点锁
 
   Future<void> _deleteBookmark(ComicBookmark m) async {
     await LocalStore.removeBookmark(

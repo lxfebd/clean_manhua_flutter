@@ -40,6 +40,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _rtl = false;
   int _themeId = 0;
   bool _loaded = false;
+  bool _loadError = false; // 本地设置读取失败（错误态可重试）
   bool _checking = false;
   DanmakuSettings _danmaku = const DanmakuSettings();
   UpdateFreq _updateFreq = UpdateFreq.off;
@@ -60,31 +61,68 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _load() async {
-    final d = await LocalStore.darkMode();
-    final mode = await LocalStore.readerMode();
-    final rtl = await LocalStore.rtlReader();
-    final tid = await LocalStore.themeId();
-    final dm = await LocalStore.danmakuSettings();
-    final freq = await ShelfUpdater.frequency();
-    final notify = await UpdateNotifier.enabled();
-    if (mounted) {
-      setState(() {
-        _dark = d;
-        _readerMode = mode;
-        _rtl = rtl;
-        _themeId = tid;
-        _danmaku = dm;
-        _updateFreq = freq;
-        _notifyEnabled = notify;
-        _trustSelfSigned = Net.trustSelfSigned;
-        _loaded = true;
-      });
+    try {
+      final d = await LocalStore.darkMode();
+      final mode = await LocalStore.readerMode();
+      final rtl = await LocalStore.rtlReader();
+      final tid = await LocalStore.themeId();
+      final dm = await LocalStore.danmakuSettings();
+      final freq = await ShelfUpdater.frequency();
+      final notify = await UpdateNotifier.enabled();
+      if (mounted) {
+        setState(() {
+          _dark = d;
+          _readerMode = mode;
+          _rtl = rtl;
+          _themeId = tid;
+          _danmaku = dm;
+          _updateFreq = freq;
+          _notifyEnabled = notify;
+          _trustSelfSigned = Net.trustSelfSigned;
+          _loaded = true;
+          _loadError = false;
+        });
+      }
+    } catch (_) {
+      // 本地读取异常（损坏/IO）：不永久转圈，显示错误态可重试。
+      if (mounted) {
+        setState(() {
+          _loaded = true;
+          _loadError = true;
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    if (_loadError) {
+      // 设置读取失败：错误态 + 重试，不再永久转圈。
+      return Scaffold(
+        backgroundColor: theme.scaffoldBackgroundColor,
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline_rounded,
+                  size: 44, color: theme.colorScheme.onSurface.withValues(alpha: 0.3)),
+              const SizedBox(height: 12),
+              Text('设置加载失败',
+                  style: TextStyle(
+                      fontSize: 14,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6))),
+              const SizedBox(height: 14),
+              FilledButton.icon(
+                onPressed: _load,
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('重试'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     if (!_loaded) {
       return const Center(child: CircularProgressIndicator(strokeWidth: 2));
     }

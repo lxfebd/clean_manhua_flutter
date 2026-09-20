@@ -28,6 +28,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
   int _page = 1;
   bool _loading = false;
   bool _noMore = false;
+  bool _loadMoreError = false; // 分页失败（列表非空时显示重试条）
   String _mode = 'rank';
   String _categoryId = '';
   String _keyword = '';
@@ -136,6 +137,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
     _items.clear();
     _error = null;
     _noMore = false;
+    _loadMoreError = false;
     _autoLoadCount = 0;
     setState(() {});
     _loadMore();
@@ -152,6 +154,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
   Future<void> _loadMore() async {
     if (_loading || _noMore) return;
     _loading = true;
+    _loadMoreError = false;
     final source = _source;
     final next = _page;
     try {
@@ -189,8 +192,12 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
         _maybeAutoLoadMore();
       }
     } catch (e) {
-      if (mounted && _items.isEmpty) {
-        setState(() => _error = '加载失败：$e');
+      if (mounted) {
+        if (_items.isEmpty) {
+          setState(() => _error = '加载失败：$e');
+        } else {
+          setState(() => _loadMoreError = true);
+        }
       }
     } finally {
       _loading = false;
@@ -324,6 +331,23 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
                     strokeWidth: 2,
                     color: Theme.of(context).colorScheme.primary,
                   ),
+                ),
+              ),
+            ),
+          ),
+        if (_loadMoreError)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              child: Center(
+                child: TextButton.icon(
+                  onPressed: _loadMore,
+                  icon: Icon(Icons.refresh_rounded,
+                      size: 16, color: Theme.of(context).colorScheme.primary),
+                  label: Text('加载失败，点此重试',
+                      style: TextStyle(
+                          fontSize: 12.5,
+                          color: Theme.of(context).colorScheme.primary)),
                 ),
               ),
             ),

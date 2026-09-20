@@ -42,7 +42,12 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
   }
 
   Future<void> _toggle(CapabilityPlugin p, bool enabled) async {
-    await CapabilityPluginManager.instance.setEnabled(p.id, enabled);
+    try {
+      await CapabilityPluginManager.instance.setEnabled(p.id, enabled);
+    } catch (e) {
+      if (!mounted) return;
+      AppToast.error(context, '「${p.name}」启停失败：$e');
+    }
   }
 
   /// 原生构件自测：调用演示能力 sum()，展示结果或失败原因。
@@ -105,12 +110,30 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
       ),
       body: plugins.isEmpty
           ? Center(
-              child: Text(
-                '暂无能力插件',
-                style: TextStyle(
-                  color: T.color(scheme.onSurface, TextTier.low,
-                      brightness: scheme.brightness),
-                ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.extension_off_rounded,
+                      size: 40, color: scheme.onSurface.withValues(alpha: 0.25)),
+                  const SizedBox(height: 10),
+                  Text(
+                    '暂无能力插件',
+                    style: TextStyle(
+                      color: T.color(scheme.onSurface, TextTier.low,
+                          brightness: scheme.brightness),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.tonalIcon(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const CapabilityMarketPage()),
+                    ),
+                    icon: const Icon(Icons.storefront_outlined, size: 18),
+                    label: const Text('去市场看看'),
+                  ),
+                ],
               ),
             )
           : ListView.separated(
