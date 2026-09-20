@@ -755,11 +755,12 @@ class _ReaderPageState extends State<ReaderPage>
 
   Future<void> _download() async {
     if (_downloading || _urls.isEmpty) return;
-    DownloadManager.resetCancel();
+    final gen = DownloadManager.beginBatch();
     setState(() => _downloading = true);
     try {
       final quality = await LocalStore.downloadQuality();
       final ok = await DownloadManager.downloadChapter(
+        batchGen: gen,
         book: _book,
         chapterId: _activeChapterId,
         chapterTitle: _activeChapterTitle,

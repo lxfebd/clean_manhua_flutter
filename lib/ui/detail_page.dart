@@ -945,7 +945,7 @@ class _DetailPageState extends State<DetailPage> {
                                       .toList()
                                     ..sort();
                                   setS(() => downloading = true);
-                                  DownloadManager.resetCancel();
+                                  final gen = DownloadManager.beginBatch();
                                   final book = Bookmark(
                                     sourceId: widget.sourceId,
                                     comicId: _detail!.id,
@@ -956,7 +956,7 @@ class _DetailPageState extends State<DetailPage> {
                                   var fail = 0;
                                   String? firstErr;
                                   for (final idx in picks) {
-                                    if (DownloadManager.isCancelled) break;
+                                    if (DownloadManager.isCancelled(gen)) break;
                                     final ch = chapters[idx];
                                     setS(() {
                                       currentIdx = idx;
@@ -971,6 +971,7 @@ class _DetailPageState extends State<DetailPage> {
                                       setS(() => currentTotal = urls.length);
                                       final okCh = await DownloadManager
                                           .downloadChapter(
+                                        batchGen: gen,
                                         book: book,
                                         chapterId: ch.id,
                                         chapterTitle: ch.title,

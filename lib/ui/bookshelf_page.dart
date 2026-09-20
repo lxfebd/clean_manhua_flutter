@@ -903,7 +903,9 @@ class BookshelfPageState extends State<BookshelfPage>
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Text(failed ? '下载失败' : '${d.done}/${d.total}',
+                        Text(failed ? (d.error ?? '下载失败') : '${d.done}/${d.total}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: text.labelSmall?.copyWith(
                                 color: failed
                                     ? Colors.red

@@ -210,6 +210,10 @@ class DownloadRecord {
   final bool finished;
   final String localKey;
 
+  /// 失败原因（写盘失败/网络中断等）。null = 无失败（进行中或成功）。
+  /// 旧版本记录无此字段，读取时为 null，天然兼容；仅新失败记录写入。
+  final String? error;
+
   const DownloadRecord({
     required this.book,
     required this.chapterId,
@@ -218,6 +222,7 @@ class DownloadRecord {
     required this.done,
     required this.finished,
     required this.localKey,
+    this.error,
   });
 
   Map<String, dynamic> toMap() => {
@@ -228,6 +233,7 @@ class DownloadRecord {
         'done': done,
         'finished': finished,
         'localKey': localKey,
+        if (error != null) 'error': error,
       };
 
   factory DownloadRecord.fromMap(Map<String, dynamic> m) => DownloadRecord(
@@ -238,6 +244,7 @@ class DownloadRecord {
         done: (m['done'] as int?) ?? 0,
         finished: (m['finished'] as bool?) ?? false,
         localKey: (m['localKey'] as String?) ?? '',
+        error: m['error'] as String?,
       );
 
   String get key => '${book.key}::$chapterId';
@@ -1005,10 +1012,28 @@ class LocalStore {
     return null;
   }
 
+  /// 单条下载记录写入（去重 + 保留全部待重试的失败/进行中任务）。
+  ///
+  /// 去重策略：同 key 只留最新一条；列表整体设上限，超出时优先丢弃
+  /// 已完成的最旧记录（保留失败/进行中项以便重试）。写入仍全量落盘，
+  /// 但列表有界后单条 O(n) 读改写的开销被钳制住。
+  static const int _downloadsMax = 200;
+
   static Future<void> upsertDownload(DownloadRecord d) async {
     await _enqueue('downloads', () async {
       final list = (await downloads()).where((x) => x.key != d.key).toList();
       list.add(d);
+      if (list.length > _downloadsMax) {
+        // 超限：丢弃「已完成」且最 old 的记录（finished 有界裁剪），
+        // 失败/进行中优先保留（可重试）。
+        final finished = list.where((x) => x.finished).toList()
+          ..sort((a, b) => a.localKey.compareTo(b.localKey));
+        var over = list.length - _downloadsMax;
+        while (over > 0 && finished.isNotEmpty) {
+          list.remove(finished.removeAt(0));
+          over--;
+        }
+      }
       await _writeNow('downloads', list.map((e) => e.toMap()).toList());
     });
   }
