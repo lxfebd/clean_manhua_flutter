@@ -1076,7 +1076,8 @@ class BookshelfPageState extends State<BookshelfPage>
       }
     } catch (e) {
       if (!mounted) return;
-      AppToast.error(context, '重试失败：$e');
+      AppToast.error(context, '重试失败，请稍后再试');
+      ErrorLogger.instance.warn('manga download retry failed: $e');
     }
   }
 

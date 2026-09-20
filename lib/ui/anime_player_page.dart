@@ -1652,7 +1652,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       }
     } catch (e) {
       if (mounted) {
-        AppToast.error(context, '切换失败：$e');
+        AppToast.error(context, '切换失败，请重试');
+        ErrorLogger.instance.warn('anime player switch failed: $e');
       }
     }
   }
@@ -1693,7 +1694,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (e) {
       if (mounted) {
-        AppToast.error(context, '打开浏览器失败：$e');
+        AppToast.error(context, '打开浏览器失败，请重试');
+        ErrorLogger.instance.warn('anime browser launch failed: $e');
       }
     }
   }
@@ -2944,7 +2946,8 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
       );
     } catch (e) {
       if (mounted) {
-        AppToast.error(context, '播放失败：$e');
+        AppToast.error(context, '播放失败，请重试');
+        ErrorLogger.instance.warn('anime play failed: $e');
       }
     } finally {
       if (mounted) {

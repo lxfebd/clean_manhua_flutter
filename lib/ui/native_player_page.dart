@@ -1337,7 +1337,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         }
       }
     } catch (e) {
-      if (!silent && mounted) _toast('超分应用失败：$e');
+      if (!silent && mounted) {
+        _toast('超分应用失败，请重试');
+        ErrorLogger.instance.warn('superres apply failed: $e');
+      }
     } finally {
       if (!silent && mounted) setState(() => _srApplying = false);
     }
@@ -1592,7 +1595,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       });
       _loadDanmaku();
     } catch (e) {
-      if (mounted) _toast('切换失败：$e');
+      if (mounted) {
+        _toast('切换失败，请重试');
+        ErrorLogger.instance.warn('native player switch failed: $e');
+      }
     } finally {
       if (mounted) setState(() => _switching = false);
     }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../sources/dsl/custom_source_def.dart';
 import '../sources/dsl/custom_source_store.dart';
+import '../net/error_logger.dart';
 import '../net/source_health_monitor.dart';
 import '../sources/source_config.dart';
 import '../sources/source_manager.dart';
@@ -65,7 +66,8 @@ class _SourceManagePageState extends State<SourceManagePage> {
       await _load();
     } catch (e) {
       if (!mounted) return;
-      AppToast.error(context, '「${cfg.name}」启停失败：$e');
+      AppToast.error(context, '「${cfg.name}」启停失败，请重试');
+      ErrorLogger.instance.warn('source ${cfg.name} toggle failed: $e');
       await _load(); // 回弹开关到真实状态，避免 UI 与存储不一致
     }
   }
@@ -693,7 +695,8 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
       }
     } catch (e) {
       if (!mounted) return;
-      AppToast.error(context, '「${def.name}」启停失败：$e');
+      AppToast.error(context, '「${def.name}」启停失败，请重试');
+      ErrorLogger.instance.warn('source ${def.id} toggle failed: $e');
       await _load(); // 回弹开关到真实状态
     }
   }

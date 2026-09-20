@@ -249,7 +249,8 @@ class _NovelDetailPageLocalState extends State<NovelDetailPageLocal> {
       Navigator.of(context).popUntil((r) => r.isFirst);
     } catch (e) {
       if (mounted) {
-        AppToast.error(context, '删除失败：$e');
+        AppToast.error(context, '删除失败，请重试');
+        ErrorLogger.instance.warn('novel delete failed: $e');
       }
     } finally {
       if (mounted) setState(() => _deleting = false);
