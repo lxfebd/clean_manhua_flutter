@@ -125,3 +125,6 @@ PROJECT_MEMORY.md
 
 # 本地验证产物（远端索引备份/快照等），不入库
 tmpprobe/
+
+# ===== RIFE 在线插帧运行时（48MB 二进制，构建期由 CMake 打包，不入库）=====
+/windows/rife-runtime/

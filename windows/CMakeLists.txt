@@ -99,6 +99,18 @@ install(DIRECTORY "${NATIVE_ASSETS_DIR}"
    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
    COMPONENT Runtime)
 
+# === RIFE 在线插帧运行时 ===
+# windows/rife-runtime/（48MB，.gitignore 不入库）是 VapourSynth + RIFE 引擎
+# 工作目录：vsscript.dll/嵌入式 Python/插件/模型。构建期整目录拷到
+# <exe目录>/data/rife-runtime，Dart 侧在创建 Player 前用 FFI SetEnvironmentVariableW
+# 铺垫 VSSCRIPT_PATH/PATH 等环境变量（libmpv 加载时经 SetDllDirectoryW 生效）。
+# 目录缺失时静默跳过（开发者机器无 runtime 也可正常构建调试）。
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/rife-runtime")
+  install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/rife-runtime"
+    DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
+    COMPONENT Runtime)
+endif()
+
 # Fully re-copy the assets directory on each build to avoid having stale files
 # from a previous install.
 set(FLUTTER_ASSET_DIR_NAME "flutter_assets")
