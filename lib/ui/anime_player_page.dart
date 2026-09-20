@@ -79,6 +79,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   /// 切集防重入：_switchingEp 拒绝并发切集；_switchGen 作废陈旧 await 后的覆写。
   bool _switchingEp = false;
   int _switchGen = 0;
+  // 切集（_switchToEpisode 解析/装载）失败标记：错误态重试按钮据此
+  // 重跑切集到目标集，而不是 reload 当前 WebView 地址（旧集）。
+  bool _switchFail = false;
   /// 选集面板「当前集」定位锚点：面板打开时把当前集滚进视口。
   final GlobalKey _curEpKey = GlobalKey();
   double _speed = 1.0;
@@ -337,7 +340,12 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     _hookedVideoUrl = src;
     if (!mounted) return;
     // 页面确实在播（拿到直链）→ 之前的加载失败提示是误报，清除错误态。
-    if (_webError != null) setState(() => _webError = null);
+    if (_webError != null || _switchFail) {
+      setState(() {
+        _webError = null;
+        _switchFail = false;
+      });
+    }
     // 同一 Route 内嵌模式（NativePlayerPage 持有 WebView 状态机）：
     // 由宿主切回 mpv 通道，本页不 pushReplacement，杜绝双页互跳。
     final cb = widget.onDirectUrl;
@@ -1433,6 +1441,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       _curEpisode = episode;
       _loading = true;
       _resolving = true; // 新一集重新进入"静音解析"状态，防止旧页残留出声
+      _webError = null; // 切集开始即离开上次错误态，回到解析 loading
+      _switchFail = false;
     });
     // 杀掉旧页媒体，避免加载新集期间旧集继续出声（双音轨）
     await _killWebMedia();
@@ -1445,9 +1455,24 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     if (_webViewRemoved) setState(() => _webViewRemoved = false);
     final prefetchKey = '$season-$episode';
     final cached = _prefetchedNextUrl;
-    final url = (prefetchKey == _prefetchKey && cached != null)
-        ? cached
-        : await _resolveWithRetry(resolver, season, episode);
+    String url;
+    try {
+      url = (prefetchKey == _prefetchKey && cached != null)
+          ? cached
+          : await _resolveWithRetry(resolver, season, episode);
+    } catch (e) {
+      // 直链解析二次失败：持久错误态（替代黑屏卡死），重试入口 = 错误态重试按钮。
+      if (mounted && gen == _switchGen) {
+        setState(() {
+          _loading = false;
+          _resolving = false;
+          _switchFail = true;
+          _webError ??= '切集失败，请检查网络后重试';
+        });
+      }
+      _switchingEp = false;
+      return;
+    }
     // 已消费的预热缓存作废，防止手动切回旧集误用过期直链
     if (prefetchKey == _prefetchKey) {
       _prefetchedNextUrl = null;
@@ -1466,7 +1491,17 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
             headers: _hostHeader(url));
       }
     } catch (e) {
-      if (mounted && gen == _switchGen) setState(() => _loading = false);
+      if (mounted && gen == _switchGen) {
+        setState(() {
+          _loading = false;
+          _switchFail = true;
+          _webError ??= '切集失败，请检查网络后重试';
+        });
+      }
+    }
+    // 装载成功：复位切集失败标记（_webError 由加载状态回调清空）。
+    if (_switchFail && mounted && gen == _switchGen) {
+      setState(() => _switchFail = false);
     }
     _switchingEp = false;
   }
@@ -1794,7 +1829,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                   ),
                   const SizedBox(height: 16),
                   FilledButton.icon(
-                    onPressed: _reloadWebView,
+                    onPressed: _retryError,
                     icon: const Icon(Icons.refresh, size: 16),
                     label: const Text('重试'),
                     style: FilledButton.styleFrom(
@@ -1830,6 +1865,16 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           ),
       ]),
     );
+  }
+
+  /// 错误态重试：切集失败时重跑切集到目标集；普通页面加载失败走 reload。
+  void _retryError() {
+    if (_switchFail) {
+      _switchFail = false;
+      _switchToEpisode(_curSeason, _curEpisode);
+      return;
+    }
+    _reloadWebView();
   }
 
   /// 错误态重试：重置解析状态、重启直链捕获，重新加载当前播放页。

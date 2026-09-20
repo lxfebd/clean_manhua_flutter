@@ -322,6 +322,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
                   items: () => _cardMenu(_items[i]),
                   child: _AnimeCard(
                     item: _items[i],
+                    loading: _openingId == _items[i].id,
                     onTap: () => _openDetail(_items[i]),
                   ),
                 ),
@@ -720,7 +721,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
 
   void _openDetail(ComicItem it) async {
     if (_openingId != null) return;
-    _openingId = it.id;
+    setState(() => _openingId = it.id);
     HapticFeedback.selectionClick();
     final source = _source;
     try {
@@ -737,7 +738,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
       }
       ErrorLogger.instance.warn('anime open detail failed: $e');
     } finally {
-      _openingId = null;
+      if (mounted) setState(() => _openingId = null);
     }
   }
 
@@ -765,7 +766,13 @@ class AnimeHomePageState extends State<AnimeHomePage> {
 class _AnimeCard extends StatefulWidget {
   final ComicItem item;
   final VoidCallback onTap;
-  const _AnimeCard({required this.item, required this.onTap});
+  /// 详情请求期间置 true：卡片覆盖半透明 spinner，提供点击反馈。
+  final bool loading;
+  const _AnimeCard({
+    required this.item,
+    required this.onTap,
+    this.loading = false,
+  });
 
   @override
   State<_AnimeCard> createState() => _AnimeCardState();
@@ -935,6 +942,20 @@ class _AnimeCardState extends State<_AnimeCard> {
                             ),
                           ),
                         ),
+                        if (widget.loading)
+                          Positioned.fill(
+                            child: Container(
+                              color: Colors.black.withValues(alpha: 0.45),
+                              child: const Center(
+                                child: SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2.5, color: Colors.white),
+                                ),
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ),

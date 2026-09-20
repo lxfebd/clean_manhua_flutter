@@ -116,6 +116,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   bool _failed = false;
   bool _retrying = false;
   String _failMsg = '本地播放内核不可用';
+  // 切集失败后记录失败目标集：错误页「重试/用网页播放」以此为准，
+  // 而不是 widget.url（初始集）——否则重试会开回第一集。
+  VideoEpisode? _pendingRetryEp;
   int _vw = 0, _vh = 0;
   // ── 真实渲染输出信息（每 2 秒采样自 mpv，非硬编码）─────
   /// 渲染输出分辨率 = mpv `dwidth`/`dheight`（VO 真正绘制到屏幕上的尺寸）。
@@ -1598,6 +1601,15 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       if (mounted) {
         _toast('切换失败，请重试');
         ErrorLogger.instance.warn('native player switch failed: $e');
+        // 持久错误态（替代卡在"正在解析直链…"）：保留 mpv 通道当前画面，
+        // 提供「重试/用网页播放」两个出口。
+        setState(() {
+          _failed = true;
+          _failMsg = '切集失败：$ep.season 第 $ep.episode 集解析失败';
+          _pendingRetryEp = ep;
+          _ready = false;
+          _buffering = false;
+        });
       }
     } finally {
       if (mounted) setState(() => _switching = false);
@@ -1609,9 +1621,16 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     _player?.pause();
     if (mounted) {
       setState(() {
+        final retry = _pendingRetryEp;
+        if (retry != null) {
+          // 切集失败后落到本页：让网页通道从失败目标集开始加载。
+          _webSeason = retry.season;
+          _webEpisode = retry.episode;
+        }
         _webUrl = widget.url;
         _useWeb = true;
         _failed = false;
+        _pendingRetryEp = null;
         _webGeneration++;
       });
     }
@@ -2176,7 +2195,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     );
   }
 
-  /// 失败页「重试」：清错误态并重新用 mpv 打开同一地址（直链解析/首帧等待各带超时）。
+  /// 失败页「重试」：清错误态并重新打开失败目标集（切集失败时重试该集，
+  /// 而非初始集），直链解析/首帧等待各带超时。
   Future<void> _retryOpen() async {
     if (_retrying) return;
     _retrying = true;
@@ -2185,7 +2205,15 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       _failMsg = '播放失败：未知错误';
     });
     try {
-      final ok = await _open(widget.url);
+      final retry = _pendingRetryEp;
+      bool ok;
+      if (retry != null) {
+        _pendingRetryEp = null;
+        await _switchTo(retry);
+        ok = !_failed;
+      } else {
+        ok = await _open(widget.url);
+      }
       if (!ok && mounted) {
         setState(() {
           _failed = true;
