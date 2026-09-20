@@ -1,5 +1,4 @@
 import 'dart:async' show FutureOr;
-import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate' show Isolate;
 
@@ -66,28 +65,6 @@ class CapabilityRuntime {
     } catch (e) {
       return CapabilityFailure(id, '执行失败: $e');
     }
-  }
-
-  /// 在独立 Isolate 内加载能力 artifact（.dll/.dylib/.so）并调用导出函数。
-  ///
-  /// 关键点：**新 isolate 不共享主 isolate 的 FFI 句柄**，必须在 isolate 内
-  /// 重新 `DynamicLibrary.open(绝对路径)`。加载/调用失败包装成明确原因，
-  /// 不静默降级。
-  ///
-  /// [path] 本地 artifact 绝对路径（由 CapabilityArtifactStore 下载+校验后提供）。
-  Future<CapabilityResult> runNative(
-    String id,
-    String path, {
-    required FutureOr<dynamic> Function(DynamicLibrary lib) task,
-  }) {
-    return run(id, () {
-      try {
-        final lib = DynamicLibrary.open(path);
-        return task(lib);
-      } catch (e) {
-        throw CapabilityNativeException('原生库加载失败: $e');
-      }
-    });
   }
 
   /// 加载前置防御：全部通过才允许后续加载。
@@ -176,14 +153,6 @@ class CapabilityRuntime {
       return 'unknown';
     }
   }
-}
-
-/// 原生库加载/调用失败（区别于普通执行异常，携带用户可读原因）。
-class CapabilityNativeException implements Exception {
-  final String message;
-  CapabilityNativeException(this.message);
-  @override
-  String toString() => message;
 }
 
 /// 能力调用结果：单次申请/调用的统一包装。

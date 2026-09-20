@@ -1,4 +1,3 @@
-import 'dart:ffi';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -6,15 +5,17 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'capability_artifact_store.dart';
 import 'capability_plugin.dart';
 import 'capability_runtime.dart';
+import 'demo_native_loader.dart';
 
 /// M2 演示原生能力：FFI 加载真实 .dll（桌面 artifact）走全链路。
 ///
 /// 目的不是功能本身，而是验证能力插件的**原生构件链路**：
-/// 下载（或本地已有）→ SHA256 校验 → probe → runNative（Isolate 内
-/// DynamicLibrary.open → 调用导出函数）→ 失败给明确原因（不静默降级）。
+/// 下载（或本地已有）→ SHA256 校验 → probe → Isolate 内
+/// DynamicLibrary.open 调用导出函数 → 失败给明确原因（不静默降级）。
 ///
 /// 与 [ChapterStatsPlugin] 的区别：这是第一个带 `artifact` 的能力——probe
-/// 会真实检查/下载 .dll，runNative 会在独立 Isolate 内加载并调用导出函数。
+/// 会真实检查/下载 .dll，在独立 Isolate 内加载并调用导出函数（经
+/// [demoNativeSum] 条件导入，web 端无 FFI 返回明确失败）。
 /// 真实 AI 能力（上色/插帧）走同一通道，仅 artifact 指向不同库。
 class DemoNativePlugin extends CapabilityPlugin {
   /// 演示 DLL 的 SHA256（test/assets/demo_native/demo_math.dll 编译产物）。
@@ -59,8 +60,9 @@ class DemoNativePlugin extends CapabilityPlugin {
   /// 在独立 Isolate 内加载 demo_math.dll/.so 并求和。
   ///
   /// 先 probe 确保 artifact 已就绪（桌面：已落盘校验；Android：构建期 bundle
-  /// jniLibs，probe 校验 ABI 键即就绪），再 runNative 在 isolate 内
-  /// DynamicLibrary.open + 调用导出函数。演示能力返回求和结果 Map。
+  /// jniLibs，probe 校验 ABI 键即就绪），再在 isolate 内
+  /// DynamicLibrary.open + 调用导出函数（web 端无 FFI，返回明确失败）。
+  /// 演示能力返回求和结果 Map。
   static Future<CapabilityResult> sum(int a, int b) async {
     final probe = await CapabilityRuntime.instance.probe('utility.native');
     if (probe is CapabilityFailure) return probe;
@@ -87,17 +89,13 @@ class DemoNativePlugin extends CapabilityPlugin {
       }
       libPath = f.path;
     }
-    return CapabilityRuntime.instance.runNative('utility.native', libPath,
-        task: (DynamicLibrary lib) {
-      final sum = lib
-          .lookupFunction<Int64 Function(Int64, Int64), int Function(int, int)>(
-              'demo_sum');
-      final ver = lib
-          .lookupFunction<Int64 Function(), int Function()>('demo_version');
-      return <String, dynamic>{
-        'sum': sum(a, b),
-        'version': ver(),
-      };
-    });
+    try {
+      final data = await demoNativeSum(libPath, a, b);
+      return CapabilityOk('utility.native', data: data);
+    } on DemoNativeLoadError catch (e) {
+      return CapabilityFailure('utility.native', e.message);
+    } catch (e) {
+      return CapabilityFailure('utility.native', '执行失败: $e');
+    }
   }
 }
