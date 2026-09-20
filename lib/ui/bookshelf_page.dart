@@ -40,6 +40,8 @@ class BookshelfPage extends StatefulWidget {
 class BookshelfPageState extends State<BookshelfPage>
     with AutomaticKeepAliveClientMixin {
   List<ComicDetail> _items = [];
+  /// comicId → 章节 id 列表（由 [_items] 派生），供最近阅读进度 O(1) 反查。
+  Map<String, List<String>> _chapterIndex = const {};
   List<ComicDetail> _filtered = [];
   List<HistoryEntry> _recent = [];
   List<VideoRecord> _videos = [];
@@ -136,6 +138,13 @@ class BookshelfPageState extends State<BookshelfPage>
       if (mounted) {
         setState(() {
           _items = list;
+          _chapterIndex = {
+            for (final d in list)
+              if (d.chapters.isNotEmpty)
+                d.id: [
+                  for (final c in d.chapters) c.id
+                ],
+          };
           _allTags = BookshelfStore.allTags();
           _folders = folders;
           if (_folderFilter != null && _folderFilter != BookshelfStore.allFolderId &&
@@ -1491,19 +1500,19 @@ class BookshelfPageState extends State<BookshelfPage>
     );
   }
 
-  /// 由书架 chapters + 历史页码计算阅读进度
+  /// 由书架 chapters + 历史页码计算阅读进度。
+  /// 章节索引 Map 在 [_items] 更新时重建一次，避免每本历史记录
+  /// 都线性扫全书架（O(n×m) → O(n+m)）。
   double _progressOf(HistoryEntry h) {
     if (h.hasPage && h.chapterTotalPages > 0 && h.pageIndex >= 0) {
       return ((h.pageIndex + 1) / h.chapterTotalPages).clamp(0.0, 1.0);
     }
-    for (final d in _items) {
-      if (d.id != h.book.comicId) continue;
-      if (d.chapters.isEmpty) return 0;
-      final idx = d.chapters.indexWhere((c) => c.id == h.chapterId);
-      if (idx < 0) return 0.3;
-      return ((idx + 1) / d.chapters.length).clamp(0.0, 1.0);
-    }
-    return 0.3;
+    final chapters = _chapterIndex[h.book.comicId];
+    if (chapters == null) return 0.3;
+    if (chapters.isEmpty) return 0;
+    final idx = chapters.indexOf(h.chapterId);
+    if (idx < 0) return 0.3;
+    return ((idx + 1) / chapters.length).clamp(0.0, 1.0);
   }
 
   /// 根据屏幕尺寸返回最近阅读列表的最大显示数量。
@@ -2310,57 +2319,48 @@ class BookshelfPageState extends State<BookshelfPage>
             padding:
                 EdgeInsets.symmetric(horizontal: pad, vertical: 8),
             scrollDirection: Axis.horizontal,
-            itemCount: _chipCount(),
+            itemCount: _chipList().length,
             separatorBuilder: (_, __) => const SizedBox(width: 8),
-            itemBuilder: (_, i) => _filterChipAt(i),
+            itemBuilder: (_, i) => _chipList()[i],
           ),
         ),
       ],
     );
   }
 
-  int _chipCount() {
-    // 排序 + 状态 + 分类段（含「全部」+ 自建分类 + 管理入口）+ 标签段（全部 + 标签）
-    final folderCount = _folders.length + 1; // +1 = 管理入口
-    final tagCount = _allTags.length + 1; // +1 = 标签「全部」
-    return 1 + (_allStatuses.isNotEmpty ? 1 : 0) + folderCount + tagCount;
-  }
-
-  Widget _filterChipAt(int i) {
-    var idx = 0;
-    // 排序
-    if (i == idx++) return _sortChip();
-    // 状态
-    if (_allStatuses.isNotEmpty && i == idx++) return _statusChip();
-    // 分类段：全部 + 自建分类 + 管理入口
+  /// 筛选条唯一数据源：一次性生成 widget 列表，避免 LazyList
+  /// 每项都从 idx=0 线性推进（数百标签时 O(n²)）。
+  List<Widget> _chipList() {
     final folderSel = _folderFilter ?? BookshelfStore.allFolderId;
-    for (final f in _folders) {
-      final id = f['id'] as String;
-      if (i == idx++) {
-        return _chip(f['name'] as String, folderSel == id, () {
+    final list = <Widget>[
+      _sortChip(),
+      if (_allStatuses.isNotEmpty) _statusChip(),
+      _chip('全部', folderSel == BookshelfStore.allFolderId, () {
+        setState(() {
+          _folderFilter = null;
+          _applyFilters();
+        });
+      }),
+      for (final f in _folders)
+        _chip(f['name'] as String, folderSel == (f['id'] as String), () {
           setState(() {
-            _folderFilter = id == BookshelfStore.allFolderId ? null : id;
+            _folderFilter = f['id'] as String;
             _applyFilters();
           });
-        });
-      }
-    }
-    if (i == idx++) return _manageFolderChip();
-    // 标签段：全部标签
-    if (i == idx++) {
-      final sel = _tagFilter == null;
-      return _chip('全部', sel, () => setState(() {
-        _tagFilter = null;
-        _applyFilters();
-      }));
-    }
-    // 标签
-    final tag = _allTags[i - idx];
-    final sel = _tagFilter == tag;
-    return _chip(tag, sel, () => setState(() {
-      _tagFilter = tag;
+        })
+    ];
+    if (_folders.isNotEmpty) list.add(_manageFolderChip());
+    list.add(_chip('全部', _tagFilter == null, () => setState(() {
+      _tagFilter = null;
       _applyFilters();
-    }));
+    })));
+    for (final tag in _allTags) {
+      list.add(_chip(tag, _tagFilter == tag, () => setState(() {
+        _tagFilter = tag;
+        _applyFilters();
+      })));
+    }
+    return list;
   }
 
   /// 「管理分类」入口 chip：打开分类管理弹窗；正在筛选中时带个小圆点提示。

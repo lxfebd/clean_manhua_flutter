@@ -76,6 +76,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   bool _fullscreen = false;
   int _curSeason = 1;
   int _curEpisode = 1;
+  /// 切集防重入：_switchingEp 拒绝并发切集；_switchGen 作废陈旧 await 后的覆写。
+  bool _switchingEp = false;
+  int _switchGen = 0;
   /// 选集面板「当前集」定位锚点：面板打开时把当前集滚进视口。
   final GlobalKey _curEpKey = GlobalKey();
   double _speed = 1.0;
@@ -265,6 +268,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       ..setBackgroundColor(Colors.black)
       ..setNavigationDelegate(NavigationDelegate(
         onPageStarted: (_) {
+          if (!mounted) return;
           setState(() {
             _loading = true;
             _webError = null;
@@ -277,6 +281,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           _injectHlsHook();
         },
         onPageFinished: (_) {
+          if (!mounted) return;
           setState(() => _loading = false);
           _triggerAutoPlay();
           _restoreProgress();
@@ -1414,11 +1419,14 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   }
 
   /// 真正切集：更新当前集状态，并让 WebView 重新加载新一集的播放页。
+  /// [_switchingEp]/[_switchGen] 防连点：旧请求在 await 后作废，不覆写新集状态。
   Future<void> _switchToEpisode(int season, int episode) async {
     if (!_webviewInit) return;
     final resolver = widget.resolveUrl;
     if (resolver == null) return;
-    if (!mounted) return;
+    if (!mounted || _switchingEp) return;
+    _switchingEp = true;
+    final gen = ++_switchGen;
     _autoNextFired = false; // 新一集允许重新自动连播
     setState(() {
       _curSeason = season;
@@ -1428,7 +1436,10 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     });
     // 杀掉旧页媒体，避免加载新集期间旧集继续出声（双音轨）
     await _killWebMedia();
-    if (!mounted) return;
+    if (!mounted || gen != _switchGen) {
+      _switchingEp = false;
+      return;
+    }
     // 复位 WebView 挂载：新集要重新用 WebView 解析直链，
     // 否则上一步的物理移除会让新集一直黑屏。
     if (_webViewRemoved) setState(() => _webViewRemoved = false);
@@ -1442,7 +1453,10 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       _prefetchedNextUrl = null;
       _prefetchKey = '';
     }
-    if (!mounted) return;
+    if (!mounted || gen != _switchGen) {
+      _switchingEp = false;
+      return;
+    }
     final d = _desktop;
     try {
       if (d != null) {
@@ -1452,8 +1466,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
             headers: _hostHeader(url));
       }
     } catch (e) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && gen == _switchGen) setState(() => _loading = false);
     }
+    _switchingEp = false;
   }
 
   /// 解析直链：直接失败时静默重试一次（源站解析接口偶发 5xx/超时）。
