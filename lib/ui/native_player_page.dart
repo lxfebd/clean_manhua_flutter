@@ -263,6 +263,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   late int _curSeason;
   late int _curEpisode;
   bool _switching = false;
+  /// 切集代际：每次切换剧集递增，自动连播/延迟任务据此作废过期动作。
+  int _switchGen = 0;
+  /// 播放中途流错误后的重连进行中标记（防并发重连）。
+  bool _recovering = false;
   bool _completedHandled = false;
   /// 竖屏面板里「当前集」方块的定位锚点：每次切集后作废重建，
   /// 面板打开时用它把当前集滚进视口（长番几百集时当前集可能在第 150 集）。
@@ -338,13 +342,16 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     }
   }
 
+  /// 生成代际 token：防老的 _loadDanmaku 响应覆盖当前集的弹幕。
+  int _danmakuGen = 0;
   /// 加载弹幕设置并拉取当前集的弹幕（在线失败静默，不影响播放）。
   Future<void> _loadDanmaku() async {
+    final gen = ++_danmakuGen;
     final set = await LocalStore.danmakuSettings();
-    if (!mounted) return;
+    if (!mounted || gen != _danmakuGen) return;
     setState(() => _danmakuSet = set);
     final items = await DanmakuFetcher.fetch(widget.title, _curEpisode);
-    if (!mounted) return;
+    if (!mounted || gen != _danmakuGen) return;
     setState(() {
       _danmaku = items;
     });
@@ -627,9 +634,14 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           }
           setState(() {
             _failed = true;
-            _failMsg = '播放失败：$e';
+            _failMsg = '播放失败，请重试';
           });
+        } else {
+          // 播放中途的流错误（源站中断/防盗链在分片期拒绝）：
+          // 进入「缓冲重试」而非定格在最后一帧假装正常。
+          _tryRecoverFromStreamError();
         }
+        ErrorLogger.instance.warn('player stream error: $e');
       }));
       // 捕获 mpv 的着色器错误（编译失败会在 error 级日志里出现）。
       // 注意：不能用笼统的 contains('Failed to')——mpv 的缓存/网络错误
@@ -790,10 +802,30 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         }
         setState(() {
           _failed = true;
-          _failMsg = '播放失败：$e';
+          _failMsg = '播放失败，请重试';
         });
+        ErrorLogger.instance.warn('player open failed: $e');
       }
       return false;
+    }
+  }
+
+  /// 播放中途的流错误恢复（源站中断/分片期防盗链拒绝）。
+  ///
+  /// 旧的实现里 `error.listen` 只在 `!_ready` 时处理：一旦首帧出来，
+  /// 播放中的错误被完全吞掉，画面定格在最后一帧、无任何提示（表现为
+  /// 「播着播着冻住」）。这里对已就绪的播放尝试用 mpv 自动重连同一
+  /// 地址（mpv 内部会重新拉流/重新握手，多数瞬时断流可自愈）；重连
+  /// 仍失败才进失败视图，让用户能手动重试/切网页播放。
+  Future<void> _tryRecoverFromStreamError() async {
+    if (_recovering || _switching || _handoffOpening) return;
+    _recovering = true;
+    _toast('播放中断，正在重连…');
+    // _open 失败时内部已置 _failed 并返回 false（不抛异常），这里只看返回值。
+    final ok = await _open(widget.url);
+    if (mounted) {
+      setState(() => _recovering = false);
+      if (ok) _toast('重连成功，继续播放');
     }
   }
 
@@ -1498,8 +1530,11 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     if (mounted) setState(() => _playing = false);
     if (_hasNext) {
       _toast('即将播放下一集…');
+      final gen = _switchGen;
       Future.delayed(const Duration(milliseconds: 900), () {
-        if (mounted) _goRelative(1);
+        // 延迟期间用户可能手动切集/退出：只有仍停留在刚完成的那一集、
+        // 且没有新切集动作时才自动播下一集，否则作废。
+        if (mounted && gen == _switchGen) _goRelative(1);
       });
     }
   }
@@ -1515,6 +1550,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   Future<void> _switchTo(VideoEpisode ep) async {
     final resolver = widget.resolveUrl;
     if (resolver == null || _switching) return;
+    _switchGen++;
     setState(() {
       _switching = true;
       _ready = false;
