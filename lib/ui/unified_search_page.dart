@@ -12,6 +12,7 @@ import 'detail_page.dart';
 import 'reader_page.dart';
 import 'responsive.dart';
 import 'widgets/cached_image.dart';
+import 'widgets/app_toast.dart';
 import 'widgets/motion.dart';
 import 'widgets/state_view.dart';
 
@@ -69,7 +70,10 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
 
   Future<void> _search() async {
     final kw = _searchCtrl.text.trim();
-    if (kw.isEmpty) return;
+    if (kw.isEmpty) {
+      if (mounted) AppToast.info(context, '请输入搜索关键词');
+      return;
+    }
     final gen = ++_searchGen;
     setState(() {
       _loading = true;
@@ -330,7 +334,7 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
                         ),
                         const SizedBox(width: 8),
                         FilledButton(
-                          onPressed: _search,
+                          onPressed: _loading ? null : _search,
                           child: const Text('搜索'),
                         ),
                       ],
@@ -377,6 +381,24 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
                 const Spacer(),
                 InkWell(
                   onTap: () async {
+                    final ok = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('清空搜索历史'),
+                        content: const Text('确定要清空全部搜索历史吗？此操作不可撤销。'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('取消'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('清空'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (ok != true || !mounted) return;
                     await LocalStore.clearSearchHistory();
                     if (mounted) setState(() => _history = []);
                   },
@@ -674,12 +696,27 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
           )
         else if (d == null)
           Padding(
-            padding: const EdgeInsets.only(top: 40),
-            child: Text('详情加载失败，请点击「打开详情」重试',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    fontSize: 12.5,
-                    color: scheme.onSurface.withValues(alpha: 0.4))),
+            padding: const EdgeInsets.only(top: 32),
+            child: Column(
+              children: [
+                Text('详情加载失败',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        fontSize: 12.5,
+                        color: scheme.onSurface.withValues(alpha: 0.4))),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    // 新 key 重新发起（已有 key 已消费，复用会与旧请求错配）。
+                    final key = _fetchKey = '${_selectedSource!.id}::${_selected!.id}::retry';
+                    setState(() => _detailLoading = true);
+                    _loadDetail(_selectedSource!, _selected!.id, key);
+                  },
+                  icon: const Icon(Icons.refresh_rounded, size: 15),
+                  label: const Text('重试'),
+                ),
+              ],
+            ),
           )
         else if (d.description != null && d.description!.isNotEmpty) ...[
           const SizedBox(height: 18),

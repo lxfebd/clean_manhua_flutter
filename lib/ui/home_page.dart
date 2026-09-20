@@ -40,6 +40,7 @@ class HomePageState extends State<HomePage> {
   String? _error;
   bool _done = false; // 首屏请求是否已结束（区分加载中与空结果）
   bool _loadMoreFailed = false; // 分页加载失败（非空列表时仅影响尾部重试条）
+  bool _noMore = false; // 源已返回空页：底部展示"没有更多了"，停止空转请求
   final _searchCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   List<Category> _cats = [];
@@ -65,6 +66,7 @@ class HomePageState extends State<HomePage> {
       if (mounted) setState(() => _cats = cats);
     } catch (e) {
       ErrorLogger.instance.warn('loadCategories failed: $e');
+      if (mounted) AppToast.info(context, '分类列表加载失败，请稍后重试');
     }
   }
 
@@ -78,6 +80,7 @@ class HomePageState extends State<HomePage> {
     _error = null;
     _done = false;
     _loadMoreFailed = false;
+    _noMore = false;
     _loadGen++; // 作废在途旧请求
     // 记录旧列表与滚动偏移：成功后替换数据并把滚动位置跳回原位。
     final restoreOffset =
@@ -153,6 +156,7 @@ class HomePageState extends State<HomePage> {
   }
 
   void _onScroll() {
+    if (_noMore || _loading) return;
     if (_scrollCtrl.position.pixels >
         _scrollCtrl.position.maxScrollExtent - 400) {
       _loadMore();
@@ -161,13 +165,14 @@ class HomePageState extends State<HomePage> {
 
   Future<void> _loadMore(
       {bool replaceFirst = false, double? restoreOffset}) async {
-    if (_loading) return;
+    if (_loading || _noMore) return;
     _loading = true;
     final gen = _loadGen;
     // 异步续体可能在组件被 dispose 后恢复（切 tab / 换源），
     // 此时必须带 mounted 保护，否则 setState 在 _element 为 null 时抛 Null check。
     if (mounted && _items.isEmpty) setState(() => _error = null);
     _loadMoreFailed = false;
+    _noMore = false;
     final source = SourceManager.current;
     final next = _page;
     try {
@@ -184,6 +189,10 @@ class HomePageState extends State<HomePage> {
       }
       // 换源/切分类后旧请求作废：不覆写新列表，也不更新滚动位置。
       if (!mounted || gen != _loadGen) return;
+      // 空页 = 已到底：置标记停止后续空转请求，尾部展示"没有更多了"。
+      if (r.isEmpty) {
+        if (mounted) setState(() => _noMore = true);
+      }
       if (replaceFirst) {
         // 刷新模式：用第一页结果整体替换旧列表
         setState(() {
@@ -378,6 +387,20 @@ class HomePageState extends State<HomePage> {
                       style: TextStyle(
                           fontSize: 12.5, color: theme.colorScheme.primary)),
                 ),
+              ),
+            ),
+          ),
+        // 已到底：底部展示结束提示，避免列表戛然而止
+        if (_noMore && _items.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Center(
+                child: Text('已经到底啦',
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.onSurface
+                            .withValues(alpha: 0.35))),
               ),
             ),
           ),
@@ -1507,26 +1530,36 @@ class _LoadingDotsState extends State<_LoadingDots>
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Center(
-      child: AnimatedBuilder(
-        animation: _c,
-        builder: (_, __) {
-          return Row(
-            mainAxisSize: MainAxisSize.min,
-            children: List.generate(3, (i) {
-              final t = ((_c.value + i / 3) % 1.0);
-              final opacity = (1.0 - (t - 0.5).abs() * 2).clamp(0.2, 1.0);
-              return Container(
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: scheme.primary.withValues(alpha: opacity),
-                ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedBuilder(
+            animation: _c,
+            builder: (_, __) {
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: List.generate(3, (i) {
+                  final t = ((_c.value + i / 3) % 1.0);
+                  final opacity = (1.0 - (t - 0.5).abs() * 2).clamp(0.2, 1.0);
+                  return Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: scheme.primary.withValues(alpha: opacity),
+                    ),
+                  );
+                }),
               );
-            }),
-          );
-        },
+            },
+          ),
+          const SizedBox(height: 10),
+          Text('正在加载…',
+              style: TextStyle(
+                  fontSize: 12,
+                  color: scheme.onSurface.withValues(alpha: 0.45))),
+        ],
       ),
     );
   }
