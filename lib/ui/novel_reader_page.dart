@@ -309,6 +309,8 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
 
   void _go(String? chapterId) {
     if (chapterId == null) return;
+    if (chapterId == _curChapterId) return; // 同章重复点击（含快速连点）
+    if (_loading) return; // 切章加载中忽略重复点击，防并发请求
     HapticFeedback.lightImpact();
     // 换章前落盘当前章进度（防抖计时器未触发就切走的情况）。
     if (_content != null) _recordHistory(_content!.title);

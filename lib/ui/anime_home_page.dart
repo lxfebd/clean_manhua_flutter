@@ -132,17 +132,6 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
     super.dispose();
   }
 
-  void _refresh() {
-    _page = 1;
-    _items.clear();
-    _error = null;
-    _noMore = false;
-    _loadMoreError = false;
-    _autoLoadCount = 0;
-    setState(() {});
-    _loadMore();
-  }
-
   void _onScroll() {
     if (_noMore) return;
     if (_scrollCtrl.position.pixels >
@@ -156,6 +145,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
     _loading = true;
     _loadMoreError = false;
     final source = _source;
+    final token = _loadToken; // 本次请求的代际：响应到达时代际不符则丢弃
     final next = _page;
     try {
       List<ComicItem> r;
@@ -172,27 +162,26 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
         default:
           r = await source.listByCategory(defaultCat, next);
       }
-      if (mounted) {
-        setState(() {
-          if (r.isEmpty) {
-            _noMore = true;
-          } else {
-            // 源站分页会漂移（同一作品跨页重复，如 tvtfun 的 331164 半妖的夜叉姬）；
-            // 合并后按 id 去重，避免往下拉时重复出现上面的动漫。
-            // 注意：必须先构造合并结果再一次性替换 —— 若先 clear() 再合并，
-            // 展开的 _items 已是空列表，后加载的页会把之前所有页"顶掉"，
-            // 表现为滚动到底后整页重刷（列表只剩加载页数据、滚动位置丢失）。
-            final merged = _dedup([..._items, ...r]);
-            _items
-              ..clear()
-              ..addAll(merged);
-            _page++;
-          }
-        });
-        _maybeAutoLoadMore();
-      }
+      if (!mounted || token != _loadToken) return; // 期间已切源/刷新：丢弃旧结果
+      setState(() {
+        if (r.isEmpty) {
+          _noMore = true;
+        } else {
+          // 源站分页会漂移（同一作品跨页重复，如 tvtfun 的 331164 半妖的夜叉姬）；
+          // 合并后按 id 去重，避免往下拉时重复出现上面的动漫。
+          // 注意：必须先构造合并结果再一次性替换 —— 若先 clear() 再合并，
+          // 展开的 _items 已是空列表，后加载的页会把之前所有页"顶掉"，
+          // 表现为滚动到底后整页重刷（列表只剩加载页数据、滚动位置丢失）。
+          final merged = _dedup([..._items, ...r]);
+          _items
+            ..clear()
+            ..addAll(merged);
+          _page++;
+        }
+      });
+      _maybeAutoLoadMore();
     } catch (e) {
-      if (mounted) {
+      if (mounted && token == _loadToken) {
         if (_items.isEmpty) {
           setState(() => _error = '加载失败：$e');
         } else {
@@ -230,6 +219,23 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
         _loadMore();
       }
     });
+  }
+
+  /// 加载代际：切源/切分类/刷新时自增，使在途旧请求的结果作废，
+  /// 避免「加载中切源 → 旧请求完成停空态、新列表永不加载」的竞态。
+  int _loadToken = 0;
+
+  void _refresh() {
+    _loadToken++; // 作废在途请求（旧响应到达后按 token 丢弃）
+    _loading = false; // 放行新请求（旧请求 finally 复位无害）
+    _page = 1;
+    _items.clear();
+    _error = null;
+    _noMore = false;
+    _loadMoreError = false;
+    _autoLoadCount = 0;
+    setState(() {});
+    _loadMore();
   }
 
   @override

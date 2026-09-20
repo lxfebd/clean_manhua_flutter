@@ -31,6 +31,7 @@ class ToolboxPageState extends State<ToolboxPage> {
   // 缓存
   int _cacheBytes = 0;
   int _cacheCount = 0;
+  bool _cacheLoaded = false; // 首次缓存扫描完成前不显示「暂无缓存」
   bool _busyCache = false;
 
   // 当前选中的工具分类（平板模式）
@@ -61,8 +62,17 @@ class ToolboxPageState extends State<ToolboxPage> {
       setState(() {
         _cacheBytes = sum;
         _cacheCount = files.length;
+        _cacheLoaded = true;
       });
     }
+  }
+
+  /// 缓存状态文案：扫描完成前显示「计算中…」，避免首帧误显示「暂无缓存」。
+  String _cacheLabel() {
+    if (!_cacheLoaded) return '计算中…';
+    return _cacheCount > 0
+        ? '${_fmtSize(_cacheBytes)} · $_cacheCount 个文件'
+        : '暂无缓存';
   }
 
   Future<void> _clearCache() async {
@@ -554,9 +564,7 @@ class ToolboxPageState extends State<ToolboxPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      _cacheCount > 0
-                          ? '${_fmtSize(_cacheBytes)} · $_cacheCount 个文件'
-                          : '暂无缓存',
+                      _cacheLabel(),
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: T.color(scheme.onSurface, TextTier.low,
                                 brightness: scheme.brightness),
@@ -704,9 +712,7 @@ class ToolboxPageState extends State<ToolboxPage> {
               scheme,
               icon: Icons.cleaning_services_outlined,
               title: '缓存清理',
-              subtitle: _cacheCount > 0
-                  ? '${_fmtSize(_cacheBytes)} · $_cacheCount 个文件'
-                  : '暂无缓存',
+              subtitle: _cacheLabel(),
               onTap: () => _openCachePanel(scheme),
             ),
             _toolTile(

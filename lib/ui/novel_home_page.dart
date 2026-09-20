@@ -24,6 +24,7 @@ class NovelHomePage extends StatefulWidget {
 
 class _NovelHomePageState extends State<NovelHomePage> {
   List<NovelSource> _sources = [];
+  bool _sourcesLoaded = false; // 源列表加载完成前不给空态，防「小说源即将接入」闪变
   String? _sourceId;
   final _scrollCtrl = ScrollController();
   bool _loading = false;
@@ -42,6 +43,7 @@ class _NovelHomePageState extends State<NovelHomePage> {
     if (!mounted) return;
     setState(() {
       _sources = srcs;
+      _sourcesLoaded = true;
       _sourceId = srcs.isNotEmpty ? srcs.first.id : null;
       _shelf = NovelShelfStore.listAll();
     });
@@ -122,7 +124,23 @@ class _NovelHomePageState extends State<NovelHomePage> {
             ),
           ),
           _shelfGrid(scheme),
-          if (_sources.isNotEmpty) ...[
+          if (!_sourcesLoaded)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 32),
+                child: Center(
+                  child: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: scheme.primary,
+                    ),
+                  ),
+                ),
+              ),
+            )
+          else if (_sources.isNotEmpty) ...[
             SliverToBoxAdapter(
               child: Padding(
                 padding: EdgeInsets.symmetric(

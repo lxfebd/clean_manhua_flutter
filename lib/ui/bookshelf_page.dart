@@ -2159,7 +2159,9 @@ class BookshelfPageState extends State<BookshelfPage>
         duration: const Duration(seconds: 4),
       );
     } catch (_) {
-      if (mounted) setState(() => _checkingUpdate = false);
+      if (!mounted) return;
+      setState(() => _checkingUpdate = false);
+      AppToast.error(context, '检查更新失败，请稍后重试');
     }
   }
 

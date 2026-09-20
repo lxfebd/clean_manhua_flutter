@@ -629,6 +629,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _openDetail(ComicItem it) {
+    if (_openingDetail) return; // 防连点：push 动画期间忽略重复点击
+    _openingDetail = true;
     HapticFeedback.selectionClick();
     Navigator.push(
       context,
@@ -653,8 +655,12 @@ class _HomePageState extends State<HomePage> {
           );
         },
       ),
-    );
+    ).then((_) {
+      _openingDetail = false; // 返回后释放锁
+    });
   }
+
+  bool _openingDetail = false; // 详情页 push 防连点锁
 
   /// 桌面右键菜单：查看详情 / 复制标题（Fluent ContextMenu 惯例）。
   List<CtxMenuItem> _cardMenu(ComicItem it) => [
@@ -1536,8 +1542,17 @@ class _EmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final isSearch = mode == 'search';
-    final text = isSearch ? '没有找到相关结果' : '该分类暂时没有内容';
-    final subtitle = isSearch ? '换个关键词试试，或点击右侧搜索全源内容' : '换个分类看看，精彩内容持续更新中';
+    final isRank = mode == 'rank';
+    final text = isSearch
+        ? '没有找到相关结果'
+        : isRank
+            ? '排行榜暂无内容'
+            : '该分类暂时没有内容';
+    final subtitle = isSearch
+        ? '换个关键词试试，或点击右侧搜索全源内容'
+        : isRank
+            ? '下拉刷新试试，精彩内容持续更新中'
+            : '换个分类看看，精彩内容持续更新中';
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
