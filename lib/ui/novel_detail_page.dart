@@ -33,6 +33,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
   String? _error;
   bool _saved = false;
   bool _descExpanded = false; // 平板左侧窄面板长简介折叠
+  bool _openingChapter = false; // 防连点：进入阅读器期间忽略重复点击
 
   @override
   void initState() {
@@ -87,36 +88,43 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
   }
 
   void _openChapter(NovelChapter ch) async {
+    // 防连点：history() await 期间重复点击会 push 多个阅读器。
+    if (_openingChapter) return;
+    _openingChapter = true;
     HapticFeedback.selectionClick();
-    final d = _detail!;
-    final hist = await LocalStore.history();
-    final key = Bookmark(
-            sourceId: widget.sourceId, comicId: widget.novelId, name: '', pic: '')
-        .key;
-    // 倒序找最新一条：同一章节被多次记录时取最近一次位置。
-    var scrollOffset = 0.0;
-    for (final h in hist.reversed) {
-      if (h.book.key == key && h.chapterId == ch.id) {
-        scrollOffset = h.scrollOffset;
-        break;
+    try {
+      final d = _detail!;
+      final hist = await LocalStore.history();
+      final key = Bookmark(
+              sourceId: widget.sourceId, comicId: widget.novelId, name: '', pic: '')
+          .key;
+      // 倒序找最新一条：同一章节被多次记录时取最近一次位置。
+      var scrollOffset = 0.0;
+      for (final h in hist.reversed) {
+        if (h.book.key == key && h.chapterId == ch.id) {
+          scrollOffset = h.scrollOffset;
+          break;
+        }
       }
-    }
-    if (!mounted) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => NovelReaderPage(
-          sourceId: widget.sourceId,
-          novelId: widget.novelId,
-          chapterId: ch.id,
-          title: ch.title,
-          novelName: d.name,
-          novelPic: d.pic ?? '',
-          novelAuthor: d.author ?? d.comic.author ?? '',
-          initialOffset: scrollOffset,
+      if (!mounted) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => NovelReaderPage(
+            sourceId: widget.sourceId,
+            novelId: widget.novelId,
+            chapterId: ch.id,
+            title: ch.title,
+            novelName: d.name,
+            novelPic: d.pic ?? '',
+            novelAuthor: d.author ?? d.comic.author ?? '',
+            initialOffset: scrollOffset,
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      _openingChapter = false;
+    }
   }
 
   @override

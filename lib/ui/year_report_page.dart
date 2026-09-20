@@ -29,6 +29,7 @@ class _YearReportPageState extends State<YearReportPage> {
   Map<String, dynamic> _streak = const {};
   Map<String, dynamic> _bestDay = const {};
   bool _loading = true;
+  bool _loadError = false;
 
   @override
   void initState() {
@@ -37,23 +38,36 @@ class _YearReportPageState extends State<YearReportPage> {
   }
 
   Future<void> _load() async {
-    final months = await LocalStore.yearReadingMonths(_year);
-    final total = await LocalStore.yearReadingSeconds(_year);
-    final active = await LocalStore.activeReadingDays(_year);
-    final streak = await LocalStore.yearReadingStreak(_year);
-    final bestDay = await LocalStore.yearBestDay(_year);
-    if (!mounted) return;
-    setState(() {
-      _months = months;
-      _totalSeconds = total;
-      _activeDays = active;
-      _streak = streak;
-      _bestDay = bestDay;
-      _loading = false;
-    });
+    try {
+      final months = await LocalStore.yearReadingMonths(_year);
+      final total = await LocalStore.yearReadingSeconds(_year);
+      final active = await LocalStore.activeReadingDays(_year);
+      final streak = await LocalStore.yearReadingStreak(_year);
+      final bestDay = await LocalStore.yearBestDay(_year);
+      if (!mounted) return;
+      setState(() {
+        _months = months;
+        _totalSeconds = total;
+        _activeDays = active;
+        _streak = streak;
+        _bestDay = bestDay;
+        _loading = false;
+        _loadError = false;
+      });
+    } catch (_) {
+      // 本地读取异常：不永久转圈，显示错误态可重试。
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadError = true;
+        });
+      }
+    }
   }
 
   String _fmt(int sec) {
+    // 0 秒（如日均截断后为 0）显示「不足1分钟」，不误导为「0秒」。
+    if (sec <= 0) return '不足1分钟';
     if (sec < 60) return '$sec秒';
     if (sec < 3600) return '${sec ~/ 60}分钟';
     final h = sec ~/ 3600;
@@ -87,7 +101,9 @@ class _YearReportPageState extends State<YearReportPage> {
               constraints: const BoxConstraints(maxWidth: 900),
               child: _loading
                   ? const Center(child: CircularProgressIndicator(strokeWidth: 2.5))
-                  : _buildBody(context, scheme, text),
+                  : _loadError
+                      ? _ErrorState(onRetry: _load)
+                      : _buildBody(context, scheme, text),
             ),
           ),
         ),
@@ -472,6 +488,44 @@ class _EmptyState extends StatelessWidget {
             FilledButton.tonal(
               onPressed: onRetry,
               child: const Text('刷新'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 错误态：本地数据读取失败，可重试。
+class _ErrorState extends StatelessWidget {
+  final VoidCallback onRetry;
+  const _ErrorState({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(S.x24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline_rounded,
+                size: 48, color: scheme.onSurface.withValues(alpha: 0.3)),
+            const SizedBox(height: S.x12),
+            Text('报告数据加载失败', style: text.titleMedium),
+            const SizedBox(height: S.x8),
+            Text('读取本地阅读数据时出错',
+                style: text.bodySmall?.copyWith(
+                  color: T.color(scheme.onSurface, TextTier.low,
+                      brightness: scheme.brightness),
+                )),
+            const SizedBox(height: S.x16),
+            FilledButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('重试'),
             ),
           ],
         ),

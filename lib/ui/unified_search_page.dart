@@ -28,7 +28,9 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
   bool _loading = true;
   String? _error; // 搜索失败原因（非空时展示错误态并提供重试）
   bool _loadingMore = false; // 正在加载下一页
+  bool _loadMoreError = false; // 加载更多失败（尾部显示重试条）
   bool _hasMore = false; // 任一源还有下一页
+  int _failedCount = 0; // 本次搜索请求失败的源数量（部分失败时展示提示条）
   final _searchCtrl = TextEditingController();
 
   // 双栏预览（≥840dp）：右侧面板当前选中的结果与其详情。
@@ -70,16 +72,23 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
     });
     try {
       final enabled = await SourceManager.enabledSources();
-      final futures = <Future<List<ComicItem>>>[
+      final futures = <Future<(List<ComicItem>, bool)>>[
         for (final s in enabled) _safeSearch(s, kw, 1),
       ];
       final all = await Future.wait(futures, eagerError: false);
       if (!mounted) return;
+      var failed = 0;
       final list = <_SourceResult>[];
       var anyMore = false;
+      var matched = false;
       for (var i = 0; i < enabled.length; i++) {
-        final items = all[i];
+        final (items, isFailed) = all[i];
+        if (isFailed) {
+          failed++;
+          continue;
+        }
         if (items.isNotEmpty) {
+          matched = true;
           list.add(_SourceResult(source: enabled[i], items: items, page: 1));
           // 一页就能拉满的源（数量少于页容量）视为没有更多
           anyMore = anyMore || items.length >= _pageSize;
@@ -87,11 +96,25 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
       }
       _fetchKey = ''; // 新搜索作废旧预览请求
       LocalStore.addSearchHistory(kw); // 记录搜索历史（失败也记录，便于重试）
+      if (!matched) {
+        // 全部源都失败（断网/被墙）：进错误态而不是误导为"没有结果"。
+        setState(() {
+          _loading = false;
+          _results = [];
+          _hasMore = false;
+          _error = failed > 0
+              ? '搜索失败：全部 $failed 个源请求失败（可能是网络或源站问题）'
+              : '没有找到「$kw」相关的结果';
+        });
+        return;
+      }
       setState(() {
         _results = list;
         _loading = false;
         _loadingMore = false;
+        _loadMoreError = false;
         _hasMore = anyMore;
+        _failedCount = failed;
         _selected = null;
         _selectedSource = null;
         _selectedDetail = null;
@@ -126,18 +149,29 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
     if (_loading || _loadingMore || !_hasMore) return;
     final kw = _searchCtrl.text.trim();
     if (kw.isEmpty || _results.isEmpty) return;
-    setState(() => _loadingMore = true);
+    setState(() {
+      _loadingMore = true;
+      _loadMoreError = false;
+    });
     try {
-      final futures = <Future<List<ComicItem>>>[
+      final futures = <Future<(List<ComicItem>, bool)>>[
         for (final r in _results) _safeSearch(r.source, kw, r.page + 1),
       ];
       final all = await Future.wait(futures, eagerError: false);
       if (!mounted) return;
-      var anyMore = false;
+      // 该源下一页失败且当前没有任何结果时，先保留已有结果并提示可重试。
       final updated = <_SourceResult>[];
+      var failedAny = false;
+      var anyMore = false;
       for (var i = 0; i < _results.length; i++) {
         final r = _results[i];
-        final newItems = all[i];
+        final (newItems, isFailed) = all[i];
+        if (isFailed) {
+          failedAny = true;
+          // 失败源保留旧页数据（不丢已有结果），仅追加失败源无更多标记。
+          updated.add(r);
+          continue;
+        }
         if (newItems.isEmpty) {
           updated.add(r); // 该源没有更多了，保持现状
           continue;
@@ -155,22 +189,30 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
       setState(() {
         _results = updated;
         _loadingMore = false;
+        _loadMoreError = failedAny;
         _hasMore = anyMore;
       });
     } catch (_) {
-      if (mounted) setState(() => _loadingMore = false);
+      if (mounted) {
+        setState(() {
+          _loadingMore = false;
+          _loadMoreError = true;
+        });
+      }
     }
   }
 
   /// 单源搜索的容错包装：失败/超时返回空列表，绝不让一个源的异常
   /// 拖垮 `Future.wait` 里的其他源结果（被墙/验证码/反爬都只是该源无结果）。
-  Future<List<ComicItem>> _safeSearch(
+  /// 返回 `(items, failed)`：failed 标记该源请求是否真正失败（区别于无结果）。
+  Future<(List<ComicItem>, bool)> _safeSearch(
       ComicSource src, String keyword, int page) async {
     try {
-      return await src.search(keyword, page)
+      final items = await src.search(keyword, page)
           .timeout(const Duration(seconds: 15));
+      return (items, false);
     } catch (_) {
-      return const [];
+      return (const <ComicItem>[], true);
     }
   }
 
@@ -414,22 +456,50 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
           Responsive.pagePadding(context), 4,
           Responsive.pagePadding(context),
           (Responsive.isTablet(context) ? 24 : 110)),
-      itemCount: _results.length + 1,
+      itemCount: _results.length + (_failedCount > 0 ? 1 : 0) + 1,
       itemBuilder: (_, i) {
-        if (i == _results.length) return _buildListFooter();
+        if (_failedCount > 0 && i == _results.length) {
+          return _buildFailedHint(scheme);
+        }
+        final resultIdx = i;
+        if (resultIdx >= _results.length) {
+          return _buildListFooter();
+        }
         return _SourceResultGroup(
-          result: _results[i],
+          result: _results[resultIdx],
           selected: _selected,
           selectedSourceId: _selectedSource?.id,
           compact: compactCards,
           // 双栏模式：点卡片 = 选中并在右侧预览（master-detail）；
           // 单栏模式：点卡片 = 直接进详情页。
           onTap: (item) => compactCards
-              ? _openDetail(_results[i].source, item)
-              : _select(_results[i].source, item),
-          onHover: (item) => _scheduleSelect(_results[i].source, item),
+              ? _openDetail(_results[resultIdx].source, item)
+              : _select(_results[resultIdx].source, item),
+          onHover: (item) => _scheduleSelect(_results[resultIdx].source, item),
         );
       },
+    );
+  }
+
+  /// 部分源失败提示条（结果列表顶部，不阻断其余源结果）。
+  Widget _buildFailedHint(ColorScheme scheme) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 12, 4, 4),
+      child: Row(
+        children: [
+          Icon(Icons.cloud_off_rounded,
+              size: 15, color: scheme.onSurface.withValues(alpha: 0.5)),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              '$_failedCount 个源请求失败，已展示其余源结果',
+              style: TextStyle(
+                  fontSize: 12,
+                  color: scheme.onSurface.withValues(alpha: 0.55)),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -438,6 +508,21 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
   /// 列表尾部：滚动触发加载下一页；无更多时显示到底提示。
   Widget _buildListFooter() {
     final scheme = Theme.of(context).colorScheme;
+    // 加载更多失败：显示重试条，点击重新拉取下一页。
+    if (_loadMoreError) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        child: Center(
+          child: TextButton.icon(
+            onPressed: _loadMore,
+            icon: Icon(Icons.refresh_rounded,
+                size: 16, color: scheme.primary),
+            label: Text('加载更多失败，点此重试',
+                style: TextStyle(fontSize: 12.5, color: scheme.primary)),
+          ),
+        ),
+      );
+    }
     // 滚动触底即加载下一页（滚近底部时提前触发，避免等到底部才闪现加载态）
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_loadingMore && _hasMore &&

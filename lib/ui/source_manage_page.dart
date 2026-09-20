@@ -47,21 +47,27 @@ class _SourceManagePageState extends State<SourceManagePage> {
   }
 
   Future<void> _toggleEnabled(SourceConfig cfg, bool value) async {
-    await SourceConfigStore.save(SourceConfig(
-      engineId: cfg.engineId,
-      id: cfg.id,
-      name: cfg.name,
-      iconUrl: cfg.iconUrl,
-      hosts: cfg.hosts,
-      imageHosts: cfg.imageHosts,
-      headers: cfg.headers,
-      requiresLogin: cfg.requiresLogin,
-      isEnabled: value,
-      tier: cfg.tier,
-      proxy: cfg.proxy,
-    ));
-    await SourceManager.ensureEnabledCurrent();
-    await _load();
+    try {
+      await SourceConfigStore.save(SourceConfig(
+        engineId: cfg.engineId,
+        id: cfg.id,
+        name: cfg.name,
+        iconUrl: cfg.iconUrl,
+        hosts: cfg.hosts,
+        imageHosts: cfg.imageHosts,
+        headers: cfg.headers,
+        requiresLogin: cfg.requiresLogin,
+        isEnabled: value,
+        tier: cfg.tier,
+        proxy: cfg.proxy,
+      ));
+      await SourceManager.ensureEnabledCurrent();
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      AppToast.error(context, '「${cfg.name}」启停失败：$e');
+      await _load(); // 回弹开关到真实状态，避免 UI 与存储不一致
+    }
   }
 
   Future<void> _edit(SourceConfig cfg) async {
@@ -674,8 +680,22 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
   }
 
   Future<void> _toggle(CustomSourceDef def, bool enabled) async {
-    await SourcePluginManager.instance.setEnabled(def.id, enabled);
-    await _load();
+    try {
+      final registered = SourcePluginManager.instance.byId(def.id) != null;
+      await SourcePluginManager.instance.setEnabled(def.id, enabled);
+      await _load();
+      if (!mounted) return;
+      if (!registered) {
+        AppToast.error(context, '「${def.name}」未在运行时注册，启停未生效',
+            duration: const Duration(seconds: 3));
+      } else {
+        AppToast.info(context, '已${enabled ? "启用" : "停用"}「${def.name}」');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      AppToast.error(context, '「${def.name}」启停失败：$e');
+      await _load(); // 回弹开关到真实状态
+    }
   }
 
   Future<String?> _promptText(String title, String label) async {

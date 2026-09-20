@@ -47,6 +47,7 @@ class ProfilePageState extends State<ProfilePage> {
   bool _recLoading = false;
   int _favorites = 0;
   bool _loaded = false;
+  bool _loadError = false;
   bool _dark = false;
   int _todaySec = 0;
   int _weekSec = 0;
@@ -59,27 +60,38 @@ class ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _load() async {
-    final h = await LocalStore.history();
-    final d = await LocalStore.downloads();
-    final fav = BookshelfStore.listAll().length;
-    final dark = await LocalStore.darkMode();
-    final today = await LocalStore.todayReadingSeconds();
-    final week = await LocalStore.weekReadingSeconds();
-    final total = await LocalStore.totalReadingSeconds();
-    if (mounted) {
-      setState(() {
-        _history = h;
-        _downloads = d;
-        _favorites = fav;
-        _dark = dark;
-        _todaySec = today;
-        _weekSec = week;
-        _totalSec = total;
-        _loaded = true;
-      });
+    try {
+      final h = await LocalStore.history();
+      final d = await LocalStore.downloads();
+      final fav = BookshelfStore.listAll().length;
+      final dark = await LocalStore.darkMode();
+      final today = await LocalStore.todayReadingSeconds();
+      final week = await LocalStore.weekReadingSeconds();
+      final total = await LocalStore.totalReadingSeconds();
+      if (mounted) {
+        setState(() {
+          _history = h;
+          _downloads = d;
+          _favorites = fav;
+          _dark = dark;
+          _todaySec = today;
+          _weekSec = week;
+          _totalSec = total;
+          _loaded = true;
+          _loadError = false;
+        });
+      }
+      // 本地推荐：独立于主加载，失败静默（不给推荐空态）。
+      _loadRecommends(h);
+    } catch (_) {
+      // 本地读取异常（损坏/IO）：不永久转圈，显示错误态可重试。
+      if (mounted) {
+        setState(() {
+          _loaded = true;
+          _loadError = true;
+        });
+      }
     }
-    // 本地推荐：独立于主加载，失败静默（不给推荐空态）。
-    _loadRecommends(h);
   }
 
   void _openRecommend(RecommendItem r) {
@@ -120,6 +132,32 @@ class ProfilePageState extends State<ProfilePage> {
       return Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
         body: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+    if (_loadError) {
+      // 本地数据读取失败：错误态 + 重试，不再永久转圈。
+      return Scaffold(
+        backgroundColor: theme.scaffoldBackgroundColor,
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline_rounded,
+                  size: 44, color: scheme.onSurface.withValues(alpha: 0.3)),
+              const SizedBox(height: 12),
+              Text('个人页数据加载失败',
+                  style: TextStyle(
+                      fontSize: 14,
+                      color: scheme.onSurface.withValues(alpha: 0.6))),
+              const SizedBox(height: 14),
+              FilledButton.icon(
+                onPressed: _load,
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('重试'),
+              ),
+            ],
+          ),
+        ),
       );
     }
     return Scaffold(

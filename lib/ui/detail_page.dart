@@ -736,6 +736,7 @@ class _DetailPageState extends State<DetailPage> {
 
   /// 完整章节列表底部弹窗。
   void _showAllChapters() {
+    // 数据量下很快（一次读表），但先给即时反馈避免"点了没反应"。
     _loadCachedChapters().then((_) {
       if (!mounted) return;
       _showAllChaptersSheet();
@@ -1009,15 +1010,27 @@ class _DetailPageState extends State<DetailPage> {
   }
 
   /// 预加载所有章节的缓存状态（用于章节列表显示 ✓）。
+  /// 一次读取全表 + key 前缀过滤（逐章 isDownloaded 会 O(N²) 全表重扫，
+  /// 章节多时让"查看全部/批量下载"按钮像点了没反应）。
   Future<void> _loadCachedChapters() async {
-    final bookKey = DownloadManager.bookKeyOf(widget.sourceId, _detail!.id);
-    final set = <String>{};
-    for (final ch in _detail!.chapters) {
-      final ok = await DownloadManager.isDownloaded(bookKey, ch.id);
-      if (ok) set.add(ch.id);
+    if (_chaptersBusy) return;
+    _chaptersBusy = true;
+    try {
+      final bookKey = DownloadManager.bookKeyOf(widget.sourceId, _detail!.id);
+      final prefix = '$bookKey::';
+      final all = await LocalStore.downloads();
+      final set = <String>{
+        for (final d in all)
+          if (d.finished == true && d.key.startsWith(prefix))
+            d.key.substring(prefix.length),
+      };
+      if (mounted) setState(() => _cachedChapters = set);
+    } finally {
+      _chaptersBusy = false;
     }
-    if (mounted) setState(() => _cachedChapters = set);
   }
+
+  bool _chaptersBusy = false;
 
   Set<String> _cachedChapters = {};
 

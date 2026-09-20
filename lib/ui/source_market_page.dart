@@ -24,6 +24,10 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
   String _query = '';
   final TextEditingController _searchCtrl = TextEditingController();
 
+  /// 本地已安装的自定义源版本表（id → 版本），供卡片同步判断
+  /// 安装/可更新/未安装，避免每卡异步查询造成按钮跳变闪烁。
+  final Map<String, String> _localVersions = {};
+
   @override
   void initState() {
     super.initState();
@@ -36,9 +40,16 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
       _error = null;
     });
     try {
-      final entries = await SourceMarket.fetchIndex();
+      // 并行：拉索引 + 读本地已装版本表；本地读取失败只回退空表，不阻塞市场。
+      final entriesF = SourceMarket.fetchIndex();
+      final localsF = _loadLocals();
+      final locals = await localsF;
+      final entries = await entriesF;
       if (mounted) {
         setState(() {
+          _localVersions
+            ..clear()
+            ..addEntries(locals.map((d) => MapEntry(d.id, d.version)));
           _entries = entries;
           _loading = false;
         });
@@ -53,6 +64,15 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
     }
   }
 
+  /// 读取本地已装源版本表（快，先于索引就绪），卡片同步拿到状态。
+  Future<List<CustomSourceDef>> _loadLocals() async {
+    try {
+      return await CustomSourceStore.all();
+    } catch (_) {
+      return const <CustomSourceDef>[];
+    }
+  }
+
   /// 安装/更新单个源。
   Future<void> _install(MarketSourceEntry entry) async {
     final ok = await SourceMarket.install(entry);
@@ -61,7 +81,7 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
         ? '已安装：${entry.name} v${entry.version}'
         : '安装失败：${entry.name} 校验未通过',
         error: !ok);
-    setState(() {}); // 刷新 installed 状态
+    setState(() => _localVersions[entry.id] = entry.version); // 刷新安装态
   }
 
   /// 卸载已安装的源（移除解析规则，书架收藏不受影响）。
@@ -96,7 +116,7 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
     AppToast.show(context,
         removed ? '已卸载：${entry.name}' : '卸载失败：${entry.name} 未找到',
         error: !removed);
-    setState(() {}); // 刷新 installed 状态
+    if (removed) setState(() => _localVersions.remove(entry.id)); // 刷新安装态
   }
 
   /// 确认安装对话框（第三方源风险提示）。
@@ -482,6 +502,7 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
       separatorBuilder: (_, __) => const SizedBox(height: 8),
       itemBuilder: (_, i) => _SourceTile(
         entry: visible[i],
+        localVersion: _localVersions[visible[i].id],
         onInstall: () => _confirmInstall(visible[i]),
         onUninstall: () => _uninstall(visible[i]),
         onDetail: () => _showDetail(visible[i]),
@@ -491,51 +512,29 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
 }
 
 /// 单条源市场卡片：名称/类型/版本/作者 + 安装/已安装/更新/卸载 状态。
-class _SourceTile extends StatefulWidget {
+class _SourceTile extends StatelessWidget {
   final MarketSourceEntry entry;
+
+  /// 本地已装版本（null=未安装），由页面预取同步传入，杜绝状态跳变。
+  final String? localVersion;
   final VoidCallback onInstall;
   final VoidCallback onUninstall;
   final VoidCallback onDetail;
 
   const _SourceTile({
     required this.entry,
+    required this.localVersion,
     required this.onInstall,
     required this.onUninstall,
     required this.onDetail,
   });
 
   @override
-  State<_SourceTile> createState() => _SourceTileState();
-}
-
-class _SourceTileState extends State<_SourceTile> {
-  /// 当前安装状态：null=计算中，"installed"=已安装，"update"=可更新，"new"=未安装。
-  String? _state;
-
-  @override
-  void initState() {
-    super.initState();
-    _computeState();
-  }
-
-  Future<void> _computeState() async {
-    final installed = await widget.entry.installed();
-    if (!mounted) return;
-    if (installed) {
-      setState(() => _state = 'installed');
-      return;
-    }
-    final needs = await widget.entry.needsUpdate();
-    if (!mounted) return;
-    setState(() => _state = needs ? 'update' : 'new');
-  }
-
-  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final entry = widget.entry;
-    final isInstalled = _state == 'installed';
-    final isUpdate = _state == 'update';
+    final entry = this.entry;
+    final isInstalled = localVersion == entry.version;
+    final isUpdate = localVersion != null && !isInstalled;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -620,28 +619,28 @@ Expanded(
                     icon: Icon(Icons.rule_rounded,
                         size: 17,
                         color: theme.colorScheme.onSurface.withValues(alpha: 0.4)),
-                    onPressed: widget.onDetail,
+                    onPressed: onDetail,
                   ),
                   const SizedBox(width: 8),
-          isInstalled
-              ? TextButton(
-                  onPressed: widget.onUninstall,
-                  style: TextButton.styleFrom(
-                    foregroundColor: theme.colorScheme.error,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 6),
-                  ),
-                  child: const Text('卸载', style: TextStyle(fontSize: 12)),
-                )
-              : FilledButton.tonal(
-                  onPressed: widget.onInstall,
-                  style: FilledButton.styleFrom(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  ),
-                  child: Text(isUpdate ? '更新' : '安装',
-                      style: const TextStyle(fontSize: 12.5)),
-                ),
+                  isInstalled
+                      ? TextButton(
+                          onPressed: onUninstall,
+                          style: TextButton.styleFrom(
+                            foregroundColor: theme.colorScheme.error,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
+                          ),
+                          child: const Text('卸载', style: TextStyle(fontSize: 12)),
+                        )
+                      : FilledButton.tonal(
+                          onPressed: onInstall,
+                          style: FilledButton.styleFrom(
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          ),
+                          child: Text(isUpdate ? '更新' : '安装',
+                              style: const TextStyle(fontSize: 12.5)),
+                        ),
         ],
       ),
     );
