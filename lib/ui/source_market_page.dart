@@ -28,6 +28,8 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
   /// 本地已安装的自定义源版本表（id → 版本），供卡片同步判断
   /// 安装/可更新/未安装，避免每卡异步查询造成按钮跳变闪烁。
   final Map<String, String> _localVersions = {};
+  /// 正在安装/卸载的源 id：该卡按钮禁用并显示 spinner，防连点。
+  String? _busyId;
 
   @override
   void initState() {
@@ -79,13 +81,19 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
 
   /// 安装/更新单个源。
   Future<void> _install(MarketSourceEntry entry) async {
-    final ok = await SourceMarket.install(entry);
-    if (!mounted) return;
-    AppToast.show(context, ok
-        ? '已安装：${entry.name} v${entry.version}'
-        : '安装失败：${entry.name} 校验未通过',
-        error: !ok);
-    setState(() => _localVersions[entry.id] = entry.version); // 刷新安装态
+    if (_busyId != null) return; // 防连点：一次只处理一个源
+    setState(() => _busyId = entry.id);
+    try {
+      final ok = await SourceMarket.install(entry);
+      if (!mounted) return;
+      AppToast.show(context, ok
+          ? '已安装：${entry.name} v${entry.version}'
+          : '安装失败：${entry.name} 校验未通过',
+          error: !ok);
+      setState(() => _localVersions[entry.id] = entry.version); // 刷新安装态
+    } finally {
+      if (mounted) setState(() => _busyId = null);
+    }
   }
 
   /// 卸载已安装的源（移除解析规则，书架收藏不受影响）。
@@ -115,12 +123,18 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
       ),
     );
     if (ok != true) return;
-    final removed = await CustomSourceStore.remove(entry.id);
-    if (!mounted) return;
-    AppToast.show(context,
-        removed ? '已卸载：${entry.name}' : '卸载失败：${entry.name} 未找到',
-        error: !removed);
-    if (removed) setState(() => _localVersions.remove(entry.id)); // 刷新安装态
+    if (_busyId != null) return; // 防连点
+    setState(() => _busyId = entry.id);
+    try {
+      final removed = await CustomSourceStore.remove(entry.id);
+      if (!mounted) return;
+      AppToast.show(context,
+          removed ? '已卸载：${entry.name}' : '卸载失败：${entry.name} 未找到',
+          error: !removed);
+      if (removed) setState(() => _localVersions.remove(entry.id)); // 刷新安装态
+    } finally {
+      if (mounted) setState(() => _busyId = null);
+    }
   }
 
   /// 确认安装对话框（第三方源风险提示）。
@@ -507,6 +521,7 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
       itemBuilder: (_, i) => _SourceTile(
         entry: visible[i],
         localVersion: _localVersions[visible[i].id],
+        busy: _busyId == visible[i].id,
         onInstall: () => _confirmInstall(visible[i]),
         onUninstall: () => _uninstall(visible[i]),
         onDetail: () => _showDetail(visible[i]),
@@ -521,6 +536,8 @@ class _SourceTile extends StatelessWidget {
 
   /// 本地已装版本（null=未安装），由页面预取同步传入，杜绝状态跳变。
   final String? localVersion;
+  /// 安装/卸载进行中：按钮禁用并显示小 spinner，防连点。
+  final bool busy;
   final VoidCallback onInstall;
   final VoidCallback onUninstall;
   final VoidCallback onDetail;
@@ -528,6 +545,7 @@ class _SourceTile extends StatelessWidget {
   const _SourceTile({
     required this.entry,
     required this.localVersion,
+    this.busy = false,
     required this.onInstall,
     required this.onUninstall,
     required this.onDetail,
@@ -628,22 +646,37 @@ Expanded(
                   const SizedBox(width: 8),
                   isInstalled
                       ? TextButton(
-                          onPressed: onUninstall,
+                          onPressed: busy ? null : onUninstall,
                           style: TextButton.styleFrom(
                             foregroundColor: theme.colorScheme.error,
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 10, vertical: 6),
                           ),
-                          child: const Text('卸载', style: TextStyle(fontSize: 12)),
+                          child: busy
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2),
+                                )
+                              : const Text('卸载',
+                                  style: TextStyle(fontSize: 12)),
                         )
                       : FilledButton.tonal(
-                          onPressed: onInstall,
+                          onPressed: busy ? null : onInstall,
                           style: FilledButton.styleFrom(
                             padding:
                                 const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                           ),
-                          child: Text(isUpdate ? '更新' : '安装',
-                              style: const TextStyle(fontSize: 12.5)),
+                          child: busy
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2),
+                                )
+                              : Text(isUpdate ? '更新' : '安装',
+                                  style: const TextStyle(fontSize: 12.5)),
                         ),
         ],
       ),

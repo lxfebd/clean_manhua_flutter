@@ -195,7 +195,9 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
           width: leftPanelWidth,
           // body 已在 AppBar 之下，不再叠加状态栏高度，避免顶部空洞错位。
           padding: EdgeInsets.fromLTRB(pad, 14, 8, 16),
-          child: Column(
+          // 长描述在矮屏/平板竖屏时左侧会超出视口：整列可滚动，杜绝溢出。
+          child: SingleChildScrollView(
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 2),
@@ -258,6 +260,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
                   ),
               ],
             ],
+            ),
           ),
         ),
         // ── 右侧：章节目录（可滚动） ─────────────────────

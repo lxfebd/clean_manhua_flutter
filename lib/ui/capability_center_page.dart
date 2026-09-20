@@ -168,6 +168,7 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
                 return _CapabilityCard(
                   plugin: p,
                   enabled: enabled,
+                  busy: _busyIds.contains(p.id),
                   categoryLabel: _categoryLabel(p.category),
                   onToggle: (v) => _toggle(p, v),
                   onSelfTest: p.id == 'utility.native' ? _selfTestNative : null,
@@ -184,6 +185,8 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
 class _CapabilityCard extends StatelessWidget {
   final CapabilityPlugin plugin;
   final bool enabled;
+  /// 启停切换进行中：开关禁用，防连点。
+  final bool busy;
   final String categoryLabel;
   final ValueChanged<bool> onToggle;
   final VoidCallback? onSelfTest;
@@ -192,6 +195,7 @@ class _CapabilityCard extends StatelessWidget {
   const _CapabilityCard({
     required this.plugin,
     required this.enabled,
+    this.busy = false,
     required this.categoryLabel,
     required this.onToggle,
     this.onSelfTest,
@@ -294,7 +298,7 @@ class _CapabilityCard extends StatelessWidget {
           Switch(
             value: enabled,
             // 内置能力可禁用（与源插件先例一致：启用状态持久化），仅卸载不可。
-            onChanged: onToggle,
+            onChanged: busy ? null : onToggle,
           ),
         ],
       ),

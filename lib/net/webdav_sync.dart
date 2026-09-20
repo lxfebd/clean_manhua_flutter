@@ -437,6 +437,9 @@ class WebDavSync {
   static Future<int> _localUploadTime() async =>
       (await LocalStore.readJson('webdav_last_upload') as num?)?.toInt() ?? 0;
 
+  /// 上次成功上传（push）的 UTC 毫秒时间戳；0 = 从未同步。供设置页展示。
+  static Future<int> lastSyncMillis() => _localUploadTime();
+
   /// 记录拉取时间（备用；目前仅供审计）。
   static Future<void> recordPull() async {
     await LocalStore.writeJson('webdav_last_pull', DateTime.now().toUtc().millisecondsSinceEpoch);

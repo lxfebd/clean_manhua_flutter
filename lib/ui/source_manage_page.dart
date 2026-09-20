@@ -26,6 +26,8 @@ class SourceManagePage extends StatefulWidget {
 class _SourceManagePageState extends State<SourceManagePage> {
   List<SourceConfig>? _cfgs;
   String? _error;
+  /// 启停切换进行中的源 id：开关禁用，防连点。
+  final Set<String> _togglingIds = {};
 
   @override
   void initState() {
@@ -48,6 +50,8 @@ class _SourceManagePageState extends State<SourceManagePage> {
   }
 
   Future<void> _toggleEnabled(SourceConfig cfg, bool value) async {
+    if (_togglingIds.contains(cfg.id)) return; // 防连点
+    setState(() => _togglingIds.add(cfg.id));
     try {
       await SourceConfigStore.save(SourceConfig(
         engineId: cfg.engineId,
@@ -69,6 +73,8 @@ class _SourceManagePageState extends State<SourceManagePage> {
       AppToast.error(context, '「${cfg.name}」启停失败，请重试');
       ErrorLogger.instance.warn('source ${cfg.name} toggle failed: $e');
       await _load(); // 回弹开关到真实状态，避免 UI 与存储不一致
+    } finally {
+      if (mounted) setState(() => _togglingIds.remove(cfg.id));
     }
   }
 
@@ -241,6 +247,7 @@ class _SourceManagePageState extends State<SourceManagePage> {
       separatorBuilder: (_, __) => const SizedBox(height: 8),
       itemBuilder: (_, i) => _SourceCard(
         cfg: cfgs[i],
+        busy: _togglingIds.contains(cfgs[i].id),
         onTap: () => _edit(cfgs[i]),
         onToggle: (v) => _toggleEnabled(cfgs[i], v),
       ),
@@ -250,9 +257,15 @@ class _SourceManagePageState extends State<SourceManagePage> {
 
 class _SourceCard extends StatelessWidget {
   final SourceConfig cfg;
+  final bool busy;
   final VoidCallback onTap;
   final ValueChanged<bool> onToggle;
-  const _SourceCard({required this.cfg, required this.onTap, required this.onToggle});
+  const _SourceCard({
+    required this.cfg,
+    this.busy = false,
+    required this.onTap,
+    required this.onToggle,
+  });
 
   String _tierLabel() {
     switch (cfg.tier) {
@@ -379,7 +392,7 @@ class _SourceCard extends StatelessWidget {
                   ),
                   Switch(
                     value: enabled,
-                    onChanged: onToggle,
+                    onChanged: busy ? null : onToggle,
                   ),
                   Icon(Icons.chevron_right_rounded,
                       size: 20, color: scheme.onSurface.withValues(alpha: 0.3)),
@@ -604,6 +617,8 @@ class CustomSourceManageDialog extends StatefulWidget {
 class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
   List<CustomSourceDef>? _defs;
   String? _error;
+  /// 启停切换进行中的源 id：开关禁用，防连点。
+  final Set<String> _togglingIds = {};
 
   @override
   void initState() {
@@ -682,6 +697,8 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
   }
 
   Future<void> _toggle(CustomSourceDef def, bool enabled) async {
+    if (_togglingIds.contains(def.id)) return; // 防连点
+    setState(() => _togglingIds.add(def.id));
     try {
       final registered = SourcePluginManager.instance.byId(def.id) != null;
       await SourcePluginManager.instance.setEnabled(def.id, enabled);
@@ -698,6 +715,8 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
       AppToast.error(context, '「${def.name}」启停失败，请重试');
       ErrorLogger.instance.warn('source ${def.id} toggle failed: $e');
       await _load(); // 回弹开关到真实状态
+    } finally {
+      if (mounted) setState(() => _togglingIds.remove(def.id));
     }
   }
 
@@ -807,6 +826,7 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
                         separatorBuilder: (_, __) => const SizedBox(height: 6),
                         itemBuilder: (_, i) => _CustomSourceTile(
                           def: defs[i],
+                          busy: _togglingIds.contains(defs[i].id),
                           enabled: SourcePluginManager.instance.isEnabledSync(defs[i].id),
                           onToggle: (v) => _toggle(defs[i], v),
                           onEdit: () => _openEditor(defs[i]),
@@ -828,6 +848,7 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
 class _CustomSourceTile extends StatelessWidget {
   final CustomSourceDef def;
   final bool enabled;
+  final bool busy;
   final ValueChanged<bool> onToggle;
   final VoidCallback onEdit;
   final VoidCallback onExport;
@@ -836,6 +857,7 @@ class _CustomSourceTile extends StatelessWidget {
   const _CustomSourceTile({
     required this.def,
     required this.enabled,
+    this.busy = false,
     required this.onToggle,
     required this.onEdit,
     required this.onExport,
@@ -880,7 +902,7 @@ class _CustomSourceTile extends StatelessWidget {
               ),
             ),
           ),
-          Switch(value: enabled, onChanged: onToggle),
+          Switch(value: enabled, onChanged: busy ? null : onToggle),
           IconButton(
             tooltip: '导出',
             iconSize: 17,

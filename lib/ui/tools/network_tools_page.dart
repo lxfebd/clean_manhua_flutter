@@ -357,7 +357,7 @@ class _NetworkToolsPageState extends State<NetworkToolsPage>
         TextField(
           controller: _cityCtrl,
           decoration: const InputDecoration(
-            hintText: '输入城市（当前按北京坐标查询）',
+            hintText: '输入城市，如 北京 / 上海 / Tokyo',
             isDense: true,
             border: OutlineInputBorder(),
           ),

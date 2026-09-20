@@ -60,6 +60,9 @@ class _SettingsPageState extends State<SettingsPage> {
     _load();
   }
 
+  /// WebDAV 入口副标题：显示最近同步时间（空 = 从未同步）。
+  String _webdavSyncText = '';
+
   Future<void> _load() async {
     try {
       final d = await LocalStore.darkMode();
@@ -69,6 +72,7 @@ class _SettingsPageState extends State<SettingsPage> {
       final dm = await LocalStore.danmakuSettings();
       final freq = await ShelfUpdater.frequency();
       final notify = await UpdateNotifier.enabled();
+      _webdavSyncText = await _syncText();
       if (mounted) {
         setState(() {
           _dark = d;
@@ -503,9 +507,11 @@ class _SettingsPageState extends State<SettingsPage> {
                   _SettingTile(
                     icon: Icons.cloud_sync_rounded,
                     title: 'WebDAV 同步',
-                    subtitle: WebDavSync.hasConfig
-                        ? '已配置 ${WebDavSync.config!['url']}'
-                        : (kIsWeb ? 'Web 端不支持' : '多端同步书架 / 进度 / 设置'),
+                    subtitle: !WebDavSync.hasConfig
+                        ? (kIsWeb ? 'Web 端不支持' : '多端同步书架 / 进度 / 设置')
+                        : (_webdavSyncText.isEmpty
+                            ? '已配置 ${WebDavSync.config!['url']}'
+                            : '$_webdavSyncText · ${WebDavSync.config!['url']}'),
                     enabled: !kIsWeb,
                     onTap: _openWebDav,
                   ),
@@ -866,6 +872,32 @@ class _SettingsPageState extends State<SettingsPage> {
         }
         return;
       }
+      // 覆盖确认：导入会用备份数据覆盖当前本地数据，不可恢复，必须二次确认。
+      if (!mounted) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('导入备份'),
+          content: const Text(
+            '导入将覆盖当前本地的书架、阅读历史与设置数据，且不可撤销。\n\n确定继续吗？',
+            style: TextStyle(fontSize: 13.5, height: 1.6),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(ctx).colorScheme.error,
+              ),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('覆盖导入'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return; // 取消导入
       // 恢复书架
       if (data['bookshelf'] is Map) {
         BookshelfStore.importData(data['bookshelf'] as Map<String, dynamic>);
@@ -997,9 +1029,37 @@ class _SettingsPageState extends State<SettingsPage> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (_) => _WebDavSheet(
-        onChanged: () => setState(() {}), // 刷新「已配置」副标题
+        onChanged: () async {
+          _webdavSyncText = await _syncText();
+          if (mounted) setState(() {});
+        },
       ),
     );
+  }
+
+  /// 最近一次 WebDAV 同步时间文案（空 = 从未同步）。
+  Future<String> _syncText() async {
+    try {
+      final ms = await WebDavSync.lastSyncMillis();
+      if (ms <= 0) return '';
+      final t = DateTime.fromMillisecondsSinceEpoch(ms).toLocal();
+      final now = DateTime.now();
+      String day;
+      if (t.year == now.year && t.month == now.month && t.day == now.day) {
+        day = '今天';
+      } else if (t
+          .isAfter(DateTime(now.year, now.month, now.day).subtract(
+              const Duration(days: 1)))) {
+        day = '昨天';
+      } else {
+        day = '${t.month}月${t.day}日';
+      }
+      final hh = t.hour.toString().padLeft(2, '0');
+      final mm = t.minute.toString().padLeft(2, '0');
+      return '上次同步：$day $hh:$mm';
+    } catch (_) {
+      return '';
+    }
   }
 
   void _showUpdateDialog(UpdateInfo info) {
