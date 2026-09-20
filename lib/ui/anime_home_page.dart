@@ -181,9 +181,10 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
       });
       _maybeAutoLoadMore();
     } catch (e) {
+      ErrorLogger.instance.warn('anime home loadMore failed: $e');
       if (mounted && token == _loadToken) {
         if (_items.isEmpty) {
-          setState(() => _error = '加载失败：$e');
+          setState(() => _error = '加载失败，请检查网络');
         } else {
           setState(() => _loadMoreError = true);
         }

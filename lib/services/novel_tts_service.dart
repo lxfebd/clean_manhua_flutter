@@ -38,6 +38,9 @@ class NovelTtsService {
   /// 播放状态翻转（UI 换图标用）。
   void Function(TtsPlayState state)? onStateChange;
 
+  /// 朗读中断（引擎故障 / 无语音引擎）时回调，UI 据此提示。
+  void Function()? onError;
+
   TtsPlayState _state = TtsPlayState.idle;
   TtsPlayState get state => _state;
 
@@ -68,6 +71,7 @@ class NovelTtsService {
       });
     } catch (e) {
       ErrorLogger.instance.warn('NovelTts init: $e');
+      onError?.call();
     }
   }
 
@@ -175,6 +179,7 @@ class NovelTtsService {
       ErrorLogger.instance.warn('NovelTts speak: $e');
       _accumulating = false;
       _setState(TtsPlayState.idle);
+      onError?.call();
     }
   }
 

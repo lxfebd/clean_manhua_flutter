@@ -698,7 +698,7 @@ class _SettingsPageState extends State<SettingsPage> {
       }
       // 移动端 saveFile 必须携带 bytes（桌面端仅弹出保存路径）。
       // 传 bytes 后 file_picker 会在用户选择的路径写入内容，全平台一致。
-      final bytes = File(path).readAsBytesSync();
+      final bytes = await File(path).readAsBytes();
       final result = await FilePicker.saveFile(
         dialogTitle: '导出错误日志',
         fileName: '星漫匣_日志_${DateTime.now().millisecondsSinceEpoch}.zip',
@@ -841,7 +841,7 @@ class _SettingsPageState extends State<SettingsPage> {
     );
     if (result == null || result.files.single.path == null) return;
     try {
-      var json = File(result.files.single.path!).readAsStringSync();
+      var json = await File(result.files.single.path!).readAsString();
       if (json.trimLeft().startsWith(BackupCipher.magic)) {
         final password = await _askBackupPassword(
           title: '备份已加密',

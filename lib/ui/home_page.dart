@@ -215,13 +215,14 @@ class _HomePageState extends State<HomePage> {
         }
       }
     } catch (e) {
+      ErrorLogger.instance.warn('home loadMore failed: $e');
       if (mounted) {
         String msg;
         if (kIsWeb && (e.toString().contains('Failed to fetch') ||
             e.toString().contains('CORS'))) {
           msg = '该源不支持浏览器访问（CORS 限制），请换用支持跨域的源（如 MangaDex）';
         } else {
-          msg = '加载失败，请检查网络\n$e';
+          msg = '加载失败，请检查网络';
         }
         setState(() {
           if (_items.isEmpty) {

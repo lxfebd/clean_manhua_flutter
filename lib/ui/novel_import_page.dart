@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../net/error_logger.dart';
 import '../sources/local_novel_source.dart';
 import 'novel_reader_page.dart';
 import 'widgets/app_toast.dart';
@@ -68,7 +69,8 @@ class _NovelImportPageState extends State<NovelImportPage> {
         ),
       );
     } catch (e) {
-      if (mounted) _toast('导入失败：$e');
+      ErrorLogger.instance.warn('novel import failed: $e');
+      if (mounted) _toast('导入失败，请重试');
     } finally {
       if (mounted) setState(() => _busy = false);
     }

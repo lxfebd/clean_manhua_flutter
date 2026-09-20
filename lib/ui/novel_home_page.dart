@@ -5,6 +5,7 @@ import 'novel_import_page.dart';
 import 'responsive.dart';
 
 import '../models/comic_item.dart';
+import '../net/error_logger.dart';
 import '../sources/local_novel_source.dart';
 import '../sources/novel_source.dart';
 import '../sources/source_manager.dart';
@@ -31,6 +32,7 @@ class _NovelHomePageState extends State<NovelHomePage> {
   String? _error;
   List<ComicItem> _items = [];
   List<NovelDetail> _shelf = [];
+  List<Map<String, dynamic>> _localBooks = [];
 
   @override
   void initState() {
@@ -46,6 +48,9 @@ class _NovelHomePageState extends State<NovelHomePage> {
       _sourcesLoaded = true;
       _sourceId = srcs.isNotEmpty ? srcs.first.id : null;
       _shelf = NovelShelfStore.listAll();
+      // 本地导入书目在启动时读一次缓存，build 不再扫盘（listAll 走目录遍历，
+      // 书架稍大或目录在慢速磁盘上时会卡首帧）。
+      _localBooks = LocalNovelSource.store.listAll();
     });
     if (_sourceId != null) _loadNovels();
   }
@@ -62,7 +67,8 @@ class _NovelHomePageState extends State<NovelHomePage> {
         _error = null;
       }
     } catch (e) {
-      if (mounted) _error = '加载失败：$e';
+      ErrorLogger.instance.warn('novel home rank failed: $e');
+      if (mounted) _error = '加载失败，请检查网络';
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -160,7 +166,7 @@ class _NovelHomePageState extends State<NovelHomePage> {
 
   Widget _shelfGrid(scheme) {
     // 本地导入的书架（独立于在线收藏 NovelShelfStore）
-    final localBooks = LocalNovelSource.store.listAll();
+    final localBooks = _localBooks;
     final hasLocal = localBooks.isNotEmpty;
     final shelfEmpty = _shelf.isEmpty && !hasLocal;
     if (shelfEmpty) {

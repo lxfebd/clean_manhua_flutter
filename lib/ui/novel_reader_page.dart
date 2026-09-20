@@ -176,6 +176,11 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       if (!mounted) return;
       setState(() => _ttsState = s);
     };
+    _tts.onError = () {
+      if (!mounted) return;
+      setState(() => _ttsState = TtsPlayState.idle);
+      AppToast.error(context, '朗读失败：未找到可用的语音引擎');
+    };
     await _tts.init(rate: NovelTtsService.rates[_ttsRateIdx]);
   }
 
