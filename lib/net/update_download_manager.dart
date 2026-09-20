@@ -102,7 +102,6 @@ class UpdateDownloadManager {
     for (final m in _mirrors) {
       candidates.add(m.isEmpty ? originalUrl : m + originalUrl);
     }
-    Exception? lastErr;
     for (var i = 0; i < candidates.length; i++) {
       if (_cancelled) break;
       final url = candidates[i];
@@ -127,11 +126,13 @@ class UpdateDownloadManager {
         _running = false;
         return;
       } catch (e) {
-        lastErr = e is Exception ? e : Exception(e.toString());
+        ErrorLogger.instance.warn(
+            'update dl mirror $label failed: ${e is Exception ? e : e.toString()}');
       }
     }
     if (_cancelled) return;
-    _state = UpdateDownloadState(error: '全部镜像失败：$lastErr');
+    // 原始异常进日志；弹窗只显示固定中文，避免 SocketException 原文上屏。
+    _state = UpdateDownloadState(error: '全部镜像下载失败，请稍后重试');
     _stateCtrl.add(_state);
     _notifyError();
     _running = false;
@@ -273,8 +274,9 @@ class UpdateDownloadManager {
     try {
       await UpdateChecker.installApk(path);
     } catch (e) {
+      ErrorLogger.instance.warn('apk install failed: $e');
       _state = UpdateDownloadState(
-          error: '安装失败：$e（可到文件管理器手动安装）');
+          error: '自动安装失败，可到文件管理器手动安装');
       _stateCtrl.add(_state);
       _notifyInstall(path);
       _running = false;

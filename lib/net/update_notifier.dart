@@ -56,11 +56,27 @@ class UpdateNotifier {
         Duration(hours: _notifyCooldownHours).inMilliseconds;
   }
 
-  /// 记录某作品已提醒时间（覆盖旧值）。
+  /// 记录某作品已提醒时间（覆盖旧值）。Map 上限 [_maxNotifyRecords]，
+  /// 超出时删最早记录，防收藏长期增长导致永久膨胀。
+  static const int _maxNotifyRecords = 100;
+
   static Future<void> markNotified(String name, DateTime now) async {
     final raw = await LocalStore.readJson('update_notify_last');
     final m = (raw is Map ? Map<String, dynamic>.from(raw) : {});
     m[name] = now.millisecondsSinceEpoch;
+    if (m.length > _maxNotifyRecords) {
+      // 删除时间戳最小的记录（最久未提醒的作品）
+      String? oldest;
+      int? oldestTs;
+      m.forEach((k, v) {
+        final ts = v is num ? v.toInt() : 0;
+        if (oldestTs == null || ts < oldestTs!) {
+          oldest = k;
+          oldestTs = ts;
+        }
+      });
+      if (oldest != null) m.remove(oldest);
+    }
     await LocalStore.writeJson('update_notify_last', m);
   }
 

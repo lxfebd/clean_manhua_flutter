@@ -187,8 +187,9 @@ class BookshelfPageState extends State<BookshelfPage>
     try {
       return _GroupRead(await read());
     } catch (e) {
+      // 原始异常进日志；UI 只显示固定中文，不把 FileSystemException 原文上屏。
       ErrorLogger.instance.warn('书架本地数据读取失败，已用空列表兜底: $e');
-      return _GroupRead(<E>[], error: '$e');
+      return _GroupRead(<E>[], error: '书架本地数据读取异常');
     }
   }
 
@@ -820,6 +821,9 @@ class BookshelfPageState extends State<BookshelfPage>
 
   Widget _mangaDownloadCard(ColorScheme scheme, DownloadRecord d) {
     final text = Theme.of(context).textTheme;
+    // 失败态判定：未 finished 且计数到齐（无法完成的重试之后中断），
+    // 显示失败样式而非"100% 但未完成"的歧义进度条。
+    final failed = !d.finished && d.total > 0 && d.done >= d.total;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -841,15 +845,21 @@ class BookshelfPageState extends State<BookshelfPage>
               decoration: BoxDecoration(
                 color: d.finished
                     ? Colors.green.withValues(alpha: 0.1)
-                    : Colors.orange.withValues(alpha: 0.1),
+                    : (failed
+                        ? Colors.red.withValues(alpha: 0.1)
+                        : Colors.orange.withValues(alpha: 0.1)),
                 borderRadius: BorderRadius.circular(R.control),
               ),
               child: Icon(
                 d.finished
                     ? Icons.check_circle_outline
-                    : Icons.downloading_rounded,
+                    : (failed
+                        ? Icons.error_outline_rounded
+                        : Icons.downloading_rounded),
                 size: 20,
-                color: d.finished ? Colors.green : Colors.orange,
+                color: d.finished
+                    ? Colors.green
+                    : (failed ? Colors.red : Colors.orange),
               ),
             ),
             const SizedBox(width: 12),
@@ -878,21 +888,28 @@ class BookshelfPageState extends State<BookshelfPage>
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(2),
                             child: LinearProgressIndicator(
-                              value: d.total > 0 ? d.done / d.total : 0,
+                              value: failed
+                                  ? null
+                                  : (d.total > 0 ? d.done / d.total : 0),
                               minHeight: 4,
                               backgroundColor:
                                   T.color(scheme.onSurface, TextTier.hairline,
                                       brightness: scheme.brightness),
-                              valueColor:
-                                  AlwaysStoppedAnimation(scheme.primary),
+                              valueColor: failed
+                                  ? AlwaysStoppedAnimation(Colors.red
+                                      .withValues(alpha: 0.6))
+                                  : AlwaysStoppedAnimation(scheme.primary),
                             ),
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Text('${d.done}/${d.total}',
+                        Text(failed ? '下载失败' : '${d.done}/${d.total}',
                             style: text.labelSmall?.copyWith(
-                                color: T.color(scheme.onSurface, TextTier.low,
-                                    brightness: scheme.brightness))),
+                                color: failed
+                                    ? Colors.red
+                                    : T.color(scheme.onSurface,
+                                        TextTier.low,
+                                        brightness: scheme.brightness))),
                       ],
                     ),
                   ],
@@ -1627,7 +1644,8 @@ class BookshelfPageState extends State<BookshelfPage>
       );
     } catch (e) {
       if (!mounted) return;
-      AppToast.error(context, '跳转书签失败：$e');
+      AppToast.error(context, '书签跳转失败，请重试');
+      ErrorLogger.instance.warn('bookmark jump failed: $e');
     } finally {
       _openingBookmark = false;
     }
@@ -1664,9 +1682,10 @@ class BookshelfPageState extends State<BookshelfPage>
       try {
         url = await src.playUrl(r.videoId, r.season, r.episode);
       } catch (e) {
+        ErrorLogger.instance.warn('video resume failed: $e');
         if (mounted) {
           Navigator.of(context).pop();
-          AppToast.error(context, '续播失败：$e');
+          AppToast.error(context, '续播失败，请检查网络后重试');
         }
         return;
       }

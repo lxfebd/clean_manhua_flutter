@@ -109,7 +109,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
                 done
                     ? _doneMessage()
                     : failed
-                        ? '${_state.error}\n\n可稍后从「设置 → 检查更新」重试，或到 GitHub Releases 手动下载。'
+                        ? '下载失败，请稍后从「设置 → 检查更新」重试，或到 GitHub Releases 手动下载。'
                         : '后台下载中，关闭本窗口不会中断\n返回界面或退出 App 均继续下载',
                 style: const TextStyle(fontSize: 12.5),
               ),

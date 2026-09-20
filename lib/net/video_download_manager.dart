@@ -308,7 +308,9 @@ class VideoDownloadManager {
         t.state = 'done';
       }
     } catch (e) {
-      t.error = '${e is HttpException ? e.message : e}';
+      // 原始异常（SocketException/HttpException）进日志；UI 展示用固定中文文案。
+      ErrorLogger.instance.logError('[video-dl] FAIL key=${t.key} err=$e');
+      t.error = e is HttpException ? e.message : '下载失败，请重试';
       t.state = _canceled.contains(t.key) ? 'canceled' : 'failed';
       _cleanupPartFile(t);
     }
@@ -600,7 +602,9 @@ class VideoDownloadManager {
       final dir = await _videoDir(t);
       final part = File('${dir.path}/S${t.season}E${t.episode}.mp4.part');
       if (part.existsSync()) part.deleteSync();
-    } catch (_) {}
+    } catch (e) {
+      ErrorLogger.instance.warn('[video-dl] cleanup part failed key=${t.key}: $e');
+    }
   }
 
   /// 防抖定时器：批量状态更新时合并写盘（如批量添加/排队期间连续 _persist），

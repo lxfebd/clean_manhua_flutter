@@ -122,7 +122,11 @@ class DownloadManager {
           }
         }
         okCount++;
-      } catch (_) {}
+      } catch (e) {
+        // 单张图拉取失败不中断整章（尽量多下），但要留痕——
+        // 否则 UI 只看到「下载未完成」无法区分网络失败与写盘失败。
+        ErrorLogger.instance.warn('[download] img FAIL chapter=$chapterId idx=$i err=$e');
+      }
       done++;
       onProgress?.call(done, urls.length);
       await LocalStore.upsertDownload(DownloadRecord(

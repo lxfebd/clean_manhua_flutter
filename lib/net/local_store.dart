@@ -1041,7 +1041,10 @@ class LocalStore {
     try {
       final d = await downloadDir();
       if (d.existsSync()) d.deleteSync(recursive: true);
-    } catch (_) {}
+    } catch (e) {
+      // 文件删除失败仍写空列表，但需留痕——否则 UI 显示已清空而磁盘残留（孤儿文件）。
+      ErrorLogger.instance.warn('clearDownloads file delete failed: $e');
+    }
     await _write('downloads', []);
   }
 
@@ -1066,7 +1069,10 @@ class LocalStore {
       final base = await downloadDir();
       final cd = Directory('${base.path}/${d.localKey}');
       if (cd.existsSync()) cd.deleteSync(recursive: true);
-    } catch (_) {}
+    } catch (e) {
+      // 静默失败会留下孤儿文件：UI 提示「已删除」但磁盘仍在，重试时跳过不重下。
+      ErrorLogger.instance.warn('removeDownloadFiles failed key=${d.localKey}: $e');
+    }
   }
 
   // ---- 视频续播进度 ----

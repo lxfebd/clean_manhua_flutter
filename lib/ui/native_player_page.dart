@@ -3685,7 +3685,8 @@ child: Icon(Icons.auto_awesome,
       case 'done':
         return '已下载 · 点击重新下载';
       case 'failed':
-        return '下载失败：${t.error ?? ''}';
+        final err = t.error ?? '';
+        return err.isEmpty ? '下载失败 · 点击重试' : '下载失败：$err';
       case 'canceled':
         return '已取消 · 点击重试';
       default:
