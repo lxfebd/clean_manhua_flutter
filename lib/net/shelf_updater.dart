@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
 import 'bookshelf_store.dart';
 import 'local_store.dart';
@@ -93,27 +94,59 @@ class ShelfUpdater {
     _timer = null;
   }
 
+  /// 单本详情请求的软超时：超时视为失败，避免某个源卡死拖垮整轮检查。
+  static const Duration _perBookTimeout = Duration(seconds: 12);
+
+  /// 同时探测的作品数上限（源侧反爬/连接池限制，避免并发打满全打 403）。
+  static const int _concurrency = 6;
+
   /// 前台检查（书架页手动触发）：返回有更新的作品名列表。
   /// 不做通知，只更新 lastChapters 与返回结果。
-  static Future<List<String>> checkNow() async {
+  /// 并发探测（分组限流），任何失败（超时/网络）只跳过单本，不阻塞整轮；
+  /// [onProgress] 每完成一本回调（done, total）供 UI 展示；[shouldCancel] 返回
+  /// 非空时立即停止检查（返回 null 表示用户中途取消，调用方不再应用结果）。
+  static Future<List<String>?> checkNow({
+    void Function(int done, int total)? onProgress,
+    bool Function()? shouldCancel,
+  }) async {
     final items = BookshelfStore.listAll();
     final updated = <String>[];
-    for (final d in items) {
+    var done = 0;
+    var index = 0;
+    Future<void> checkOne(ComicDetail d) async {
       final sid = d.sourceId ?? BookshelfStore.sourceIdOf(d.id);
-      if (sid == null) continue;
+      if (sid == null) return;
       try {
-        final detail = await SourceManager.byId(sid).detail(d.id);
-        final cur = detail.chapters.length;
-        if (cur > d.chapters.length) {
-          updated.add(d.name);
-          BookshelfStore.setLastSeenChapters(sid, d.id, cur);
+        final detail = await SourceManager.byId(sid)
+            .detail(d.id)
+            .timeout(_perBookTimeout);
+        if (!_isCancelled) {
+          final cur = detail.chapters.length;
+          if (cur > d.chapters.length) {
+            updated.add(d.name);
+            BookshelfStore.setLastSeenChapters(sid, d.id, cur);
+          }
         }
       } catch (_) {
         // 单本失败不阻塞整体检查（源抖动/反爬），下一轮再试
       }
     }
+
+    while (index < items.length) {
+      final batch = items.skip(index).take(_concurrency).toList();
+      await Future.wait(batch.map((d) async {
+        await checkOne(d);
+      }));
+      if (shouldCancel?.call() ?? false) return null;
+      done += batch.length;
+      onProgress?.call(done, items.length);
+      index += _concurrency;
+    }
     return updated;
   }
+
+  /// 全局取消标记：任意一轮检查被 [checkNow] 取消时置位。
+  static bool _isCancelled = false;
 
   /// 应用启动补检（B-6）：进程被杀后下次启动跑一轮后台检查，
   /// 命中更新即经 [checkInBackground] 走应用内横幅 + 系统通知
@@ -130,9 +163,10 @@ class ShelfUpdater {
   Future<void> checkInBackground() async {
     if (_checking) return;
     _checking = true;
+    _isCancelled = false;
     try {
       final updated = await checkNow();
-      if (updated.isNotEmpty) {
+      if (updated != null && updated.isNotEmpty) {
         onUpdatesFound?.call(updated);
         await UpdateNotifier.instance.notifyShelfUpdate(updated);
       }

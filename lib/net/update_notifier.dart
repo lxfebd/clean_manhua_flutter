@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
+import 'error_logger.dart';
 import 'local_store.dart';
 
 /// 书架更新推送通知：复用原生 MethodChannel（MainActivity 已实现
@@ -27,7 +28,10 @@ class UpdateNotifier {
     try {
       await _channel.invokeMethod(
           'ensureNotificationPermission'); // Kotlin 侧实现（静默，失败不阻塞）
-    } catch (_) {}
+    } catch (e) {
+      ErrorLogger.instance
+          .warn('UpdateNotifier 请求系统通知权限失败，书架更新推送将不可用: $e');
+    }
     return true;
   }
 

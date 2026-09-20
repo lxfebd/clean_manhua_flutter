@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'error_logger.dart';
 import 'http_client.dart';
 
 /// GitHub Releases 上的最新版本信息。
@@ -53,7 +54,10 @@ class UpdateChecker {
       final info = await PackageInfo.fromPlatform();
       _cached = info.version;
       _inited = true;
-    } catch (_) {}
+    } catch (e) {
+      ErrorLogger.instance
+          .warn('UpdateChecker 读取本机版本号失败，可能影响更新判断: $e');
+    }
   }
 
   /// 本机版本号。优先取启动时缓存的 PackageInfo 真实版本，

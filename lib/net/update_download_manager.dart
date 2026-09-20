@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+import 'error_logger.dart';
 import 'local_store.dart';
 import 'update_checker.dart';
 import 'http_client.dart';
@@ -255,7 +256,9 @@ class UpdateDownloadManager {
         'title': '更新下载失败',
         'text': '所有镜像均失败，请稍后重试或手动下载',
       });
-    } catch (_) {}
+    } catch (e) {
+      ErrorLogger.instance.warn('更新下载失败通知发送失败: $e');
+    }
   }
 
   Future<void> _cancelNotif() async {
@@ -282,7 +285,9 @@ class UpdateDownloadManager {
   Future<void> _notifyInstall(String path) async {
     try {
       await _channel.invokeMethod('showInstall', {'path': path});
-    } catch (_) {}
+    } catch (e) {
+      ErrorLogger.instance.warn('更新安装引导通知发送失败: $e');
+    }
   }
 
   /// Windows NSIS 静默自动升级：启动安装器 → 等它起来 → 退出自身 → 安装器接管。

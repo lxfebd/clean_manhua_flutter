@@ -72,7 +72,7 @@ void main() {
             '/books_100/103.html', prevHref: '/books_100/101.html'));
       } else if (path == '/books_200/201.html') {
         // 畸形导航：始终指向同章下一页（永不指向下一章）→ 必须被上限截断
-        respond(pageBody('畸形章', ['内容' + '0'],
+        respond(pageBody('畸形章', ['内容0'],
             '/books_200/201_1.html'));
       } else if (RegExp(r'^/books_200/201_\d+\.html$').hasMatch(path)) {
         respond(pageBody('畸形章', ['内容$path'],

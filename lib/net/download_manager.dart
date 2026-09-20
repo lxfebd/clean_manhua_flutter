@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image/image.dart' as img;
 
 import '../sources/source_http.dart';
+import 'error_logger.dart';
 import 'http_client.dart';
 import 'local_store.dart';
 
@@ -15,6 +16,14 @@ enum DownloadQuality {
 
   /// 省空间：宽边压到 [compactMaxWidth] 内重新编码，长条图/大图可省大量空间。
   compact,
+}
+
+/// 章节下载结果：成功或失败（附原因，如磁盘空间不足）。
+class DownloadResult {
+  final bool ok;
+  final String? error;
+  const DownloadResult.ok() : ok = true, error = null;
+  const DownloadResult.fail(this.error) : ok = false;
 }
 
 /// 章节下载管理：把图片下载到本地，供离线阅读。
@@ -47,7 +56,9 @@ class DownloadManager {
   /// 否则 detail 批量循环里下一章会清掉用户刚点的取消标志。
   /// [quality] 为 [DownloadQuality.compact] 时，宽边超过 [compactMaxWidth]
   /// 的图会被等比压缩后存储（省空间档），原画档原样落盘。
-  static Future<bool> downloadChapter({
+  /// 单张图片写盘失败（磁盘满/权限等）时停止该章并返回失败原因；
+  /// 返回 [DownloadResult.error] 即本章中断，不再继续写后续图。
+  static Future<DownloadResult> downloadChapter({
     required Bookmark book,
     required String chapterId,
     required String chapterTitle,
@@ -69,6 +80,7 @@ class DownloadManager {
 
     var done = 0;
     var okCount = 0;
+    String? writeError; // 写盘失败原因（磁盘满/权限）；置位后本章停止
     // 已存在本地文件的不重下，先快速累计
     for (var i = 0; i < urls.length; i++) {
       try {
@@ -82,6 +94,7 @@ class DownloadManager {
 
     Future<void> downloadOne(int i) async {
       if (_cancelled) return;
+      if (writeError != null) return; // 已写失败，本章中断
       try {
         final path = await LocalStore.localImagePath(key, i);
         if (!File(path).existsSync()) {
@@ -92,11 +105,20 @@ class DownloadManager {
           final bytes = Uint8List.fromList(await Net.getBytesAuto(urls[i],
                   proxy: proxy)
               .timeout(_imageTimeout));
-          if (quality == DownloadQuality.compact) {
-            await File(path).writeAsBytes(
-                _compactBytes(bytes, compactMaxWidth));
-          } else {
-            await File(path).writeAsBytes(bytes);
+          try {
+            if (quality == DownloadQuality.compact) {
+              await File(path).writeAsBytes(
+                  _compactBytes(bytes, compactMaxWidth));
+            } else {
+              await File(path).writeAsBytes(bytes);
+            }
+          } on FileSystemException catch (e) {
+            // 写盘失败：多数是磁盘满/只读/权限。记录原因并中断本
+            // 章，避免继续下载产生更多失败页（用户看不到原因）。
+            writeError = _describeWriteError(e);
+            ErrorLogger.instance.logError(
+                '[download] write FAIL chapter=$chapterId idx=$i err=$e');
+            return;
           }
         }
         okCount++;
@@ -115,7 +137,7 @@ class DownloadManager {
     }
 
     // 分批并发：每批最多 _concurrency 张，全部超时可控。
-    for (var start = 0; start < urls.length && !_cancelled; start += _concurrency) {
+    for (var start = 0; start < urls.length && !_cancelled && writeError == null; start += _concurrency) {
       final end = (start + _concurrency).clamp(0, urls.length);
       final batch = <Future<void>>[];
       for (var i = start; i < end; i++) {
@@ -128,6 +150,19 @@ class DownloadManager {
       await Future.wait(batch);
     }
 
+    if (writeError != null) {
+      await LocalStore.upsertDownload(DownloadRecord(
+        book: book,
+        chapterId: chapterId,
+        chapterTitle: chapterTitle,
+        total: urls.length,
+        done: done,
+        finished: false,
+        localKey: key,
+      ));
+      return DownloadResult.fail(writeError);
+    }
+
     final ok = !_cancelled && done == urls.length && okCount == urls.length;
     await LocalStore.upsertDownload(DownloadRecord(
       book: book,
@@ -138,7 +173,21 @@ class DownloadManager {
       finished: ok,
       localKey: key,
     ));
-    return ok;
+    return ok ? const DownloadResult.ok() : const DownloadResult.fail('下载未完成');
+  }
+
+  /// 把写盘异常翻译成用户可读的原因（磁盘满/只读/权限等）。
+  static String _describeWriteError(FileSystemException e) {
+    final osError = e.osError;
+    final msg = osError?.message.toLowerCase() ?? '';
+    if (msg.contains('no space') || msg.contains('磁盘空间')) {
+      return '磁盘空间不足，请清理后重试';
+    }
+    if (msg.contains('permission') || msg.contains('denied') ||
+        msg.contains('access')) {
+      return '没有写入权限，请检查存储目录权限';
+    }
+    return '写入本地失败：${osError?.message ?? e.message}';
   }
 
   /// 批量下载多个章节。串行逐章下载，取消后立即停止后续章节。
@@ -154,26 +203,26 @@ class DownloadManager {
         results[ch.id] = false;
         continue;
       }
-      final ok = await downloadChapter(
+      final r = await downloadChapter(
         book: book,
         chapterId: ch.id,
         chapterTitle: ch.title,
         urls: ch.urls,
         onProgress: (d, t) => onProgress?.call(ch.id, d, t),
       );
-      results[ch.id] = ok;
+      results[ch.id] = r.ok;
     }
     return results;
   }
 
-  /// 重试单个失败的下载任务。
-  static Future<bool> retry(String bookKey, String chapterId,
+  /// 重试单个失败的下载任务。返回失败原因（null = 成功）。
+  static Future<String?> retry(String bookKey, String chapterId,
       String chapterTitle, List<String> urls) async {
     final parts = bookKey.split('::');
-    if (parts.length != 2) return false;
+    if (parts.length != 2) return '无效的下载任务';
     // 复用已存记录里的书名/封面，避免重试后元信息被清空（下载列表显示空标题）。
     final prev = await LocalStore.downloadOf('$bookKey::$chapterId');
-    return downloadChapter(
+    final r = await downloadChapter(
       book: Bookmark(
         sourceId: parts[0],
         comicId: parts[1],
@@ -185,6 +234,7 @@ class DownloadManager {
       chapterTitle: chapterTitle,
       urls: urls,
     );
+    return r.ok ? null : r.error;
   }
 
   /// 判断某章节是否已下载完成。web 端无下载能力，恒为 false。
