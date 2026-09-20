@@ -5,6 +5,7 @@ import 'dart:isolate' show Isolate;
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 
+import '../net/error_logger.dart';
 import 'capability_artifact_store.dart';
 import 'capability_plugin_manager.dart';
 
@@ -63,7 +64,8 @@ class CapabilityRuntime {
       final result = await Isolate.run(task);
       return CapabilityOk(id, data: result);
     } catch (e) {
-      return CapabilityFailure(id, '执行失败: $e');
+      ErrorLogger.instance.warn('[capability] run($id) failed: $e');
+      return CapabilityFailure(id, '执行失败，请重试');
     }
   }
 

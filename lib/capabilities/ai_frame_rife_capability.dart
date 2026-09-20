@@ -4,6 +4,7 @@ import 'dart:typed_data' show Uint8List;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 
+import '../net/error_logger.dart';
 import '../ui/responsive.dart' show DesktopUi;
 import 'capability_artifact_store.dart';
 import 'capability_plugin.dart';
@@ -172,7 +173,8 @@ class AiFrameRifePlugin extends CapabilityPlugin {
         'engine': 'rife v4.6',
       });
     } catch (e) {
-      return CapabilityFailure(id, '插帧失败: $e');
+      ErrorLogger.instance.warn('[capability] rife infer failed: $e');
+      return const CapabilityFailure(id, '插帧失败，请重试');
     } finally {
       try {
         await tmp.delete(recursive: true);
@@ -216,10 +218,13 @@ class AiFrameRifePlugin extends CapabilityPlugin {
         'Expand-Archive -Path "${zip.path}" -DestinationPath "${dir.path}" -Force',
       ]);
       if (out.exitCode != 0) {
-        return '引擎包解压失败: ${out.stderr}';
+        ErrorLogger.instance
+            .warn('[capability] rife engine unzip failed: ${out.stderr}');
+        return '引擎包解压失败，请检查磁盘空间与权限';
       }
     } catch (e) {
-      return '引擎包解压失败: $e';
+      ErrorLogger.instance.warn('[capability] rife engine unzip error: $e');
+      return '引擎包解压失败，请重试';
     }
     if (!await File('${dir.path}/$engineExeName').exists()) {
       return '引擎包解压后缺少 $engineExeName';

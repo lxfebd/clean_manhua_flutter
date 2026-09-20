@@ -37,24 +37,21 @@ class DownloadManager {
   /// 省空间档位的最大宽边（逻辑像素；源图超过则等比缩到该宽度）。
   static const int compactMaxWidth = 1080;
 
-  /// 全局取消代际 token。每个逻辑下载任务开始前调用 [beginBatch] 拿到
-  /// 本次任务的 bat_id；[cancelAll] 递增 token，使所有旧批次失效。
-  /// 用代数而非 bool：并发/相继的两个任务互不串扰——旧任务取消只影响
-  /// 它自己的批次，不会误伤新任务（原 bool 方案一处 cancel 会串扰另一批）。
+  /// 全局取消代际 token。取消是全局的：用户显式调用 [cancelAll] 递增
+  /// token，使所有已派发批次失效；[beginBatch] 只快照当前代号，供批次内
+  /// 循环用 [isCancelled(gen)] 查询——**不递增**，否则新任务一启动就把
+  /// 在途旧任务误判为已取消（原 bool 方案的串扰会换一种形式复现）。
   static int _cancelGen = 0;
 
-  /// 开启一个新下载批次，返回本次批次的取消代号；该批次内的下载循环
-  /// 用 [isCancelled(gen)] 查询取消状态。
-  static int beginBatch() => ++_cancelGen;
+  /// 快照当前取消代号作为本次批次的代号。新任务开始不会影响在途任务；
+  /// 只有 [cancelAll] 递增代号才使所有已派发批次失效。
+  static int beginBatch() => _cancelGen;
 
-  /// 是否已请求取消（本批次内）。传入暂停时最新派发的批次号。
+  /// 是否已请求取消（本批次内）。传入暂停时快照的代号。
   static bool isCancelled(int gen) => gen != _cancelGen;
 
   /// 取消所有进行中的下载任务（使所有已派发批次失效）。
   static void cancelAll() => _cancelGen++;
-
-  /// 当前代数（供 detail 页在详情页内展示状态时判断是否还有效）。
-  static int get currentGen => _cancelGen;
 
   /// 下载某个章节的全部图片（带并发与超时）。
   /// [batchGen] 为本逻辑任务的取消代号（[beginBatch] 返回值）；取消时
@@ -176,7 +173,9 @@ class DownloadManager {
       return DownloadResult.fail(writeError);
     }
 
-    final cancelled = isCancelled(batchGen);
+    // 取消中断判定必须限定「没下完」：全下完后全局 token 可能已被别的
+    // 任务 cancelAll 递增（取消是全局的），此时本章已完整落盘，不能报取消。
+    final cancelled = isCancelled(batchGen) && done < urls.length;
     final ok = !cancelled && done == urls.length && okCount == urls.length;
     await LocalStore.upsertDownload(DownloadRecord(
       book: book,

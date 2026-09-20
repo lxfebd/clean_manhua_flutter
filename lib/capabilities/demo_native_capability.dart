@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 
+import '../net/error_logger.dart';
 import 'capability_artifact_store.dart';
 import 'capability_plugin.dart';
 import 'capability_runtime.dart';
@@ -95,7 +96,8 @@ class DemoNativePlugin extends CapabilityPlugin {
     } on DemoNativeLoadError catch (e) {
       return CapabilityFailure('utility.native', e.message);
     } catch (e) {
-      return CapabilityFailure('utility.native', '执行失败: $e');
+      ErrorLogger.instance.warn('[capability] demo native sum failed: $e');
+      return const CapabilityFailure('utility.native', '执行失败，请重试');
     }
   }
 }

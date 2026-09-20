@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 
+import '../net/error_logger.dart';
 import '../ui/responsive.dart' show DesktopUi;
 import 'capability_artifact_store.dart';
 import 'capability_plugin.dart';
@@ -114,13 +115,22 @@ class FfmpegRuntime {
           '-DestinationPath', dir.path,
           '-Force',
         ]);
-        if (out.exitCode != 0) return 'ffmpeg 解压失败: ${out.stderr}';
+        if (out.exitCode != 0) {
+          ErrorLogger.instance
+              .warn('[capability] ffmpeg unzip failed: ${out.stderr}');
+          return 'ffmpeg 解压失败，请检查磁盘空间与权限';
+        }
       } else {
         final out = await Process.run('unzip', ['-o', zip.path, '-d', dir.path]);
-        if (out.exitCode != 0) return 'ffmpeg 解压失败: ${out.stderr}';
+        if (out.exitCode != 0) {
+          ErrorLogger.instance
+              .warn('[capability] ffmpeg unzip failed: ${out.stderr}');
+          return 'ffmpeg 解压失败，请检查磁盘空间与权限';
+        }
       }
     } catch (e) {
-      return 'ffmpeg 解压失败: $e';
+      ErrorLogger.instance.warn('[capability] ffmpeg unzip error: $e');
+      return 'ffmpeg 解压失败，请重试';
     }
     if (await _findExe(dir) == null) {
       return 'ffmpeg 包解压后未找到 ${Platform.operatingSystem} 的 $exeName';

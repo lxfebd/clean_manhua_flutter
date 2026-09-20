@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../net/http_client.dart' show Net;
+import '../net/error_logger.dart';
 import 'capability_plugin.dart';
 
 /// 能力构件存储：下载 + SHA256 校验 + 落盘（桌面 artifact / 权重统一入口）。
@@ -124,7 +125,8 @@ class CapabilityArtifactStore {
     try {
       bytes = await Net.getBytesAuto(url, proxy: proxy);
     } catch (e) {
-      _lastError = '构件下载失败: $e';
+      _lastError = '构件下载失败，请检查网络后重试';
+      ErrorLogger.instance.warn('[capability] artifact download failed ($id): $e');
       return null;
     }
     if (expected != null) {
@@ -139,7 +141,8 @@ class CapabilityArtifactStore {
       await target.writeAsBytes(bytes, flush: true);
       return target;
     } catch (e) {
-      _lastError = '构件落盘失败: $e';
+      _lastError = '构件写入本地失败，请检查存储空间与权限';
+      ErrorLogger.instance.warn('[capability] artifact write failed ($id): $e');
       return null;
     }
   }
@@ -178,7 +181,8 @@ class CapabilityArtifactStore {
       bytes = await Net.getBytesAuto(weight.url,
           proxy: proxy, timeout: const Duration(minutes: 10));
     } catch (e) {
-      _lastError = '权重下载失败: $e';
+      _lastError = '权重下载失败，请检查网络后重试';
+      ErrorLogger.instance.warn('[capability] weight download failed ($id): $e');
       return null;
     }
     if (weight.sha256.isNotEmpty) {
@@ -193,7 +197,8 @@ class CapabilityArtifactStore {
       await target.writeAsBytes(bytes, flush: true);
       return target;
     } catch (e) {
-      _lastError = '权重落盘失败: $e';
+      _lastError = '权重写入本地失败，请检查存储空间与权限';
+      ErrorLogger.instance.warn('[capability] weight write failed ($id): $e');
       return null;
     }
   }

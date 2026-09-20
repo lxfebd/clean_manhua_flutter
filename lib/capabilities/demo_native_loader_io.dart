@@ -21,8 +21,9 @@ Future<Map<String, dynamic>> demoNativeSum(
         'sum': sum(a, b),
         'version': ver(),
       };
-    } catch (e) {
-      throw DemoNativeLoadError('原生库加载失败: $e');
+    } catch (_) {
+      // 固定文案进 UI；原始错误由调用方 CapabilityFailure 包装层记日志。
+      throw DemoNativeLoadError('原生库加载失败，请重新安装后重试');
     }
   });
 }
