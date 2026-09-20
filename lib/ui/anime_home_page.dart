@@ -8,6 +8,7 @@ import '../sources/source_manager.dart';
 import '../sources/video_source.dart';
 import 'anime_player_page.dart';
 import 'responsive.dart';
+import 'widgets/app_toast.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
 
@@ -242,9 +243,14 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
       return _ErrorView(message: _error!, onRetry: _refresh);
     }
     if (_items.isEmpty) {
-      return const Center(
-        child: CircularProgressIndicator(strokeWidth: 2),
-      );
+      // 加载态与空态分离：正在拉取首屏时显示 spinner；加载完成但源没返回内容时
+      // 显示明确的空态引导，避免用户误以为"永远转圈"。
+      if (_loading) {
+        return const Center(
+          child: CircularProgressIndicator(strokeWidth: 2),
+        );
+      }
+      return _EmptyView(onRetry: _refresh);
     }
     final isDesktop = DesktopUi.isDesktopPlatform;
     return CustomScrollView(
@@ -692,9 +698,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('打开失败：$e')),
-        );
+        AppToast.error(context, '打开失败：$e');
       }
     } finally {
       _openingId = null;
@@ -715,12 +719,8 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
           onTap: () async {
             await Clipboard.setData(ClipboardData(text: it.name));
             if (!mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text('已复制「${it.name}」'),
-              behavior: SnackBarBehavior.floating,
-              width: 260,
-              duration: const Duration(seconds: 2),
-            ));
+            AppToast.info(context, '已复制「${it.name}」',
+                duration: const Duration(seconds: 2));
           },
         ),
       ];
@@ -1019,6 +1019,77 @@ class _LetterCover extends StatelessWidget {
                 ],
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 空态引导：加载完成但源没有返回内容时展示，风格对齐 bookshelf 的 _TabEmpty
+/// （渐变圆环图标 + 标题 + 引导副文案 + 行动按钮），自包含不依赖其它文件。
+class _EmptyView extends StatelessWidget {
+  final VoidCallback onRetry;
+  const _EmptyView({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 88,
+            height: 88,
+            padding: const EdgeInsets.all(5),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  scheme.primary.withValues(alpha: isDark ? 0.22 : 0.16),
+                  scheme.primary.withValues(alpha: 0.03),
+                ],
+              ),
+            ),
+            child: Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: scheme.primary.withValues(alpha: isDark ? 0.16 : 0.10),
+              ),
+              child: Icon(Icons.movie_filter_outlined,
+                  size: 36, color: scheme.primary),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            '暂无内容',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: scheme.onSurface,
+                ),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Text(
+              '源没有返回内容，试试换个分类或下拉刷新',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    height: 1.5,
+                    color: scheme.onSurface.withValues(alpha: 0.5),
+                  ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('刷新'),
           ),
         ],
       ),

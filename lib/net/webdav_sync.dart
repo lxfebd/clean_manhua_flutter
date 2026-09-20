@@ -46,6 +46,10 @@ class WebDavSync {
   /// 同步配置。明文密码仅保存在内存，持久化只存 bool 的 hasPassword。
   static ({String url, String username, String password, String dir, bool encrypt})? _config;
 
+  /// 磁盘上是否已设置密码（仅标记）。空输入保存时保留该标记，
+  /// 避免留空密码框把已存密码覆盖为"未设置"。
+  static bool _diskHasPassword = false;
+
   /// 供 UI 读取当前配置（密码字段持久化为 hasPassword 占位）。
   static Map<String, dynamic>? get config => _config == null
       ? null
@@ -75,25 +79,36 @@ class WebDavSync {
     return Uri.parse('$u$d$fileName');
   }
 
+  /// 测试专用：清空内存配置与磁盘标记缓存，重置为未配置状态。
+  @visibleForTesting
+  static void resetForTest() {
+    _config = null;
+    _diskHasPassword = false;
+  }
+
   /// 从 LocalStore 恢复同步配置（应用启动时调用，密码只恢复 hasPassword 标记）。
   static Future<void> restore() async {
     try {
       final j = await LocalStore.readJson('webdav_config');
+      _diskHasPassword = false;
       if (j is Map) {
         _config = (
           url: (j['url'] as String?) ?? '',
           username: (j['username'] as String?) ?? '',
-          password: (j['password'] as String?) ?? '',
+          // 落盘的 password 是「已设置密码」的标记串（非真实密码）。restore 后
+          // 内存密码恒为空：真实密码仅在用户于设置页填写后存在于内存中。
+          password: '',
           dir: (j['dir'] as String?) ?? '',
           encrypt: (j['encrypt'] as bool?) ?? false,
         );
+        _diskHasPassword = (j['password'] as String?)?.trim().isNotEmpty == true;
       }
     } catch (_) {
       // 恢复失败按未配置处理
     }
   }
 
-  /// 保存配置到 LocalStore。明文密码不落盘。
+  /// 保存配置到 LocalStore。明文密码不落盘；密码留空表示「沿用已存密码」。
   static Future<void> saveConfig({
     required String url,
     required String username,
@@ -101,17 +116,37 @@ class WebDavSync {
     required String dir,
     required bool encrypt,
   }) async {
-    _config = (url: url, username: username, password: password, dir: dir, encrypt: encrypt);
+    // 密码留空时以磁盘既有标记为准（内存 _diskHasPassword 仅作 UI 提示，
+    // 不参与写盘判断，避免静态状态在测试/多实例间泄漏）。
+    var hadDiskPass = false;
+    try {
+      final j = await LocalStore.readJson('webdav_config');
+      hadDiskPass = j is Map &&
+          ((j['password'] as String?)?.trim().isNotEmpty == true);
+    } catch (_) {}
+    _config = (
+      url: url,
+      username: username,
+      // 密码留空表示「沿用已存密码」：保留旧内存密码（restore 后为空时即不设密码）。
+      password: password.isEmpty ? _config?.password ?? '' : password,
+      dir: dir,
+      encrypt: encrypt,
+    );
+    if (password.isNotEmpty) hadDiskPass = true;
+    _diskHasPassword = hadDiskPass;
     await LocalStore.writeJson('webdav_config', {
       'url': url,
       'username': username,
-      'password': password.isEmpty ? '' : 'saved', // 仅标记：非空表示已设置密码
+      'password': hadDiskPass ? 'saved' : '', // 仅标记：非空表示已设置密码
       'dir': dir,
       'encrypt': encrypt,
     });
   }
 
   static bool get hasConfig => _config != null && _config!.url.trim().isNotEmpty;
+
+  /// 用户是否已设置 WebDAV 密码（磁盘标记或内存真实密码任一成立）。
+  static bool get hasPassword => _diskHasPassword || (_config?.password.isNotEmpty ?? false);
 
   static String? get _username => _config?.username.trim().isNotEmpty == true ? _config!.username.trim() : null;
 
@@ -266,9 +301,36 @@ class WebDavSync {
     }
   }
 
+  /// 连通性探测：用给定凭据对远端目录发一次 PROPFIND（Depth 0）。
+  /// 不修改 _config，供「保存前校验」与设置页连通性测试复用：
+  /// 校验 URL 可达 + 账号密码有效（401/403 会带响应体，原样抛给 UI 展示）。
+  static Future<void> probe({
+    required String url,
+    required String username,
+    required String password,
+    required String dir,
+  }) async {
+    final base = url.trim();
+    if (base.isEmpty) throw Exception('服务器地址不能为空');
+    // 探针请求与真实同步走同一套 URL 拼接：目录 + 目标文件名。
+    final saved = _config;
+    try {
+      _config = (
+        url: base,
+        username: username.trim(),
+        password: password,
+        dir: dir.trim(),
+        encrypt: saved?.encrypt ?? true,
+      );
+      final res = await _propfind();
+      if (res == null) throw Exception('远端目录下还没有同步文件（可先保存后上传）');
+    } finally {
+      _config = saved;
+    }
+  }
+
   /// 拉取远端备份并恢复到本地。返回是否成功。
   static Future<bool> pull() async {
-    if (!hasConfig) throw Exception('未配置 WebDAV 服务器');
     final client = _client();
     try {
       final res = await _send(client, 'GET', _fileUri, headers: _authHeaders());

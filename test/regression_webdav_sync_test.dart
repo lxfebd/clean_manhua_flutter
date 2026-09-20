@@ -21,18 +21,33 @@ Uint8List _legacyKey() {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  // path_provider 打桩：LocalStore 落到临时目录（单元测试无插件通道）。
-  setUpAll(() {
+  // 每个用例独立临时目录 + 重置静态缓存：隔离用例间状态。
+  String? tempDir;
+  setUp(() {
+    tempDir = Directory.systemTemp.createTempSync('xm_webdav').path;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
       const MethodChannel('plugins.flutter.io/path_provider'),
       (call) async {
         if (call.method == 'getApplicationSupportDirectory') {
-          return Directory.systemTemp.createTempSync('xm_webdav').path;
+          return tempDir;
         }
         return null;
       },
     );
+    LocalStore.resetForTest();
+    WebDavSync.resetForTest();
+    // 无既有配置，恢复出空状态
+    return WebDavSync.restore();
+  });
+  tearDown(() {
+    if (tempDir != null) {
+      try {
+        Directory(tempDir!).deleteSync(recursive: true);
+      } catch (_) {}
+    }
+    LocalStore.resetForTest();
+    WebDavSync.resetForTest();
   });
 
   group('WebDAV 同步文件加解密', () {
@@ -114,8 +129,26 @@ void main() {
       // 私有 _fileUri 不可直接读，这里验证 saveConfig 持久化往返
       final j = await LocalStore.readJson('webdav_config');
       expect(j['dir'], '/Apps/星漫匣/');
-      expect(j['password'], ''); // 空密码 → 空标记
+      // 首次保存且无已存密码 → 标记为空
+      expect(j['password'], '');
       expect(j['encrypt'], isFalse);
+      // 已有已存密码时留空保存 → 保留标记（不覆盖已存密码）
+      await WebDavSync.saveConfig(
+        url: 'https://dav.example.com/dav/',
+        username: '',
+        password: 'existing',
+        dir: '/Apps/星漫匣/',
+        encrypt: false,
+      );
+      await WebDavSync.saveConfig(
+        url: 'https://dav.example.com/dav/',
+        username: '',
+        password: '',
+        dir: '/Apps/星漫匣/',
+        encrypt: false,
+      );
+      final j2 = await LocalStore.readJson('webdav_config');
+      expect(j2['password'], 'saved'); // 留空保存不覆盖已存密码标记
     });
 
     test('密码明文不落盘，仅有 hasPassword 标记', () async {

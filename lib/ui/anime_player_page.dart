@@ -16,6 +16,7 @@ import '../utils/desktop_fullscreen.dart';
 import 'desktop_webview.dart';
 import 'native_player_page.dart';
 import 'responsive.dart';
+import 'widgets/app_toast.dart';
 import 'widgets/player_widgets.dart';
 
 /// B站风格 WebView 播放器：16:9 视频区 + 选集 + 简介 + 全屏 + 有声。
@@ -75,6 +76,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   bool _fullscreen = false;
   int _curSeason = 1;
   int _curEpisode = 1;
+  /// 选集面板「当前集」定位锚点：面板打开时把当前集滚进视口。
+  final GlobalKey _curEpKey = GlobalKey();
   double _speed = 1.0;
   bool _descExpanded = false;
 
@@ -218,6 +221,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
             _webError = null;
           } else {
             _triggerAutoPlay();
+            _restoreProgress();
           }
         });
         // about:blank 导航到位：放行等待它的切原生播放器流程。
@@ -275,6 +279,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
         onPageFinished: (_) {
           setState(() => _loading = false);
           _triggerAutoPlay();
+          _restoreProgress();
           // 页面就绪后 Hls 可能已初始化完成，再补注入一次确保 hook 生效。
           _injectHlsHook();
           // about:blank 导航到位：放行等待它的切原生播放器流程。
@@ -606,6 +611,61 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
         : [DeviceOrientation.portraitUp]);
   }
 
+  /// 轮询 WebView 内 <video> 的播放状态（paused/currentTime/duration），
+  /// 驱动全屏控制层的进度条/时间/播放按钮。仅桌面端跑（全屏主要在桌面）。
+  Timer? _fsPollTimer;
+  void _startFsPoll() {
+    _fsPollTimer?.cancel();
+    _fsPollTimer = Timer.periodic(const Duration(milliseconds: 1000), (_) async {
+      if (!mounted || !_fullscreen) return;
+      final r = await _evalJs(_fsPollJs);
+      if (!mounted) return;
+      final parts = (r ?? '').split('|');
+      if (parts.length < 3) return;
+      final paused = parts[0] == '1';
+      final pos = double.tryParse(parts[1]) ?? 0;
+      final dur = double.tryParse(parts[2]) ?? 0;
+      setState(() {
+        if (!_fsSeeking) _fsPos = pos;
+        _fsDur = dur;
+        _fsPlaying = !paused;
+      });
+    });
+  }
+  static const String _fsPollJs = '''
+    (function(){
+      var v = document.querySelector('video');
+      if(!v) return '0|0|0';
+      return (v.paused ? '1' : '0') + '|' + (v.currentTime || 0) + '|' + (v.duration || 0);
+    })()
+  ''';
+
+  /// 全屏播放/暂停按钮：paused 时 play，播放中 pause。
+  void _fsTogglePlay() {
+    _runJs('''
+      (function(){
+        var v = document.querySelector('video');
+        if(!v) return;
+        if(v.paused){ v.play().catch(function(){}); } else { v.pause(); }
+      })();
+    ''');
+    setState(() => _fsPlaying = !_fsPlaying);
+  }
+
+  /// 全屏进度条拖动 seek：结束拖拽时写入 currentTime。
+  void _fsSeekTo(double pos) {
+    if (pos < 0) pos = 0;
+    _runJs('''
+      (function(){
+        var v = document.querySelector('video');
+        if(!v || !v.duration || v.duration === Infinity) return;
+        v.currentTime = ${pos.toStringAsFixed(3)};
+      })();
+    ''');
+  }
+
+  /// 全屏控制层显示状态更新：延后 [ _fsHideDelayMs] 自动隐藏。
+
   @override
   void dispose() {
     if (DesktopUi.isDesktopPlatform) {
@@ -613,6 +673,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     }
     _videoPollTimer?.cancel();
     _resolveTimer?.cancel();
+    _fsPollTimer?.cancel();
+    _fsHideTimer?.cancel();
     // 兜底：页面销毁时放行未完成的 about:blank 等待，避免 Completer 悬挂。
     if (_pendingBlank != null && !_pendingBlank!.isCompleted) {
       _pendingBlank!.complete();
@@ -971,6 +1033,44 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     if (mounted && !_webViewRemoved) {
       setState(() => _webViewRemoved = true);
     }
+  }
+
+  /// 网页通道集内续播：从 LocalStore 读取本页上次进度，页面就绪后
+  /// 恢复到该秒数（mpv 通道由 NativePlayerPage._prepareResume 处理）。
+  /// 恢复的进度与 mpv 通道共用同一 key（historyKey 同构），双通道互通。
+  Future<void> _restoreProgress() async {
+    if ((widget.sourceId?.isNotEmpty ?? false) == false ||
+        widget.videoId == null) {
+      return;
+    }
+    try {
+      final key =
+          '${widget.sourceId}::${widget.videoId}::$_curSeason-$_curEpisode';
+      final sec = await LocalStore.videoProgressOf(key);
+      if (sec <= 20 || !mounted) return;
+      // 页面就绪但 <video> 可能还没创建/加载：延迟并等 readyState 达标再 seek，
+      // 过早 seek 会失效（浏览器重置 currentTime）。有进度才 seek，避免回到 0。
+      await Future<void>.delayed(const Duration(milliseconds: 1800));
+      if (!mounted) return;
+      await _runJs('''
+        (function(){
+          var v = document.querySelector('video');
+          if(!v) return 'novideo';
+          var wait = function(attempt){
+            if(attempt > 25) return 'timeout';
+            try{
+              if(v.readyState >= 2 && v.duration > 0 && v.duration !== Infinity){
+                v.currentTime = $sec;
+                return 'seek';
+              }
+            }catch(e){ return 'err'; }
+            setTimeout(function(){ wait(attempt + 1); }, 200);
+            return 'waiting';
+          };
+          return wait(0);
+        })();
+      ''');
+    } catch (_) {}
   }
 
   /// 自动播放网页播放器：
@@ -1537,9 +1637,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('切换失败：$e')),
-        );
+        AppToast.error(context, '切换失败：$e');
       }
     }
   }
@@ -1573,18 +1671,14 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       final uri = Uri.parse(url);
       if (!await canLaunchUrl(uri)) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('无法打开系统浏览器')),
-          );
+          AppToast.error(context, '无法打开系统浏览器');
         }
         return;
       }
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('打开浏览器失败：$e')),
-        );
+        AppToast.error(context, '打开浏览器失败：$e');
       }
     }
   }
@@ -1807,6 +1901,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   void _enterFullscreen() {
     if (_fullscreen) return;
     setState(() => _fullscreen = true);
+    _fsShowControls();
+    _startFsPoll();
     // 桌面端把系统窗口本体切到真全屏（占满屏幕），移动端保持沉浸+横屏。
     DesktopFullscreen.set(true);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -1817,6 +1913,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   void _exitFullscreen() {
     if (!_fullscreen) return;
     setState(() => _fullscreen = false);
+    _fsHideTimer?.cancel();
+    _fsPollTimer?.cancel();
     DesktopFullscreen.set(false);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _unlockOrientation();
@@ -1975,29 +2073,33 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
 
   Widget _episodeTile(ColorScheme scheme, VideoEpisode e) {
     final cur = e.season == _curSeason && e.episode == _curEpisode;
-    return InkWell(
-      onTap: () => _switchToEpisode(e.season, e.episode),
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        constraints: const BoxConstraints(minWidth: 54),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-        decoration: BoxDecoration(
-          color: cur
-              ? PlayerColors.accent.withValues(alpha: 0.15)
-              : scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-              color: cur ? PlayerColors.accent : Colors.transparent),
-        ),
-        child: Text(
-          e.title.isEmpty ? '${e.episode}' : e.title,
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 12.5,
-            fontWeight: cur ? FontWeight.w700 : FontWeight.w500,
-            color: cur ? PlayerColors.accent : scheme.onSurface,
+    return KeyedSubtree(
+      // 当前集方块挂定位锚点：选集面板打开时滚进视口。
+      key: cur ? _curEpKey : null,
+      child: InkWell(
+        onTap: () => _switchToEpisode(e.season, e.episode),
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          constraints: const BoxConstraints(minWidth: 54),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          decoration: BoxDecoration(
+            color: cur
+                ? PlayerColors.accent.withValues(alpha: 0.15)
+                : scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+                color: cur ? PlayerColors.accent : Colors.transparent),
+          ),
+          child: Text(
+            e.title.isEmpty ? '${e.episode}' : e.title,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: cur ? FontWeight.w700 : FontWeight.w500,
+              color: cur ? PlayerColors.accent : scheme.onSurface,
+            ),
           ),
         ),
       ),
@@ -2254,6 +2356,34 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     final sideR = pad.right > 0 ? pad.right + 4 : 16.0;
     final bottom = pad.bottom > 0 ? 12.0 : 8.0;
     final top = pad.top > 0 ? pad.top + 4 : 8.0;
+    final visible = _fsControlsVisible;
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: () {
+        if (!visible) {
+          _fsShowControls();
+        } else {
+          setState(() => _fsControlsVisible = false);
+        }
+      },
+      // 轻点控制浮层内的按钮不触发隐藏切换（按钮自身处理）。
+      child: Stack(fit: StackFit.expand, children: [
+        AnimatedOpacity(
+          opacity: visible ? 1 : 0,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+          child: IgnorePointer(
+            ignoring: !visible,
+            child: _fullscreenControlLayer(sideL, sideR, top, bottom),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _fullscreenControlLayer(
+      double sideL, double sideR, double top, double bottom) {
+    final progress = _fsDur > 0 ? (_fsPos / _fsDur).clamp(0.0, 1.0) : 0.0;
     return Stack(fit: StackFit.expand, children: [
       Align(
         alignment: Alignment.topCenter,
@@ -2312,10 +2442,52 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           child: SizedBox(
             height: 40,
             child: Row(children: [
+              _barBtn(_fsPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                  _fsTogglePlay),
               _barBtn(Icons.skip_previous_rounded,
                   _hasPrev ? () => _goToAdjacent(-1) : null),
               _barBtn(Icons.skip_next_rounded,
                   _hasNext ? () => _goToAdjacent(1) : null),
+              const SizedBox(width: 8),
+              Text(_formatDuration(_fsPos),
+                  style: const TextStyle(
+                      color: Colors.white70, fontSize: 11.5)),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: SliderTheme(
+                    data: SliderThemeData(
+                      trackHeight: 2.5,
+                      thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 6),
+                      overlayShape: const RoundSliderOverlayShape(
+                          overlayRadius: 13),
+                      activeTrackColor: Colors.white,
+                      inactiveTrackColor: Colors.white30,
+                      thumbColor: Colors.white,
+                      overlayColor: Colors.white24,
+                    ),
+                    child: Slider(
+                      value: progress,
+                      onChanged: (v) {
+                        setState(() {
+                          _fsSeeking = true;
+                          _fsPos = v * _fsDur;
+                          _fsControlsVisible = true;
+                        });
+                      },
+                      onChangeEnd: (v) {
+                        _fsSeekTo(v * _fsDur);
+                        setState(() => _fsSeeking = false);
+                        _fsShowControls();
+                      },
+                    ),
+                  ),
+                ),
+              ),
+              Text(_formatDuration(_fsDur),
+                  style: const TextStyle(
+                      color: Colors.white70, fontSize: 11.5)),
               const Spacer(),
               _textBtn('${_trimSpeed(_speed)}x', _showSpeedPanel,
                   icon: Icons.speed_rounded),
@@ -2343,6 +2515,41 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     final eps = widget.episodes;
     if (eps.isEmpty) return false;
     return _nextIndex >= 0;
+  }
+
+  /// 全屏控制浮层：缺进度条/时间/播放暂停控件，且永不自动隐藏遮挡画面。
+  /// 本页补齐：播放/暂停 + 可拖进度条 + 当前时间/总时长 + 3 秒无操作自动淡出
+  /// （点按/触摸画面唤回）。播放状态与进度来自对 WebView 内 <video> 的 JS 轮询
+  /// （每 1 秒取 paused/currentTime/duration），仅在 WebView 通道残留时有效。
+  bool _fsPlaying = true;
+  double _fsPos = 0;
+  double _fsDur = 0;
+  bool _fsSeeking = false;
+  Timer? _fsHideTimer;
+  bool _fsControlsVisible = true;
+  static const int _fsHideDelayMs = 3000;
+
+  /// 全屏控制层显示状态更新：延后 [ _fsHideDelayMs] 自动隐藏。
+  void _fsShowControls() {
+    setState(() => _fsControlsVisible = true);
+    _fsHideTimer?.cancel();
+    _fsHideTimer = Timer(const Duration(milliseconds: _fsHideDelayMs), () {
+      if (mounted && !_fsSeeking) setState(() => _fsControlsVisible = false);
+    });
+  }
+
+  String _formatDuration(double sec) {
+    if (!sec.isFinite || sec < 0) return '00:00';
+    final s = sec.round();
+    final m = s ~/ 60;
+    final r = s % 60;
+    final mm = (m % 60).toString().padLeft(2, '0');
+    if (m >= 60) {
+      final h = m ~/ 60;
+      final hh = h.toString().padLeft(2, '0');
+      return '$hh:$mm:${r.toString().padLeft(2, '0')}';
+    }
+    return '$mm:${r.toString().padLeft(2, '0')}';
   }
 
   static String _trimSpeed(double s) =>
@@ -2515,6 +2722,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       fromRight: _fullscreen,
       width: 360,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+        _scrollCurrentEpisodeIntoView(); // 打开即把当前集滚进视口
         final children = <Widget>[];
         for (final g in groups) {
           if (multi) {
@@ -2588,6 +2796,22 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
         );
       }),
     );
+  }
+
+  /// 把当前集方块滚进视口（选集面板打开时）。
+  void _scrollCurrentEpisodeIntoView() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _curEpKey.currentContext;
+      if (ctx == null) return;
+      final box = ctx.findRenderObject() as RenderBox?;
+      if (box == null) return;
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+        alignment: 0.5,
+      );
+    });
   }
 
 }
@@ -2705,9 +2929,7 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('播放失败: $e')),
-        );
+        AppToast.error(context, '播放失败：$e');
       }
     } finally {
       if (mounted) {
