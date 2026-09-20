@@ -552,15 +552,21 @@ Future<T?> showResponsiveBottomSheet<T>({
     return showDialog<T>(
       context: context,
       barrierDismissible: isDismissible,
+      barrierColor: barrierColor,
       builder: (ctx) => Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: kSheetMaxWidth),
           child: SingleChildScrollView(
             child: Material(
               color: backgroundColor ?? Theme.of(ctx).colorScheme.surface,
-              borderRadius: BorderRadius.circular(kSheetRadius),
+              // 桌面分支尊重调用方传入的 shape（移动分支本来就会用它画
+              // 圆角/边框）；没传时用与移动分支一致的默认圆角。
+              shape:
+                  shape ?? RoundedRectangleBorder(borderRadius: BorderRadius.circular(kSheetRadius)),
               clipBehavior: Clip.antiAlias,
-              child: builder(ctx),
+              child: useSafeArea
+                  ? SafeArea(child: builder(ctx))
+                  : builder(ctx),
             ),
           ),
         ),

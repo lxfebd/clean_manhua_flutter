@@ -74,9 +74,10 @@ class _NetworkToolsPageState extends State<NetworkToolsPage>
         _busyDns = false;
       });
     } catch (e) {
+      ErrorLogger.instance.warn('dns lookup failed: $e');
       if (!mounted) return;
       setState(() {
-        _dnsOut = '查询失败：$e';
+        _dnsOut = '查询失败，请检查网络';
         _busyDns = false;
       });
     }
@@ -143,9 +144,10 @@ class _NetworkToolsPageState extends State<NetworkToolsPage>
         _busyIp = false;
       });
     } catch (e) {
+      ErrorLogger.instance.warn('ip query failed: $e');
       if (!mounted) return;
       setState(() {
-        _ipOut = '查询失败：$e';
+        _ipOut = '查询失败，请检查网络';
         _busyIp = false;
       });
     }
@@ -599,12 +601,13 @@ class _CfPickerTabState extends State<_CfPickerTab> {
         _busy = false;
       });
     } catch (e) {
+      ErrorLogger.instance.warn('lan scan failed: $e');
       if (!mounted) return;
       setState(() {
         _busy = false;
         _results = [];
       });
-      AppToast.error(context, '扫描失败：$e');
+      AppToast.error(context, '扫描失败，请重试');
     }
   }
 
@@ -868,12 +871,13 @@ class _SourceCheckTabState extends State<_SourceCheckTab> {
         _busy = false;
       });
     } catch (e) {
+      ErrorLogger.instance.warn('src detect failed: $e');
       if (!mounted) return;
       setState(() {
         _busy = false;
         _results = [];
       });
-      AppToast.error(context, '检测失败：$e');
+      AppToast.error(context, '检测失败，请重试');
     }
   }
 

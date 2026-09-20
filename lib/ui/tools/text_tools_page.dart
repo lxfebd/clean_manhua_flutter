@@ -73,7 +73,8 @@ class _TextToolsPageState extends State<TextToolsPage>
           ? base64Encode(utf8.encode(t))
           : utf8.decode(base64Decode(t)));
     } catch (e) {
-      setState(() => _encOut = 'Base64 解码失败：$e');
+      ErrorLogger.instance.warn('base64 decode failed: $e');
+      setState(() => _encOut = 'Base64 解码失败：输入不是有效的 Base64 文本');
     }
   }
 

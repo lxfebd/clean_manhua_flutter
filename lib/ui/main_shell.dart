@@ -210,10 +210,14 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
       final last = await LocalStore.lastUpdateCheckTs();
       final now = DateTime.now().millisecondsSinceEpoch;
       if (now - last < const Duration(hours: 24).inMilliseconds) return;
-      await LocalStore.setLastUpdateCheckTs(now);
+      // 先联网检查、确认本次成功（无论有无新版本）再写时间戳：
+      // 失败（弱网/离线）时不写，否则下一次启动被 24h 门闸直接抑制，
+      // 更新检查会永远不再发生。
       final info =
           await UpdateChecker.checkLatest(timeout: const Duration(seconds: 10));
-      if (info == null || !mounted) return;
+      if (!mounted) return;
+      await LocalStore.setLastUpdateCheckTs(now);
+      if (info == null) return;
       _showUpdateDialog(info);
     } catch (e) {
       ErrorLogger.instance.warn('auto update check failed: $e');

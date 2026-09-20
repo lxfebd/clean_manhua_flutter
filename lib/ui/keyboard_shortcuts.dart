@@ -155,8 +155,8 @@ class _ShortcutGroup {
 const groupedShortcuts = <_ShortcutGroup>[
   _ShortcutGroup('全局', [
     _ShortcutItem(['Ctrl/Cmd + 1…7'], '切换主界面标签（首页/动漫/小说/书架/工具/我的）'),
-    _ShortcutItem(['Ctrl/Cmd + ←', '后退'],
-        'Ctrl/Cmd + →'),
+    _ShortcutItem(['Ctrl/Cmd + ←'], '后退'),
+    _ShortcutItem(['Ctrl/Cmd + →'], '前进'),
     _ShortcutItem(['Ctrl/Cmd + F'], '全局搜索'),
     _ShortcutItem(['Ctrl/Cmd + R'], '刷新当前列表'),
     _ShortcutItem(['Alt + ←'], '返回上一页'),
