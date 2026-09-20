@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import '../../models/comic_item.dart';
+import '../../net/error_logger.dart';
 import '../../net/http_client.dart';
 import '../novel_source.dart';
 import '../source_config.dart';
@@ -222,12 +223,13 @@ class DslNovelSource extends NovelSource {
     } on SourceError {
       rethrow;
     } catch (e) {
+      ErrorLogger.instance.warn('[dsl-novel] fetch failed ($id): $e');
       if (e is SocketException || e is TimeoutException) {
-        throw SourceError.network('$e');
+        throw SourceError.network('网络请求失败，请检查网络后重试');
       }
-      if (e is FormatException) throw SourceError.parse('$e');
-      if (e is HttpException) throw SourceError.service('$e');
-      throw SourceError.unknown('$e');
+      if (e is FormatException) throw SourceError.parse('页面数据解析失败');
+      if (e is HttpException) throw SourceError.service('站点服务异常');
+      throw SourceError.unknown('请求失败');
     }
   }
 

@@ -253,6 +253,7 @@ class Anime4KManager {
       return;
     }
     // 版本不一致（或首次安装/文件缺失）：重写全部 shader。
+    var allOk = true;
     for (final preset in levels) {
       for (final name in preset.shaders) {
         final target = File('${dir.path}/$name');
@@ -260,7 +261,9 @@ class Anime4KManager {
         try {
           data = await rootBundle.load('$_assetDir/$name');
         } catch (_) {
-          // 资源缺失时忽略，播放器回退到无超分
+          // 资源缺失时仅跳过该文件并标记不全量；播放器对缺文件的档位
+          // 回退到无超分，下一轮会继续尝试补齐。
+          allOk = false;
           continue;
         }
         var bytes = _assetBytes(data);
@@ -275,11 +278,14 @@ class Anime4KManager {
         try {
           await target.writeAsBytes(bytes, flush: true);
         } catch (_) {
-          // IO 失败忽略，播放器回退到无超分
+          // IO 失败也视为未完整；播放器回退到无超分
+          allOk = false;
         }
       }
     }
-    // 全部写完再落盘版本标记，避免中途失败误判为已更新。
+    // 全部写完才落盘版本标记，避免中途失败误判为已更新；
+    // 只有全成功才置 ready，否则下次启动继续修复。
+    if (!allOk) return;
     try {
       versionFile.writeAsStringSync('$_shaderVersion', flush: true);
     } catch (_) {}

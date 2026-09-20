@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import '../../models/comic_item.dart';
 import '../../net/aes_cbc.dart';
+import '../../net/error_logger.dart';
 import '../../net/http_client.dart';
 import '../comic_source.dart';
 import '../source_config.dart';
@@ -226,13 +227,14 @@ class DslComicSource extends ComicSource {
     } on SourceError {
       rethrow;
     } catch (e) {
-      // 统一归约为结构化错误（对齐 runCatching 的语义）
+      // 统一归约为结构化错误（对齐 runCatching 的语义），原错进日志。
+      ErrorLogger.instance.warn('[dsl-comic] fetch failed ($id): $e');
       if (e is SocketException || e is TimeoutException) {
-        throw SourceError.network('$e');
+        throw SourceError.network('网络请求失败，请检查网络后重试');
       }
-      if (e is FormatException) throw SourceError.parse('$e');
-      if (e is HttpException) throw SourceError.service('$e');
-      throw SourceError.unknown('$e');
+      if (e is FormatException) throw SourceError.parse('页面数据解析失败');
+      if (e is HttpException) throw SourceError.service('站点服务异常');
+      throw SourceError.unknown('请求失败');
     }
   }
   /// 组装分页 URL：替换 {page} 与可选 {keyword}。

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../models/comic_item.dart';
 import '../net/circuit_breaker.dart';
+import '../net/error_logger.dart';
 import '../net/http_client.dart';
 import '../net/image_deg.dart';
 import '../net/jm_crypto.dart';
@@ -245,6 +246,7 @@ class JmSource extends ComicSource {
   Future<String> _coverUrl(String albumId) async {
     final imgHosts =
         await SourceConfigStore.imageHostsFor('jm', _builtinImageHosts);
+    if (imgHosts.isEmpty) return '';
     return '${imgHosts.first}$_coverPathTemplate$albumId.jpg';
   }
 
@@ -297,10 +299,10 @@ class JmSource extends ComicSource {
       }
     }
     cb.recordFailure();
+    ErrorLogger.instance.warn('[jm] 全镜像请求失败: ${lastErr?.toString() ?? '未知'}');
     throw Exception(
         '禁漫天堂暂时无法连接（所有镜像域名均失败）。\n'
-        '可能是国内网络被限制或签名密钥已轮换。\n'
-        '原始错误：${lastErr?.toString() ?? '未知'}');
+        '可能是国内网络被限制或签名密钥已轮换，请稍后重试。');
   }
 
   /// App UA（必须与 jmcomic 一致，server 据此识别）。
