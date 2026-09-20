@@ -43,6 +43,11 @@ class _DetailPageState extends State<DetailPage> {
   /// 正在打开章节（防止 await 历史记录期间连点并发 push 多个阅读器页）。
   bool _openingChapter = false;
 
+  /// 「开始阅读」的目标章节：有历史记录时为上次读到的章节（续读），
+  /// 无历史时为第 1 话。加载详情后按历史异步解析。
+  Chapter? _resumeChapter;
+  bool _resumeReady = false;
+
   static const double _heroHeight = 260;
 
   @override
@@ -85,6 +90,7 @@ class _DetailPageState extends State<DetailPage> {
           _loading = false;
           _sortedCache = null;
         });
+        _resolveResumeChapter();
       }
     } catch (e) {
       ErrorLogger.instance.warn('comic detail load failed: $e');
@@ -93,6 +99,48 @@ class _DetailPageState extends State<DetailPage> {
           _error = '加载失败，请检查网络后重试';
           _loading = false;
         });
+      }
+    }
+  }
+
+  /// 解析「开始阅读」目标：查历史里该作品最近读到的章节；无则回退第 1 话。
+  Future<void> _resolveResumeChapter() async {
+    try {
+      final hist = await LocalStore.history();
+      if (!mounted || _detail == null) return;
+      final key = Bookmark(
+              sourceId: widget.sourceId,
+              comicId: widget.comicId,
+              name: '',
+              pic: '')
+          .key;
+      Chapter? resume;
+      for (final h in hist.reversed) {
+        if (h.book.key == key) {
+          // 章节列表里找该 chapterId（找不到用最新一条历史直接构造，
+          // 但章节可能已从源移除，回退第 1 话更稳）。
+          final chs = _detail!.chapters;
+          for (final c in chs) {
+            if (c.id == h.chapterId) {
+              resume = c;
+              break;
+            }
+          }
+          resume ??= Chapter(h.chapterId, h.chapterTitle);
+          break;
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _resumeChapter = resume;
+          _resumeReady = true;
+        });
+      }
+    } catch (e) {
+      // 历史读取失败不影响阅读：回退第 1 话（_resumeChapter 保持 null）。
+      ErrorLogger.instance.warn('comic detail resolve resume failed: $e');
+      if (mounted) {
+        setState(() => _resumeReady = true);
       }
     }
   }
@@ -158,9 +206,10 @@ class _DetailPageState extends State<DetailPage> {
                     child: _MetaSection(
                       detail: _detail!,
                       saved: _saved,
+                      resumeChapter: _resumeReady ? _resumeChapter : null,
                       onRead: _detail!.chapters.isEmpty
                           ? null
-                          : () => _openChapter(_detail!.chapters.first),
+                          : () => _openStartChapter(),
                       onShelf: _toggleSave,
                     ),
                   ),
@@ -534,11 +583,19 @@ class _DetailPageState extends State<DetailPage> {
                                 child: FilledButton.icon(
                                   onPressed: d.chapters.isEmpty
                                       ? null
-                                      : () =>
-                                          _openChapter(d.chapters.first),
+                                      : () {
+                                          final resume = _resumeReady
+                                              ? _resumeChapter
+                                              : null;
+                                          _openChapter(resume ??
+                                              d.chapters.first);
+                                        },
                                   icon: const Icon(Icons.play_arrow_rounded,
                                       size: 18),
-                                  label: const Text('开始阅读'),
+                                  label: Text(
+                                      _resumeReady && _resumeChapter != null
+                                          ? '继续阅读'
+                                          : '开始阅读'),
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -771,6 +828,8 @@ class _DetailPageState extends State<DetailPage> {
     var currentDone = 0;
     var currentTotal = 0;
     var quality = DownloadQuality.original;
+    // 本次确认下载的章节索引（按下「下载 N 话」时快照，供取消按钮精确取消）
+    var picks = <int>[];
     // 未下载章节的索引（全选只选这些；已下载的显示 ✓ 且不可勾选）
     final selectableChapters = <int>[
       for (var i = 0; i < chapters.length; i++)
@@ -812,7 +871,13 @@ class _DetailPageState extends State<DetailPage> {
                         if (downloading)
                           TextButton(
                             onPressed: () {
-                              DownloadManager.cancelAll();
+                              // 精确取消本批：只取消未下载的章节任务，
+                              // 不影响阅读页/其它详情页在途的下载任务。
+                              final bk = DownloadManager.bookKeyOf(
+                                  widget.sourceId, _detail!.id);
+                              for (final idx in picks) {
+                                DownloadManager.cancelTask('$bk/${chapters[idx].id}');
+                              }
                               setS(() => downloading = false);
                             },
                             child: const Text('取消'),
@@ -941,7 +1006,7 @@ class _DetailPageState extends State<DetailPage> {
                           onPressed: selected.isEmpty
                               ? null
                               : () async {
-                                  final picks = selected
+                                  picks = selected
                                       .toList()
                                     ..sort();
                                   setS(() => downloading = true);
@@ -958,6 +1023,11 @@ class _DetailPageState extends State<DetailPage> {
                                   for (final idx in picks) {
                                     if (DownloadManager.isCancelled(gen)) break;
                                     final ch = chapters[idx];
+                                    // 用户取消（弹窗/书架取消按钮）：停止后续章节
+                                    if (DownloadManager.isTaskCancelled(
+                                        '${DownloadManager.bookKeyOf(widget.sourceId, _detail!.id)}/${ch.id}')) {
+                                      break;
+                                    }
                                     setS(() {
                                       currentIdx = idx;
                                       currentDone = 0;
@@ -1148,6 +1218,15 @@ class _DetailPageState extends State<DetailPage> {
         ),
       ),
     );
+  }
+
+  /// 「开始阅读」：有历史记录则续读上次章节，否则从第 1 话开始。
+  void _openStartChapter() {
+    final resume = _resumeChapter;
+    final chapters = _detail?.chapters;
+    if (chapters == null || chapters.isEmpty) return;
+    final target = resume ?? chapters.first;
+    _openChapter(target);
   }
 
   Future<void> _openChapter(Chapter ch) async {
@@ -1404,11 +1483,15 @@ class _MetaSection extends StatelessWidget {
   final bool saved;
   final VoidCallback? onRead;
   final VoidCallback onShelf;
+
+  /// 非空 = 有上次阅读记录（按钮显示「继续阅读」）；null = 从第 1 话开始。
+  final Chapter? resumeChapter;
   const _MetaSection({
     required this.detail,
     required this.saved,
     this.onRead,
     required this.onShelf,
+    this.resumeChapter,
   });
 
   @override
@@ -1490,7 +1573,7 @@ class _MetaSection extends StatelessWidget {
                 child: FilledButton.icon(
                   onPressed: onRead,
                   icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                  label: const Text('开始阅读'),
+                  label: Text(resumeChapter != null ? '继续阅读' : '开始阅读'),
                 ),
               ),
               const SizedBox(width: 10),

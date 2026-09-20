@@ -43,6 +43,12 @@ class DownloadManager {
   /// 在途旧任务误判为已取消（原 bool 方案的串扰会换一种形式复现）。
   static int _cancelGen = 0;
 
+  /// 单任务取消标记：key（`sourceId/comicId/chapterId`）→ 已请求取消。
+  /// 供 UI 跨页面取消在途下载（如书架取消详情页发起的批量任务），
+  /// 不干扰其它任务。新任务开始时消费（remove）本 key 的旧标记，
+  /// 不继承旧的取消状态。
+  static final Map<String, int> _taskCancels = {};
+
   /// 快照当前取消代号作为本次批次的代号。新任务开始不会影响在途任务；
   /// 只有 [cancelAll] 递增代号才使所有已派发批次失效。
   static int beginBatch() => _cancelGen;
@@ -50,8 +56,18 @@ class DownloadManager {
   /// 是否已请求取消（本批次内）。传入暂停时快照的代号。
   static bool isCancelled(int gen) => gen != _cancelGen;
 
+  /// 该任务是否已被 [cancelTask] 请求取消。下载循环每张图轮询一次。
+  static bool isTaskCancelled(String key) => _taskCancels.containsKey(key);
+
+  /// 取消单个下载任务（[downloadChapter] 的 key）。只影响该 key 的在途
+  /// 下载，不干扰其它任务。无在途下载时留一个未来标记，任务开始时消费。
+  static void cancelTask(String key) => _taskCancels[key] = _cancelGen + 1;
+
   /// 取消所有进行中的下载任务（使所有已派发批次失效）。
-  static void cancelAll() => _cancelGen++;
+  static void cancelAll() {
+    _cancelGen++;
+    _taskCancels.clear(); // 全局取消同时清掉单任务标记，避免误取消新任务
+  }
 
   /// 下载某个章节的全部图片（带并发与超时）。
   /// [batchGen] 为本逻辑任务的取消代号（[beginBatch] 返回值）；取消时
@@ -70,6 +86,9 @@ class DownloadManager {
     Function(int done, int total)? onProgress,
   }) async {
     final key = '${book.sourceId}/${book.comicId}/$chapterId';
+    // 消费单任务取消标记：任务开始前被取消（书架取消按钮抢先按下）→
+    // 不落开始记录直接返回；否则清除旧标记，新任务不继承取消状态。
+    final preCancelled = _taskCancels.remove(key) != null;
     final record = DownloadRecord(
       book: book,
       chapterId: chapterId,
@@ -80,6 +99,20 @@ class DownloadManager {
       localKey: key,
     );
     await LocalStore.upsertDownload(record);
+
+    if (preCancelled) {
+      await LocalStore.upsertDownload(DownloadRecord(
+        book: book,
+        chapterId: chapterId,
+        chapterTitle: chapterTitle,
+        total: urls.length,
+        done: 0,
+        finished: false,
+        localKey: key,
+        error: '已取消',
+      ));
+      return const DownloadResult.fail('已取消');
+    }
 
     var done = 0;
     var okCount = 0;
@@ -97,6 +130,7 @@ class DownloadManager {
 
     Future<void> downloadOne(int i) async {
       if (isCancelled(batchGen)) return;
+      if (isTaskCancelled(key)) return;
       if (writeError != null) return; // 已写失败，本章中断
       try {
         final path = await LocalStore.localImagePath(key, i);
@@ -145,7 +179,10 @@ class DownloadManager {
 
     // 分批并发：每批最多 _concurrency 张，全部超时可控。
     for (var start = 0;
-        start < urls.length && !isCancelled(batchGen) && writeError == null;
+        start < urls.length &&
+            !isCancelled(batchGen) &&
+            !isTaskCancelled(key) &&
+            writeError == null;
         start += _concurrency) {
       final end = (start + _concurrency).clamp(0, urls.length);
       final batch = <Future<void>>[];
@@ -173,9 +210,12 @@ class DownloadManager {
       return DownloadResult.fail(writeError);
     }
 
+    // 任务级取消与全局取消取并集判定（同样限定「没下完」）。
+    final taskCancelled = isTaskCancelled(key);
     // 取消中断判定必须限定「没下完」：全下完后全局 token 可能已被别的
     // 任务 cancelAll 递增（取消是全局的），此时本章已完整落盘，不能报取消。
-    final cancelled = isCancelled(batchGen) && done < urls.length;
+    final cancelled =
+        (isCancelled(batchGen) || taskCancelled) && done < urls.length;
     final ok = !cancelled && done == urls.length && okCount == urls.length;
     await LocalStore.upsertDownload(DownloadRecord(
       book: book,

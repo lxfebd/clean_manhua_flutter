@@ -2106,6 +2106,10 @@ class _ImageViewState extends State<_ImageView>
   bool _error = false;
   final GlobalKey _imgKey = GlobalKey();
 
+  /// 图片子树重建序号：失败重试时递增，强制底层组件重建重新加载
+  /// （didUpdateWidget 只在 url 等属性变化时重载，重试必须换 key）。
+  int _imgGen = 0;
+
   /// 横向翻页：必须关闭 keepAlive——JM 长条图解码后单张可达数十 MB，
   /// PageView 若把已读页全部保留在 Element 树中，翻十几页就 OOM 闪退。
   /// 关闭后由 PageView 的 cacheExtent 保留前后有限页，翻走即销毁释放。
@@ -2196,7 +2200,10 @@ class _ImageViewState extends State<_ImageView>
                 icon: const Icon(Icons.refresh, size: 16),
                 label: const Text('重试'),
                 style: TextButton.styleFrom(foregroundColor: Colors.white),
-                onPressed: () => setState(() => _error = false),
+                onPressed: () => setState(() {
+                  _error = false;
+                  _imgGen++; // 换 key 强制重建底层图片组件重新加载
+                }),
               ),
             ],
           ),
@@ -2204,6 +2211,9 @@ class _ImageViewState extends State<_ImageView>
       );
     }
 
+    // 失败重试后 _imgGen++：整棵图片子树换 key 重建，强制重新加载
+    // （子组件 didUpdateWidget 只在 url 等属性变化时重载，仅复位 _error
+    // 不会重新请求图片）。
     final fit = widget.horizontal ? BoxFit.contain : BoxFit.fitWidth;
     Widget img;
     if (widget.url.startsWith('/') && !kIsWeb) {
@@ -2266,6 +2276,9 @@ class _ImageViewState extends State<_ImageView>
         ),
       );
     }
+
+    // 失败重试后 _imgGen++：换 key 强制重建（见 retry 按钮）。
+    img = KeyedSubtree(key: ValueKey<int>(_imgGen), child: img);
 
     // 横向翻页：用 Expanded 让图片填满整个页面
     if (widget.horizontal) {

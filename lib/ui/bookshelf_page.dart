@@ -12,6 +12,7 @@ import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
 import 'detail_page.dart';
 import 'native_player_page.dart';
+import 'novel_detail_page.dart';
 import 'reader_page.dart';
 import 'responsive.dart';
 import 'tokens.dart';
@@ -920,6 +921,16 @@ class BookshelfPageState extends State<BookshelfPage>
             ),
             if (!d.finished)
               IconButton(
+                icon: Icon(Icons.close_rounded,
+                    color: scheme.primary.withValues(alpha: 0.8)),
+                tooltip: '取消下载',
+                onPressed: () {
+                  DownloadManager.cancelTask(d.localKey);
+                  AppToast.info(context, '已请求取消该下载', duration: const Duration(seconds: 1));
+                },
+              ),
+            if (!d.finished)
+              IconButton(
                 icon: Icon(Icons.refresh_rounded,
                     color: scheme.primary.withValues(alpha: 0.8)),
                 tooltip: '重试',
@@ -1021,9 +1032,12 @@ class BookshelfPageState extends State<BookshelfPage>
     );
   }
 
-  /// 未完成（失败/中断）的漫画下载任务。
-  List<DownloadRecord> get _failedManga =>
-      _mangaDownloads.where((d) => !d.finished).toList();
+  /// 已失败（非进行中）的漫画下载任务：未完成且计数到齐（无法完成的重试
+  /// 之后中断），与卡片失败样式判定一致。进行中的任务（done < total）不算，
+  /// 避免「重试 N」虚高与对进行中任务重复启动下载。
+  List<DownloadRecord> get _failedManga => _mangaDownloads
+      .where((d) => !d.finished && d.total > 0 && d.done >= d.total)
+      .toList();
 
   /// 一键重试所有失败的漫画下载。
   Future<void> _retryAllManga() async {
@@ -1588,20 +1602,24 @@ class BookshelfPageState extends State<BookshelfPage>
     );
   }
 
-  /// 历史记录只存漫画/小说阅读进度（视频观看进度走 [VideoRecord] 独立存储），
-  /// 所以这里一律进漫画详情页，不需要区分是不是视频。
+  /// 历史记录同时存漫画/小说阅读进度（视频观看进度走 [VideoRecord] 独立存储）。
+  /// 按 sourceId 是否小说源分流：小说进小说详情页，其余进漫画详情页。
   void _openFromHistory(HistoryEntry h) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => DetailPage(
-          sourceId: h.book.sourceId,
-          comicId: h.book.comicId,
-          name: h.book.name,
-          pic: h.book.pic,
-        ),
-      ),
-    );
+    final isNovel = SourceManager.novelById(h.book.sourceId) != null;
+    final page = isNovel
+        ? NovelDetailPage(
+            sourceId: h.book.sourceId,
+            novelId: h.book.comicId,
+            name: h.book.name,
+            pic: h.book.pic,
+          )
+        : DetailPage(
+            sourceId: h.book.sourceId,
+            comicId: h.book.comicId,
+            name: h.book.name,
+            pic: h.book.pic,
+          );
+    Navigator.push(context, MaterialPageRoute(builder: (_) => page));
   }
 
   /// 书签直达：先向源解析该章节的目录（拿到全章节列表供连读/切章），
@@ -2241,7 +2259,8 @@ class BookshelfPageState extends State<BookshelfPage>
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () {
-          if (v == 4) reload(); // 切到书签页时刷新（阅读器里可能刚增删了书签）
+          // 切到书签/下载页时刷新（阅读器/详情页里可能刚增删了书签或下载任务）
+          if (v == 4 || v == 3) reload();
           setState(() => _tab = v);
         },
         child: AnimatedContainer(
