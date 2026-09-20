@@ -20,10 +20,11 @@ class NovelHomePage extends StatefulWidget {
   const NovelHomePage({super.key, this.type = 2, this.onTypeChanged});
 
   @override
-  State<NovelHomePage> createState() => _NovelHomePageState();
+  State<NovelHomePage> createState() => NovelHomePageState();
 }
 
-class _NovelHomePageState extends State<NovelHomePage> {
+/// 公开 State：主壳经 GlobalKey 调 [refresh]（Ctrl+R 分发）。
+class NovelHomePageState extends State<NovelHomePage> {
   List<NovelSource> _sources = [];
   bool _sourcesLoaded = false; // 源列表加载完成前不给空态，防「小说源即将接入」闪变
   String? _sourceId;
@@ -52,6 +53,11 @@ class _NovelHomePageState extends State<NovelHomePage> {
       // 书架稍大或目录在慢速磁盘上时会卡首帧）。
       _localBooks = LocalNovelSource.store.listAll();
     });
+    if (_sourceId != null) _loadNovels();
+  }
+
+  /// 主壳 Ctrl+R 刷新入口。
+  void refresh() {
     if (_sourceId != null) _loadNovels();
   }
 

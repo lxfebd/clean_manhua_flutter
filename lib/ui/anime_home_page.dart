@@ -20,10 +20,11 @@ class AnimeHomePage extends StatefulWidget {
   const AnimeHomePage({super.key, this.type = 1, this.onTypeChanged});
 
   @override
-  State<AnimeHomePage> createState() => _AnimeHomePageState();
+  State<AnimeHomePage> createState() => AnimeHomePageState();
 }
 
-class _AnimeHomePageState extends State<AnimeHomePage> {
+/// 公开 State：主壳经 GlobalKey 调 [refresh]（Ctrl+R 分发）。
+class AnimeHomePageState extends State<AnimeHomePage> {
   final _items = <ComicItem>[];
   int _page = 1;
   bool _loading = false;
@@ -225,6 +226,9 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
   /// 加载代际：切源/切分类/刷新时自增，使在途旧请求的结果作废，
   /// 避免「加载中切源 → 旧请求完成停空态、新列表永不加载」的竞态。
   int _loadToken = 0;
+
+  /// 主壳 Ctrl+R 刷新入口。
+  void refresh() => _refresh();
 
   void _refresh() {
     _loadToken++; // 作废在途请求（旧响应到达后按 token 丢弃）

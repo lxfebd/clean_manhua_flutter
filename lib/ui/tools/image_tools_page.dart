@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 
+import '../../net/error_logger.dart';
 import '../responsive.dart';
 
 /// 图片处理工具：压缩/转换/缩放、加水印、高斯模糊、九宫格切图。
@@ -90,23 +91,30 @@ class _ImageToolsPageState extends State<ImageToolsPage> {
       final bytes = await file.readAsBytes();
       final decoded = img.decodeImage(bytes);
       if (decoded == null) {
-        setState(() {
-          _busy = false;
-          _msg = '无法解码该图片';
-        });
+        if (mounted) {
+          setState(() {
+            _busy = false;
+            _msg = '无法解码该图片';
+          });
+        }
         return;
       }
       final out = await work(decoded, bytes);
       final outLen = await out.length();
-      setState(() {
-        _busy = false;
-        _msg = _sizeMsg(bytes.length, outLen, tag);
-      });
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _msg = _sizeMsg(bytes.length, outLen, tag);
+        });
+      }
     } catch (e) {
-      setState(() {
-        _busy = false;
-        _msg = '处理失败：$e';
-      });
+      ErrorLogger.instance.warn('image tools failed: $e');
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _msg = '处理失败，请重试';
+        });
+      }
     }
   }
 

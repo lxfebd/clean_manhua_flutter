@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../net/cf_ip_picker.dart';
+import '../../net/error_logger.dart';
 import '../../net/http_client.dart';
 import '../../sources/source_config.dart';
 import '../responsive.dart';
@@ -152,14 +153,39 @@ class _NetworkToolsPageState extends State<NetworkToolsPage>
 
   Future<void> _weather() async {
     final city = _cityCtrl.text.trim();
-    if (city.isEmpty) return;
+    if (city.isEmpty) {
+      if (mounted) AppToast.info(context, '请输入城市名');
+      return;
+    }
     setState(() {
       _busyWeather = true;
       _weatherOut = '';
     });
     try {
+      // 城市 → 经纬度：先用 open-meteo geocoding 解析城市名，
+      // 再查当前天气。避免把固定北京坐标标注成用户输入的城市（数据错位）。
+      final geo = await Net.get(
+        'https://geocoding-api.open-meteo.com/v1/search'
+        '?name=${Uri.encodeQueryComponent(city)}&count=1&language=zh',
+      );
+      final gj = jsonDecode(geo) as Map<String, dynamic>;
+      final results = gj['results'] as List?;
+      if (results == null || results.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _weatherOut = '未找到城市：$city';
+            _busyWeather = false;
+          });
+        }
+        return;
+      }
+      final first = results.first as Map<String, dynamic>;
+      final lat = first['latitude'];
+      final lon = first['longitude'];
+      final resolvedName =
+          (first['name'] as String?) ?? (first['admin1'] as String?) ?? city;
       final resp = await Net.get(
-        'https://api.open-meteo.com/v1/forecast?latitude=39.9&longitude=116.4'
+        'https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon'
         '&current_weather=true&timezone=auto',
       );
       final j = jsonDecode(resp) as Map<String, dynamic>;
@@ -168,7 +194,7 @@ class _NetworkToolsPageState extends State<NetworkToolsPage>
       setState(() {
         _weatherOut = cw == null
             ? '未获取到天气数据'
-            : '城市：$city（经纬度查询）\n'
+            : '城市：$resolvedName\n'
                 '温度：${cw['temperature']}°C\n'
                 '风速：${cw['windspeed']} km/h\n'
                 '风向：${cw['winddirection']}°\n'
@@ -177,9 +203,10 @@ class _NetworkToolsPageState extends State<NetworkToolsPage>
         _busyWeather = false;
       });
     } catch (e) {
+      ErrorLogger.instance.warn('weather query failed: $e');
       if (!mounted) return;
       setState(() {
-        _weatherOut = '查询失败：$e';
+        _weatherOut = '查询失败，请检查网络';
         _busyWeather = false;
       });
     }

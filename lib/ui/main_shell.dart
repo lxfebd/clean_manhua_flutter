@@ -36,15 +36,20 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
   int _index = 0;
+
+  /// 首页 hub 内当前类型（0=漫画 1=动漫 2=小说）。
+  /// 桌面/平板侧栏把 1/2/3 映射到这里，保证导航高亮与内容联动；
+  /// 移动端仅 hub 可见（_index 只取 0/4/5/6），由 hub 内 TypeSegment 驱动。
+  int _hubType = 0;
+
   final GlobalKey<BookshelfPageState> _shelfKey =
       GlobalKey<BookshelfPageState>();
   final GlobalKey<ProfilePageState> _profileKey =
       GlobalKey<ProfilePageState>();
   final GlobalKey<ToolboxPageState> _toolboxKey =
       GlobalKey<ToolboxPageState>();
-
-  // 键盘快捷键焦点节点
-  final FocusNode _focusNode = FocusNode();
+  final GlobalKey<MangaAnimeTabsState> _hubKey =
+      GlobalKey<MangaAnimeTabsState>();
 
   /// 是否启用桌面快捷键：按窗口宽度（Material 3 Expanded 起，≥840dp）
   /// 而非平台类型判断。桌面窗口默认 1100dp 宽、平板横屏多 ≥840dp，
@@ -60,7 +65,6 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
 
   @override
   void dispose() {
-    _focusNode.dispose();
     HardwareKeyboard.instance.removeHandler(_shortcutHandler);
     super.dispose();
   }
@@ -69,6 +73,12 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
     // 桌面快捷键仅在符合窗口宽度条件时才生效（在 build 中注册）
     if (!_shortcutsEnabled) return false;
+
+    // 只响应「主壳路由在栈顶」时的按键：阅读器/详情/搜索等推入页面后，
+    // 全局键（Ctrl+← 后退、Ctrl+F 搜索、Ctrl+1…7 切 tab）不得抢占
+    // 子页自己的处理，否则在阅读器里按 Ctrl+← 会把整个播放页 pop 掉。
+    final nav = Navigator.of(context);
+    if (nav.canPop()) return false;
 
     // Ctrl/Cmd + 数字键切换标签页
     // 用 defaultTargetPlatform 而非 dart:io Platform：widget 测试里
@@ -149,13 +159,12 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
     );
   }
 
-  /// 刷新当前标签页内容。
+  /// 刷新当前标签页内容（Ctrl+R）。
   void _refreshCurrentTab() {
     switch (_index) {
       case 0:
-        // MangaAnimeTabs 内部自带刷新；首页数据在首次加载后缓存，
-        // 这里通过重建触发重拉。
-        setState(() {});
+        // 首页 hub：按当前漫画/动漫/小说类型分发到对应页刷新。
+        _hubKey.currentState?.refreshCurrent();
         break;
       case 4:
         _shelfKey.currentState?.reload();
@@ -260,6 +269,14 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
   }
 
   void _onTab(int i) {
+    // 侧栏/底栏导航：1/2/3 是 hub 内的漫画/动漫/小说（hub 在索引 0 可见）。
+    if (i == 1 || i == 2 || i == 3) {
+      setState(() {
+        _index = 0;
+        _hubType = i - 1;
+      });
+      return;
+    }
     setState(() => _index = i);
     if (i == 4) {
       _shelfKey.currentState?.reload();
@@ -276,16 +293,22 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    // 单个 hub（内部保活漫画/动漫/小说三页）+ 书架/工具/我的。
+    // 侧栏的漫画/动漫/小说入口（1/2/3）映射到 hub 的 _hubType，
+    // 不再各建独立页——否则 IndexedStack 会同时 initState 两套三页
+    // （冷启动 9 页同建树、同类页两份状态、数据重复拉取）。
     final tabs = [
-      const MangaAnimeTabs(),
-      HomePage(type: 0),
-      AnimeHomePage(type: 1),
-      NovelHomePage(type: 2),
+      MangaAnimeTabs(
+        key: _hubKey,
+        type: _hubType,
+        onTypeChanged: (v) => setState(() => _hubType = v),
+      ),
       BookshelfPage(
           key: _shelfKey, onGotoHome: () => _onTab(0)),
       ToolboxPage(key: _toolboxKey),
       ProfilePage(key: _profileKey, onSwitchTab: _onTab),
     ];
+    // 底栏只有 0/4/5/6 四项（手机布局），索引永远落在合法范围。
     final body = IndexedStack(
       index: _index,
       children: tabs,
@@ -829,41 +852,68 @@ class _Item extends StatelessWidget {
   }
 }
 
-/// 首页内：漫画 / 动漫 二选一（带切换动效）
+/// 首页内：漫画 / 动漫 / 小说 三合一（保活常驻）。
+///
+/// 受控组件：type 由外部（主壳侧栏/底栏）驱动，本组件不持有 IndexedStack，
+/// 三页保活交给外层 [IndexedStack]（main_shell 的 tabs 列表），避免两套实例。
 class MangaAnimeTabs extends StatefulWidget {
-  const MangaAnimeTabs({super.key});
+  final int type;
+  final ValueChanged<int> onTypeChanged;
+  const MangaAnimeTabs({
+    super.key,
+    required this.type,
+    required this.onTypeChanged,
+  });
 
   @override
-  State<MangaAnimeTabs> createState() => _MangaAnimeTabsState();
+  State<MangaAnimeTabs> createState() => MangaAnimeTabsState();
 }
 
-class _MangaAnimeTabsState extends State<MangaAnimeTabs> {
-  int _type = 0;
+class MangaAnimeTabsState extends State<MangaAnimeTabs> {
+  final GlobalKey<HomePageState> _homeKey = GlobalKey<HomePageState>();
+  final GlobalKey<AnimeHomePageState> _animeKey = GlobalKey<AnimeHomePageState>();
+  final GlobalKey<NovelHomePageState> _novelKey = GlobalKey<NovelHomePageState>();
 
-  /// 三个子页只创建一次、常驻内存（IndexedStack 保活），
-  /// 切换 _type 仅改变可见 index，滚动位置与已加载列表数据不丢失。
+  /// 刷新当前可见页（主壳 Ctrl+R 入口）。
+  void refreshCurrent() {
+    switch (widget.type) {
+      case 0:
+        _homeKey.currentState?.refresh();
+        break;
+      case 1:
+        _animeKey.currentState?.refresh();
+        break;
+      case 2:
+        _novelKey.currentState?.refresh();
+        break;
+    }
+  }
+
+  /// 三个子页只创建一次、常驻内存（外层 IndexedStack 保活），
+  /// 切换 type 仅改变可见页，滚动位置与已加载列表数据不丢失。
   /// 各页 type 恒为自身下标（0/1/2），仅用于顶部 TypeSegment 的高亮态：
-  /// 该页可见时即当前选中项，无需随 _type 变化而重建。
+  /// 该页可见时即当前选中项，无需随 type 变化而重建。
   late final List<Widget> _pages = [
     HomePage(
+      key: _homeKey,
       type: 0,
-      onTypeChanged: (v) => setState(() => _type = v),
+      onTypeChanged: widget.onTypeChanged,
     ),
     AnimeHomePage(
+      key: _animeKey,
       type: 1,
-      onTypeChanged: (v) => setState(() => _type = v),
+      onTypeChanged: widget.onTypeChanged,
     ),
     NovelHomePage(
+      key: _novelKey,
       type: 2,
-      onTypeChanged: (v) => setState(() => _type = v),
+      onTypeChanged: widget.onTypeChanged,
     ),
   ];
 
   @override
   Widget build(BuildContext context) {
-    return IndexedStack(
-      index: _type,
-      children: _pages,
-    );
+    final idx = widget.type.clamp(0, _pages.length - 1);
+    return _pages[idx];
   }
 }

@@ -63,7 +63,7 @@ class _DeviceToolsPageState extends State<DeviceToolsPage>
           '设备': a.device.isNotEmpty ? a.device : '-',
           '指纹': a.fingerprint.isNotEmpty ? a.fingerprint : '-',
         };
-      } else {
+      } else if (Platform.isIOS) {
         final i = await di.iosInfo;
         _info = {
           '型号': i.utsname.machine,
@@ -71,6 +71,35 @@ class _DeviceToolsPageState extends State<DeviceToolsPage>
           '名称': i.name,
           '标识符': i.identifierForVendor ?? '-',
         };
+      } else {
+        // Windows / Linux / macOS 桌面：按平台取对应信息源，
+        // 不能一律走 iosInfo（桌面端无该插件分支，会抛异常导致设备信息恒失败）。
+        if (Platform.isWindows) {
+          final w = await di.windowsInfo;
+          _info = {
+            '系统': 'Windows ${w.majorVersion}.${w.minorVersion}.${w.buildNumber}'
+                '${w.displayVersion.isNotEmpty ? '（${w.displayVersion}）' : ''}',
+            '设备名': w.computerName,
+            '注册用户': w.userName.isNotEmpty ? w.userName : '-',
+          };
+        } else if (Platform.isLinux) {
+          final l = await di.linuxInfo;
+          _info = {
+            '系统': 'Linux',
+            '名称': l.name.isNotEmpty ? l.name : '-',
+            '版本': (l.version ?? '').isNotEmpty ? l.version! : '-',
+            'ID': l.id.isNotEmpty ? l.id : '-',
+          };
+        } else if (Platform.isMacOS) {
+          final m = await di.macOsInfo;
+          _info = {
+            '系统': 'macOS ${m.majorVersion}.${m.minorVersion}.${m.patchVersion}',
+            '型号': m.modelName.isNotEmpty ? m.modelName : m.model,
+            '架构': m.arch.isNotEmpty ? m.arch : '-',
+            '内核': m.kernelVersion.isNotEmpty ? m.kernelVersion : '-',
+            '计算机名': m.computerName.isNotEmpty ? m.computerName : '-',
+          };
+        }
       }
       if (mounted) {
         setState(() {
@@ -80,7 +109,7 @@ class _DeviceToolsPageState extends State<DeviceToolsPage>
     } catch (e) {
       if (mounted) {
         setState(() {
-          _infoError = '$e';
+          _infoError = '设备信息读取失败';
           _infoLoaded = true;
         });
       }
@@ -157,7 +186,7 @@ class _DeviceToolsPageState extends State<DeviceToolsPage>
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text('获取设备信息失败：$_infoError',
+          child: Text(_infoError,
               textAlign: TextAlign.center,
               style: TextStyle(color: scheme.onSurface.withValues(alpha: 0.6))),
         ),

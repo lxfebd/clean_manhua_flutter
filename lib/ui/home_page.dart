@@ -24,10 +24,11 @@ class HomePage extends StatefulWidget {
   const HomePage({super.key, this.type = 0, this.onTypeChanged});
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  State<HomePage> createState() => HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+/// 公开 State：主壳经 GlobalKey 调 [refresh]（Ctrl+R 分发）。
+class HomePageState extends State<HomePage> {
   final _items = <ComicItem>[];
   int _page = 1;
   bool _loading = false;
@@ -65,11 +66,13 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  /// 主壳 Ctrl+R 刷新入口：保留当前列表与滚动位置重拉。
+  void refresh() => _refresh();
+
   /// 刷新首页数据：默认保留现有条目做背景更新，成功后原地替换并尽力恢复
   /// 滚动位置，避免清屏重拉造成闪空/回顶。[keepItems=false] 用于首进等
   /// 明确需要全新列表的场景。
   Future<void> _refresh({bool keepItems = true}) async {
-    _page = 1;
     _error = null;
     _done = false;
     _loadMoreFailed = false;

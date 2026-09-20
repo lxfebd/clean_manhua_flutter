@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../net/error_logger.dart';
 import '../responsive.dart';
 import '../widgets/app_toast.dart';
 
@@ -33,6 +34,7 @@ class _TextToolsPageState extends State<TextToolsPage>
   String _lenOut = '';
   final _qrInCtrl = TextEditingController(text: 'https://');
   final GlobalKey _qrKey = GlobalKey();
+  bool _savingQr = false; // 防连点：保存中禁用按钮，避免重复渲染/重复写文件
 
   @override
   void initState() {
@@ -139,14 +141,26 @@ class _TextToolsPageState extends State<TextToolsPage>
   }
 
   Future<void> _saveQr() async {
+    if (_savingQr) return;
     if (_qrInCtrl.text.trim().isEmpty) return;
-    final boundary = _qrKey.currentContext!.findRenderObject()!
-        as RenderRepaintBoundary;
-    final image = await boundary.toImage(pixelRatio: 4);
-    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-    final f = await _writeToGallery(bytes!.buffer.asUint8List());
-    if (!mounted) return;
-    AppToast.info(context, '已保存：${f.path}');
+    final ctx = _qrKey.currentContext;
+    if (ctx == null || !mounted) return;
+    setState(() => _savingQr = true);
+    try {
+      final boundary = ctx.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) return;
+      final image = await boundary.toImage(pixelRatio: 4);
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (bytes == null) return;
+      final f = await _writeToGallery(bytes.buffer.asUint8List());
+      if (!mounted) return;
+      AppToast.info(context, '已保存：${f.path}');
+    } catch (e) {
+      ErrorLogger.instance.warn('save qr failed: $e');
+      if (mounted) AppToast.error(context, '保存失败，请重试');
+    } finally {
+      if (mounted) setState(() => _savingQr = false);
+    }
   }
 
   Future<File> _writeToGallery(Uint8List bytes) async {
