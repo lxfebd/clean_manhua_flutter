@@ -733,8 +733,9 @@ class AnimeHomePageState extends State<AnimeHomePage> {
       );
     } catch (e) {
       if (mounted) {
-        AppToast.error(context, '打开失败：$e');
+        AppToast.error(context, '打开失败，请检查网络后重试');
       }
+      ErrorLogger.instance.warn('anime open detail failed: $e');
     } finally {
       _openingId = null;
     }

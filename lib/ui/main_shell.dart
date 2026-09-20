@@ -217,7 +217,7 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
           await UpdateChecker.checkLatest(timeout: const Duration(seconds: 10));
       if (!mounted) return;
       await LocalStore.setLastUpdateCheckTs(now);
-      if (info == null) return;
+      if (!mounted || info == null) return;
       _showUpdateDialog(info);
     } catch (e) {
       ErrorLogger.instance.warn('auto update check failed: $e');

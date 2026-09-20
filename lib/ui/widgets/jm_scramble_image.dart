@@ -33,6 +33,9 @@ class _JmScrambleImageWidgetState extends State<JmScrambleImageWidget> {
   Uint8List? _bytes;
   Object? _error;
   bool _loading = false;
+  /// 请求代际：换 url 时作废在途旧请求，防止旧图结果 setState 覆盖到新 url，
+  /// 且不被 _loading 永久拦截（旧请求在飞时新 _load 会直接 return）。
+  int _gen = 0;
 
   @override
   void initState() {
@@ -44,8 +47,10 @@ class _JmScrambleImageWidgetState extends State<JmScrambleImageWidget> {
   void didUpdateWidget(JmScrambleImageWidget old) {
     super.didUpdateWidget(old);
     if (old.url != widget.url) {
+      _gen++;
       _bytes = null;
       _error = null;
+      _loading = false;
       _load();
     }
   }
@@ -53,6 +58,7 @@ class _JmScrambleImageWidgetState extends State<JmScrambleImageWidget> {
   Future<void> _load() async {
     if (_loading) return;
     if (mounted) setState(() => _loading = true);
+    final gen = _gen;
     try {
       // 多级降级：原画（带 @jm: 解扰标记的 URL）失败后自动尝试备用 CDN 镜像
       // （注册表 jm 的镜像构建器保持同 CDN/Path，仅换域名）。缓存 key 一律按
@@ -79,7 +85,7 @@ class _JmScrambleImageWidgetState extends State<JmScrambleImageWidget> {
           return raw;
         },
       );
-      if (mounted) {
+      if (mounted && gen == _gen) {
         setState(() {
           _bytes = bytes.bytes;
           _error = null;
@@ -87,7 +93,7 @@ class _JmScrambleImageWidgetState extends State<JmScrambleImageWidget> {
         });
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && gen == _gen) {
         setState(() {
           _error = e;
           _loading = false;

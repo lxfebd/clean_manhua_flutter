@@ -32,6 +32,8 @@ class HomePageState extends State<HomePage> {
   final _items = <ComicItem>[];
   int _page = 1;
   bool _loading = false;
+  /// 请求代际：换源/切分类/刷新时自增，作废在途旧请求，防止慢响应覆盖新列表。
+  int _loadGen = 0;
   String _mode = 'rank';
   String _categoryId = '';
   String _keyword = '';
@@ -76,6 +78,7 @@ class HomePageState extends State<HomePage> {
     _error = null;
     _done = false;
     _loadMoreFailed = false;
+    _loadGen++; // 作废在途旧请求
     // 记录旧列表与滚动偏移：成功后替换数据并把滚动位置跳回原位。
     final restoreOffset =
         _items.isNotEmpty ? (_scrollCtrl.hasClients ? _scrollCtrl.offset : 0.0) : null;
@@ -160,6 +163,7 @@ class HomePageState extends State<HomePage> {
       {bool replaceFirst = false, double? restoreOffset}) async {
     if (_loading) return;
     _loading = true;
+    final gen = _loadGen;
     // 异步续体可能在组件被 dispose 后恢复（切 tab / 换源），
     // 此时必须带 mounted 保护，否则 setState 在 _element 为 null 时抛 Null check。
     if (mounted && _items.isEmpty) setState(() => _error = null);
@@ -178,48 +182,48 @@ class HomePageState extends State<HomePage> {
         default:
           r = await source.rank(next);
       }
-      if (mounted) {
-        if (replaceFirst) {
-          // 刷新模式：用第一页结果整体替换旧列表
-          setState(() {
-            _items
-              ..clear()
-              ..addAll(_dedup(r));
-            _page = 2;
-            _error = null;
-            _loadMoreFailed = false;
-          });
-        } else {
-          setState(() {
-            // 源站榜单粘页时同一作品可能跨页重复，合并后整体去重。
-            // 必须先构造合并结果再一次性替换——先 clear() 再展开 _items
-            // 得到的是空列表，会把之前所有页顶掉（整页重刷、滚动位置丢失）。
-            final merged = _dedup([..._items, ...r]);
-            _items
-              ..clear()
-              ..addAll(merged);
-            _page++;
-            _error = null;
-            _loadMoreFailed = false;
-          });
-        }
-        // 首页第一页成功后更新快照（不阻塞主流程）
-        if (next == 1 && _mode == 'rank') {
-          _saveSnapshot(r);
-        }
-        // 刷新模式替换数据后把滚动位置跳回原位，避免回顶闪空。
-        if (replaceFirst && restoreOffset != null && _scrollCtrl.hasClients) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted && _scrollCtrl.hasClients) {
-              _scrollCtrl.jumpTo(restoreOffset.clamp(
-                  0.0, _scrollCtrl.position.maxScrollExtent));
-            }
-          });
-        }
+      // 换源/切分类后旧请求作废：不覆写新列表，也不更新滚动位置。
+      if (!mounted || gen != _loadGen) return;
+      if (replaceFirst) {
+        // 刷新模式：用第一页结果整体替换旧列表
+        setState(() {
+          _items
+            ..clear()
+            ..addAll(_dedup(r));
+          _page = 2;
+          _error = null;
+          _loadMoreFailed = false;
+        });
+      } else {
+        setState(() {
+          // 源站榜单粘页时同一作品可能跨页重复，合并后整体去重。
+          // 必须先构造合并结果再一次性替换——先 clear() 再展开 _items
+          // 得到的是空列表，会把之前所有页顶掉（整页重刷、滚动位置丢失）。
+          final merged = _dedup([..._items, ...r]);
+          _items
+            ..clear()
+            ..addAll(merged);
+          _page++;
+          _error = null;
+          _loadMoreFailed = false;
+        });
+      }
+      // 首页第一页成功后更新快照（不阻塞主流程）
+      if (next == 1 && _mode == 'rank') {
+        _saveSnapshot(r);
+      }
+      // 刷新模式替换数据后把滚动位置跳回原位，避免回顶闪空。
+      if (replaceFirst && restoreOffset != null && _scrollCtrl.hasClients) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _scrollCtrl.hasClients) {
+            _scrollCtrl.jumpTo(restoreOffset.clamp(
+                0.0, _scrollCtrl.position.maxScrollExtent));
+          }
+        });
       }
     } catch (e) {
       ErrorLogger.instance.warn('home loadMore failed: $e');
-      if (mounted) {
+      if (mounted && gen == _loadGen) {
         String msg;
         if (kIsWeb && (e.toString().contains('Failed to fetch') ||
             e.toString().contains('CORS'))) {
@@ -932,6 +936,9 @@ class _FeaturedBanner extends StatefulWidget {
 class _FeaturedBannerState extends State<_FeaturedBanner> {
   PageController? _ctrl;
   int _page = 0;
+  /// 详情页 push 防连点锁（独立于网格卡的锁：Banner 无原生 Navigator 流程，
+  /// 手推 MaterialPageRoute，返回后释放）。
+  bool _openingDetail = false;
 
   @override
   void initState() {
@@ -1020,6 +1027,8 @@ class _FeaturedBannerState extends State<_FeaturedBanner> {
                   item: it,
                   sourceId: SourceManager.current.id,
                   onTap: () {
+                    if (_openingDetail) return; // 防连点：push 动画期间忽略重复点击
+                    _openingDetail = true;
                     HapticFeedback.selectionClick();
                     Navigator.push(
                       context,
@@ -1031,7 +1040,9 @@ class _FeaturedBannerState extends State<_FeaturedBanner> {
                           pic: it.pic,
                         ),
                       ),
-                    );
+                    ).whenComplete(() {
+                      _openingDetail = false; // 返回后释放锁
+                    });
                   },
                 ),
               );

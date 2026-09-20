@@ -61,22 +61,26 @@ class NovelHomePageState extends State<NovelHomePage> {
     if (_sourceId != null) _loadNovels();
   }
 
+  /// 请求代际：切源/刷新时自增，作废在途旧请求，防止慢响应覆盖新列表/提前清 loading。
+  int _loadGen = 0;
+
   Future<void> _loadNovels() async {
     if (_sourceId == null) return;
     final src = SourceManager.novelById(_sourceId!);
     if (src == null) return;
+    final gen = ++_loadGen;
     if (mounted) setState(() => _loading = true);
     try {
       final list = await src.rank(1).timeout(const Duration(seconds: 15));
-      if (mounted) {
+      if (mounted && gen == _loadGen) {
         _items = list;
         _error = null;
       }
     } catch (e) {
       ErrorLogger.instance.warn('novel home rank failed: $e');
-      if (mounted) _error = '加载失败，请检查网络';
+      if (mounted && gen == _loadGen) _error = '加载失败，请检查网络';
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && gen == _loadGen) setState(() => _loading = false);
     }
   }
 
