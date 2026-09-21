@@ -7,6 +7,7 @@ import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
+import '../utils/local_recommender.dart';
 import 'detail_page.dart';
 import 'responsive.dart';
 import 'tokens.dart';
@@ -44,12 +45,14 @@ class HomePageState extends State<HomePage> {
   final _searchCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   List<Category> _cats = [];
+  List<RecommendItem> _recommends = [];
 
   @override
   void initState() {
     super.initState();
     _scrollCtrl.addListener(_onScroll);
     _loadCategories();
+    _loadRecommends();
     _refresh();
   }
 
@@ -68,6 +71,33 @@ class HomePageState extends State<HomePage> {
       ErrorLogger.instance.warn('loadCategories failed: $e');
       if (mounted) AppToast.info(context, '分类列表加载失败，请稍后重试');
     }
+  }
+
+  /// 猜你喜欢：基于本地阅读历史的纯本地推荐，失败静默（不给空态打扰）。
+  Future<void> _loadRecommends() async {
+    try {
+      final history = await LocalStore.history();
+      final recs = await LocalRecommender.recommend(history: history);
+      final items =
+          recs.isNotEmpty ? recs : await LocalRecommender.fallbackRanking();
+      if (mounted && items.isNotEmpty) setState(() => _recommends = items);
+    } catch (e) {
+      ErrorLogger.instance.warn('loadRecommends failed: $e');
+    }
+  }
+
+  void _openRecommend(RecommendItem r) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DetailPage(
+          sourceId: r.sourceId,
+          comicId: r.item.id,
+          name: r.item.name,
+          pic: r.item.pic,
+        ),
+      ),
+    );
   }
 
   /// 主壳 Ctrl+R 刷新入口：保留当前列表与滚动位置重拉。
@@ -308,6 +338,16 @@ class HomePageState extends State<HomePage> {
               delay: const Duration(milliseconds: 80),
               duration: const Duration(milliseconds: 540),
               child: _FeaturedBanner(items: _items.take(5).toList()),
+            ),
+          ),
+        // 猜你喜欢：精选横幅之后、榜单网格之前（推荐属于浏览动线）。
+        if (_mode == 'rank' && _recommends.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                  horizontal: Responsive.pagePadding(context)),
+              child:
+                  _RecommendCard(items: _recommends, onOpen: _openRecommend),
             ),
           ),
         // 列表区
@@ -1639,3 +1679,82 @@ class _EmptyState extends StatelessWidget {
 }
 
 // _TypeSegment 已移至 responsive.dart 作为共享组件 TypeSegment
+
+/// 猜你喜欢：横向滑动封面列表（自「我的」页迁移至首页推荐流）。
+class _RecommendCard extends StatelessWidget {
+  final List<RecommendItem> items;
+  final ValueChanged<RecommendItem> onOpen;
+  const _RecommendCard({required this.items, required this.onOpen});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    if (items.isEmpty) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '猜你喜欢',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: scheme.onSurface,
+                ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '基于本地阅读历史的纯本地推荐，不上传任何数据',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurface.withValues(alpha: 0.55),
+                ),
+          ),
+          const SizedBox(height: 10),
+          // 128 封面 + 4 间距 + 1 行标题：148 会差 1px 溢出黄条，留足行高。
+          SizedBox(
+            height: 156,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              itemCount: items.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (context, i) {
+                final r = items[i];
+                return SizedBox(
+                  width: 96,
+                  child: GestureDetector(
+                    onTap: () => onOpen(r),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: CachedImage(
+                            r.item.pic,
+                            width: 96,
+                            height: 128,
+                            fit: BoxFit.cover,
+                            radius: 10,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          r.item.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: scheme.onSurface,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
