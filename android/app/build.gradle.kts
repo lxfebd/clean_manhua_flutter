@@ -31,6 +31,12 @@ android {
         jvmTarget = JavaVersion.VERSION_11.toString()
     }
 
+    // split-per-abi（android/settings.gradle.kts 里未开 splits，走 CLI --split-per-abi 时）
+    // 时 Flutter 插件开启 splits.abi，再设 ndk.abiFilters 会与 splits 冲突导致
+    // 配置失败，故 split 模式下不注入 abiFilters（split 输出已按 ABI 切开）。
+    val splitPerAbi =
+        (project.findProperty("split-per-abi")?.toString()?.toBoolean()) ?: false
+
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.xingmanxia.app"
@@ -43,8 +49,10 @@ android {
         versionName = flutter.versionName
         // 默认仅打包 arm64-v8a（发布版体积最省，112MB→33.5MB）；
         // debug 构建在下方 buildTypes 中放开全 ABI，保证 x86/x86_64 模拟器可正常测试。
-        ndk {
-            abiFilters += "arm64-v8a"
+        if (!splitPerAbi) {
+            ndk {
+                abiFilters += "arm64-v8a"
+            }
         }
     }
 
@@ -79,8 +87,11 @@ android {
                 signingConfigs.getByName("debug")
             }
             // 调试/测试保留全 ABI：x86/x86_64 模拟器、老设备都能跑。
-            ndk {
-                abiFilters += setOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+            // split 模式下同样不注（见上方 splitPerAbi 说明），否则与 splits 冲突。
+            if (!splitPerAbi) {
+                ndk {
+                    abiFilters += setOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+                }
             }
         }
         release {

@@ -292,10 +292,14 @@ jobs:
           # makensis 只认 UTF-16LE 或纯 ASCII 脚本；仓库里存 UTF-8，先转码再编译。
           # -D 参数必须整体加引号：PowerShell 会把 -DAPP_VERSION=1.5.1 按点号拆成
           # "APP_VERSION=1" + ".5.1"，makensis 把 .5.1 当脚本名报 Can't open script。
+          # 转码产物必须留在仓库根：NSIS 按“脚本所在目录”解析脚本内相对路径
+          # （MUI_ICON windows\runner\resources\app_icon.ico / File build\windows\... /
+          # OutFile 全相对仓库根），放 %TEMP% 会全部落空 → can't open file。
           $t = Get-Content -Raw -Encoding UTF8 windows/installer.nsi
-          [IO.File]::WriteAllText("$env:TEMP\installer_u16.nsi", $t, [Text.Encoding]::Unicode)
-          & $env:MAKENSIS "-DAPP_VERSION=${{ steps.version.outputs.version }}" "$env:TEMP\installer_u16.nsi"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          [IO.File]::WriteAllText("$PWD\installer_u16.nsi", $t, [Text.Encoding]::Unicode)
+          & $env:MAKENSIS "-DAPP_VERSION=${{ steps.version.outputs.version }}" "$PWD\installer_u16.nsi"
+          if ($LASTEXITCODE -ne 0) { Remove-Item "$PWD\installer_u16.nsi" -ErrorAction SilentlyContinue; exit $LASTEXITCODE }
+          Remove-Item "$PWD\installer_u16.nsi" -ErrorAction SilentlyContinue
           Get-ChildItem xingmanxia-windows-*.exe
 
       - name: Package Windows zip (portable)
