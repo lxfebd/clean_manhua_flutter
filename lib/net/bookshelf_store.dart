@@ -127,7 +127,11 @@ class BookshelfStore {
     _ensureDefaultFolder();
     final exists = _folderNames.values.any((n) => n == t);
     final finalName = exists ? '$t ${_folderSort.length}' : t;
-    final id = 'f${DateTime.now().millisecondsSinceEpoch}';
+    // 毫秒时间戳在同一毫秒内连续创建会撞 id（Map 覆盖丢分类），冲突时加后缀。
+    var id = 'f${DateTime.now().millisecondsSinceEpoch}';
+    while (_folderSort.containsKey(id)) {
+      id = '$id+';
+    }
     _folderNames[id] = finalName;
     _folderSort[id] = _folderSort.length;
     await _persistFolders();

@@ -577,14 +577,27 @@ class BookshelfPageState extends State<BookshelfPage>
                 text: '书架还是空的，去首页收藏几部吧',
                 subtitle: '在作品详情页点击收藏，就能在书架里随时找到',
               ),
-              if (widget.onGotoHome != null) ...[
-                const SizedBox(height: 16),
-                FilledButton.tonalIcon(
-                  onPressed: widget.onGotoHome,
-                  icon: const Icon(Icons.explore_outlined, size: 18),
-                  label: const Text('去首页逛逛'),
-                ),
-              ],
+              // 筛选栏（含「管理分类」chip）仅在收藏非空时显示，空态必须
+              // 自带管理入口，否则无收藏用户永远建不出第一个分类。
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (widget.onGotoHome != null)
+                    FilledButton.tonalIcon(
+                      onPressed: widget.onGotoHome,
+                      icon: const Icon(Icons.explore_outlined, size: 18),
+                      label: const Text('去首页逛逛'),
+                    ),
+                  if (widget.onGotoHome != null) const SizedBox(width: 12),
+                  TextButton.icon(
+                    onPressed: _showFolderManager,
+                    icon: const Icon(Icons.create_new_folder_outlined,
+                        size: 18),
+                    label: const Text('管理分类'),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
@@ -1442,14 +1455,27 @@ class BookshelfPageState extends State<BookshelfPage>
                       text: '书架还是空的，去首页收藏几部吧',
                       subtitle: '在作品详情页点击收藏，就能在书架里随时找到',
                     ),
-                    if (widget.onGotoHome != null) ...[
-                      const SizedBox(height: 16),
-                      FilledButton.tonalIcon(
-                        onPressed: widget.onGotoHome,
-                        icon: const Icon(Icons.explore_outlined, size: 18),
-                        label: const Text('去首页逛逛'),
-                      ),
-                    ],
+                    // 空态自带管理入口：否则无收藏用户永远建不出第一个分类。
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (widget.onGotoHome != null)
+                          FilledButton.tonalIcon(
+                            onPressed: widget.onGotoHome,
+                            icon: const Icon(Icons.explore_outlined, size: 18),
+                            label: const Text('去首页逛逛'),
+                          ),
+                        if (widget.onGotoHome != null)
+                          const SizedBox(width: 12),
+                        TextButton.icon(
+                          onPressed: _showFolderManager,
+                          icon: const Icon(Icons.create_new_folder_outlined,
+                              size: 18),
+                          label: const Text('管理分类'),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -1897,7 +1923,13 @@ class BookshelfPageState extends State<BookshelfPage>
           // 弹窗内分类列表 + 页面筛选栏的同步刷新（增删改后两处一起更新）。
           Future<void> refresh() async {
             final fs = await BookshelfStore.folders();
-            folders = fs;
+            // 弹窗列表只展示自建分类（与初始 userFolders 一致），
+            // 页面筛选栏仍用全量 fs（含「全部/默认分类」）。
+            folders = fs
+                .where((f) =>
+                    f['id'] != BookshelfStore.allFolderId &&
+                    f['id'] != BookshelfStore.defaultFolderId)
+                .toList();
             setSheetState(() {});
             if (mounted) {
               setState(() {
@@ -2383,12 +2415,13 @@ class BookshelfPageState extends State<BookshelfPage>
         });
       }),
       for (final f in _folders)
-        _chip(f['name'] as String, folderSel == (f['id'] as String), () {
-          setState(() {
-            _folderFilter = f['id'] as String;
-            _applyFilters();
-          });
-        })
+        if (f['id'] != BookshelfStore.allFolderId)
+          _chip(f['name'] as String, folderSel == (f['id'] as String), () {
+            setState(() {
+              _folderFilter = f['id'] as String;
+              _applyFilters();
+            });
+          })
     ];
     if (_folders.isNotEmpty) list.add(_manageFolderChip());
     list.add(_chip('全部', _tagFilter == null, () => setState(() {
