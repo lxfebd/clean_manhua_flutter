@@ -3,7 +3,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../net/update_checker.dart';
 import '../../net/update_download_manager.dart';
 
 /// 弹出更新下载进度对话框，带进度条 + 字节数 + 百分比 + 取消按钮。
@@ -28,17 +27,21 @@ Future<bool> showUpdateDownloadDialog(
   showDialog<void>(
     context: navigator.context,
     barrierDismissible: false,
-    builder: (_) => _DownloadProgressDialog(
-      onResult: (ok) {
-        navigator.pop();
-        completer.complete(ok);
-      },
-    ),
+    builder:
+        (_) => _DownloadProgressDialog(
+          onResult: (ok) {
+            navigator.pop();
+            completer.complete(ok);
+          },
+        ),
   );
 
   // 防对话框销毁后 onResult 永不回调导致 future 永久 pending（调用方 await 悬挂）。
   // 下载由全局 UpdateDownloadManager 管理，超时后调用方按失败处理，下载不受影响。
-  return completer.future.timeout(const Duration(minutes: 5), onTimeout: () => false);
+  return completer.future.timeout(
+    const Duration(minutes: 5),
+    onTimeout: () => false,
+  );
 }
 
 class _DownloadProgressDialog extends StatefulWidget {
@@ -53,6 +56,7 @@ class _DownloadProgressDialog extends StatefulWidget {
 class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
   UpdateDownloadState _state = const UpdateDownloadState();
   StreamSubscription? _sub;
+
   /// onResult 只允许触发一次：状态流 done/error 的 600ms 延迟、PopScope 返回、
   /// 「取消/关闭」按钮三条路径可能撞在一起，重复触发会 pop 错路由并让
   /// completer.complete 二次抛 StateError。
@@ -98,7 +102,13 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
       },
       child: AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: Text(done ? '下载完成' : failed ? '下载失败' : '正在下载更新'),
+        title: Text(
+          done
+              ? '下载完成'
+              : failed
+              ? '下载失败'
+              : '正在下载更新',
+        ),
         content: SizedBox(
           width: math.min(MediaQuery.of(context).size.width * 0.85, 360),
           child: Column(
@@ -109,8 +119,8 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
                 done
                     ? _doneMessage()
                     : failed
-                        ? '下载失败，请稍后从「设置 → 检查更新」重试，或到 GitHub Releases 手动下载。'
-                        : '后台下载中，关闭本窗口不会中断\n返回界面或退出 App 均继续下载',
+                    ? '下载失败，请稍后从「设置 → 检查更新」重试，或到 GitHub Releases 手动下载。'
+                    : '后台下载中，关闭本窗口不会中断\n返回界面或退出 App 均继续下载',
                 style: const TextStyle(fontSize: 12.5),
               ),
               const SizedBox(height: 16),
@@ -136,7 +146,11 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
                     Text(
                       _state.speed,
                       style: TextStyle(
-                          fontSize: 11.5, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5)),
+                        fontSize: 11.5,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withValues(alpha: 0.5),
+                      ),
                     ),
                 ],
               ),
@@ -162,11 +176,15 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
     );
   }
 
-  /// 下载完成后的提示，按平台区分：Windows/Android 会静默安装并自动重启，
-  /// 因此文案提示「即将自动安装升级」；其余平台走向用户手动安装路径。
+  /// 下载完成后的提示，按真实安装行为区分：Android 拉系统安装器、
+  /// Windows 拿 exe 走 NSIS 静默安装（都会自动继续），
+  /// 其余情况（Windows zip / macOS dmg）需用户手动完成安装，
+  /// 文案应如实提示，避免「即将自动安装」的误导。
   String _doneMessage() {
-    if (UpdateChecker.canAutoInstall) return '即将自动安装升级并重启，请稍候…';
-    return '安装包已就绪，请稍候…';
+    if (UpdateDownloadManager.instance.willAutoInstall) {
+      return '即将自动安装升级并重启，请稍候…';
+    }
+    return '安装包已就绪，请手动完成安装。';
   }
 
   String _fmt(int bytes) {

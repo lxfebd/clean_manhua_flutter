@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'error_logger.dart';
@@ -41,6 +42,16 @@ class UpdateDownloadManager {
   UpdateDownloadState _state = const UpdateDownloadState();
   UpdateDownloadState get state => _state;
 
+  /// 本次下载完成后是否会真正自动触发安装（与 [_downloadWithMirrors] 的安装
+  /// 分支判定保持一致）：Android 恒自动（系统安装器）；Windows 仅当拿到 exe
+  /// 安装包时自动（NSIS 静默安装），zip 不自动；macOS 走手动挂载 dmg。
+  /// 供弹窗文案使用，避免「下载 zip 却提示即将自动安装」的误导。
+  bool get willAutoInstall {
+    if (Platform.isAndroid) return true;
+    if (Platform.isWindows) return _fileName.endsWith('.exe');
+    return false;
+  }
+
   bool _running = false;
   bool _cancelled = false;
   String? _downloadedPath;
@@ -68,9 +79,12 @@ class UpdateDownloadManager {
     _cancelled = false;
     _downloadedPath = null;
     _totalSize = 0;
-    _fileName = (fileName != null && fileName.isNotEmpty)
-        ? fileName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
-        : 'xingmanxia_update${UpdateChecker.currentPlatformKey()}.apk';
+    // 附件名缺失时兜底：后缀从下载 URL 推断（.exe/.zip/.apk…），
+    // 保证 Windows 下即便没拿到 assetName，exe 链接也能触发自动安装。
+    _fileName =
+        (fileName != null && fileName.isNotEmpty)
+            ? fileName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
+            : fallbackFileName(apkUrl, UpdateChecker.currentPlatformKey());
     // 更新包存放到应用的规范下载目录（LocalStore.downloadDir，
     // 即 .../files/data/downloads/），与漫画下载同一目录、统一管理；
     // 应用私有目录可被 FileProvider 的 files-path 正常分享用于安装。
@@ -111,9 +125,10 @@ class UpdateDownloadManager {
         if (_cancelled) return;
         _downloadedPath = path;
         _state = UpdateDownloadState(
-            received: _totalSize > 0 ? _totalSize : await File(path).length(),
-            total: _totalSize > 0 ? _totalSize : await File(path).length(),
-            done: true);
+          received: _totalSize > 0 ? _totalSize : await File(path).length(),
+          total: _totalSize > 0 ? _totalSize : await File(path).length(),
+          done: true,
+        );
         _stateCtrl.add(_state);
         _notifyDone();
         // Android 拉起系统安装器；Windows 有 NSIS 静默安装器（exe 附件）
@@ -127,7 +142,8 @@ class UpdateDownloadManager {
         return;
       } catch (e) {
         ErrorLogger.instance.warn(
-            'update dl mirror $label failed: ${e is Exception ? e : e.toString()}');
+          'update dl mirror $label failed: ${e is Exception ? e : e.toString()}',
+        );
       }
     }
     if (_cancelled) return;
@@ -150,14 +166,15 @@ class UpdateDownloadManager {
       received = await file.length();
     }
 
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 20);
+    final client =
+        HttpClient()..connectionTimeout = const Duration(seconds: 20);
     // 默认校验证书；仅用户开启「信任自签」才放行
     if (Net.trustSelfSigned) {
       client.badCertificateCallback = (c, h, p) => true;
     }
     try {
-      final req = await client.getUrl(Uri.parse(url))
+      final req = await client
+          .getUrl(Uri.parse(url))
           .timeout(const Duration(seconds: 20));
       req.headers.set('User-Agent', 'xingmanxia-android');
       if (received > 0) req.headers.set('Range', 'bytes=$received-');
@@ -173,11 +190,14 @@ class UpdateDownloadManager {
       }
 
       // 总大小只设一次（第一个返回 content-length 的镜像），后续镜像不覆盖
-      final respTotal = res.contentLength > 0
-          ? received + res.contentLength
-          : (res.headers.value('content-range') != null
-              ? int.parse(res.headers.value('content-range')!.split('/').last)
-              : 0);
+      final respTotal =
+          res.contentLength > 0
+              ? received + res.contentLength
+              : (res.headers.value('content-range') != null
+                  ? int.parse(
+                    res.headers.value('content-range')!.split('/').last,
+                  )
+                  : 0);
       if (respTotal > 0 && _totalSize == 0) {
         _totalSize = respTotal;
       }
@@ -206,7 +226,8 @@ class UpdateDownloadManager {
           if (!speedCheckPassed &&
               now.difference(startTime).inMilliseconds >=
                   _speedCheckDuration.inMilliseconds) {
-            final avgSpeed = received / now.difference(startTime).inMilliseconds * 1000;
+            final avgSpeed =
+                received / now.difference(startTime).inMilliseconds * 1000;
             if (avgSpeed < _minSpeedBytesPerSec) {
               await sink.close();
               throw Exception('速度太慢 ${_fmtSpeed(avgSpeed)} ($label)');
@@ -215,7 +236,10 @@ class UpdateDownloadManager {
           }
           final speedStr = _fmtSpeed(speedBytes);
           _state = UpdateDownloadState(
-              received: received, total: total, speed: speedStr);
+            received: received,
+            total: total,
+            speed: speedStr,
+          );
           _stateCtrl.add(_state);
           _notify('更新下载', '$label $speedStr', received, total, false);
         }
@@ -229,7 +253,12 @@ class UpdateDownloadManager {
 
   /// 通过 MethodChannel 调用原生通知（进度条）。
   Future<void> _notify(
-      String title, String text, int received, int total, bool done) async {
+    String title,
+    String text,
+    int received,
+    int total,
+    bool done,
+  ) async {
     try {
       await _channel.invokeMethod('showProgress', {
         'title': title,
@@ -275,8 +304,7 @@ class UpdateDownloadManager {
       await UpdateChecker.installApk(path);
     } catch (e) {
       ErrorLogger.instance.warn('apk install failed: $e');
-      _state = UpdateDownloadState(
-          error: '自动安装失败，可到文件管理器手动安装');
+      _state = UpdateDownloadState(error: '自动安装失败，可到文件管理器手动安装');
       _stateCtrl.add(_state);
       _notifyInstall(path);
       _running = false;
@@ -309,15 +337,16 @@ class UpdateDownloadManager {
   }
 
   Future<void> _triggerWindowsInstallAsync(
-      String installer, String exeDir) async {
+    String installer,
+    String exeDir,
+  ) async {
     try {
       // 直接启动 NSIS 安装器（不经 cmd/shell，避免引号与 /D 末位被改写）。
       // Windows 子进程默认不受父进程退出影响，因此 fire-and-forget，
       // 不 await 退出，安装与重启交给 NSIS 脚本。
       await Process.start(installer, ['/S', '/D=$exeDir']);
     } catch (e) {
-      _state = UpdateDownloadState(
-          error: '安装器启动失败：$e（可双击安装包手动安装）');
+      _state = UpdateDownloadState(error: '安装器启动失败：$e（可双击安装包手动安装）');
       _stateCtrl.add(_state);
       _notifyInstall(installer);
       return;
@@ -340,4 +369,18 @@ class UpdateDownloadManager {
     }
     return '${bytesPerSec.round()} B/s';
   }
+}
+
+/// 附件名缺失时的兜底文件名：后缀从下载 URL 推断（.exe/.zip/.apk…），
+/// 保证 Windows 下即便没拿到 assetName，exe 链接也能触发自动安装。
+@visibleForTesting
+String fallbackFileName(String apkUrl, String platformKey) {
+  var fallbackExt = 'apk';
+  final seg = Uri.tryParse(apkUrl)?.pathSegments.last ?? '';
+  final dot = seg.lastIndexOf('.');
+  if (dot >= 0 && dot < seg.length - 1 && seg.length - dot - 1 <= 4) {
+    final cand = seg.substring(dot + 1);
+    if (RegExp(r'^[a-zA-Z0-9]+$').hasMatch(cand)) fallbackExt = cand;
+  }
+  return 'xingmanxia_update$platformKey.$fallbackExt';
 }
