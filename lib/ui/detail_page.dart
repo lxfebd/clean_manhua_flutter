@@ -26,6 +26,28 @@ class DetailPage extends StatefulWidget {
     this.pic,
   });
 
+  /// 解析「开始阅读」目标：查历史里该作品最近读到的章节；无则返回 null（= 第 1 话）。
+  /// 纯函数便于单元测试，行为与历史/章节数据契约解耦。
+  static Chapter? resolveResumeChapter({
+    required List<HistoryEntry> history,
+    required List<Chapter> chapters,
+    required String sourceId,
+    required String comicId,
+  }) {
+    final key = Bookmark(sourceId: sourceId, comicId: comicId, name: '', pic: '')
+        .key;
+    for (final h in history.reversed) {
+      if (h.book.key != key) continue;
+      // 章节列表里找该 chapterId；找不到则用历史条目直接构造
+      // （章节可能已从源移除，仍以用户上次读到的位置为准）。
+      for (final c in chapters) {
+        if (c.id == h.chapterId) return c;
+      }
+      return Chapter(h.chapterId, h.chapterTitle);
+    }
+    return null;
+  }
+
   @override
   State<DetailPage> createState() => _DetailPageState();
 }
@@ -103,33 +125,16 @@ class _DetailPageState extends State<DetailPage> {
     }
   }
 
-  /// 解析「开始阅读」目标：查历史里该作品最近读到的章节；无则回退第 1 话。
   Future<void> _resolveResumeChapter() async {
     try {
       final hist = await LocalStore.history();
       if (!mounted || _detail == null) return;
-      final key = Bookmark(
-              sourceId: widget.sourceId,
-              comicId: widget.comicId,
-              name: '',
-              pic: '')
-          .key;
-      Chapter? resume;
-      for (final h in hist.reversed) {
-        if (h.book.key == key) {
-          // 章节列表里找该 chapterId（找不到用最新一条历史直接构造，
-          // 但章节可能已从源移除，回退第 1 话更稳）。
-          final chs = _detail!.chapters;
-          for (final c in chs) {
-            if (c.id == h.chapterId) {
-              resume = c;
-              break;
-            }
-          }
-          resume ??= Chapter(h.chapterId, h.chapterTitle);
-          break;
-        }
-      }
+      final resume = DetailPage.resolveResumeChapter(
+        history: hist,
+        chapters: _detail!.chapters,
+        sourceId: widget.sourceId,
+        comicId: widget.comicId,
+      );
       if (mounted) {
         setState(() {
           _resumeChapter = resume;
@@ -873,10 +878,10 @@ class _DetailPageState extends State<DetailPage> {
                             onPressed: () {
                               // 精确取消本批：只取消未下载的章节任务，
                               // 不影响阅读页/其它详情页在途的下载任务。
-                              final bk = DownloadManager.bookKeyOf(
-                                  widget.sourceId, _detail!.id);
                               for (final idx in picks) {
-                                DownloadManager.cancelTask('$bk/${chapters[idx].id}');
+                                DownloadManager.cancelTask(DownloadManager
+                                    .taskKeyOf(widget.sourceId, _detail!.id,
+                                        chapters[idx].id));
                               }
                               setS(() => downloading = false);
                             },
@@ -1024,8 +1029,9 @@ class _DetailPageState extends State<DetailPage> {
                                     if (DownloadManager.isCancelled(gen)) break;
                                     final ch = chapters[idx];
                                     // 用户取消（弹窗/书架取消按钮）：停止后续章节
-                                    if (DownloadManager.isTaskCancelled(
-                                        '${DownloadManager.bookKeyOf(widget.sourceId, _detail!.id)}/${ch.id}')) {
+                                    if (DownloadManager.isTaskCancelled(DownloadManager
+                                        .taskKeyOf(widget.sourceId, _detail!.id,
+                                            ch.id))) {
                                       break;
                                     }
                                     setS(() {

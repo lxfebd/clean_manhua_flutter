@@ -317,6 +317,12 @@ class DownloadManager {
   static String bookKeyOf(String sourceId, String comicId) =>
       '$sourceId::$comicId';
 
+  /// 单任务取消 key（与 [downloadChapter] 内部任务 key 一致）：
+  /// `sourceId/comicId/chapterId`。UI 取消按钮必须用它构造，
+  /// 拼 [bookKeyOf]（`::` 格式）会与任务 key（`/` 格式）错配导致取消无效。
+  static String taskKeyOf(String sourceId, String comicId, String chapterId) =>
+      '$sourceId/$comicId/$chapterId';
+
   /// 省空间档位：解码后若宽边超过 [maxW] 则等比缩放，再以 PNG 编码。
   /// 解码失败（非标准图/损坏）时原样返回，保证下载不中断。
   static Uint8List _compactBytes(Uint8List bytes, int maxW) {

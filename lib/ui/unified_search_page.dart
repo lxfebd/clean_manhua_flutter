@@ -71,7 +71,19 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
   Future<void> _search() async {
     final kw = _searchCtrl.text.trim();
     if (kw.isEmpty) {
-      if (mounted) AppToast.info(context, '请输入搜索关键词');
+      // initState 也会同步调 _search：帧内 ScaffoldMessenger.of(context)
+      // 会触发 "dependOnInheritedWidget... called before initState completed"
+      // 断言崩溃（debug/测试）。推迟到帧后再弹 toast，语义不变。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) AppToast.info(context, '请输入搜索关键词');
+      });
+      // 空关键词不是"搜索中"：复位 loading/错误态，落到空结果态展示历史。
+      if (_loading || _error != null) {
+        setState(() {
+          _loading = false;
+          _error = null;
+        });
+      }
       return;
     }
     final gen = ++_searchGen;
