@@ -330,15 +330,30 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   /// （Anime4K 超分 + 硬解），仅在拿到真实 m3u8/mp4 直链时生效。
   Future<void> _onVideoSrcCaptured(String src) async {
     if (src.isEmpty || !isDirectMediaUrl(src)) return;
+    // JS 侧过滤的兜底：广告直链（path 含 ad/ads/adv 等段或已知广告域名）
+    // 即便溜过筛选也在此拦截，防止广告 m3u8 先于正片被接管原生播放器。
+    if (isAdMediaUrl(src)) {
+      ErrorLogger.instance.debug('ad url filtered: ${_trimUrl(src)}');
+      return;
+    }
     // blob URL 是页面内 WASM 解密出的 MSE 流，原生播放器取不到字节，
     // 无法直接播放；保留 WebView 走网页播放器（AGE 等源）。
     if (src.startsWith('blob:')) return;
     // Anime1 的 CDN 直链（.v.anime1.me）需携带签名 Cookie(h/p/e) 才能访问，
     // 原生播放器无法携带 Cookie，保留 WebView 由站点播放器播放（同域自动带）。
     if (widget.sourceId == 'anime1' && src.contains('anime1.me')) return;
+    if (!mounted) return;
+    // 首见 URL 才走接管流程；重复 URL 直接忽略（轮询每 900ms 一次）。
     if (src == _hookedVideoUrl) return;
     _hookedVideoUrl = src;
-    if (!mounted) return;
+    if (_handedOffToMpv) {
+      // 已接管过原生播放器：后续捕获到不同直链（广告换源/清晰度切换）
+      // 不再重复 handoff，避免再次从 0:00 重播。只提醒一次，具体换源
+      // 由用户手动操作（切集/进度条），防止轮询高频打断播放。
+      ErrorLogger.instance.debug(
+          'handoff already taken; ignored new src (ad/switch): ${src.length > 80 ? src.substring(0, 80) : src}');
+      return;
+    }
     // 页面确实在播（拿到直链）→ 之前的加载失败提示是误报，清除错误态。
     if (_webError != null || _switchFail) {
       setState(() {
@@ -356,6 +371,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       final taken = await cb(src);
       if (!mounted) return;
       if (taken) {
+        _handedOffToMpv = true;
         await _killWebMedia();
       }
       return;
@@ -410,6 +426,10 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   /// 接管播放，以获得原生硬解 + CNN 超分画质。
   String _hookedVideoUrl = '';
   Timer? _videoPollTimer;
+  /// 已成功接管到原生播放器后置位：后续再捕获到不同直链（含广告切换
+  /// 导致 src 变化）时不再重复 handoff/重建，只尝试让 mpv 更新播放源，
+  /// 防止「广告 src → 正片 src」两次接管各从 0:00 重播。
+  bool _handedOffToMpv = false;
 
   /// AGE 类（WASM 解密）Hls.loadSource 拦截：解密后的真实 m3u8
   /// 写入 window._resolvedVideoUrl，由轮询捕获后交原生播放器。
@@ -424,6 +444,30 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       if (!window._rxHlsHookInstalled) {
         window._rxHlsHookInstalled = true;
         window._resolvedVideoUrl = '';
+        // 广告直链判定：path 独立段 ad/ads/adv 等，或广告域名特征。
+        // 广告 m3u8 混入正片流时若无条件捕获，会先接管原生播放器、
+        // 从 0:00 播广告；此处过滤让正片成为首个被捕获的直链。
+        var isAdUrl = function(u){
+          try {
+            var low = ('' + u).toLowerCase();
+            var segs = low.split('?')[0].split('/');
+            for (var i = 0; i < segs.length; i++) {
+              var s = segs[i];
+              if (s === 'ad' || s === 'ads' || s === 'adv' ||
+                  s === 'advert' || s === 'adverts' || s === 'advertise' ||
+                  s === 'advertising' || s === 'advertisement' ||
+                  s === 'adserve' || s === 'adserver' || s === 'adservice' ||
+                  s === 'adtrack' || s === 'adtag') return true;
+            }
+            return low.indexOf('doubleclick') >= 0 ||
+                   low.indexOf('googlesyndication') >= 0 ||
+                   low.indexOf('amazon-adsystem') >= 0 ||
+                   low.indexOf('adnxs') >= 0 ||
+                   low.indexOf('applovin') >= 0 ||
+                   low.indexOf('unityads') >= 0 ||
+                   low.indexOf('adcolony') >= 0;
+          } catch(e){ return false; }
+        };
         var hookWin = function(w){
           try {
             if (!w || !w.Hls || w.__rxHlsHooked) return;
@@ -435,12 +479,14 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
               try {
                 // 无条件记录最后传给 loadSource 的 url，诊断用
                 window.__lastHlsUrl = '' + (url || '');
-                // 接受 http(s) 与协议相对（//host/xx.m3u8）两种直链形
+                // 接受 http(s) 与协议相对（//host/xx.m3u8）两种直链形；
+                // 广告 URL 过滤：混入正片流的广告 m3u8 不被捕获。
                 var u = '' + (url || '');
                 if ((u.indexOf('http:') === 0 ||
                      u.indexOf('https:') === 0 ||
                      u.indexOf('//') === 0) &&
-                    u.indexOf('blob:') !== 0) {
+                    u.indexOf('blob:') !== 0 &&
+                    !isAdUrl(u)) {
                   // 统一写到主 frame，脚本都跑在主 frame 的 JS 上下文
                   window._resolvedVideoUrl = u;
                 }
@@ -478,10 +524,33 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   ''';
 
   /// 轮询捕获脚本：优先取拦截到的直链，其次扫描 DOM 里的 <video>。
+  /// 同时过滤广告直链：path 含 ad/ads/adv 段或已知广告域名，不捕获。
   static const String _videoPollJs = '''
     (function(){
+      var isAdUrl = function(u){
+        try {
+          var low = ('' + u).toLowerCase();
+          var segs = low.split('?')[0].split('/');
+          for (var i = 0; i < segs.length; i++) {
+            var s = segs[i];
+            if (s === 'ad' || s === 'ads' || s === 'adv' ||
+                s === 'advert' || s === 'adverts' || s === 'advertise' ||
+                s === 'advertising' || s === 'advertisement' ||
+                s === 'adserve' || s === 'adserver' || s === 'adservice' ||
+                s === 'adtrack' || s === 'adtag') return true;
+          }
+          return low.indexOf('doubleclick') >= 0 ||
+                 low.indexOf('googlesyndication') >= 0 ||
+                 low.indexOf('amazon-adsystem') >= 0 ||
+                 low.indexOf('adnxs') >= 0 ||
+                 low.indexOf('applovin') >= 0 ||
+                 low.indexOf('unityads') >= 0 ||
+                 low.indexOf('adcolony') >= 0;
+        } catch(e){ return false; }
+      };
       var _hooked = window._resolvedVideoUrl || '';
-      if (_hooked.indexOf('blob:') !== 0 && _hooked.indexOf('http') === 0) {
+      if (_hooked.indexOf('blob:') !== 0 && _hooked.indexOf('http') === 0 &&
+          !isAdUrl(_hooked)) {
         return _hooked;
       }
       var find = function(doc){
@@ -489,9 +558,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
         if(v){
           var s = v.currentSrc || v.src || '';
           if(s.indexOf('blob:') === 0) return '';
-          if(s) return s;
+          if(s && !isAdUrl(s)) return s;
           var src = v.querySelector('source');
-          if(src && src.src) return src.src;
+          if(src && src.src && !isAdUrl(src.src)) return src.src;
         }
         var fr = doc.querySelector('iframe');
         if(fr){
@@ -722,13 +791,37 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     super.dispose();
   }
 
-  /// resolve-play-url API 拦截脚本（fetch + XHR 双拦截）。
-  /// 幂等：重复执行自动跳过（window._videoUrlIntercepted 标记）。
+  /// 拦截 resolve-play-url 的 API 响应（fetch + XHR 双拦截），
+  /// 以及 Hls.js 加载的 m3u8 直链。广告 URL（path 含 ad/ads/adv 等段
+  /// 或已知广告域名）被过滤，防止广告 m3u8 先于正片被捕获接管原生播放器。
   static const String _apiInterceptorJs = '''
     (function() {
       if (window._videoUrlIntercepted) return;
       window._videoUrlIntercepted = true;
       window._resolvedVideoUrl = '';
+
+      // 广告直链判定（与 _videoPollJs/_hlsHookJs 一致）
+      var isAdUrl = function(u) {
+        try {
+          var low = ('' + u).toLowerCase();
+          var segs = low.split('?')[0].split('/');
+          for (var i = 0; i < segs.length; i++) {
+            var s = segs[i];
+            if (s === 'ad' || s === 'ads' || s === 'adv' ||
+                s === 'advert' || s === 'adverts' || s === 'advertise' ||
+                s === 'advertising' || s === 'advertisement' ||
+                s === 'adserve' || s === 'adserver' || s === 'adservice' ||
+                s === 'adtrack' || s === 'adtag') return true;
+          }
+          return low.indexOf('doubleclick') >= 0 ||
+                 low.indexOf('googlesyndication') >= 0 ||
+                 low.indexOf('amazon-adsystem') >= 0 ||
+                 low.indexOf('adnxs') >= 0 ||
+                 low.indexOf('applovin') >= 0 ||
+                 low.indexOf('unityads') >= 0 ||
+                 low.indexOf('adcolony') >= 0;
+        } catch(e){ return false; }
+      };
 
       // 判断是否为可交给原生播放器的直链（m3u8 / mp4 / flv / 部分 json 接口）
       var isPlayable = function(u) {
@@ -741,9 +834,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                low.indexOf('.mp4') >= 0 ||
                low.indexOf('.flv') >= 0;
       };
-      // 统一写入
+      // 统一写入（广告 URL 不写入，防止误接管）
       var mark = function(u) {
-        if (isPlayable(u)) window._resolvedVideoUrl = u;
+        if (isPlayable(u) && !isAdUrl(u)) window._resolvedVideoUrl = u;
       };
 
       // 拦截 fetch 请求中匹配 resolve-play-url 的 API，以及所有 m3u8 响应
@@ -754,7 +847,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           if (urlStr.indexOf('/api/videos/resolve-play-url') >= 0) {
             response.clone().json().then(function(data) {
               if (data && data.data && data.data.url) {
-                window._resolvedVideoUrl = data.data.url;
+                var ru = '' + data.data.url;
+                if (!isAdUrl(ru)) window._resolvedVideoUrl = ru;
               }
             }).catch(function(){});
           } else if (isPlayable(urlStr)) {
@@ -780,7 +874,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
               try {
                 var data = JSON.parse(this.responseText);
                 if (data && data.data && data.data.url) {
-                  window._resolvedVideoUrl = data.data.url;
+                  var ru = '' + data.data.url;
+                  if (!isAdUrl(ru)) window._resolvedVideoUrl = ru;
                 }
               } catch(e) {}
             });
@@ -1444,6 +1539,11 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       _webError = null; // 切集开始即离开上次错误态，回到解析 loading
       _switchFail = false;
     });
+    // 新一集重新走捕获流程：清掉旧集直链缓存与接管标志，否则新集直链
+    // 会被 _onVideoSrcCaptured 误判为「已接管后的换源」直接忽略，
+    // 永远切不回原生播放器。
+    _hookedVideoUrl = '';
+    _handedOffToMpv = false;
     // 杀掉旧页媒体，避免加载新集期间旧集继续出声（双音轨）
     await _killWebMedia();
     if (!mounted || gen != _switchGen) {
@@ -1892,6 +1992,10 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
         _resolveFault = true;
       }
     });
+    // 重试是新一次捕获流程：清掉上次的直链缓存与「已接管」标志，
+    // 否则广告→正片那次误接管会让重试也直接 return。
+    _hookedVideoUrl = '';
+    _handedOffToMpv = false;
     _hookVideoSource();
     _injectApiInterceptor();
     // 重试期间保持静音解析：先杀旧页媒体，再重新加载（防止旧页残留出声）
@@ -2876,6 +2980,38 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     });
   }
 
+}
+
+/// 判断 URL 是否为广告直链：path 独立段 ad/ads/adv 等，或已知广告域名。
+/// 广告 m3u8 混入正片流（站点先放广告再放正片）时，若广告被无条件捕获，
+/// 会先接管原生播放器、从 0:00 播广告；此判定用于在捕获入口拦截，
+/// 确保正片成为首个被接管的对象。
+bool isAdMediaUrl(String url) {
+  if (url.isEmpty) return false;
+  final u = url.toLowerCase();
+  final noQuery = u.split('?').first;
+  final segments = noQuery.split('/');
+  const adSegments = {
+    'ad', 'ads', 'adv', 'advert', 'adverts', 'advertise', 'advertising',
+    'advertisement', 'adserve', 'adserver', 'adservice', 'adtrack', 'adtag',
+  };
+  for (final s in segments) {
+    if (adSegments.contains(s)) return true;
+  }
+  const adDomains = {
+    'doubleclick', 'googlesyndication', 'amazon-adsystem', 'adnxs',
+    'applovin', 'unityads', 'adcolony',
+  };
+  for (final d in adDomains) {
+    if (u.contains(d)) return true;
+  }
+  return false;
+}
+
+/// 截断长 URL 用于日志（超过 80 字符保留前后各 40）。
+String _trimUrl(String url) {
+  if (url.length <= 80) return url;
+  return '${url.substring(0, 40)}…${url.substring(url.length - 40)}';
 }
 
 /// 判断 URL 是否为可以直接播放的视频媒体直链。

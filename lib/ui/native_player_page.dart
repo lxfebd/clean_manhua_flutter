@@ -251,6 +251,17 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   double _gestureStartValue = 0;
   Duration _seekStart = Duration.zero;
   Duration _seekTarget = Duration.zero;
+  /// 单调最大的稳定播放位置（不含回退）。断流重连时 mpv 可能把 time-pos
+  /// 倒卷归零再从头加载，直接用 _pos 算断点会取到 0 → 全部白看。用它 +
+  /// 持久化进度兜底，保证重连回到倒卷前的位置附近。
+  Duration _stablePos = Duration.zero;
+  /// 主动 seek 的时间戳：position 倒卷守卫用它区分「用户/代码刻意 seek」
+  /// 与「mpv HLS seek 失败把 time-pos 无事件地卷回 0」（media_kit #1331 类
+  /// bug）。刻意 seek 后 3 秒内的回退放行，超窗的巨幅回退判为异常倒卷。
+  DateTime _lastSeekCmd = DateTime.fromMillisecondsSinceEpoch(0);
+  /// 倒卷守卫的 backoff 冷却末次触发：同一时刻最多主动 seek 回一次，
+  /// 防止 mpv 反复倒卷时守卫与重载互相打架造成 seek 循环。
+  DateTime _lastRewindGuard = DateTime.fromMillisecondsSinceEpoch(0);
   // 横滑拖拽 seek 时是否曾处于播放态（用于松手续播）
   bool _pauseBeforeSeek = false;
   Timer? _hudTimer;
@@ -572,6 +583,12 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         p = Player(configuration: const PlayerConfiguration(
           // 需要收到 shader 编译的 warn 级日志用于失败诊断
           logLevel: MPVLogLevel.warn,
+          // HLS/慢 CDN 源的播放缓冲。默认 32MB 在码率 1.26MB/s 的片源上
+          // 只够 ~25 秒（实测 bf.modujx15.com 单连接仅 35-140KB/s），
+          // 播几下就把缓冲耗尽进入「分片卡顿→重载」循环。提到 256MB，
+          // 让慢源先攒够播放窗口再放（mpv 的 demuxer-max-bytes 是字节
+          // 容量不是时间，256MB ≈ 20-30 分钟低码率播放窗口）。
+          bufferSize: 256 * 1024 * 1024,
         ));
       }
       _player = p;
@@ -589,8 +606,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       _subs.add(p.stream.position.listen((v) {
         if (!mounted) return;
         _pos = v;
+        if (v > _stablePos) _stablePos = v;
         _maybeSaveProgress(v);
         _scheduleFlush();
+        _watchRewind(v);
       }));
       _subs.add(p.stream.duration.listen((v) {
         if (mounted) setState(() => _dur = v);
@@ -692,17 +711,24 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     }
   }
 
-  /// mpv 拉流所需的请求头。多数组源 CDN 校验 Referer/UA，缺了会在 ts
+  /// mpv 拉流所需的请求头。部分源站 CDN 校验 Referer/UA，缺了会在 ts
   /// 分片阶段返回 403（表现为「播几秒后失败」）；补上与下载器一致的
   /// Referer（scheme://host/）+ 浏览器 UA。IP 直连（Cloudflare 优选）时
   /// 还要带正确 Host 头，否则 TLS 证书校验不过。
+  ///
+  /// ⚠️ 签名直链源（稀饭动漫 → media.vod 302 到 pan.wo.cn 移动云盘）**拒绝**
+  /// 带 Referer 的请求（实测 HTTP 400 / ECONNRESET，无 Referer 才 206 正常
+  /// 下载）。带 Referer 会让 mpv 拉流反复被 400 掐断 → 播 1-2 秒 → 缓存耗尽
+  /// → 停 12-44 秒 → 重连 → 循环（v1.5.1 引入的回归，见 _open)。故对这类
+  /// 签名直链域名不设 Referer。
   Map<String, String> _mediaHeaders(String url) {
     final uri = Uri.tryParse(url);
     if (uri == null) return const {};
     final host = uri.host;
     final h = <String, String>{
       'User-Agent': Net.defaultUA,
-      'Referer': '${uri.scheme}://$host/',
+      if (!RegExp(r'(^|\.)pan\.wo\.cn$').hasMatch(host))
+        'Referer': '${uri.scheme}://$host/',
     };
     if (RegExp(r'^\d{1,3}(\.\d{1,3}){3}$').hasMatch(host)) {
       h['Host'] = 'www.tvtfun.net';
@@ -715,7 +741,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// handoff 阶段（[_handoffOpening]，网页通道捕获直链后试开）打不开时
   /// 不外抛、不弹失败页：由调用方（[_handoffWebToMpv]）切回网页通道；
   /// 其余场景保持旧行为——打开失败进入失败视图（含重试/切网页播放）。
-  Future<bool> _open(String url, {bool adopted = false}) async {
+  Future<bool> _open(String url, {bool adopted = false, Duration? resumeAt}) async {
     final p = _player;
     if (p == null) return false;
     try {
@@ -737,6 +763,19 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         if (native is NativePlayer) {
           await (native as dynamic)
               .setProperty('gpu-shader-cache-dir', shaderCache.path);
+          // media_kit 默认 network-timeout=5 对慢 CDN 分片太苛刻：实测
+          // bf.modujx15.com 单连接 35-140KB/s，5 秒连握手+首字节都未必完成，
+          // 分片 fetch 反复超时 → 缓冲耗尽 → 卡顿/重载。提到 15 秒让慢源
+          // 的分片有充足时间抵达（读中断后 mpv 仍按分片粒度重试）。
+          await (native as dynamic).setProperty('network-timeout', '15');
+          // 切速（scaletempo 变速 + 视频时钟重同步）瞬间 mpv 会短暂判定
+          // 缓存不足而 paused-for-cache 暂停（实测 33/272 采样 pfc=yes，
+          // 多集中在 3x/4x↔1x 快速切换的瞬间）——但那一刻缓存明明是满的
+          // （dct 实测可达 278-875s），暂停纯属误杀，用户感知为卡顿。
+          // 把暂停阈值设 0：不再因缓存主动暂停；真正断流时走 demuxer
+          // 读失败 → stream error 重连路径（_tryRecoverFromStreamError），
+          // 不受影响。
+          await (native as dynamic).setProperty('pause-after-cache', '0');
         }
       } catch (_) {
         // 目录创建/属性设置失败不影响播放，静默跳过。
@@ -792,7 +831,17 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           });
         }
       }
-      await _prepareResume();
+      // 重连（resumeAt 非空）时断点已由调用方 seek 回，静默跳过续播提示。
+      await _prepareResume(silent: resumeAt != null);
+      // 断流重连等场景重开同一 URL 时 seek 回断点（t-3s），避免从 0:00 重播。
+      if (resumeAt != null && resumeAt > Duration.zero) {
+        _player?.seek(resumeAt);
+        ErrorLogger.instance
+            .debug('resumed at ${resumeAt.inSeconds}s after reopen');
+        _pos = resumeAt;
+        if (resumeAt > _stablePos) _stablePos = resumeAt;
+        if (mounted) setState(() {});
+      }
       // 诊断轮询每 2 秒做十几次同步 FFI 属性读取（会阻塞 UI 线程），
       // 只在桌面端跑；移动端不需要这项观测。
       if (DesktopUi.isDesktopPlatform) _startDiag();
@@ -825,8 +874,26 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     if (_recovering || _switching || _handoffOpening) return;
     _recovering = true;
     _toast('播放中断，正在重连…');
-    // _open 失败时内部已置 _failed 并返回 false（不抛异常），这里只看返回值。
-    final ok = await _open(widget.url);
+    // 记住断点，重开同一 URL 后 seek 回来（t-3s 稳一点，直接回精确点可能
+    // 因关键帧偏移黑屏/重缓冲）。_open 失败时内部已置 _failed 并返回 false。
+    //
+    // ⚠️ 断点不能再直接取 _pos：HLS 分片失败时 mpv 会把 time-pos 倒卷归零，
+    // 那一刻 _pos 已被污染成 0（实测 wrate=-161，2 秒内倒卷 323s），直接取
+    // _pos 会让 resumeFrom=0 → seek 被跳过 → 从头重播。稳定位置 _stablePos
+    // 只在 position 前进时更新，天然屏蔽倒卷；持久化进度（每 5 秒落盘）作为
+    // 跨会话兜底。两者取最大，但不越过当前时长。
+    var resumeFrom = _stablePos > _pos ? _stablePos : _pos;
+    try {
+      final saved = await LocalStore.videoProgressOf(_histKey);
+      final savedDur = Duration(seconds: saved);
+      if (savedDur > resumeFrom && savedDur <= (_dur > Duration.zero ? _dur : savedDur)) {
+        resumeFrom = savedDur;
+      }
+    } catch (_) {}
+    resumeFrom = resumeFrom > const Duration(seconds: 6)
+        ? resumeFrom - const Duration(seconds: 3)
+        : Duration.zero;
+    final ok = await _open(widget.url, resumeAt: resumeFrom);
     if (mounted) {
       setState(() => _recovering = false);
       if (ok) _toast('重连成功，继续播放');
@@ -867,14 +934,15 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     } catch (_) {}
   }
 
-  Future<void> _prepareResume() async {
+  Future<void> _prepareResume({bool silent = false}) async {
     try {
       final sec = await LocalStore.videoProgressOf(_histKey);
       if (sec > 20 && mounted) {
-        setState(() {
-          _resumeAt = Duration(seconds: sec);
-          _resumeTipVisible = true;
-        });
+        _resumeAt = Duration(seconds: sec);
+        // 断流重连等中途重开同名 URL 时已由调用方 seek 回断点，不再弹
+        // 「上次看到…」提示条（那是首次进入时的续播引导）。
+        if (silent) return;
+        setState(() => _resumeTipVisible = true);
         _resumeTipTimer?.cancel();
         _resumeTipTimer = Timer(const Duration(seconds: 8), () {
           if (mounted) setState(() => _resumeTipVisible = false);
@@ -915,6 +983,46 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         ErrorLogger.instance.warn('save video progress failed: $e');
       }
     }();
+  }
+
+  /// position 层倒卷守卫：mpv 在 HLS 上 seek 失败时（media_kit #1331 类 bug）
+  /// 会把 time-pos **无任何 error/completed 事件地卷回 0** 并重载文件，用户
+  /// 看到的就是「播着播着跳回 0:00 重播」。这个事件链不经过 stream error 恢复
+  /// 路径（_tryRecoverFromStreamError 拦不到），所以必须在 position 流里兜底：
+  /// 一旦发现「没有主动 seek 意图的巨幅回退」，主动 seek 回稳定断点。
+  ///
+  /// 触发条件（全部满足才干预）：
+  /// * 回退幅度 ≥ 60s（缓冲倒卷/轻微 seek jitter 达不到这个量级）；
+  /// * 当前 position 明显靠近 0（<10s）——排除「用户往前 seek 但幅度大」的
+  ///   误伤（往前 seek 到 60s 处位置是 60s 不是 0）；
+  /// * 距主动 seek 命令 ≥3s——刻意 seek 后的回退是正常的，放行；
+  /// * 冷却 10s——mpv 可能连续倒卷，冷却防守卫自己与重载打架成 seek 循环。
+  ///
+  /// 恢复目标 = 稳定位置（单调最大，天然屏蔽倒卷），往后退 3s 留关键帧
+  /// 偏移余量；<8s 不干预（本身就播在开头，救不救无差别）。
+  void _watchRewind(Duration v) {
+    if (_stablePos <= const Duration(seconds: 8)) return; // 没什么可救
+    final regress = _stablePos - v;
+    if (!(regress >= const Duration(seconds: 60) && v < const Duration(seconds: 10))) {
+      return;
+    }
+    if (_recovering ||
+        _switching ||
+        _handoffOpening ||
+        _draggingBar ||
+        DateTime.now().difference(_lastSeekCmd) < const Duration(seconds: 3)) {
+      return;
+    }
+    final now = DateTime.now();
+    if (now.difference(_lastRewindGuard) < const Duration(seconds: 10)) return;
+    _lastRewindGuard = now;
+    final target = _stablePos - const Duration(seconds: 3);
+    if (target < const Duration(seconds: 8)) return;
+    _player?.seek(target);
+    // _pos 已被 0 污染；seek 立即回写 UI 位置，避免进度条/字幕闪到 0。
+    if (mounted) setState(() => _pos = target);
+    ErrorLogger.instance
+        .debug('rewound guard: stable=${_stablePos.inSeconds}s, saw=${v.inSeconds}s, seek back to ${target.inSeconds}s');
   }
 
   // ── 画质 ────────────────────────────────────
@@ -1135,6 +1243,13 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       final rvo = await rd('vo');
       final rgapi = await rd('gpu-api');
       final rgctx = await rd('gpu-context');
+      // 缓存取证：区分卡顿是「等网络分片」还是「渲染/音频停顿」。
+      //   pfc=paused-for-cache（yes = mpv 因缓存空而主动暂停 → 等数据）
+      //   dct=demuxer-cache-time（缓存内还剩多少秒媒体；≈0 且 pfc=yes → 网络瓶颈）
+      // wrate≈0 且 pfc=yes → 网络慢，加大缓冲/超时有用；
+      // wrate≈0 且 pfc=no 且 dct 有值 → 不是网络，是渲染链/音频设备/磁盘 I/O。
+      final pfc = await rd('paused-for-cache');
+      final dct = await rd('demuxer-cache-time');
       final line = 'DIAG src=$srcTag vo=$voTag($voSrc) vop=$wop x$hop '
           'elig=${eligible == null ? '?' : (eligible ? 1 : 0)} '
           'a4k=${canObservePasses ? srPasses : "?"} '
@@ -1142,7 +1257,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           'disp=${_fmtFps(dfps)} ovr=${_fmtFps(ovr)} edisp=${_fmtFps(edfps)} '
           'shader=$shaderCount vsync=$vsync hwdec=$hw '
           'ach=$ach aid=$aaid speed=$spd wrate=${_fmtFps(_wallClockRate.toStringAsFixed(3))} '
-          'rvo=$rvo gapi=$rgapi gctx=$rgctx';
+          'rvo=$rvo gapi=$rgapi gctx=$rgctx '
+          'pfc=$pfc dct=$dct';
       if (line == last) return;
       last = line;
       ErrorLogger.instance.debug(line);
@@ -1516,8 +1632,17 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     final target = d < Duration.zero
         ? Duration.zero
         : (_dur > Duration.zero && d > _dur ? _dur : d);
+    // 守卫用它区分「刻意 seek」与「mpv HLS seek 失败倒卷」——刻意 seek
+    // 后 position 的回退放行 3s，超窗仍判异常。
+    _lastSeekCmd = DateTime.now();
     _player?.seek(target);
-    setState(() => _pos = target);
+    setState(() {
+      _pos = target;
+      // 用户主动 seek 本身就是新锚点：回拉/跳到更早处时把稳定位置同步压到
+      // target，否则 _stablePos 仍留旧大值，3s 过窗后守卫会把用户又拉回
+      // 中间（附件 #11 主动 seek 误伤）。
+      if (target < _stablePos) _stablePos = target;
+    });
   }
 
   void _seekBy(int seconds) {
@@ -1532,6 +1657,17 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   }
 
   void _onCompleted() {
+    // 位置阈值校验：mpv 的 completed（eof-reached）在流异常中断/换源时
+    // 也可能触发。只有确认已播到结尾（距时长 ≤5s）才视为真播完；否则
+    // 仅暂停、不置位 _completedHandled，避免后续真播完被误拦截（混广告
+    // 换源/断流重连可能触发伪 completed）。
+    if (_dur > Duration.zero &&
+        _pos < _dur - const Duration(seconds: 5)) {
+      ErrorLogger.instance.debug(
+          'completed but not at end: pos=${_pos.inSeconds}s dur=${_dur.inSeconds}s; treat as interrupted');
+      if (mounted) setState(() => _playing = false);
+      return;
+    }
     if (_completedHandled) return;
     _completedHandled = true;
     if (mounted) setState(() => _playing = false);
@@ -1591,6 +1727,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         _dur = Duration.zero;
         _buffer = Duration.zero;
         _lastSavedSec = -1;
+        // 换集后稳定位置同步清零：否则旧集的大位置会把本集断流重连的
+        // 断点带偏（seek 回上一集的位置播）。
+        _stablePos = Duration.zero;
       });
       await _open(url);
       // 换集后重新拉取该集弹幕
