@@ -555,7 +555,16 @@ Future<T?> showResponsiveBottomSheet<T>({
       barrierColor: barrierColor,
       builder: (ctx) => Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: kSheetMaxWidth),
+          // 高度上限必须是**窗口高度**的一个比例：showDialog 给到这里的是
+          // 整窗松散约束，若不设 maxHeight，内容高于窗口时卡片会直接顶出
+          // 屏幕底边（无滚动条、无视觉提示，用户看到的就是"卡片被裁断"，
+          // 如"切换番剧源"8 项列表）。与移动端 showModalBottomSheet 默认
+          // 9/16 屏高的行为对齐：这里限 86%，超出部分经内层
+          // SingleChildScrollView 滚轮可滚。
+          constraints: BoxConstraints(
+            maxWidth: kSheetMaxWidth,
+            maxHeight: MediaQuery.sizeOf(ctx).height * 0.86,
+          ),
           child: SingleChildScrollView(
             child: Material(
               color: backgroundColor ?? Theme.of(ctx).colorScheme.surface,

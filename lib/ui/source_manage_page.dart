@@ -13,6 +13,7 @@ import 'responsive.dart';
 import 'source_market_page.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/state_view.dart';
+import 'keyboard_shortcuts.dart';
 
 /// 数据源管理页：列出所有源，可启用/停用、编辑域名/图片CDN/代理/请求头/层级，
 /// 保存后持久化（源配置免发版更新），并同步 SourceManager 的启用列表。
@@ -26,6 +27,7 @@ class SourceManagePage extends StatefulWidget {
 class _SourceManagePageState extends State<SourceManagePage> {
   List<SourceConfig>? _cfgs;
   String? _error;
+
   /// 启停切换进行中的源 id：开关禁用，防连点。
   final Set<String> _togglingIds = {};
 
@@ -53,19 +55,21 @@ class _SourceManagePageState extends State<SourceManagePage> {
     if (_togglingIds.contains(cfg.id)) return; // 防连点
     setState(() => _togglingIds.add(cfg.id));
     try {
-      await SourceConfigStore.save(SourceConfig(
-        engineId: cfg.engineId,
-        id: cfg.id,
-        name: cfg.name,
-        iconUrl: cfg.iconUrl,
-        hosts: cfg.hosts,
-        imageHosts: cfg.imageHosts,
-        headers: cfg.headers,
-        requiresLogin: cfg.requiresLogin,
-        isEnabled: value,
-        tier: cfg.tier,
-        proxy: cfg.proxy,
-      ));
+      await SourceConfigStore.save(
+        SourceConfig(
+          engineId: cfg.engineId,
+          id: cfg.id,
+          name: cfg.name,
+          iconUrl: cfg.iconUrl,
+          hosts: cfg.hosts,
+          imageHosts: cfg.imageHosts,
+          headers: cfg.headers,
+          requiresLogin: cfg.requiresLogin,
+          isEnabled: value,
+          tier: cfg.tier,
+          proxy: cfg.proxy,
+        ),
+      );
       await SourceManager.ensureEnabledCurrent();
       await _load();
     } catch (e) {
@@ -95,21 +99,24 @@ class _SourceManagePageState extends State<SourceManagePage> {
   Future<void> _resetAll() async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: const Text('恢复默认配置'),
-        content: const Text('将清空所有源的自定义域名/代理等修改，恢复内置默认。确定继续？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
+      builder:
+          (_) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            title: const Text('恢复默认配置'),
+            content: const Text('将清空所有源的自定义域名/代理等修改，恢复内置默认。确定继续？'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('确定'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('确定'),
-          ),
-        ],
-      ),
     );
     if (ok != true) return;
     await SourceConfigStore.resetToDefaults();
@@ -129,13 +136,15 @@ class _SourceManagePageState extends State<SourceManagePage> {
 
   /// 打开源市场页（拉取远端索引，一键安装/更新自定义源）。
   void _openMarket() {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const SourceMarketPage()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const SourceMarketPage()));
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => EscPopScope(child: _buildRoot(context));
+
+  Widget _buildRoot(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -150,78 +159,88 @@ class _SourceManagePageState extends State<SourceManagePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                  Responsive.pagePadding(context), 10,
-                  Responsive.pagePadding(context), 0),
-              child: Row(
-                children: [
-                  IconButton(
-                    tooltip: '返回',
-                    onPressed: () => Navigator.pop(context),
-                    icon: Icon(
-                        DesktopUi.isDesktopPlatform
-                            ? Icons.arrow_back_rounded
-                            : Icons.arrow_back_ios_new_rounded,
-                        size: 18, color: theme.colorScheme.onSurface),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '数据源管理',
-                    style: TextStyle(
-                      fontSize: 21,
-                      fontWeight: FontWeight.w800,
-                      color: theme.colorScheme.onSurface,
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      Responsive.pagePadding(context),
+                      10,
+                      Responsive.pagePadding(context),
+                      0,
+                    ),
+                    child: Row(
+                      children: [
+                        IconButton(
+                          tooltip: '返回',
+                          onPressed: () => Navigator.pop(context),
+                          icon: Icon(
+                            DesktopUi.isDesktopPlatform
+                                ? Icons.arrow_back_rounded
+                                : Icons.arrow_back_ios_new_rounded,
+                            size: 18,
+                            color: theme.colorScheme.onSurface,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '数据源管理',
+                          style: TextStyle(
+                            fontSize: 21,
+                            fontWeight: FontWeight.w800,
+                            color: theme.colorScheme.onSurface,
+                          ),
+                        ),
+                        const Spacer(),
+                        TextButton.icon(
+                          onPressed: _openCustomSources,
+                          icon: const Icon(Icons.extension_rounded, size: 16),
+                          label: const Text('自定义源'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: theme.colorScheme.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        TextButton.icon(
+                          onPressed: _openMarket,
+                          icon: const Icon(Icons.storefront_rounded, size: 16),
+                          label: const Text('源市场'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: theme.colorScheme.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        TextButton.icon(
+                          onPressed: _resetAll,
+                          icon: const Icon(Icons.restart_alt_rounded, size: 16),
+                          label: const Text('恢复默认'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: theme.colorScheme.primary,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const Spacer(),
-                  TextButton.icon(
-                    onPressed: _openCustomSources,
-                    icon: const Icon(Icons.extension_rounded, size: 16),
-                    label: const Text('自定义源'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: theme.colorScheme.primary,
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      Responsive.pagePadding(context),
+                      2,
+                      Responsive.pagePadding(context),
+                      8,
+                    ),
+                    child: Text(
+                      '源 = 引擎代码（随版本）+ 此配置（可改，免发版）。域名失效时在此替换即可。',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.55,
+                        ),
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 4),
-                  TextButton.icon(
-                    onPressed: _openMarket,
-                    icon: const Icon(Icons.storefront_rounded, size: 16),
-                    label: const Text('源市场'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: theme.colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  TextButton.icon(
-                    onPressed: _resetAll,
-                    icon: const Icon(Icons.restart_alt_rounded, size: 16),
-                    label: const Text('恢复默认'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: theme.colorScheme.primary,
-                    ),
-                  ),
+                  Expanded(child: _buildList(theme)),
                 ],
               ),
             ),
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                  Responsive.pagePadding(context), 2,
-                  Responsive.pagePadding(context), 8),
-              child: Text(
-                '源 = 引擎代码（随版本）+ 此配置（可改，免发版）。域名失效时在此替换即可。',
-                style: TextStyle(
-                  fontSize: 11.5,
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
-                ),
-              ),
-            ),
-            Expanded(child: _buildList(theme)),
-          ],
+          ),
         ),
-      ),
-      ),
-      ),
       ),
     );
   }
@@ -241,16 +260,20 @@ class _SourceManagePageState extends State<SourceManagePage> {
     return ListView.separated(
       // 与头部用同一 pagePadding，大屏不因硬编码 14 与标题错位。
       padding: EdgeInsets.fromLTRB(
-          Responsive.pagePadding(context), 4,
-          Responsive.pagePadding(context), (Responsive.isTablet(context) ? 24 : 110)),
+        Responsive.pagePadding(context),
+        4,
+        Responsive.pagePadding(context),
+        (Responsive.isTablet(context) ? 24 : 110),
+      ),
       itemCount: cfgs.length,
       separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (_, i) => _SourceCard(
-        cfg: cfgs[i],
-        busy: _togglingIds.contains(cfgs[i].id),
-        onTap: () => _edit(cfgs[i]),
-        onToggle: (v) => _toggleEnabled(cfgs[i], v),
-      ),
+      itemBuilder:
+          (_, i) => _SourceCard(
+            cfg: cfgs[i],
+            busy: _togglingIds.contains(cfgs[i].id),
+            onTap: () => _edit(cfgs[i]),
+            onToggle: (v) => _toggleEnabled(cfgs[i], v),
+          ),
     );
   }
 }
@@ -298,9 +321,10 @@ class _SourceCard extends StatelessWidget {
                 color: scheme.surface,
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                  color: enabled
-                      ? scheme.primary.withValues(alpha: 0.12)
-                      : scheme.onSurface.withValues(alpha: 0.06),
+                  color:
+                      enabled
+                          ? scheme.primary.withValues(alpha: 0.12)
+                          : scheme.onSurface.withValues(alpha: 0.06),
                 ),
               ),
               child: Row(
@@ -310,16 +334,23 @@ class _SourceCard extends StatelessWidget {
                     height: 40,
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: enabled
-                            ? [scheme.primary, scheme.secondary]
-                            : [scheme.onSurface.withValues(alpha: 0.25), scheme.onSurface.withValues(alpha: 0.25)],
+                        colors:
+                            enabled
+                                ? [scheme.primary, scheme.secondary]
+                                : [
+                                  scheme.onSurface.withValues(alpha: 0.25),
+                                  scheme.onSurface.withValues(alpha: 0.25),
+                                ],
                       ),
                       borderRadius: BorderRadius.circular(13),
                     ),
                     child: Icon(
                       Icons.public_rounded,
                       size: 20,
-                      color: enabled ? Colors.white : scheme.onSurface.withValues(alpha: 0.6),
+                      color:
+                          enabled
+                              ? Colors.white
+                              : scheme.onSurface.withValues(alpha: 0.6),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -343,13 +374,19 @@ class _SourceCard extends StatelessWidget {
                             ),
                             const SizedBox(width: 6),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
                               decoration: BoxDecoration(
-                                color: cfg.tier == SourceTier.primary
-                                    ? scheme.primary.withValues(alpha: 0.14)
-                                    : cfg.tier == SourceTier.disabled
+                                color:
+                                    cfg.tier == SourceTier.primary
+                                        ? scheme.primary.withValues(alpha: 0.14)
+                                        : cfg.tier == SourceTier.disabled
                                         ? scheme.error.withValues(alpha: 0.12)
-                                        : scheme.onSurface.withValues(alpha: 0.08),
+                                        : scheme.onSurface.withValues(
+                                          alpha: 0.08,
+                                        ),
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
@@ -357,19 +394,27 @@ class _SourceCard extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 9.5,
                                   fontWeight: FontWeight.w700,
-                                  color: cfg.tier == SourceTier.primary
-                                      ? scheme.primary
-                                      : cfg.tier == SourceTier.disabled
+                                  color:
+                                      cfg.tier == SourceTier.primary
+                                          ? scheme.primary
+                                          : cfg.tier == SourceTier.disabled
                                           ? scheme.error
-                                          : scheme.onSurface.withValues(alpha: 0.6),
+                                          : scheme.onSurface.withValues(
+                                            alpha: 0.6,
+                                          ),
                                 ),
                               ),
                             ),
                             if (cfg.requiresLogin)
                               Padding(
                                 padding: const EdgeInsets.only(left: 4),
-                                child: Icon(Icons.lock_outline_rounded,
-                                    size: 12, color: scheme.onSurface.withValues(alpha: 0.4)),
+                                child: Icon(
+                                  Icons.lock_outline_rounded,
+                                  size: 12,
+                                  color: scheme.onSurface.withValues(
+                                    alpha: 0.4,
+                                  ),
+                                ),
                               ),
                             const SizedBox(width: 6),
                             _HealthDot(health: health),
@@ -382,20 +427,21 @@ class _SourceCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 11,
-                            color: enabled
-                                ? scheme.onSurface.withValues(alpha: 0.55)
-                                : scheme.error.withValues(alpha: 0.7),
+                            color:
+                                enabled
+                                    ? scheme.onSurface.withValues(alpha: 0.55)
+                                    : scheme.error.withValues(alpha: 0.7),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  Switch(
-                    value: enabled,
-                    onChanged: busy ? null : onToggle,
+                  Switch(value: enabled, onChanged: busy ? null : onToggle),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 20,
+                    color: scheme.onSurface.withValues(alpha: 0.3),
                   ),
-                  Icon(Icons.chevron_right_rounded,
-                      size: 20, color: scheme.onSurface.withValues(alpha: 0.3)),
                 ],
               ),
             ),
@@ -473,7 +519,8 @@ class _SourceEditDialogState extends State<_SourceEditDialog> {
     _imageHosts = TextEditingController(text: c.imageHosts.join('\n'));
     _proxy = TextEditingController(text: c.proxy ?? '');
     _headers = TextEditingController(
-        text: c.headers.entries.map((e) => '${e.key}=${e.value}').join('\n'));
+      text: c.headers.entries.map((e) => '${e.key}=${e.value}').join('\n'),
+    );
     _requiresLogin = c.requiresLogin;
     _tier = c.tier;
   }
@@ -487,17 +534,20 @@ class _SourceEditDialogState extends State<_SourceEditDialog> {
     super.dispose();
   }
 
-  List<String> _lines(TextEditingController c) => c.text
-      .split('\n')
-      .map((e) => e.trim())
-      .where((e) => e.isNotEmpty)
-      .toList();
+  List<String> _lines(TextEditingController c) =>
+      c.text
+          .split('\n')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
 
   Map<String, String> _parseHeaders() {
     final out = <String, String>{};
     for (final line in _lines(_headers)) {
       final idx = line.indexOf('=');
-      if (idx > 0) out[line.substring(0, idx).trim()] = line.substring(idx + 1).trim();
+      if (idx > 0) {
+        out[line.substring(0, idx).trim()] = line.substring(idx + 1).trim();
+      }
     }
     return out;
   }
@@ -517,19 +567,35 @@ class _SourceEditDialogState extends State<_SourceEditDialog> {
             const SizedBox(height: 10),
             _field('图片 CDN imageHosts（每行一个，可选）', _imageHosts, maxLines: 3),
             const SizedBox(height: 10),
-            _field('代理 proxy（可选，如 socks5://127.0.0.1:1080）', _proxy, maxLines: 1),
+            _field(
+              '代理 proxy（可选，如 socks5://127.0.0.1:1080）',
+              _proxy,
+              maxLines: 1,
+            ),
             const SizedBox(height: 10),
             _field('请求头 headers（每行 key=value，可选）', _headers, maxLines: 3),
             const SizedBox(height: 12),
             Row(
               children: [
-                Text('需要登录', style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurface)),
+                Text(
+                  '需要登录',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
                 Switch(
                   value: _requiresLogin,
                   onChanged: (v) => setState(() => _requiresLogin = v),
                 ),
                 const SizedBox(width: 16),
-                Text('层级', style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurface)),
+                Text(
+                  '层级',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
                 const SizedBox(width: 8),
                 DropdownButton<SourceTier>(
                   value: _tier,
@@ -557,19 +623,22 @@ class _SourceEditDialogState extends State<_SourceEditDialog> {
         FilledButton(
           onPressed: () {
             final c = widget.config;
-            Navigator.pop(context, SourceConfig(
-              engineId: c.engineId,
-              id: c.id,
-              name: c.name,
-              iconUrl: c.iconUrl,
-              hosts: _lines(_hosts),
-              imageHosts: _lines(_imageHosts),
-              headers: _parseHeaders(),
-              requiresLogin: _requiresLogin,
-              isEnabled: _tier == SourceTier.disabled ? false : c.isEnabled,
-              tier: _tier,
-              proxy: _proxy.text.trim().isEmpty ? null : _proxy.text.trim(),
-            ));
+            Navigator.pop(
+              context,
+              SourceConfig(
+                engineId: c.engineId,
+                id: c.id,
+                name: c.name,
+                iconUrl: c.iconUrl,
+                hosts: _lines(_hosts),
+                imageHosts: _lines(_imageHosts),
+                headers: _parseHeaders(),
+                requiresLogin: _requiresLogin,
+                isEnabled: _tier == SourceTier.disabled ? false : c.isEnabled,
+                tier: _tier,
+                proxy: _proxy.text.trim().isEmpty ? null : _proxy.text.trim(),
+              ),
+            );
           },
           child: const Text('保存'),
         ),
@@ -577,7 +646,11 @@ class _SourceEditDialogState extends State<_SourceEditDialog> {
     );
   }
 
-  Widget _field(String label, TextEditingController c, {required int maxLines}) {
+  Widget _field(
+    String label,
+    TextEditingController c, {
+    required int maxLines,
+  }) {
     final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -597,7 +670,10 @@ class _SourceEditDialogState extends State<_SourceEditDialog> {
           style: const TextStyle(fontSize: 12.5),
           decoration: InputDecoration(
             isDense: true,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: 8,
+            ),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
           ),
         ),
@@ -611,12 +687,14 @@ class CustomSourceManageDialog extends StatefulWidget {
   const CustomSourceManageDialog({super.key});
 
   @override
-  State<CustomSourceManageDialog> createState() => _CustomSourceManageDialogState();
+  State<CustomSourceManageDialog> createState() =>
+      _CustomSourceManageDialogState();
 }
 
 class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
   List<CustomSourceDef>? _defs;
   String? _error;
+
   /// 启停切换进行中的源 id：开关禁用，防连点。
   final Set<String> _togglingIds = {};
 
@@ -650,10 +728,7 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
   }
 
   Future<void> _import() async {
-    final text = await _promptText(
-      '导入自定义源',
-      '粘贴 JSON（单份或数组）。校验通过后立即生效。',
-    );
+    final text = await _promptText('导入自定义源', '粘贴 JSON（单份或数组）。校验通过后立即生效。');
     if (text == null) return;
     final ok = await CustomSourceStore.importJson(text);
     if (mounted) {
@@ -675,21 +750,24 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
   Future<void> _remove(CustomSourceDef def) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: const Text('删除自定义源'),
-        content: Text('删除「${def.name}」将移除其解析规则，书架中的收藏不受影响。确定？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
+      builder:
+          (_) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            title: const Text('删除自定义源'),
+            content: Text('删除「${def.name}」将移除其解析规则，书架中的收藏不受影响。确定？'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('删除'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
     );
     if (ok != true) return;
     await CustomSourceStore.remove(def.id);
@@ -705,8 +783,11 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
       await _load();
       if (!mounted) return;
       if (!registered) {
-        AppToast.error(context, '「${def.name}」未在运行时注册，启停未生效',
-            duration: const Duration(seconds: 3));
+        AppToast.error(
+          context,
+          '「${def.name}」未在运行时注册，启停未生效',
+          duration: const Duration(seconds: 3),
+        );
       } else {
         AppToast.info(context, '已${enabled ? "启用" : "停用"}「${def.name}」');
       }
@@ -724,29 +805,34 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
     final c = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: Text(title),
-        content: TextField(
-          controller: c,
-          maxLines: 8,
-          style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
-          decoration: InputDecoration(
-            labelText: label,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+      builder:
+          (_) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            title: Text(title),
+            content: TextField(
+              controller: c,
+              maxLines: 8,
+              style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+              decoration: InputDecoration(
+                labelText: label,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('确定'),
+              ),
+            ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('确定'),
-          ),
-        ],
-      ),
     );
     final text = c.text.trim();
     c.dispose();
@@ -756,25 +842,32 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
   Future<void> _showJson(String title, String json) async {
     await showDialog<void>(
       context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: Text(title),
-        content: SizedBox(
-          width: 520,
-          child: SingleChildScrollView(
-            child: SelectableText(
-              json,
-              style: const TextStyle(fontSize: 11.5, fontFamily: 'monospace', height: 1.4),
+      builder:
+          (_) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
             ),
+            title: Text(title),
+            content: SizedBox(
+              width: 520,
+              child: SingleChildScrollView(
+                child: SelectableText(
+                  json,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    fontFamily: 'monospace',
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('关闭'),
+              ),
+            ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('关闭'),
-          ),
-        ],
-      ),
     );
   }
 
@@ -805,35 +898,51 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
       content: SizedBox(
         width: 520,
         height: 360,
-        child: _error != null
-            ? Center(child: Text('加载失败\n$_error'))
-            : defs == null
+        child:
+            _error != null
+                ? Center(child: Text('加载失败\n$_error'))
+                : defs == null
                 ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
                 : defs.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.extension_off_rounded,
-                                size: 40, color: theme.colorScheme.onSurface.withValues(alpha: 0.25)),
-                            const SizedBox(height: 10),
-                            Text('暂无自定义源', style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.6))),
-                          ],
-                        ),
-                      )
-                    : ListView.separated(
-                        itemCount: defs.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 6),
-                        itemBuilder: (_, i) => _CustomSourceTile(
-                          def: defs[i],
-                          busy: _togglingIds.contains(defs[i].id),
-                          enabled: SourcePluginManager.instance.isEnabledSync(defs[i].id),
-                          onToggle: (v) => _toggle(defs[i], v),
-                          onEdit: () => _openEditor(defs[i]),
-                          onExport: () => _export(defs[i]),
-                          onRemove: () => _remove(defs[i]),
+                ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.extension_off_rounded,
+                        size: 40,
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.25,
                         ),
                       ),
+                      const SizedBox(height: 10),
+                      Text(
+                        '暂无自定义源',
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.6,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+                : ListView.separated(
+                  itemCount: defs.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 6),
+                  itemBuilder:
+                      (_, i) => _CustomSourceTile(
+                        def: defs[i],
+                        busy: _togglingIds.contains(defs[i].id),
+                        enabled: SourcePluginManager.instance.isEnabledSync(
+                          defs[i].id,
+                        ),
+                        onToggle: (v) => _toggle(defs[i], v),
+                        onEdit: () => _openEditor(defs[i]),
+                        onExport: () => _export(defs[i]),
+                        onRemove: () => _remove(defs[i]),
+                      ),
+                ),
       ),
       actions: [
         TextButton(
@@ -888,14 +997,21 @@ class _CustomSourceTile extends StatelessWidget {
                       def.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: scheme.onSurface),
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        color: scheme.onSurface,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       def.baseUrl,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 10.5, color: scheme.onSurface.withValues(alpha: 0.5)),
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        color: scheme.onSurface.withValues(alpha: 0.5),
+                      ),
                     ),
                   ],
                 ),
@@ -907,13 +1023,19 @@ class _CustomSourceTile extends StatelessWidget {
             tooltip: '导出',
             iconSize: 17,
             onPressed: onExport,
-            icon: Icon(Icons.ios_share_rounded, color: scheme.onSurface.withValues(alpha: 0.5)),
+            icon: Icon(
+              Icons.ios_share_rounded,
+              color: scheme.onSurface.withValues(alpha: 0.5),
+            ),
           ),
           IconButton(
             tooltip: '删除',
             iconSize: 17,
             onPressed: onRemove,
-            icon: Icon(Icons.delete_outline_rounded, color: scheme.error.withValues(alpha: 0.8)),
+            icon: Icon(
+              Icons.delete_outline_rounded,
+              color: scheme.error.withValues(alpha: 0.8),
+            ),
           ),
         ],
       ),
@@ -927,7 +1049,8 @@ class CustomSourceEditorDialog extends StatefulWidget {
   const CustomSourceEditorDialog({super.key, this.def});
 
   @override
-  State<CustomSourceEditorDialog> createState() => _CustomSourceEditorDialogState();
+  State<CustomSourceEditorDialog> createState() =>
+      _CustomSourceEditorDialogState();
 }
 
 class _CustomSourceEditorDialogState extends State<CustomSourceEditorDialog> {
@@ -938,9 +1061,12 @@ class _CustomSourceEditorDialogState extends State<CustomSourceEditorDialog> {
   void initState() {
     super.initState();
     _controller = TextEditingController(
-      text: widget.def == null
-          ? _template()
-          : const JsonEncoder.withIndent('  ').convert(widget.def!.toJson()),
+      text:
+          widget.def == null
+              ? _template()
+              : const JsonEncoder.withIndent(
+                '  ',
+              ).convert(widget.def!.toJson()),
     );
   }
 
@@ -951,34 +1077,34 @@ class _CustomSourceEditorDialogState extends State<CustomSourceEditorDialog> {
   }
 
   String _template() => const JsonEncoder.withIndent('  ').convert({
-        'id': 'my_source',
-        'name': '我的漫画源',
-        'type': 'comic',
-        'version': '1.0.0',
-        'author': 'me',
-        'baseUrl': 'https://example.com',
-        'headers': {'User-Agent': 'Mozilla/5.0'},
-        'categoryListUrl': 'https://example.com/list/{page}.html',
-        'categoryList': {
-          'css': 'ul.book-list li',
-          'name': 'a',
-          'id': 'r1',
-          'url': 'href',
-          'pic': 'img',
-        },
-        'detailUrl': 'https://example.com/book/{id}.html',
-        'detail': {
-          'title': 'h1.book-title',
-          'cover': '.book-cover img',
-          'coverAttr': 'src',
-          'author': '.book-author',
-          'description': '.book-desc',
-          'chapters': '.chapter-list a',
-          'picListUrl': 'https://example.com/chapter/{id}.html',
-          'picListCss': '.read-img img',
-          'picAttr': 'src',
-        },
-      });
+    'id': 'my_source',
+    'name': '我的漫画源',
+    'type': 'comic',
+    'version': '1.0.0',
+    'author': 'me',
+    'baseUrl': 'https://example.com',
+    'headers': {'User-Agent': 'Mozilla/5.0'},
+    'categoryListUrl': 'https://example.com/list/{page}.html',
+    'categoryList': {
+      'css': 'ul.book-list li',
+      'name': 'a',
+      'id': 'r1',
+      'url': 'href',
+      'pic': 'img',
+    },
+    'detailUrl': 'https://example.com/book/{id}.html',
+    'detail': {
+      'title': 'h1.book-title',
+      'cover': '.book-cover img',
+      'coverAttr': 'src',
+      'author': '.book-author',
+      'description': '.book-desc',
+      'chapters': '.chapter-list a',
+      'picListUrl': 'https://example.com/chapter/{id}.html',
+      'picListCss': '.read-img img',
+      'picAttr': 'src',
+    },
+  });
 
   Future<void> _save() async {
     final def = decodeCustomSourceDef(_controller.text);
@@ -1017,7 +1143,10 @@ class _CustomSourceEditorDialogState extends State<CustomSourceEditorDialog> {
                 ),
                 child: Text(
                   _error!,
-                  style: TextStyle(fontSize: 11.5, color: theme.colorScheme.error),
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: theme.colorScheme.error,
+                  ),
                 ),
               ),
               const SizedBox(height: 8),
@@ -1027,12 +1156,18 @@ class _CustomSourceEditorDialogState extends State<CustomSourceEditorDialog> {
                 controller: _controller,
                 maxLines: null,
                 expands: true,
-                style: const TextStyle(fontSize: 12, fontFamily: 'monospace', height: 1.45),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                  height: 1.45,
+                ),
                 decoration: InputDecoration(
                   isDense: true,
                   alignLabelWithHint: true,
                   hintText: 'JSON DSL 定义，字段说明见提示',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
               ),
             ),
@@ -1040,7 +1175,11 @@ class _CustomSourceEditorDialogState extends State<CustomSourceEditorDialog> {
             Text(
               '占位符：{id} 详情ID / {page} 页码 / {keyword} 搜索词 / {categoryId} 分类。\n'
               '抽取：css 或 regex；解密链 decrypt：b64 | aes:KEY,IV | replace:OLD>NEW | re:PATTERN|REPL。',
-              style: TextStyle(fontSize: 10.5, color: theme.colorScheme.onSurface.withValues(alpha: 0.5), height: 1.4),
+              style: TextStyle(
+                fontSize: 10.5,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                height: 1.4,
+              ),
             ),
           ],
         ),
@@ -1050,10 +1189,7 @@ class _CustomSourceEditorDialogState extends State<CustomSourceEditorDialog> {
           onPressed: () => Navigator.pop(context),
           child: const Text('取消'),
         ),
-        FilledButton(
-          onPressed: _save,
-          child: const Text('保存'),
-        ),
+        FilledButton(onPressed: _save, child: const Text('保存')),
       ],
     );
   }

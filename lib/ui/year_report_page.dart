@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../net/local_store.dart';
 import 'responsive.dart';
 import 'tokens.dart';
+import 'keyboard_shortcuts.dart';
 
 /// 年度阅读报告全屏可视化页。
 ///
@@ -87,7 +88,9 @@ class _YearReportPageState extends State<YearReportPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => EscPopScope(child: _buildRoot(context));
+
+  Widget _buildRoot(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     return Scaffold(
@@ -99,9 +102,12 @@ class _YearReportPageState extends State<YearReportPage> {
             alignment: Alignment.topCenter,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 900),
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator(strokeWidth: 2.5))
-                  : _loadError
+              child:
+                  _loading
+                      ? const Center(
+                        child: CircularProgressIndicator(strokeWidth: 2.5),
+                      )
+                      : _loadError
                       ? _ErrorState(onRetry: _load)
                       : _buildBody(context, scheme, text),
             ),
@@ -115,7 +121,11 @@ class _YearReportPageState extends State<YearReportPage> {
     if (_totalSeconds <= 0) return _EmptyState(year: _year, onRetry: _load);
     return ListView(
       padding: EdgeInsets.fromLTRB(
-          Responsive.pagePadding(context), 8, Responsive.pagePadding(context), 32),
+        Responsive.pagePadding(context),
+        8,
+        Responsive.pagePadding(context),
+        32,
+      ),
       children: [
         _buildHeader(context, scheme, text),
         const SizedBox(height: S.x16),
@@ -127,27 +137,37 @@ class _YearReportPageState extends State<YearReportPage> {
         const SizedBox(height: S.x24),
         _buildHighlights(context, scheme, text),
         const SizedBox(height: S.x16),
-        Text('数据仅统计本机阅读时长，不会上传',
-            style: text.labelSmall?.copyWith(
-              color: T.color(scheme.onSurface, TextTier.disabled,
-                  brightness: scheme.brightness),
-            )),
+        Text(
+          '数据仅统计本机阅读时长，不会上传',
+          style: text.labelSmall?.copyWith(
+            color: T.color(
+              scheme.onSurface,
+              TextTier.disabled,
+              brightness: scheme.brightness,
+            ),
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildHeader(BuildContext context, ColorScheme scheme, TextTheme text) {
+  Widget _buildHeader(
+    BuildContext context,
+    ColorScheme scheme,
+    TextTheme text,
+  ) {
     return Row(
       children: [
         IconButton(
           tooltip: '返回',
           onPressed: () => Navigator.pop(context),
           icon: Icon(
-              DesktopUi.isDesktopPlatform
-                  ? Icons.arrow_back_rounded
-                  : Icons.arrow_back_ios_new_rounded,
-              size: 18,
-              color: scheme.onSurface),
+            DesktopUi.isDesktopPlatform
+                ? Icons.arrow_back_rounded
+                : Icons.arrow_back_ios_new_rounded,
+            size: 18,
+            color: scheme.onSurface,
+          ),
         ),
         const SizedBox(width: 4),
         Icon(Icons.auto_graph_rounded, size: 20, color: scheme.primary),
@@ -157,11 +177,16 @@ class _YearReportPageState extends State<YearReportPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('$_year 年度报告', style: text.titleLarge),
-              Text('这一年，你与星漫匣的阅读时光',
-                  style: text.labelSmall?.copyWith(
-                    color: T.color(scheme.onSurface, TextTier.low,
-                        brightness: scheme.brightness),
-                  )),
+              Text(
+                '这一年，你与星漫匣的阅读时光',
+                style: text.labelSmall?.copyWith(
+                  color: T.color(
+                    scheme.onSurface,
+                    TextTier.low,
+                    brightness: scheme.brightness,
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -171,7 +196,10 @@ class _YearReportPageState extends State<YearReportPage> {
 
   /// 顶部 2×2 统计格：全年时长 / 有效阅读 / 最长连续 / 日均。
   Widget _buildStatGrid(
-      BuildContext context, ColorScheme scheme, TextTheme text) {
+    BuildContext context,
+    ColorScheme scheme,
+    TextTheme text,
+  ) {
     final avg = _activeDays > 0 ? _totalSeconds ~/ _activeDays : 0;
     final maxStreak = (_streak['maxStreak'] as int?) ?? 0;
     final cells = <(String, String)>[
@@ -199,33 +227,50 @@ class _YearReportPageState extends State<YearReportPage> {
   }
 
   Widget _sectionTitle(
-      BuildContext context, ColorScheme scheme, TextTheme text, String title) {
+    BuildContext context,
+    ColorScheme scheme,
+    TextTheme text,
+    String title,
+  ) {
     return Row(
       children: [
         Text(title, style: text.titleMedium),
         const Spacer(),
-        Text('共 ${_months.length} 个月',
-            style: text.labelSmall?.copyWith(
-              color: T.color(scheme.onSurface, TextTier.low,
-                  brightness: scheme.brightness),
-            )),
+        Text(
+          '共 ${_months.length} 个月',
+          style: text.labelSmall?.copyWith(
+            color: T.color(
+              scheme.onSurface,
+              TextTier.low,
+              brightness: scheme.brightness,
+            ),
+          ),
+        ),
       ],
     );
   }
 
   /// 12 月柱状图：进页逐根生长动画 + 峰值柱高亮。
   Widget _buildMonthChart(
-      BuildContext context, ColorScheme scheme, TextTheme text) {
+    BuildContext context,
+    ColorScheme scheme,
+    TextTheme text,
+  ) {
     final maxSec = [
       ..._months.map((d) => (d['seconds'] as int?) ?? 0),
       3600,
     ].reduce((a, b) => a > b ? a : b);
     final peakMonth = _months.indexWhere(
-        (d) => (d['seconds'] as int?) == maxSec && maxSec > 3600);
+      (d) => (d['seconds'] as int?) == maxSec && maxSec > 3600,
+    );
     return Container(
       padding: const EdgeInsets.fromLTRB(S.x12, S.x16, S.x12, S.x12),
       decoration: BoxDecoration(
-        color: T.color(scheme.onSurface, TextTier.fill, brightness: scheme.brightness),
+        color: T.color(
+          scheme.onSurface,
+          TextTier.fill,
+          brightness: scheme.brightness,
+        ),
         borderRadius: BorderRadius.circular(R.card),
       ),
       child: SizedBox(
@@ -239,7 +284,10 @@ class _YearReportPageState extends State<YearReportPage> {
                   seconds: (_months[i]['seconds'] as int?) ?? 0,
                   maxSeconds: maxSec,
                   dayLabel: _shortMonth(_months[i]['month'] as String),
-                  color: i == peakMonth ? scheme.primary : scheme.primary.withValues(alpha: 0.45),
+                  color:
+                      i == peakMonth
+                          ? scheme.primary
+                          : scheme.primary.withValues(alpha: 0.45),
                   colorScheme: scheme,
                   delayMs: i * 45,
                 ),
@@ -253,7 +301,11 @@ class _YearReportPageState extends State<YearReportPage> {
   }
 
   /// 高光卡：最长连续区间 + 单日最长。
-  Widget _buildHighlights(BuildContext context, ColorScheme scheme, TextTheme text) {
+  Widget _buildHighlights(
+    BuildContext context,
+    ColorScheme scheme,
+    TextTheme text,
+  ) {
     final maxStreak = (_streak['maxStreak'] as int?) ?? 0;
     final bestStart = _dayLabel(_streak['bestStart'] as String?);
     final bestEnd = _dayLabel(_streak['bestEnd'] as String?);
@@ -270,7 +322,8 @@ class _YearReportPageState extends State<YearReportPage> {
               child: _HighlightCard(
                 icon: Icons.local_fire_department_rounded,
                 title: maxStreak > 0 ? '连续 $maxStreak 天' : '暂未形成连续',
-                subtitle: maxStreak > 0 ? '$bestStart — $bestEnd' : '保持每天阅读，点亮火焰',
+                subtitle:
+                    maxStreak > 0 ? '$bestStart — $bestEnd' : '保持每天阅读，点亮火焰',
                 color: scheme.primary,
               ),
             ),
@@ -309,28 +362,40 @@ class _StatCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(S.x12),
       decoration: BoxDecoration(
-        color: isAccent
-            ? scheme.primary.withValues(alpha: 0.08)
-            : T.color(scheme.onSurface, TextTier.fill, brightness: scheme.brightness),
+        color:
+            isAccent
+                ? scheme.primary.withValues(alpha: 0.08)
+                : T.color(
+                  scheme.onSurface,
+                  TextTier.fill,
+                  brightness: scheme.brightness,
+                ),
         borderRadius: BorderRadius.circular(R.card),
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: text.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: isAccent ? accentColor : scheme.onSurface,
-              )),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: text.titleLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: isAccent ? accentColor : scheme.onSurface,
+            ),
+          ),
           const SizedBox(height: 2),
-          Text(label,
-              style: text.labelSmall?.copyWith(
-                color: T.color(scheme.onSurface, TextTier.low,
-                    brightness: scheme.brightness),
-              )),
+          Text(
+            label,
+            style: text.labelSmall?.copyWith(
+              color: T.color(
+                scheme.onSurface,
+                TextTier.low,
+                brightness: scheme.brightness,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -358,7 +423,8 @@ class _AnimatedMonthBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    final ratio = maxSeconds <= 0 ? 0.0 : (seconds / maxSeconds).clamp(0.0, 1.0);
+    final ratio =
+        maxSeconds <= 0 ? 0.0 : (seconds / maxSeconds).clamp(0.0, 1.0);
     final targetH = (ratio * 130).clamp(2.0, 130.0);
     return Column(
       mainAxisAlignment: MainAxisAlignment.end,
@@ -366,30 +432,40 @@ class _AnimatedMonthBar extends StatelessWidget {
         Text(
           seconds > 0 ? _shortFmt(seconds) : '',
           style: text.labelSmall?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: T.color(colorScheme.onSurface, TextTier.mid,
-                  brightness: colorScheme.brightness)),
+            fontWeight: FontWeight.w600,
+            color: T.color(
+              colorScheme.onSurface,
+              TextTier.mid,
+              brightness: colorScheme.brightness,
+            ),
+          ),
         ),
         const SizedBox(height: 4),
         TweenAnimationBuilder<double>(
           tween: Tween(begin: 0, end: targetH),
           duration: Duration(milliseconds: 320 + delayMs),
           curve: Curves.easeOutCubic,
-          builder: (_, h, __) => Container(
-            width: double.infinity,
-            height: h,
-            decoration: BoxDecoration(
-              color: seconds > 0 ? color : color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(R.control),
+          builder:
+              (_, h, __) => Container(
+                width: double.infinity,
+                height: h,
+                decoration: BoxDecoration(
+                  color: seconds > 0 ? color : color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(R.control),
+                ),
+              ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          dayLabel,
+          style: text.labelSmall?.copyWith(
+            color: T.color(
+              colorScheme.onSurface,
+              TextTier.low,
+              brightness: colorScheme.brightness,
             ),
           ),
         ),
-        const SizedBox(height: 6),
-        Text(dayLabel,
-            style: text.labelSmall?.copyWith(
-              color: T.color(colorScheme.onSurface, TextTier.low,
-                  brightness: colorScheme.brightness),
-            )),
       ],
     );
   }
@@ -418,7 +494,11 @@ class _HighlightCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(S.x12),
       decoration: BoxDecoration(
-        color: T.color(scheme.onSurface, TextTier.fill, brightness: scheme.brightness),
+        color: T.color(
+          scheme.onSurface,
+          TextTier.fill,
+          brightness: scheme.brightness,
+        ),
         borderRadius: BorderRadius.circular(R.card),
       ),
       child: Row(
@@ -437,18 +517,25 @@ class _HighlightCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: text.titleMedium),
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.titleMedium,
+                ),
                 const SizedBox(height: 2),
-                Text(subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: text.labelSmall?.copyWith(
-                      color: T.color(scheme.onSurface, TextTier.low,
-                          brightness: scheme.brightness),
-                    )),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.labelSmall?.copyWith(
+                    color: T.color(
+                      scheme.onSurface,
+                      TextTier.low,
+                      brightness: scheme.brightness,
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -474,21 +561,26 @@ class _EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.auto_stories_rounded,
-                size: 48, color: scheme.onSurface.withValues(alpha: 0.25)),
+            Icon(
+              Icons.auto_stories_rounded,
+              size: 48,
+              color: scheme.onSurface.withValues(alpha: 0.25),
+            ),
             const SizedBox(height: S.x12),
             Text('$year 年还没有阅读记录', style: text.titleMedium),
             const SizedBox(height: S.x8),
-            Text('开始阅读后，这里会生成你的年度报告',
-                style: text.bodySmall?.copyWith(
-                  color: T.color(scheme.onSurface, TextTier.low,
-                      brightness: scheme.brightness),
-                )),
-            const SizedBox(height: S.x16),
-            FilledButton.tonal(
-              onPressed: onRetry,
-              child: const Text('刷新'),
+            Text(
+              '开始阅读后，这里会生成你的年度报告',
+              style: text.bodySmall?.copyWith(
+                color: T.color(
+                  scheme.onSurface,
+                  TextTier.low,
+                  brightness: scheme.brightness,
+                ),
+              ),
             ),
+            const SizedBox(height: S.x16),
+            FilledButton.tonal(onPressed: onRetry, child: const Text('刷新')),
           ],
         ),
       ),
@@ -511,16 +603,24 @@ class _ErrorState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.error_outline_rounded,
-                size: 48, color: scheme.onSurface.withValues(alpha: 0.3)),
+            Icon(
+              Icons.error_outline_rounded,
+              size: 48,
+              color: scheme.onSurface.withValues(alpha: 0.3),
+            ),
             const SizedBox(height: S.x12),
             Text('报告数据加载失败', style: text.titleMedium),
             const SizedBox(height: S.x8),
-            Text('读取本地阅读数据时出错',
-                style: text.bodySmall?.copyWith(
-                  color: T.color(scheme.onSurface, TextTier.low,
-                      brightness: scheme.brightness),
-                )),
+            Text(
+              '读取本地阅读数据时出错',
+              style: text.bodySmall?.copyWith(
+                color: T.color(
+                  scheme.onSurface,
+                  TextTier.low,
+                  brightness: scheme.brightness,
+                ),
+              ),
+            ),
             const SizedBox(height: S.x16),
             FilledButton.icon(
               onPressed: onRetry,

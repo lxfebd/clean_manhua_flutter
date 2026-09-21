@@ -9,6 +9,7 @@ import '../net/error_logger.dart';
 import 'capability_market_page.dart';
 import 'tokens.dart';
 import 'widgets/app_toast.dart';
+import 'keyboard_shortcuts.dart';
 
 /// 能力中心：查看/启用/禁用已安装的能力插件（内置 + 市场）。
 ///
@@ -71,7 +72,9 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
       if (r is CapabilityOk) {
         final d = r.data as Map<String, dynamic>;
         AppToast.info(
-            context, '自测通过：sum(40,2)=${d['sum']} · version=${d['version']}');
+          context,
+          '自测通过：sum(40,2)=${d['sum']} · version=${d['version']}',
+        );
       } else {
         AppToast.error(context, '自测失败：${(r as CapabilityFailure).reason}');
       }
@@ -112,7 +115,9 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => EscPopScope(child: _buildRoot(context));
+
+  Widget _buildRoot(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final plugins = CapabilityPluginManager.instance.plugins;
     return Scaffold(
@@ -120,64 +125,78 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
         title: const Text('能力中心'),
         actions: [
           TextButton.icon(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const CapabilityMarketPage()),
-            ),
+            onPressed:
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const CapabilityMarketPage(),
+                  ),
+                ),
             icon: const Icon(Icons.storefront_outlined, size: 18),
             label: const Text('能力市场'),
           ),
         ],
       ),
-      body: plugins.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.extension_off_rounded,
-                      size: 40, color: scheme.onSurface.withValues(alpha: 0.25)),
-                  const SizedBox(height: 10),
-                  Text(
-                    '暂无能力插件',
-                    style: TextStyle(
-                      color: T.color(scheme.onSurface, TextTier.low,
-                          brightness: scheme.brightness),
+      body:
+          plugins.isEmpty
+              ? Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.extension_off_rounded,
+                      size: 40,
+                      color: scheme.onSurface.withValues(alpha: 0.25),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  FilledButton.tonalIcon(
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const CapabilityMarketPage()),
+                    const SizedBox(height: 10),
+                    Text(
+                      '暂无能力插件',
+                      style: TextStyle(
+                        color: T.color(
+                          scheme.onSurface,
+                          TextTier.low,
+                          brightness: scheme.brightness,
+                        ),
+                      ),
                     ),
-                    icon: const Icon(Icons.storefront_outlined, size: 18),
-                    label: const Text('去市场看看'),
-                  ),
-                ],
+                    const SizedBox(height: 12),
+                    FilledButton.tonalIcon(
+                      onPressed:
+                          () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const CapabilityMarketPage(),
+                            ),
+                          ),
+                      icon: const Icon(Icons.storefront_outlined, size: 18),
+                      label: const Text('去市场看看'),
+                    ),
+                  ],
+                ),
+              )
+              : ListView.separated(
+                padding: const EdgeInsets.all(S.x16),
+                itemCount: plugins.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (context, i) {
+                  final p = plugins[i];
+                  final enabled = CapabilityPluginManager.instance
+                      .isEnabledSync(p.id);
+                  return _CapabilityCard(
+                    plugin: p,
+                    enabled: enabled,
+                    busy: _busyIds.contains(p.id),
+                    categoryLabel: _categoryLabel(p.category),
+                    onToggle: (v) => _toggle(p, v),
+                    onSelfTest:
+                        p.id == 'utility.native' ? _selfTestNative : null,
+                    onModelAction:
+                        p.id == 'ai.colorize.ddcolor'
+                            ? _handleModelAction
+                            : null,
+                  );
+                },
               ),
-            )
-          : ListView.separated(
-              padding: const EdgeInsets.all(S.x16),
-              itemCount: plugins.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
-              itemBuilder: (context, i) {
-                final p = plugins[i];
-                final enabled =
-                    CapabilityPluginManager.instance.isEnabledSync(p.id);
-                return _CapabilityCard(
-                  plugin: p,
-                  enabled: enabled,
-                  busy: _busyIds.contains(p.id),
-                  categoryLabel: _categoryLabel(p.category),
-                  onToggle: (v) => _toggle(p, v),
-                  onSelfTest: p.id == 'utility.native' ? _selfTestNative : null,
-                  onModelAction: p.id == 'ai.colorize.ddcolor'
-                      ? _handleModelAction
-                      : null,
-                );
-              },
-            ),
     );
   }
 }
@@ -185,6 +204,7 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
 class _CapabilityCard extends StatelessWidget {
   final CapabilityPlugin plugin;
   final bool enabled;
+
   /// 启停切换进行中：开关禁用，防连点。
   final bool busy;
   final String categoryLabel;
@@ -212,8 +232,11 @@ class _CapabilityCard extends StatelessWidget {
         color: scheme.surface,
         borderRadius: BorderRadius.circular(R.card),
         border: Border.all(
-          color: T.color(scheme.onSurface, TextTier.hairline,
-              brightness: scheme.brightness),
+          color: T.color(
+            scheme.onSurface,
+            TextTier.hairline,
+            brightness: scheme.brightness,
+          ),
         ),
       ),
       child: Row(
@@ -241,18 +264,19 @@ class _CapabilityCard extends StatelessWidget {
                     Expanded(
                       child: Text(
                         plugin.name,
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleMedium
+                        style: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(fontWeight: FontWeight.w700),
                       ),
                     ),
                     Text(
                       categoryLabel,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: T.color(scheme.onSurface, TextTier.low,
-                                brightness: scheme.brightness),
-                          ),
+                        color: T.color(
+                          scheme.onSurface,
+                          TextTier.low,
+                          brightness: scheme.brightness,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -261,17 +285,23 @@ class _CapabilityCard extends StatelessWidget {
                   Text(
                     plugin.description!,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: T.color(scheme.onSurface, TextTier.low,
-                              brightness: scheme.brightness),
-                        ),
+                      color: T.color(
+                        scheme.onSurface,
+                        TextTier.low,
+                        brightness: scheme.brightness,
+                      ),
+                    ),
                   ),
                 const SizedBox(height: 2),
                 Text(
                   'v${plugin.version} · ${plugin.author}',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: T.color(scheme.onSurface, TextTier.disabled,
-                            brightness: scheme.brightness),
-                      ),
+                    color: T.color(
+                      scheme.onSurface,
+                      TextTier.disabled,
+                      brightness: scheme.brightness,
+                    ),
+                  ),
                 ),
               ],
             ),

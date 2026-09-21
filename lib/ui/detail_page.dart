@@ -11,6 +11,7 @@ import 'responsive.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
+import 'keyboard_shortcuts.dart';
 
 /// 漫画详情页：沉浸式 Hero 头 + 信息卡 + 章节网格。
 class DetailPage extends StatefulWidget {
@@ -34,8 +35,8 @@ class DetailPage extends StatefulWidget {
     required String sourceId,
     required String comicId,
   }) {
-    final key = Bookmark(sourceId: sourceId, comicId: comicId, name: '', pic: '')
-        .key;
+    final key =
+        Bookmark(sourceId: sourceId, comicId: comicId, name: '', pic: '').key;
     for (final h in history.reversed) {
       if (h.book.key != key) continue;
       // 章节列表里找该 chapterId；找不到则用历史条目直接构造
@@ -95,17 +96,18 @@ class _DetailPageState extends State<DetailPage> {
   }
 
   Future<void> _checkSaved() async {
-    final v = await SourceManager.byId(widget.sourceId)
-        .isInBookshelf(widget.comicId);
+    final v = await SourceManager.byId(
+      widget.sourceId,
+    ).isInBookshelf(widget.comicId);
     if (mounted) setState(() => _saved = v);
   }
 
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final d = await SourceManager.byId(widget.sourceId)
-          .detail(widget.comicId)
-          .timeout(const Duration(seconds: 30));
+      final d = await SourceManager.byId(
+        widget.sourceId,
+      ).detail(widget.comicId).timeout(const Duration(seconds: 30));
       if (mounted) {
         setState(() {
           _detail = d;
@@ -151,7 +153,9 @@ class _DetailPageState extends State<DetailPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => EscPopScope(child: _buildRoot(context));
+
+  Widget _buildRoot(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final theme = Theme.of(context);
@@ -170,310 +174,339 @@ class _DetailPageState extends State<DetailPage> {
           return _buildTablet(theme, scheme, mq, name, pic);
         }
         // 手机：单栏沉浸式布局
-    final topPad = mq.padding.top;
-    final heroH = _heroHeight + topPad;
-    final collapseProgress = (_scrollOffset / _heroHeight).clamp(0.0, 1.0);
+        final topPad = mq.padding.top;
+        final heroH = _heroHeight + topPad;
+        final collapseProgress = (_scrollOffset / _heroHeight).clamp(0.0, 1.0);
 
-    return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
-      body: Stack(
-        children: [
-          // ── 可滚动内容 ────────────────────────────────────────
-          CustomScrollView(
-            controller: _scrollCtrl,
-            physics: DesktopUi.isDesktopPlatform
-                ? kDesktopScrollPhysics
-                : const BouncingScrollPhysics(),
-            slivers: [
-              // 给 Hero 留出空间
-              SliverToBoxAdapter(
-                child: SizedBox(height: heroH),
-              ),
+        return Scaffold(
+          backgroundColor: theme.scaffoldBackgroundColor,
+          body: Stack(
+            children: [
+              // ── 可滚动内容 ────────────────────────────────────────
+              CustomScrollView(
+                controller: _scrollCtrl,
+                physics:
+                    DesktopUi.isDesktopPlatform
+                        ? kDesktopScrollPhysics
+                        : const BouncingScrollPhysics(),
+                slivers: [
+                  // 给 Hero 留出空间
+                  SliverToBoxAdapter(child: SizedBox(height: heroH)),
 
-              // ── 加载态 ──────────────────────────────────────
-              if (_loading)
-                const SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.only(top: 60),
-                    child: _LoadingView(),
-                  ),
-                )
-              else if (_error != null)
-                SliverToBoxAdapter(
-                  child: _ErrorView(error: _error!, onRetry: _load),
-                )
-              else if (_detail != null) ...[
-                // 信息区（封面 + 标题 + 徽章 + 操作按钮）
-                SliverToBoxAdapter(
-                  child: FadeSlideIn(
-                    delay: const Duration(milliseconds: 100),
-                    offset: 14,
-                    child: _MetaSection(
-                      detail: _detail!,
-                      saved: _saved,
-                      resumeChapter: _resumeReady ? _resumeChapter : null,
-                      onRead: _detail!.chapters.isEmpty
-                          ? null
-                          : () => _openStartChapter(),
-                      onShelf: _toggleSave,
-                    ),
-                  ),
-                ),
-                // 简介
-                if ((_detail!.description ?? '').isNotEmpty)
-                  SliverToBoxAdapter(
-                    child: FadeSlideIn(
-                      delay: const Duration(milliseconds: 180),
-                      offset: 14,
-                      child: _DescCard(detail: _detail!),
-                    ),
-                  ),
-                // 章节标题
-                SliverToBoxAdapter(
-                  child: FadeSlideIn(
-                    delay: const Duration(milliseconds: 260),
-                    child: _ChapterHeader(
-                    count: _detail!.chapters.length,
-                    descending: _descending,
-                    onToggleDescending: () {
-                      setState(() {
-                        _descending = !_descending;
-                        _sortedCache = null;
-                      });
-                    },
-                    onTapAll: _showAllChapters,
-                  ),
-                  ),
-                ),
-                // 章节列表（卡片行）
-                SliverToBoxAdapter(
-                  child: FadeSlideIn(
-                    delay: const Duration(milliseconds: 300),
-                    offset: 14,
-                    child: Container(
-                      margin: EdgeInsets.fromLTRB(Responsive.pagePadding(context), 4, Responsive.pagePadding(context), 4),
-                      decoration: BoxDecoration(
-                        color: scheme.surface,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                            color: scheme.onSurface.withValues(alpha: 0.06)),
+                  // ── 加载态 ──────────────────────────────────────
+                  if (_loading)
+                    const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.only(top: 60),
+                        child: _LoadingView(),
                       ),
-                      clipBehavior: Clip.antiAlias,
-                      child: Column(
-                        children: [
-                          for (var i = 0; i < _detail!.chapters.length &&
-                              i < 6; i++) ...[
-                            if (i > 0)
-                              Divider(
-                                  height: 0.5,
-                                  indent: 16,
-                                  endIndent: 16,
-                                  color: scheme.onSurface
-                                      .withValues(alpha: 0.06)),
-                            Builder(builder: (ctx) {
-                              final ch = _sortedChapters()[i];
-                              return _ChapterTile(
-                                index: i,
-                                chapter: ch,
-                                onTap: () => _openChapter(ch),
-                              );
-                            }),
-                          ],
-                          Divider(
-                              height: 0.5,
-                              indent: 16,
-                              endIndent: 16,
-                              color:
-                                  scheme.onSurface.withValues(alpha: 0.06)),
-                          Row(
+                    )
+                  else if (_error != null)
+                    SliverToBoxAdapter(
+                      child: _ErrorView(error: _error!, onRetry: _load),
+                    )
+                  else if (_detail != null) ...[
+                    // 信息区（封面 + 标题 + 徽章 + 操作按钮）
+                    SliverToBoxAdapter(
+                      child: FadeSlideIn(
+                        delay: const Duration(milliseconds: 100),
+                        offset: 14,
+                        child: _MetaSection(
+                          detail: _detail!,
+                          saved: _saved,
+                          resumeChapter: _resumeReady ? _resumeChapter : null,
+                          onRead:
+                              _detail!.chapters.isEmpty
+                                  ? null
+                                  : () => _openStartChapter(),
+                          onShelf: _toggleSave,
+                        ),
+                      ),
+                    ),
+                    // 简介
+                    if ((_detail!.description ?? '').isNotEmpty)
+                      SliverToBoxAdapter(
+                        child: FadeSlideIn(
+                          delay: const Duration(milliseconds: 180),
+                          offset: 14,
+                          child: _DescCard(detail: _detail!),
+                        ),
+                      ),
+                    // 章节标题
+                    SliverToBoxAdapter(
+                      child: FadeSlideIn(
+                        delay: const Duration(milliseconds: 260),
+                        child: _ChapterHeader(
+                          count: _detail!.chapters.length,
+                          descending: _descending,
+                          onToggleDescending: () {
+                            setState(() {
+                              _descending = !_descending;
+                              _sortedCache = null;
+                            });
+                          },
+                          onTapAll: _showAllChapters,
+                        ),
+                      ),
+                    ),
+                    // 章节列表（卡片行）
+                    SliverToBoxAdapter(
+                      child: FadeSlideIn(
+                        delay: const Duration(milliseconds: 300),
+                        offset: 14,
+                        child: Container(
+                          margin: EdgeInsets.fromLTRB(
+                            Responsive.pagePadding(context),
+                            4,
+                            Responsive.pagePadding(context),
+                            4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: scheme.surface,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: scheme.onSurface.withValues(alpha: 0.06),
+                            ),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: Column(
                             children: [
-                              Expanded(
-                                child: InkWell(
-                                  onTap: _showAllChapters,
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 13),
-                                    child: Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Text(
-                                          '查看全部 ${_detail!.chapters.length} 话',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w500,
-                                            color: scheme.onSurface
-                                                .withValues(alpha: 0.6),
-                                          ),
-                                        ),
-                                        Icon(
-                                          Icons.keyboard_arrow_down_rounded,
-                                          size: 16,
-                                          color: scheme.onSurface
-                                              .withValues(alpha: 0.4),
-                                        ),
-                                      ],
+                              for (
+                                var i = 0;
+                                i < _detail!.chapters.length && i < 6;
+                                i++
+                              ) ...[
+                                if (i > 0)
+                                  Divider(
+                                    height: 0.5,
+                                    indent: 16,
+                                    endIndent: 16,
+                                    color: scheme.onSurface.withValues(
+                                      alpha: 0.06,
                                     ),
                                   ),
+                                Builder(
+                                  builder: (ctx) {
+                                    final ch = _sortedChapters()[i];
+                                    return _ChapterTile(
+                                      index: i,
+                                      chapter: ch,
+                                      onTap: () => _openChapter(ch),
+                                    );
+                                  },
                                 ),
+                              ],
+                              Divider(
+                                height: 0.5,
+                                indent: 16,
+                                endIndent: 16,
+                                color: scheme.onSurface.withValues(alpha: 0.06),
                               ),
-                              Container(
-                                width: 0.5,
-                                height: 18,
-                                color: scheme.onSurface.withValues(alpha: 0.08),
-                              ),
-                              Expanded(
-                                child: InkWell(
-                                  onTap: _showBatchDownload,
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 13),
-                                    child: Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.download_outlined,
-                                          size: 15,
-                                          color: scheme.primary
-                                              .withValues(alpha: 0.9),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: InkWell(
+                                      onTap: _showAllChapters,
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 13,
                                         ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          '批量下载',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                            color: scheme.primary,
-                                          ),
+                                        child: Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            Text(
+                                              '查看全部 ${_detail!.chapters.length} 话',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w500,
+                                                color: scheme.onSurface
+                                                    .withValues(alpha: 0.6),
+                                              ),
+                                            ),
+                                            Icon(
+                                              Icons.keyboard_arrow_down_rounded,
+                                              size: 16,
+                                              color: scheme.onSurface
+                                                  .withValues(alpha: 0.4),
+                                            ),
+                                          ],
                                         ),
-                                      ],
+                                      ),
                                     ),
                                   ),
-                                ),
+                                  Container(
+                                    width: 0.5,
+                                    height: 18,
+                                    color: scheme.onSurface.withValues(
+                                      alpha: 0.08,
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: InkWell(
+                                      onTap: _showBatchDownload,
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 13,
+                                        ),
+                                        child: Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              Icons.download_outlined,
+                                              size: 15,
+                                              color: scheme.primary.withValues(
+                                                alpha: 0.9,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              '批量下载',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                                color: scheme.primary,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
+                        ),
+                      ),
+                    ),
+                    // 底部安全距离
+                    SliverToBoxAdapter(
+                      child: SizedBox(height: mq.padding.bottom + 40),
+                    ),
+                  ],
+                ],
+              ),
+
+              // ── Hero 图片区（固定在顶部，随滚动淡出） ──────────────
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                height: heroH,
+                child: Opacity(
+                  opacity: 1.0 - collapseProgress,
+                  child: _Hero(
+                    sourceId: widget.sourceId,
+                    comicId: widget.comicId,
+                    name: name,
+                    pic: pic,
+                    status: _detail?.status,
+                  ),
+                ),
+              ),
+
+              // ── 顶部渐变蒙版（随滚动消失） ────────────────────────
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                height: topPad + 56,
+                child: Opacity(
+                  opacity: (1.0 - collapseProgress * 3).clamp(0.0, 1.0),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withValues(alpha: 0.35),
+                          Colors.black.withValues(alpha: 0.0),
                         ],
                       ),
                     ),
                   ),
                 ),
-                // 底部安全距离
-                SliverToBoxAdapter(
-                  child: SizedBox(height: mq.padding.bottom + 40),
-                ),
-              ],
-            ],
-          ),
-
-          // ── Hero 图片区（固定在顶部，随滚动淡出） ──────────────
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: heroH,
-            child: Opacity(
-              opacity: 1.0 - collapseProgress,
-              child: _Hero(
-                sourceId: widget.sourceId,
-                comicId: widget.comicId,
-                name: name,
-                pic: pic,
-                status: _detail?.status,
               ),
-            ),
-          ),
 
-          // ── 顶部渐变蒙版（随滚动消失） ────────────────────────
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: topPad + 56,
-            child: Opacity(
-              opacity: (1.0 - collapseProgress * 3).clamp(0.0, 1.0),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withValues(alpha: 0.35),
-                      Colors.black.withValues(alpha: 0.0),
-                    ],
+              // ── 顶部 AppBar 区域 ──────────────────────────────────
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                height: topPad + 56,
+                child: SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Row(
+                      children: [
+                        const _BackButton(),
+                        const Spacer(),
+                        // 标题（滚动后显示）
+                        if (collapseProgress > 0.6)
+                          Expanded(
+                            child: Opacity(
+                              opacity: ((collapseProgress - 0.6) / 0.4).clamp(
+                                0.0,
+                                1.0,
+                              ),
+                              child: Text(
+                                name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: scheme.onSurface,
+                                ),
+                              ),
+                            ),
+                          ),
+                        IconButton(
+                          tooltip: _saved ? '移出书架' : '加入书架',
+                          icon: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 280),
+                            transitionBuilder:
+                                (c, a) => ScaleTransition(scale: a, child: c),
+                            child:
+                                _saved
+                                    ? const Icon(
+                                      Icons.bookmark_rounded,
+                                      key: ValueKey(true),
+                                    )
+                                    : const Icon(
+                                      Icons.bookmark_border_rounded,
+                                      key: ValueKey(false),
+                                    ),
+                          ),
+                          color: scheme.primary,
+                          onPressed: _toggleSave,
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
+            ],
           ),
-
-          // ── 顶部 AppBar 区域 ──────────────────────────────────
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: topPad + 56,
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Row(
-                  children: [
-                    const _BackButton(),
-                    const Spacer(),
-                    // 标题（滚动后显示）
-                    if (collapseProgress > 0.6)
-                      Expanded(
-                        child: Opacity(
-                          opacity: ((collapseProgress - 0.6) / 0.4)
-                              .clamp(0.0, 1.0),
-                          child: Text(
-                            name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: scheme.onSurface,
-                            ),
-                          ),
-                        ),
-                      ),
-                    IconButton(
-                      tooltip: _saved ? '移出书架' : '加入书架',
-                      icon: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 280),
-                        transitionBuilder: (c, a) =>
-                            ScaleTransition(scale: a, child: c),
-                        child: _saved
-                            ? const Icon(Icons.bookmark_rounded,
-                                key: ValueKey(true))
-                            : const Icon(Icons.bookmark_border_rounded,
-                                key: ValueKey(false)),
-                      ),
-                      color: scheme.primary,
-                      onPressed: _toggleSave,
-                    ),
-                    const SizedBox(width: 4),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+        );
       },
     );
   }
 
   /// 平板/桌面横屏：左封面 + 右信息/按钮/章节列表（与播放器、预备页分栏范式统一）。
   Widget _buildTablet(
-      ThemeData theme, ColorScheme scheme, MediaQueryData mq,
-      String name, String? pic) {
+    ThemeData theme,
+    ColorScheme scheme,
+    MediaQueryData mq,
+    String name,
+    String? pic,
+  ) {
     final topPad = mq.padding.top;
     final d = _detail;
     final metaParts = <String>[
@@ -481,10 +514,10 @@ class _DetailPageState extends State<DetailPage> {
       if (d != null && (d.type ?? '').isNotEmpty) d.type!,
       if (d != null && (d.area ?? '').isNotEmpty) d.area!,
     ];
-    
+
     // 使用响应式左侧面板宽度
     final leftPanelWidth = Responsive.detailLeftWidth(context);
-    
+
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       body: Row(
@@ -494,7 +527,11 @@ class _DetailPageState extends State<DetailPage> {
           Container(
             width: leftPanelWidth,
             padding: EdgeInsets.fromLTRB(
-                Responsive.pagePadding(context), topPad + 10, 8, 16),
+              Responsive.pagePadding(context),
+              topPad + 10,
+              8,
+              16,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -510,13 +547,22 @@ class _DetailPageState extends State<DetailPage> {
                       child: Container(
                         width: double.infinity,
                         color: scheme.surfaceContainerHighest,
-                        child: (pic == null || pic.isEmpty)
-                            ? Center(
-                                child: Icon(Icons.image_outlined,
+                        child:
+                            (pic == null || pic.isEmpty)
+                                ? Center(
+                                  child: Icon(
+                                    Icons.image_outlined,
                                     size: 48,
-                                    color: scheme.onSurface
-                                        .withValues(alpha: 0.2)))
-                            : CachedImage(pic, fit: BoxFit.cover, radius: 0),
+                                    color: scheme.onSurface.withValues(
+                                      alpha: 0.2,
+                                    ),
+                                  ),
+                                )
+                                : CachedImage(
+                                  pic,
+                                  fit: BoxFit.cover,
+                                  radius: 0,
+                                ),
                       ),
                     ),
                   ),
@@ -532,132 +578,155 @@ class _DetailPageState extends State<DetailPage> {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 1040),
                 child: CustomScrollView(
-              controller: _scrollCtrl,
-              physics: DesktopUi.isDesktopPlatform
-                  ? kDesktopScrollPhysics
-                  : const BouncingScrollPhysics(),
-              slivers: [
-                if (_loading)
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.only(top: 80),
-                      child: _LoadingView(),
-                    ),
-                  )
-                else if (_error != null)
-                  SliverToBoxAdapter(
-                    child: _ErrorView(error: _error!, onRetry: _load),
-                  )
-                else if (d != null) ...[
-                  SliverToBoxAdapter(
-                    child: FadeSlideIn(
-                      delay: const Duration(milliseconds: 80),
-                      offset: 14,
-                      child: Padding(
-                        padding: EdgeInsets.fromLTRB(Responsive.pagePadding(context), topPad + 12, Responsive.pagePadding(context), 6),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(d.name,
-                                style: TextStyle(
-                                    fontSize: Responsive.isExpanded(context) ? 24 : 20,
+                  controller: _scrollCtrl,
+                  physics:
+                      DesktopUi.isDesktopPlatform
+                          ? kDesktopScrollPhysics
+                          : const BouncingScrollPhysics(),
+                  slivers: [
+                    if (_loading)
+                      const SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.only(top: 80),
+                          child: _LoadingView(),
+                        ),
+                      )
+                    else if (_error != null)
+                      SliverToBoxAdapter(
+                        child: _ErrorView(error: _error!, onRetry: _load),
+                      )
+                    else if (d != null) ...[
+                      SliverToBoxAdapter(
+                        child: FadeSlideIn(
+                          delay: const Duration(milliseconds: 80),
+                          offset: 14,
+                          child: Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              Responsive.pagePadding(context),
+                              topPad + 12,
+                              Responsive.pagePadding(context),
+                              6,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  d.name,
+                                  style: TextStyle(
+                                    fontSize:
+                                        Responsive.isExpanded(context)
+                                            ? 24
+                                            : 20,
                                     fontWeight: FontWeight.w800,
-                                    height: 1.3)),
-                            if (metaParts.isNotEmpty) ...[
-                              const SizedBox(height: 6),
-                              Text(
-                                metaParts.join(' · '),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                    fontSize: 12.5,
-                                    color: scheme.onSurface
-                                        .withValues(alpha: 0.55)),
-                              ),
-                            ],
-                            const SizedBox(height: 10),
-                            Wrap(spacing: 6, runSpacing: 6, children: [
-                              if ((d.status ?? '').isNotEmpty)
-                                _StatusPill(label: d.status!),
-                              _CountPill(label: '${d.chapters.length} 话'),
-                            ]),
-                            const SizedBox(height: 16),
-                            // 统一尺寸按钮，并排大热区
-                            Row(children: [
-                              Expanded(
-                                child: FilledButton.icon(
-                                  onPressed: d.chapters.isEmpty
-                                      ? null
-                                      : () {
-                                          final resume = _resumeReady
-                                              ? _resumeChapter
-                                              : null;
-                                          _openChapter(resume ??
-                                              d.chapters.first);
-                                        },
-                                  icon: const Icon(Icons.play_arrow_rounded,
-                                      size: 18),
-                                  label: Text(
-                                      _resumeReady && _resumeChapter != null
-                                          ? '继续阅读'
-                                          : '开始阅读'),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: _toggleSave,
-                                  icon: Icon(
-                                    _saved
-                                        ? Icons.bookmark_rounded
-                                        : Icons.bookmark_outline_rounded,
-                                    size: 18,
+                                    height: 1.3,
                                   ),
-                                  label: Text(
-                                      _saved ? '已在书架' : '加入书架'),
                                 ),
-                              ),
-                            ]),
-                          ],
+                                if (metaParts.isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    metaParts.join(' · '),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      color: scheme.onSurface.withValues(
+                                        alpha: 0.55,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 10),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 6,
+                                  children: [
+                                    if ((d.status ?? '').isNotEmpty)
+                                      _StatusPill(label: d.status!),
+                                    _CountPill(label: '${d.chapters.length} 话'),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                                // 统一尺寸按钮，并排大热区
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: FilledButton.icon(
+                                        onPressed:
+                                            d.chapters.isEmpty
+                                                ? null
+                                                : () {
+                                                  final resume =
+                                                      _resumeReady
+                                                          ? _resumeChapter
+                                                          : null;
+                                                  _openChapter(
+                                                    resume ?? d.chapters.first,
+                                                  );
+                                                },
+                                        icon: const Icon(
+                                          Icons.play_arrow_rounded,
+                                          size: 18,
+                                        ),
+                                        label: Text(
+                                          _resumeReady && _resumeChapter != null
+                                              ? '继续阅读'
+                                              : '开始阅读',
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: _toggleSave,
+                                        icon: Icon(
+                                          _saved
+                                              ? Icons.bookmark_rounded
+                                              : Icons.bookmark_outline_rounded,
+                                          size: 18,
+                                        ),
+                                        label: Text(_saved ? '已在书架' : '加入书架'),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                  if ((d.description ?? '').isNotEmpty)
-                    SliverToBoxAdapter(
-                      child: FadeSlideIn(
-                        delay: const Duration(milliseconds: 170),
-                        offset: 14,
-                        child: _DescCard(detail: d),
+                      if ((d.description ?? '').isNotEmpty)
+                        SliverToBoxAdapter(
+                          child: FadeSlideIn(
+                            delay: const Duration(milliseconds: 170),
+                            offset: 14,
+                            child: _DescCard(detail: d),
+                          ),
+                        ),
+                      SliverToBoxAdapter(
+                        child: FadeSlideIn(
+                          delay: const Duration(milliseconds: 250),
+                          offset: 14,
+                          child: _ChapterHeader(
+                            count: d.chapters.length,
+                            descending: _descending,
+                            onToggleDescending: () {
+                              setState(() {
+                                _descending = !_descending;
+                                _sortedCache = null;
+                              });
+                            },
+                            onTapAll: _showAllChapters,
+                          ),
+                        ),
                       ),
-                    ),
-                  SliverToBoxAdapter(
-                    child: FadeSlideIn(
-                      delay: const Duration(milliseconds: 250),
-                      offset: 14,
-                      child: _ChapterHeader(
-                        count: d.chapters.length,
-                        descending: _descending,
-                        onToggleDescending: () {
-                          setState(() {
-                            _descending = !_descending;
-                            _sortedCache = null;
-                          });
-                        },
-                        onTapAll: _showAllChapters,
+                      SliverToBoxAdapter(child: _tabletChapterList(d, scheme)),
+                      SliverToBoxAdapter(
+                        child: SizedBox(height: mq.padding.bottom + 40),
                       ),
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: _tabletChapterList(d, scheme),
-                  ),
-                  SliverToBoxAdapter(
-                    child: SizedBox(height: mq.padding.bottom + 40),
-                  ),
-                ],
-              ],
-            ),
-            ),
+                    ],
+                  ],
+                ),
+              ),
             ),
           ),
         ],
@@ -670,9 +739,10 @@ class _DetailPageState extends State<DetailPage> {
     final chapters = _sortedChapters();
     // 平板上显示更多章节（最多20个），充分利用空间
     final isExpanded = Responsive.isExpanded(context);
-    final show = isExpanded
-        ? (chapters.length < 20 ? chapters.length : 20)
-        : (chapters.length < 12 ? chapters.length : 12);
+    final show =
+        isExpanded
+            ? (chapters.length < 20 ? chapters.length : 20)
+            : (chapters.length < 12 ? chapters.length : 12);
     return Container(
       margin: EdgeInsets.fromLTRB(
         Responsive.pagePadding(context),
@@ -683,9 +753,7 @@ class _DetailPageState extends State<DetailPage> {
       decoration: BoxDecoration(
         color: scheme.surface,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: scheme.onSurface.withValues(alpha: 0.06),
-        ),
+        border: Border.all(color: scheme.onSurface.withValues(alpha: 0.06)),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -843,9 +911,11 @@ class _DetailPageState extends State<DetailPage> {
     // 记住上次选择的画质档位
     LocalStore.downloadQuality().then((v) {
       if (!mounted) return;
-      setState(() => quality = v == 1
-          ? DownloadQuality.compact
-          : DownloadQuality.original);
+      setState(
+        () =>
+            quality =
+                v == 1 ? DownloadQuality.compact : DownloadQuality.original,
+      );
     });
     showResponsiveBottomSheet<void>(
       context: context,
@@ -854,247 +924,305 @@ class _DetailPageState extends State<DetailPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setS) {
-          final scheme = Theme.of(ctx).colorScheme;
-          return SafeArea(
-            child: SizedBox(
-              height: MediaQuery.of(ctx).size.height * 0.65,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Row(
-                      children: [
-                        Text('批量下载',
-                            style: TextStyle(
+      builder:
+          (ctx) => StatefulBuilder(
+            builder: (ctx, setS) {
+              final scheme = Theme.of(ctx).colorScheme;
+              return SafeArea(
+                child: SizedBox(
+                  height: MediaQuery.of(ctx).size.height * 0.65,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Row(
+                          children: [
+                            Text(
+                              '批量下载',
+                              style: TextStyle(
                                 fontWeight: FontWeight.w700,
                                 fontSize: 15,
-                                color: scheme.onSurface)),
-                        const Spacer(),
-                        if (downloading)
-                          TextButton(
-                            onPressed: () {
-                              // 精确取消本批：只取消未下载的章节任务，
-                              // 不影响阅读页/其它详情页在途的下载任务。
-                              for (final idx in picks) {
-                                DownloadManager.cancelTask(DownloadManager
-                                    .taskKeyOf(widget.sourceId, _detail!.id,
-                                        chapters[idx].id));
-                              }
-                              setS(() => downloading = false);
-                            },
-                            child: const Text('取消'),
-                          )
-                        else
-                          TextButton(
-                            onPressed: () => setS(() {
-                              if (selected.length ==
-                                  selectableChapters.length) {
-                                selected.clear();
-                              } else {
-                                // 全选 = 选中所有「未下载」章节
-                                selected
-                                  ..clear()
-                                  ..addAll(selectableChapters);
-                              }
-                            }),
-                            child: Text(selected.length ==
-                                    selectableChapters.length
-                                ? '取消全选'
-                                : '全选未下载'),
-                          ),
-                      ],
-                    ),
-                  ),
-                  // 画质档位选择：原画（保真）/ 省空间（宽边压到 1080 重新编码）
-                  if (!downloading)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
-                      child: Row(
-                        children: [
-                          Text('画质',
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  color: scheme.onSurface
-                                      .withValues(alpha: 0.6))),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: SegmentedButton<DownloadQuality>(
-                              segments: const [
-                                ButtonSegment(
-                                  value: DownloadQuality.original,
-                                  label: Text('原画',
-                                      style: TextStyle(fontSize: 12)),
-                                  icon: Icon(Icons.hd_rounded, size: 16),
-                                ),
-                                ButtonSegment(
-                                  value: DownloadQuality.compact,
-                                  label: Text('省空间',
-                                      style: TextStyle(fontSize: 12)),
-                                  icon: Icon(Icons.photo_size_select_small_rounded,
-                                      size: 16),
-                                ),
-                              ],
-                              selected: {quality},
-                              showSelectedIcon: false,
-                              style: ButtonStyle(
-                                visualDensity: VisualDensity.compact,
-                                textStyle: WidgetStatePropertyAll(
-                                    TextStyle(fontSize: 12)),
+                                color: scheme.onSurface,
                               ),
-                              onSelectionChanged: (s) {
-                                setS(() => quality = s.first);
-                                LocalStore.setDownloadQuality(
-                                    quality == DownloadQuality.compact ? 1 : 0);
-                              },
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  if (downloading)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      child: Row(
-                        children: [
-                          SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: scheme.primary)),
-                          const SizedBox(width: 8),
-                          Text(
-                            currentIdx >= 0
-                                ? '下载中: 第${currentIdx + 1}话 ($currentDone/$currentTotal)'
-                                : '准备中…',
-                            style: TextStyle(
-                                fontSize: 12, color: scheme.onSurface),
-                          ),
-                        ],
-                      ),
-                    ),
-                  Expanded(
-                    child: ListView.builder(
-                      itemCount: chapters.length,
-                      itemBuilder: (_, i) {
-                        final ch = chapters[i];
-                        final downloaded = _cachedChapters.contains(ch.id);
-                        final sel = selected.contains(i);
-                        return CheckboxListTile(
-                          value: downloaded || sel,
-                          enabled: !downloading && !downloaded,
-                          onChanged: (v) => setS(() =>
-                              v == true ? selected.add(i) : selected.remove(i)),
-                          title: Text(ch.title,
-                              style: TextStyle(fontSize: 13)),
-                          subtitle: downloaded
-                              ? Text('已下载',
-                                  style: TextStyle(
-                                      fontSize: 11,
-                                      color: scheme.primary
-                                          .withValues(alpha: 0.7)))
-                              : null,
-                          dense: true,
-                        );
-                      },
-                    ),
-                  ),
-                  if (!downloading)
-                    Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: selected.isEmpty
-                              ? null
-                              : () async {
-                                  picks = selected
-                                      .toList()
-                                    ..sort();
-                                  setS(() => downloading = true);
-                                  final gen = DownloadManager.beginBatch();
-                                  final book = Bookmark(
-                                    sourceId: widget.sourceId,
-                                    comicId: _detail!.id,
-                                    name: _detail!.name,
-                                    pic: _detail!.pic ?? '',
-                                  );
-                                  var ok = 0;
-                                  var fail = 0;
-                                  String? firstErr;
+                            const Spacer(),
+                            if (downloading)
+                              TextButton(
+                                onPressed: () {
+                                  // 精确取消本批：只取消未下载的章节任务，
+                                  // 不影响阅读页/其它详情页在途的下载任务。
                                   for (final idx in picks) {
-                                    if (DownloadManager.isCancelled(gen)) break;
-                                    final ch = chapters[idx];
-                                    // 用户取消（弹窗/书架取消按钮）：停止后续章节
-                                    if (DownloadManager.isTaskCancelled(DownloadManager
-                                        .taskKeyOf(widget.sourceId, _detail!.id,
-                                            ch.id))) {
-                                      break;
-                                    }
-                                    setS(() {
-                                      currentIdx = idx;
-                                      currentDone = 0;
-                                      currentTotal = 0;
-                                    });
-                                    try {
-                                      final urls =
-                                          await SourceManager.byId(
-                                                  widget.sourceId)
-                                              .chapterPics(ch.id);
-                                      setS(() => currentTotal = urls.length);
-                                      final okCh = await DownloadManager
-                                          .downloadChapter(
-                                        batchGen: gen,
-                                        book: book,
-                                        chapterId: ch.id,
-                                        chapterTitle: ch.title,
-                                        urls: urls,
-                                        quality: quality,
-                                        onProgress: (d, t) => setS(() {
-                                          currentDone = d;
-                                          currentTotal = t;
-                                        }),
-                                      );
-                                      if (okCh.ok) {
-                                        ok++;
-                                      } else {
-                                        fail++;
-                                        firstErr ??= okCh.error ?? '下载失败';
-                                      }
-                                    } catch (e) {
-                                      fail++;
-                                      ErrorLogger.instance
-                                          .warn('batch download failed: $e');
-                                    }
+                                    DownloadManager.cancelTask(
+                                      DownloadManager.taskKeyOf(
+                                        widget.sourceId,
+                                        _detail!.id,
+                                        chapters[idx].id,
+                                      ),
+                                    );
                                   }
-                                  if (ctx.mounted) {
-                                    Navigator.pop(ctx);
-                                  }
-                                  if (mounted) {
-                                    final msg = fail == 0
-                                        ? '已下载 $ok 话'
-                                        : '$ok 话成功，$fail 话失败${firstErr == null ? '' : '：$firstErr'}';
-                                    AppToast.show(
-                                        context, msg,
-                                        error: fail > 0);
-                                  }
+                                  setS(() => downloading = false);
                                 },
-                          icon: const Icon(Icons.download_rounded, size: 18),
-                          label: Text(selected.isEmpty
-                              ? '请选择章节'
-                              : '下载 ${selected.length} 话'),
+                                child: const Text('取消'),
+                              )
+                            else
+                              TextButton(
+                                onPressed:
+                                    () => setS(() {
+                                      if (selected.length ==
+                                          selectableChapters.length) {
+                                        selected.clear();
+                                      } else {
+                                        // 全选 = 选中所有「未下载」章节
+                                        selected
+                                          ..clear()
+                                          ..addAll(selectableChapters);
+                                      }
+                                    }),
+                                child: Text(
+                                  selected.length == selectableChapters.length
+                                      ? '取消全选'
+                                      : '全选未下载',
+                                ),
+                              ),
+                          ],
                         ),
                       ),
-                    ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
+                      // 画质档位选择：原画（保真）/ 省空间（宽边压到 1080 重新编码）
+                      if (!downloading)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
+                          child: Row(
+                            children: [
+                              Text(
+                                '画质',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: scheme.onSurface.withValues(
+                                    alpha: 0.6,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: SegmentedButton<DownloadQuality>(
+                                  segments: const [
+                                    ButtonSegment(
+                                      value: DownloadQuality.original,
+                                      label: Text(
+                                        '原画',
+                                        style: TextStyle(fontSize: 12),
+                                      ),
+                                      icon: Icon(Icons.hd_rounded, size: 16),
+                                    ),
+                                    ButtonSegment(
+                                      value: DownloadQuality.compact,
+                                      label: Text(
+                                        '省空间',
+                                        style: TextStyle(fontSize: 12),
+                                      ),
+                                      icon: Icon(
+                                        Icons.photo_size_select_small_rounded,
+                                        size: 16,
+                                      ),
+                                    ),
+                                  ],
+                                  selected: {quality},
+                                  showSelectedIcon: false,
+                                  style: ButtonStyle(
+                                    visualDensity: VisualDensity.compact,
+                                    textStyle: WidgetStatePropertyAll(
+                                      TextStyle(fontSize: 12),
+                                    ),
+                                  ),
+                                  onSelectionChanged: (s) {
+                                    setS(() => quality = s.first);
+                                    LocalStore.setDownloadQuality(
+                                      quality == DownloadQuality.compact
+                                          ? 1
+                                          : 0,
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (downloading)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: scheme.primary,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                currentIdx >= 0
+                                    ? '下载中: 第${currentIdx + 1}话 ($currentDone/$currentTotal)'
+                                    : '准备中…',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: scheme.onSurface,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: chapters.length,
+                          itemBuilder: (_, i) {
+                            final ch = chapters[i];
+                            final downloaded = _cachedChapters.contains(ch.id);
+                            final sel = selected.contains(i);
+                            return CheckboxListTile(
+                              value: downloaded || sel,
+                              enabled: !downloading && !downloaded,
+                              onChanged:
+                                  (v) => setS(
+                                    () =>
+                                        v == true
+                                            ? selected.add(i)
+                                            : selected.remove(i),
+                                  ),
+                              title: Text(
+                                ch.title,
+                                style: TextStyle(fontSize: 13),
+                              ),
+                              subtitle:
+                                  downloaded
+                                      ? Text(
+                                        '已下载',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: scheme.primary.withValues(
+                                            alpha: 0.7,
+                                          ),
+                                        ),
+                                      )
+                                      : null,
+                              dense: true,
+                            );
+                          },
+                        ),
+                      ),
+                      if (!downloading)
+                        Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              onPressed:
+                                  selected.isEmpty
+                                      ? null
+                                      : () async {
+                                        picks = selected.toList()..sort();
+                                        setS(() => downloading = true);
+                                        final gen =
+                                            DownloadManager.beginBatch();
+                                        final book = Bookmark(
+                                          sourceId: widget.sourceId,
+                                          comicId: _detail!.id,
+                                          name: _detail!.name,
+                                          pic: _detail!.pic ?? '',
+                                        );
+                                        var ok = 0;
+                                        var fail = 0;
+                                        String? firstErr;
+                                        for (final idx in picks) {
+                                          if (DownloadManager.isCancelled(gen)) {
+                                            break;
+                                          }
+                                          final ch = chapters[idx];
+                                          // 用户取消（弹窗/书架取消按钮）：停止后续章节
+                                          if (DownloadManager.isTaskCancelled(
+                                            DownloadManager.taskKeyOf(
+                                              widget.sourceId,
+                                              _detail!.id,
+                                              ch.id,
+                                            ),
+                                          )) {
+                                            break;
+                                          }
+                                          setS(() {
+                                            currentIdx = idx;
+                                            currentDone = 0;
+                                            currentTotal = 0;
+                                          });
+                                          try {
+                                            final urls =
+                                                await SourceManager.byId(
+                                                  widget.sourceId,
+                                                ).chapterPics(ch.id);
+                                            setS(
+                                              () => currentTotal = urls.length,
+                                            );
+                                            final okCh =
+                                                await DownloadManager.downloadChapter(
+                                                  batchGen: gen,
+                                                  book: book,
+                                                  chapterId: ch.id,
+                                                  chapterTitle: ch.title,
+                                                  urls: urls,
+                                                  quality: quality,
+                                                  onProgress:
+                                                      (d, t) => setS(() {
+                                                        currentDone = d;
+                                                        currentTotal = t;
+                                                      }),
+                                                );
+                                            if (okCh.ok) {
+                                              ok++;
+                                            } else {
+                                              fail++;
+                                              firstErr ??= okCh.error ?? '下载失败';
+                                            }
+                                          } catch (e) {
+                                            fail++;
+                                            ErrorLogger.instance.warn(
+                                              'batch download failed: $e',
+                                            );
+                                          }
+                                        }
+                                        if (ctx.mounted) {
+                                          Navigator.pop(ctx);
+                                        }
+                                        if (mounted) {
+                                          final msg =
+                                              fail == 0
+                                                  ? '已下载 $ok 话'
+                                                  : '$ok 话成功，$fail 话失败${firstErr == null ? '' : '：$firstErr'}';
+                                          AppToast.show(
+                                            context,
+                                            msg,
+                                            error: fail > 0,
+                                          );
+                                        }
+                                      },
+                              icon: const Icon(
+                                Icons.download_rounded,
+                                size: 18,
+                              ),
+                              label: Text(
+                                selected.isEmpty
+                                    ? '请选择章节'
+                                    : '下载 ${selected.length} 话',
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
     );
   }
 
@@ -1130,99 +1258,101 @@ class _DetailPageState extends State<DetailPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (ctx) => SafeArea(
-        child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.6,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    Text(
-                      '全部章节 · ${_detail!.chapters.length} 话',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15,
-                        color: Theme.of(ctx).colorScheme.onSurface,
-                      ),
-                    ),
-                    if (_cachedChapters.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 8),
-                        child: Text(
-                          '已缓存 ${_cachedChapters.length} 话',
+      builder:
+          (ctx) => SafeArea(
+            child: SizedBox(
+              height: MediaQuery.of(context).size.height * 0.6,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      children: [
+                        Text(
+                          '全部章节 · ${_detail!.chapters.length} 话',
                           style: TextStyle(
-                            fontSize: 11,
-                            color: Theme.of(ctx).colorScheme.primary,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                            color: Theme.of(ctx).colorScheme.onSurface,
                           ),
                         ),
-                      ),
-                    const Spacer(),
-                    TextButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _descending = !_descending;
-                          _sortedCache = null;
-                        });
-                      },
-                      icon: Icon(
-                        _descending
-                            ? Icons.arrow_upward_rounded
-                            : Icons.arrow_downward_rounded,
-                        size: 16,
-                      ),
-                      label: Text(_descending ? '倒序' : '正序'),
-                    ),
-                  ],
-                ),
-              ),
-              Divider(height: 0.5),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: _sortedChapters().length,
-                  itemBuilder: (_, i) {
-                    final ch = _sortedChapters()[i];
-                    final cached = _cachedChapters.contains(ch.id);
-                    return ListTile(
-                      title: Row(
-                        children: [
-                          if (cached)
-                            Padding(
-                              padding: const EdgeInsets.only(right: 6),
-                              child: Icon(Icons.download_done_rounded,
-                                  size: 14,
-                                  color: Theme.of(ctx).colorScheme.primary),
-                            ),
-                          Flexible(
+                        if (_cachedChapters.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 8),
                             child: Text(
-                              ch.title.isEmpty ? '第${i + 1}话' : ch.title,
-                              style: const TextStyle(fontSize: 13.5),
+                              '已缓存 ${_cachedChapters.length} 话',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Theme.of(ctx).colorScheme.primary,
+                              ),
                             ),
                           ),
-                        ],
-                      ),
-                      trailing: Icon(
-                        Icons.chevron_right_rounded,
-                        size: 18,
-                        color: Theme.of(ctx)
-                            .colorScheme
-                            .onSurface
-                            .withValues(alpha: 0.3),
-                      ),
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        _openChapter(ch);
+                        const Spacer(),
+                        TextButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              _descending = !_descending;
+                              _sortedCache = null;
+                            });
+                          },
+                          icon: Icon(
+                            _descending
+                                ? Icons.arrow_upward_rounded
+                                : Icons.arrow_downward_rounded,
+                            size: 16,
+                          ),
+                          label: Text(_descending ? '倒序' : '正序'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Divider(height: 0.5),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: _sortedChapters().length,
+                      itemBuilder: (_, i) {
+                        final ch = _sortedChapters()[i];
+                        final cached = _cachedChapters.contains(ch.id);
+                        return ListTile(
+                          title: Row(
+                            children: [
+                              if (cached)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 6),
+                                  child: Icon(
+                                    Icons.download_done_rounded,
+                                    size: 14,
+                                    color: Theme.of(ctx).colorScheme.primary,
+                                  ),
+                                ),
+                              Flexible(
+                                child: Text(
+                                  ch.title.isEmpty ? '第${i + 1}话' : ch.title,
+                                  style: const TextStyle(fontSize: 13.5),
+                                ),
+                              ),
+                            ],
+                          ),
+                          trailing: Icon(
+                            Icons.chevron_right_rounded,
+                            size: 18,
+                            color: Theme.of(
+                              ctx,
+                            ).colorScheme.onSurface.withValues(alpha: 0.3),
+                          ),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            _openChapter(ch);
+                          },
+                        );
                       },
-                    );
-                  },
-                ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
     );
   }
 
@@ -1244,18 +1374,19 @@ class _DetailPageState extends State<DetailPage> {
       Navigator.push(
         context,
         PageRouteBuilder(
-          pageBuilder: (_, __, ___) => ReaderPage(
-            sourceId: widget.sourceId,
-            comicId: _detail!.id,
-            chapterId: ch.id,
-            title: ch.title,
-            comicName: _detail!.name,
-            comicPic: _detail!.pic ?? '',
-            comicAuthor: _detail!.author ?? '',
-            chapters: _detail!.chapters,
-            initialPage: history.pageIndex,
-            initialOffset: history.scrollOffset,
-          ),
+          pageBuilder:
+              (_, __, ___) => ReaderPage(
+                sourceId: widget.sourceId,
+                comicId: _detail!.id,
+                chapterId: ch.id,
+                title: ch.title,
+                comicName: _detail!.name,
+                comicPic: _detail!.pic ?? '',
+                comicAuthor: _detail!.author ?? '',
+                chapters: _detail!.chapters,
+                initialPage: history.pageIndex,
+                initialOffset: history.scrollOffset,
+              ),
           transitionDuration: const Duration(milliseconds: 320),
           transitionsBuilder: (_, anim, __, child) {
             return FadeTransition(
@@ -1280,8 +1411,13 @@ class _DetailPageState extends State<DetailPage> {
   /// 返回完整条目以同时提供页码与纵向滚动偏移（像素级续读）。
   Future<HistoryEntry> _historyForChapter(Chapter ch) async {
     final hist = await LocalStore.history();
-    final key = Bookmark(sourceId: widget.sourceId, comicId: _detail!.id,
-        name: '', pic: '').key;
+    final key =
+        Bookmark(
+          sourceId: widget.sourceId,
+          comicId: _detail!.id,
+          name: '',
+          pic: '',
+        ).key;
     // 倒序找最新一条（同一章节可能被多次记录，页码取最近一次）。
     for (final h in hist.reversed) {
       if (h.book.key == key && h.chapterId == ch.id && h.hasPage) {
@@ -1289,12 +1425,17 @@ class _DetailPageState extends State<DetailPage> {
       }
     }
     return HistoryEntry(
-        book: Bookmark(
-            sourceId: widget.sourceId, comicId: _detail!.id, name: '', pic: ''),
-        chapterId: ch.id,
-        chapterTitle: ch.title,
-        timestamp: 0,
-        pageIndex: -1);
+      book: Bookmark(
+        sourceId: widget.sourceId,
+        comicId: _detail!.id,
+        name: '',
+        pic: '',
+      ),
+      chapterId: ch.id,
+      chapterTitle: ch.title,
+      timestamp: 0,
+      pageIndex: -1,
+    );
   }
 }
 
@@ -1306,7 +1447,13 @@ class _Hero extends StatelessWidget {
   final String name;
   final String? pic;
   final String? status;
-  const _Hero({required this.sourceId, required this.comicId, required this.name, required this.pic, this.status});
+  const _Hero({
+    required this.sourceId,
+    required this.comicId,
+    required this.name,
+    required this.pic,
+    this.status,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1318,11 +1465,7 @@ class _Hero extends StatelessWidget {
         // 详情页头图不用 Hero：来源列表（首页/书架/搜索等多处同款列表并存）里
         // 同一 tag 会出现多次，Hero 动画反而会触发「multiple heroes」崩溃。
         if (pic != null && pic!.isNotEmpty)
-          CachedImage(
-            pic!,
-            fit: BoxFit.cover,
-            radius: 0,
-          )
+          CachedImage(pic!, fit: BoxFit.cover, radius: 0)
         else
           Container(color: scheme.surfaceContainerHighest),
         // 三段式渐变蒙版
@@ -1373,7 +1516,9 @@ class _Hero extends StatelessWidget {
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
                         color: scheme.secondary,
                         borderRadius: BorderRadius.circular(5),
@@ -1393,7 +1538,9 @@ class _Hero extends StatelessWidget {
                     const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.16),
                         borderRadius: BorderRadius.circular(6),
@@ -1420,11 +1567,12 @@ class _Hero extends StatelessWidget {
                 delay: const Duration(milliseconds: 160),
                 offset: 16,
                 child: ShaderMask(
-                  shaderCallback: (rect) => const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Colors.white, Color(0xFFE8EAF0)],
-                  ).createShader(rect),
+                  shaderCallback:
+                      (rect) => const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Colors.white, Color(0xFFE8EAF0)],
+                      ).createShader(rect),
                   child: Text(
                     name,
                     maxLines: 2,
@@ -1435,9 +1583,7 @@ class _Hero extends StatelessWidget {
                       color: Colors.white,
                       height: 1.18,
                       letterSpacing: 0.3,
-                      shadows: [
-                        Shadow(blurRadius: 12, color: Colors.black54),
-                      ],
+                      shadows: [Shadow(blurRadius: 12, color: Colors.black54)],
                     ),
                   ),
                 ),
@@ -1457,13 +1603,14 @@ class _BackButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final isTablet = Responsive.isTablet(context);
-    
+
     return Padding(
       padding: const EdgeInsets.only(left: 8),
       child: Material(
-        color: isTablet 
-            ? scheme.surface.withValues(alpha: 0.9)
-            : Colors.black.withValues(alpha: 0.45),
+        color:
+            isTablet
+                ? scheme.surface.withValues(alpha: 0.9)
+                : Colors.black.withValues(alpha: 0.45),
         shape: const CircleBorder(),
         child: InkWell(
           customBorder: const CircleBorder(),
@@ -1472,9 +1619,10 @@ class _BackButton extends StatelessWidget {
             width: 40,
             height: 40,
             child: Icon(
-                Icons.arrow_back_rounded, 
-                color: isTablet ? scheme.onSurface : Colors.white, 
-                size: 20),
+              Icons.arrow_back_rounded,
+              color: isTablet ? scheme.onSurface : Colors.white,
+              size: 20,
+            ),
           ),
         ),
       ),
@@ -1510,7 +1658,12 @@ class _MetaSection extends StatelessWidget {
       if ((d.area ?? '').isNotEmpty) d.area!,
     ];
     return Padding(
-      padding: EdgeInsets.fromLTRB(Responsive.pagePadding(context), 14, Responsive.pagePadding(context), 6),
+      padding: EdgeInsets.fromLTRB(
+        Responsive.pagePadding(context),
+        14,
+        Responsive.pagePadding(context),
+        6,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1523,11 +1676,14 @@ class _MetaSection extends StatelessWidget {
                   width: 104,
                   height: 148,
                   color: scheme.surfaceContainerHighest,
-                  child: (d.pic == null || d.pic!.isEmpty)
-                      ? Icon(Icons.image_outlined,
-                          size: 32,
-                          color: scheme.onSurface.withValues(alpha: 0.2))
-                      : CachedImage(d.pic!, fit: BoxFit.cover, radius: 0),
+                  child:
+                      (d.pic == null || d.pic!.isEmpty)
+                          ? Icon(
+                            Icons.image_outlined,
+                            size: 32,
+                            color: scheme.onSurface.withValues(alpha: 0.2),
+                          )
+                          : CachedImage(d.pic!, fit: BoxFit.cover, radius: 0),
                 ),
               ),
               const SizedBox(width: 14),
@@ -1618,7 +1774,11 @@ class _StatusPill extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: Colors.white),
+        style: const TextStyle(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w600,
+          color: Colors.white,
+        ),
       ),
     );
   }
@@ -1670,8 +1830,12 @@ class _DescCardState extends State<_DescCard> {
     final scheme = Theme.of(context).colorScheme;
     final desc = widget.detail.description ?? '';
     return Padding(
-      padding: EdgeInsets.fromLTRB(Responsive.pagePadding(context), 10,
-          Responsive.pagePadding(context), 4),
+      padding: EdgeInsets.fromLTRB(
+        Responsive.pagePadding(context),
+        10,
+        Responsive.pagePadding(context),
+        4,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1724,7 +1888,12 @@ class _ChapterHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: EdgeInsets.fromLTRB(Responsive.pagePadding(context), 16, Responsive.pagePadding(context), 10),
+      padding: EdgeInsets.fromLTRB(
+        Responsive.pagePadding(context),
+        16,
+        Responsive.pagePadding(context),
+        10,
+      ),
       child: SectionHeader(
         icon: Icons.menu_book_rounded,
         title: '章节',
@@ -1752,10 +1921,7 @@ class _ChapterHeader extends StatelessWidget {
                 children: [
                   Text(
                     descending ? '倒序' : '正序',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: scheme.primary,
-                    ),
+                    style: TextStyle(fontSize: 11, color: scheme.primary),
                   ),
                   const SizedBox(width: 4),
                   Icon(
@@ -1896,8 +2062,7 @@ class _ErrorView extends StatelessWidget {
               tween: Tween(begin: 0, end: 1),
               duration: const Duration(milliseconds: 600),
               curve: Curves.easeOutBack,
-              builder: (_, v, child) =>
-                  Transform.scale(scale: v, child: child),
+              builder: (_, v, child) => Transform.scale(scale: v, child: child),
               child: Container(
                 width: 84,
                 height: 84,
@@ -1905,8 +2070,11 @@ class _ErrorView extends StatelessWidget {
                   shape: BoxShape.circle,
                   color: scheme.error.withValues(alpha: 0.10),
                 ),
-                child: Icon(Icons.cloud_off_outlined,
-                    size: 44, color: scheme.error),
+                child: Icon(
+                  Icons.cloud_off_outlined,
+                  size: 44,
+                  color: scheme.error,
+                ),
               ),
             ),
             const SizedBox(height: 14),

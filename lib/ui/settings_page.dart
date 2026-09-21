@@ -48,11 +48,11 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _trustSelfSigned = false;
 
   String get _updateFreqLabel => switch (_updateFreq) {
-        UpdateFreq.off => '关闭',
-        UpdateFreq.every6h => '每 6 小时检查一次',
-        UpdateFreq.every12h => '每 12 小时检查一次',
-        UpdateFreq.daily => '每天检查一次',
-      };
+    UpdateFreq.off => '关闭',
+    UpdateFreq.every6h => '每 6 小时检查一次',
+    UpdateFreq.every12h => '每 12 小时检查一次',
+    UpdateFreq.daily => '每天检查一次',
+  };
 
   @override
   void initState() {
@@ -99,7 +99,9 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => EscPopScope(child: _buildRoot(context));
+
+  Widget _buildRoot(BuildContext context) {
     final theme = Theme.of(context);
     if (_loadError) {
       // 设置读取失败：错误态 + 重试，不再永久转圈。
@@ -109,13 +111,19 @@ class _SettingsPageState extends State<SettingsPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.error_outline_rounded,
-                  size: 44, color: theme.colorScheme.onSurface.withValues(alpha: 0.3)),
+              Icon(
+                Icons.error_outline_rounded,
+                size: 44,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+              ),
               const SizedBox(height: 12),
-              Text('设置加载失败',
-                  style: TextStyle(
-                      fontSize: 14,
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6))),
+              Text(
+                '设置加载失败',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+              ),
               const SizedBox(height: 14),
               FilledButton.icon(
                 onPressed: _load,
@@ -142,551 +150,621 @@ class _SettingsPageState extends State<SettingsPage> {
               constraints: const BoxConstraints(maxWidth: 840),
               child: ListView(
                 padding: EdgeInsets.fromLTRB(
-                    Responsive.pagePadding(context), 14,
-                    Responsive.pagePadding(context), (Responsive.isTablet(context) ? 24 : 110)),
+                  Responsive.pagePadding(context),
+                  14,
+                  Responsive.pagePadding(context),
+                  (Responsive.isTablet(context) ? 24 : 110),
+                ),
                 children: [
-            // 桌面端（Windows）没有系统返回手势/物理返回键，必须提供
-            // 显式返回按钮；移动端依赖系统返回，保持原样不加。
-            if (DesktopUi.isDesktopPlatform)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Row(
-                  children: [
-                    Tooltip(
-                      message: '返回',
-                      child: IconButton(
-                        onPressed: () => Navigator.maybePop(context),
-                        icon: const Icon(Icons.arrow_back_rounded, size: 20),
-                        color: theme.colorScheme.onSurface
-                            .withValues(alpha: 0.75),
-                        visualDensity: VisualDensity.compact,
+                  // 桌面端（Windows）没有系统返回手势/物理返回键，必须提供
+                  // 显式返回按钮；移动端依赖系统返回，保持原样不加。
+                  if (DesktopUi.isDesktopPlatform)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        children: [
+                          Tooltip(
+                            message: '返回',
+                            child: IconButton(
+                              onPressed: () => Navigator.maybePop(context),
+                              icon: const Icon(
+                                Icons.arrow_back_rounded,
+                                size: 20,
+                              ),
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.75,
+                              ),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '返回',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.55,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '返回',
+                  FadeSlideIn(
+                    duration: const Duration(milliseconds: 380),
+                    child: Text(
+                      '设置',
                       style: TextStyle(
-                        fontSize: 13,
-                        color: theme.colorScheme.onSurface
-                            .withValues(alpha: 0.55),
+                        fontSize: DesktopUi.isDesktopPlatform ? 26 : 21,
+                        fontWeight: FontWeight.w700,
+                        color: theme.colorScheme.onSurface,
                       ),
                     ),
-                  ],
-                ),
-              ),
-            FadeSlideIn(
-              duration: const Duration(milliseconds: 380),
-              child: Text(
-                  '设置',
-                  style: TextStyle(
-                    fontSize: DesktopUi.isDesktopPlatform ? 26 : 21,
-                    fontWeight: FontWeight.w700,
-                    color: theme.colorScheme.onSurface,
                   ),
-                ),
-            ),
-            const SizedBox(height: 20),
-            FadeSlideIn(
-              delay: const Duration(milliseconds: 80),
-              child: _SectionLabel(label: '主题'),
-            ),
-            const SizedBox(height: 6),
-            FadeSlideIn(
-              delay: const Duration(milliseconds: 140),
-              child: _SettingsCard(
-                children: [
-                  _SettingTile(
-                    icon: Icons.dark_mode_outlined,
-                    title: '深色模式',
-                    subtitle: '夜间阅读更护眼',
-                    trailing: Switch(
-                      value: _dark,
-                      onChanged: (v) async {
-                        YingManHeApp.of(context)?.setDark(v);
-                        await LocalStore.setDarkMode(v);
-                        if (mounted) setState(() => _dark = v);
-                      },
-                    ),
+                  const SizedBox(height: 20),
+                  FadeSlideIn(
+                    delay: const Duration(milliseconds: 80),
+                    child: _SectionLabel(label: '主题'),
                   ),
-                  Container(
-                    height: 0.5,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
-                  ),
-                  _ThemeSelector(
-                    current: _themeId,
-                    onChanged: (v) async {
-                      YingManHeApp.of(context)?.setThemeId(v);
-                      await LocalStore.setThemeId(v);
-                      if (mounted) setState(() => _themeId = v);
-                    },
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            FadeSlideIn(
-              delay: const Duration(milliseconds: 220),
-              child: _SectionLabel(label: '数据源'),
-            ),
-            const SizedBox(height: 6),
-            FadeSlideIn(
-              delay: const Duration(milliseconds: 280),
-              child: _SettingsCard(
-                children: [
-                  _SettingTile(
-                    icon: Icons.public_rounded,
-                    title: '数据源管理',
-                    subtitle: '启停各源、编辑域名/代理，免发版换域名',
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const SourceManagePage(),
+                  const SizedBox(height: 6),
+                  FadeSlideIn(
+                    delay: const Duration(milliseconds: 140),
+                    child: _SettingsCard(
+                      children: [
+                        _SettingTile(
+                          icon: Icons.dark_mode_outlined,
+                          title: '深色模式',
+                          subtitle: '夜间阅读更护眼',
+                          trailing: Switch(
+                            value: _dark,
+                            onChanged: (v) async {
+                              YingManHeApp.of(context)?.setDark(v);
+                              await LocalStore.setDarkMode(v);
+                              if (mounted) setState(() => _dark = v);
+                            },
+                          ),
                         ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            FadeSlideIn(
-              delay: const Duration(milliseconds: 220),
-              child: _SectionLabel(label: '阅读器'),
-            ),
-            const SizedBox(height: 6),
-            FadeSlideIn(
-              delay: const Duration(milliseconds: 280),
-              child: _SettingsCard(
-                children: [
-                  _SettingTile(
-                    icon: Icons.swipe_right_alt_rounded,
-                    title: '翻页模式',
-                    subtitle: _readerMode == 0
-                        ? '纵向滚动逐页'
-                        : (_readerMode == 1 ? '单页横向翻页' : '双页并排（适合平板横屏）'),
-                    trailing: PopupMenuButton<int>(
-                      initialValue: _readerMode,
-                      icon: const Icon(Icons.unfold_more_rounded,
-                          color: Colors.white70),
-                      onSelected: (v) async {
-                        await LocalStore.setReaderMode(v);
-                        if (mounted) setState(() => _readerMode = v);
-                      },
-                      itemBuilder: (_) => const [
-                        PopupMenuItem(value: 0, child: Text('纵向滚动')),
-                        PopupMenuItem(value: 1, child: Text('单页横向')),
-                        PopupMenuItem(value: 2, child: Text('双页并排')),
+                        Container(
+                          height: 0.5,
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.06,
+                          ),
+                        ),
+                        _ThemeSelector(
+                          current: _themeId,
+                          onChanged: (v) async {
+                            YingManHeApp.of(context)?.setThemeId(v);
+                            await LocalStore.setThemeId(v);
+                            if (mounted) setState(() => _themeId = v);
+                          },
+                        ),
                       ],
                     ),
                   ),
-                  Container(
-                    height: 0.5,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  const SizedBox(height: 16),
+                  FadeSlideIn(
+                    delay: const Duration(milliseconds: 220),
+                    child: _SectionLabel(label: '数据源'),
                   ),
-                  _SettingTile(
-                    icon: Icons.arrow_back_ios_new_rounded,
-                    title: 'RTL 反向翻页（日漫）',
-                    subtitle: _rtl ? '从右往左' : '从左往右',
-                    trailing: Switch(
-                      value: _rtl,
-                      onChanged: (v) async {
-                        await LocalStore.setRtlReader(v);
-                        if (mounted) setState(() => _rtl = v);
-                      },
+                  const SizedBox(height: 6),
+                  FadeSlideIn(
+                    delay: const Duration(milliseconds: 280),
+                    child: _SettingsCard(
+                      children: [
+                        _SettingTile(
+                          icon: Icons.public_rounded,
+                          title: '数据源管理',
+                          subtitle: '启停各源、编辑域名/代理，免发版换域名',
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const SourceManagePage(),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
                     ),
                   ),
-                  Container(
-                    height: 0.5,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  const SizedBox(height: 16),
+                  FadeSlideIn(
+                    delay: const Duration(milliseconds: 220),
+                    child: _SectionLabel(label: '阅读器'),
                   ),
-                  _SettingTile(
-                    icon: Icons.touch_app_rounded,
-                    title: '手势配置',
-                    subtitle: '自定义点击区域操作',
-                    onTap: _showGestureSettings,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            FadeSlideIn(
-              delay: const Duration(milliseconds: 220),
-              child: _SectionLabel(label: '播放器'),
-            ),
-            const SizedBox(height: 6),
-            FadeSlideIn(
-              delay: const Duration(milliseconds: 280),
-              child: _SettingsCard(
-                children: [
-                  _SettingTile(
-                    icon: Icons.subtitles_rounded,
-                    title: '弹幕',
-                    subtitle: _danmaku.on ? '已开启 · 数据源：弹弹 play' : '视频播放时显示评论弹幕',
-                    trailing: Switch(
-                      value: _danmaku.on,
-                      onChanged: (v) async {
-                        final next = _danmaku.copyWith(on: v);
-                        await LocalStore.setDanmaku(next);
-                        if (mounted) setState(() => _danmaku = next);
-                      },
+                  const SizedBox(height: 6),
+                  FadeSlideIn(
+                    delay: const Duration(milliseconds: 280),
+                    child: _SettingsCard(
+                      children: [
+                        _SettingTile(
+                          icon: Icons.swipe_right_alt_rounded,
+                          title: '翻页模式',
+                          subtitle:
+                              _readerMode == 0
+                                  ? '纵向滚动逐页'
+                                  : (_readerMode == 1
+                                      ? '单页横向翻页'
+                                      : '双页并排（适合平板横屏）'),
+                          trailing: PopupMenuButton<int>(
+                            initialValue: _readerMode,
+                            icon: const Icon(
+                              Icons.unfold_more_rounded,
+                              color: Colors.white70,
+                            ),
+                            onSelected: (v) async {
+                              await LocalStore.setReaderMode(v);
+                              if (mounted) setState(() => _readerMode = v);
+                            },
+                            itemBuilder:
+                                (_) => const [
+                                  PopupMenuItem(value: 0, child: Text('纵向滚动')),
+                                  PopupMenuItem(value: 1, child: Text('单页横向')),
+                                  PopupMenuItem(value: 2, child: Text('双页并排')),
+                                ],
+                          ),
+                        ),
+                        Container(
+                          height: 0.5,
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.06,
+                          ),
+                        ),
+                        _SettingTile(
+                          icon: Icons.arrow_back_ios_new_rounded,
+                          title: 'RTL 反向翻页（日漫）',
+                          subtitle: _rtl ? '从右往左' : '从左往右',
+                          trailing: Switch(
+                            value: _rtl,
+                            onChanged: (v) async {
+                              await LocalStore.setRtlReader(v);
+                              if (mounted) setState(() => _rtl = v);
+                            },
+                          ),
+                        ),
+                        Container(
+                          height: 0.5,
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.06,
+                          ),
+                        ),
+                        _SettingTile(
+                          icon: Icons.touch_app_rounded,
+                          title: '手势配置',
+                          subtitle: '自定义点击区域操作',
+                          onTap: _showGestureSettings,
+                        ),
+                      ],
                     ),
                   ),
-                  if (_danmaku.on) ...[
-                    Container(
-                      height: 0.5,
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
-                    ),
-                    _SliderTile(
-                      icon: Icons.format_size_rounded,
-                      title: '弹幕字号',
-                      value: _danmaku.fontSize,
-                      min: 12,
-                      max: 22,
-                      divisions: 10,
-                      display: '${_danmaku.fontSize.round()}',
-                      onChanged: (v) {
-                        final next = _danmaku.copyWith(fontSize: v);
-                        setState(() => _danmaku = next);
-                        LocalStore.setDanmaku(next);
-                      },
-                    ),
-                    Container(
-                      height: 0.5,
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
-                    ),
-                    _SliderTile(
-                      icon: Icons.speed_rounded,
-                      title: '弹幕速度',
-                      value: _danmaku.speed,
-                      min: 1.0,
-                      max: 3.0,
-                      divisions: 20,
-                      display: '${_danmaku.speed.toStringAsFixed(1)}x',
-                      onChanged: (v) {
-                        final next = _danmaku.copyWith(speed: v);
-                        setState(() => _danmaku = next);
-                        LocalStore.setDanmaku(next);
-                      },
-                    ),
-                    Container(
-                      height: 0.5,
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
-                    ),
-                    _SliderTile(
-                      icon: Icons.opacity_rounded,
-                      title: '弹幕透明度',
-                      value: _danmaku.opacity,
-                      min: 0.2,
-                      max: 1.0,
-                      divisions: 8,
-                      display: '${(_danmaku.opacity * 100).round()}%',
-                      onChanged: (v) {
-                        final next = _danmaku.copyWith(opacity: v);
-                        setState(() => _danmaku = next);
-                        LocalStore.setDanmaku(next);
-                      },
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            FadeSlideIn(
-              delay: const Duration(milliseconds: 220),
-              child: _SectionLabel(label: '更新'),
-            ),
-            const SizedBox(height: 6),
-            FadeSlideIn(
-              delay: const Duration(milliseconds: 280),
-              child: _SettingsCard(
-                children: [
-                  _SettingTile(
-                    icon: Icons.system_update_alt_rounded,
-                    title: '检查更新',
-                    subtitle: '从 GitHub Releases 获取最新版本',
-                    trailing: _checking
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : null,
-                    onTap: _checkUpdate,
+                  const SizedBox(height: 16),
+                  FadeSlideIn(
+                    delay: const Duration(milliseconds: 220),
+                    child: _SectionLabel(label: '播放器'),
                   ),
-                  Container(
-                    height: 0.5,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
-                  ),
-                  _SettingTile(
-                    icon: Icons.notifications_active_outlined,
-                    title: '收藏更新提醒',
-                    subtitle: _updateFreqLabel,
-                    trailing: const Icon(Icons.chevron_right_rounded, size: 18),
-                    onTap: _pickUpdateFreq,
-                  ),
-                  // 系统通知走原生 MethodChannel（Android 通知栏），Web 端无实现
-                  // 且系统通知语义不存在，直接隐藏该项（收藏更新提醒的应用内横幅仍可用）。
-                  if (!kIsWeb) ...[
-                    Container(
-                      height: 0.5,
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
-                    ),
-                    _SettingTile(
-                      icon: Icons.notifications_outlined,
-                      title: '系统通知',
-                      subtitle: _notifyEnabled
-                          ? '更新时在通知栏提醒'
-                          : '关闭：仅应用内横幅提醒',
-                      trailing: Switch(
-                          value: _notifyEnabled, onChanged: _toggleNotify),
-                      onTap: () => _toggleNotify(!_notifyEnabled),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            FadeSlideIn(
-              delay: const Duration(milliseconds: 220),
-              child: _SectionLabel(label: '网络'),
-            ),
-            const SizedBox(height: 6),
-            FadeSlideIn(
-              delay: const Duration(milliseconds: 280),
-              child: _SettingsCard(
-                children: [
-                  _SettingTile(
-                    icon: Icons.verified_user_outlined,
-                    title: '信任自签证书',
-                    subtitle: _trustSelfSigned
-                        ? '已开启：放行自签 HTTPS（家庭 NAS/自建服务器）'
-                        : '关闭：严格校验服务器证书（默认，更安全）',
-                    trailing: Switch(
-                      value: _trustSelfSigned,
-                      onChanged: _toggleTrustSelfSigned,
-                    ),
-                    onTap: () => _toggleTrustSelfSigned(!_trustSelfSigned),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            FadeSlideIn(
-              delay: const Duration(milliseconds: 220),
-              child: _SectionLabel(label: '数据'),
-            ),
-            const SizedBox(height: 6),
-            FadeSlideIn(
-              delay: const Duration(milliseconds: 280),
-              child: _SettingsCard(
-                children: [
-                  _SettingTile(
-                    icon: Icons.backup_rounded,
-                    title: '导出备份',
-                    subtitle:
-                        kIsWeb ? 'Web 端不支持（数据保存在浏览器本地）' : '书架、历史、设置 → JSON 文件',
-                    enabled: !kIsWeb,
-                    onTap: _exportBackup,
-                  ),
-                  Container(
-                    height: 0.5,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
-                  ),
-                  _SettingTile(
-                    icon: Icons.restore_rounded,
-                    title: '导入备份',
-                    subtitle: kIsWeb ? 'Web 端不支持' : '从 JSON 文件恢复数据',
-                    enabled: !kIsWeb,
-                    onTap: _importBackup,
-                  ),
-                  Container(
-                    height: 0.5,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
-                  ),
-                  _SettingTile(
-                    icon: Icons.cloud_sync_rounded,
-                    title: 'WebDAV 同步',
-                    subtitle: !WebDavSync.hasConfig
-                        ? (kIsWeb ? 'Web 端不支持' : '多端同步书架 / 进度 / 设置')
-                        : (_webdavSyncText.isEmpty
-                            ? '已配置 ${WebDavSync.config!['url']}'
-                            : '$_webdavSyncText · ${WebDavSync.config!['url']}'),
-                    enabled: !kIsWeb,
-                    onTap: _openWebDav,
-                  ),
-                  Container(
-                    height: 0.5,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
-                  ),
-                  _SettingTile(
-                    icon: Icons.download_outlined,
-                    title: '清空全部下载',
-                    subtitle: '删除已下载的章节图片，释放空间',
-                    onTap: () => _confirm(
-                      title: '清空下载',
-                      content: '确定清空所有已下载的章节？',
-                      action: () async {
-                        await LocalStore.clearDownloads();
-                      },
-                      successMsg: '已清空下载',
+                  const SizedBox(height: 6),
+                  FadeSlideIn(
+                    delay: const Duration(milliseconds: 280),
+                    child: _SettingsCard(
+                      children: [
+                        _SettingTile(
+                          icon: Icons.subtitles_rounded,
+                          title: '弹幕',
+                          subtitle:
+                              _danmaku.on ? '已开启 · 数据源：弹弹 play' : '视频播放时显示评论弹幕',
+                          trailing: Switch(
+                            value: _danmaku.on,
+                            onChanged: (v) async {
+                              final next = _danmaku.copyWith(on: v);
+                              await LocalStore.setDanmaku(next);
+                              if (mounted) setState(() => _danmaku = next);
+                            },
+                          ),
+                        ),
+                        if (_danmaku.on) ...[
+                          Container(
+                            height: 0.5,
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.06,
+                            ),
+                          ),
+                          _SliderTile(
+                            icon: Icons.format_size_rounded,
+                            title: '弹幕字号',
+                            value: _danmaku.fontSize,
+                            min: 12,
+                            max: 22,
+                            divisions: 10,
+                            display: '${_danmaku.fontSize.round()}',
+                            onChanged: (v) {
+                              final next = _danmaku.copyWith(fontSize: v);
+                              setState(() => _danmaku = next);
+                              LocalStore.setDanmaku(next);
+                            },
+                          ),
+                          Container(
+                            height: 0.5,
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.06,
+                            ),
+                          ),
+                          _SliderTile(
+                            icon: Icons.speed_rounded,
+                            title: '弹幕速度',
+                            value: _danmaku.speed,
+                            min: 1.0,
+                            max: 3.0,
+                            divisions: 20,
+                            display: '${_danmaku.speed.toStringAsFixed(1)}x',
+                            onChanged: (v) {
+                              final next = _danmaku.copyWith(speed: v);
+                              setState(() => _danmaku = next);
+                              LocalStore.setDanmaku(next);
+                            },
+                          ),
+                          Container(
+                            height: 0.5,
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.06,
+                            ),
+                          ),
+                          _SliderTile(
+                            icon: Icons.opacity_rounded,
+                            title: '弹幕透明度',
+                            value: _danmaku.opacity,
+                            min: 0.2,
+                            max: 1.0,
+                            divisions: 8,
+                            display: '${(_danmaku.opacity * 100).round()}%',
+                            onChanged: (v) {
+                              final next = _danmaku.copyWith(opacity: v);
+                              setState(() => _danmaku = next);
+                              LocalStore.setDanmaku(next);
+                            },
+                          ),
+                        ],
+                      ],
                     ),
                   ),
-                  Container(
-                    height: 0.5,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  const SizedBox(height: 16),
+                  FadeSlideIn(
+                    delay: const Duration(milliseconds: 220),
+                    child: _SectionLabel(label: '更新'),
                   ),
-                  _SettingTile(
-                    icon: Icons.history_rounded,
-                    title: '清空阅读历史',
-                    subtitle: '清除所有阅读记录',
-                    onTap: () => _confirm(
-                      title: '清空历史',
-                      content: '确定清空所有阅读历史？',
-                      action: () async {
-                        await LocalStore.clearHistory();
-                      },
-                      successMsg: '已清空历史',
+                  const SizedBox(height: 6),
+                  FadeSlideIn(
+                    delay: const Duration(milliseconds: 280),
+                    child: _SettingsCard(
+                      children: [
+                        _SettingTile(
+                          icon: Icons.system_update_alt_rounded,
+                          title: '检查更新',
+                          subtitle: '从 GitHub Releases 获取最新版本',
+                          trailing:
+                              _checking
+                                  ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                  : null,
+                          onTap: _checkUpdate,
+                        ),
+                        Container(
+                          height: 0.5,
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.06,
+                          ),
+                        ),
+                        _SettingTile(
+                          icon: Icons.notifications_active_outlined,
+                          title: '收藏更新提醒',
+                          subtitle: _updateFreqLabel,
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            size: 18,
+                          ),
+                          onTap: _pickUpdateFreq,
+                        ),
+                        // 系统通知走原生 MethodChannel（Android 通知栏），Web 端无实现
+                        // 且系统通知语义不存在，直接隐藏该项（收藏更新提醒的应用内横幅仍可用）。
+                        if (!kIsWeb) ...[
+                          Container(
+                            height: 0.5,
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.06,
+                            ),
+                          ),
+                          _SettingTile(
+                            icon: Icons.notifications_outlined,
+                            title: '系统通知',
+                            subtitle:
+                                _notifyEnabled ? '更新时在通知栏提醒' : '关闭：仅应用内横幅提醒',
+                            trailing: Switch(
+                              value: _notifyEnabled,
+                              onChanged: _toggleNotify,
+                            ),
+                            onTap: () => _toggleNotify(!_notifyEnabled),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 28),
-            // 漫画上色（本地 AI）：默认关、仅桌面端（电脑）可见——256×256
-            // 本地推理在手机端耗时/卡顿不达标，手机端隐藏入口（组件保留给
-            // 电脑端）。自包含状态组件，不与本页其它开关耦合。
-            if (DesktopUi.isDesktopPlatform) const _ColorizerSection(),
-            const SizedBox(height: 28),
-            FadeSlideIn(
-              delay: const Duration(milliseconds: 220),
-              child: _SectionLabel(label: '关于'),
-            ),
-            const SizedBox(height: 6),
-            FadeSlideIn(
-              delay: const Duration(milliseconds: 280),
-              child: _SettingsCard(
-                children: [
-                  _SettingTile(
-                    icon: Icons.keyboard_alt_rounded,
-                    title: '键盘快捷键',
-                    subtitle: '全局 / 漫画阅读器 / 小说阅读器 / 视频播放器',
-                    onTap: () => Navigator.of(context).push(
-                      PageRouteBuilder<void>(
-                        opaque: false,
-                        barrierColor: Colors.transparent,
-                        pageBuilder: (_, __, ___) =>
-                            const ShortcutHelpOverlay(),
-                      ),
+                  const SizedBox(height: 16),
+                  FadeSlideIn(
+                    delay: const Duration(milliseconds: 220),
+                    child: _SectionLabel(label: '网络'),
+                  ),
+                  const SizedBox(height: 6),
+                  FadeSlideIn(
+                    delay: const Duration(milliseconds: 280),
+                    child: _SettingsCard(
+                      children: [
+                        _SettingTile(
+                          icon: Icons.verified_user_outlined,
+                          title: '信任自签证书',
+                          subtitle:
+                              _trustSelfSigned
+                                  ? '已开启：放行自签 HTTPS（家庭 NAS/自建服务器）'
+                                  : '关闭：严格校验服务器证书（默认，更安全）',
+                          trailing: Switch(
+                            value: _trustSelfSigned,
+                            onChanged: _toggleTrustSelfSigned,
+                          ),
+                          onTap:
+                              () => _toggleTrustSelfSigned(!_trustSelfSigned),
+                        ),
+                      ],
                     ),
                   ),
-                  Container(
-                    height: 0.5,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  const SizedBox(height: 16),
+                  FadeSlideIn(
+                    delay: const Duration(milliseconds: 220),
+                    child: _SectionLabel(label: '数据'),
                   ),
-                  _SettingTile(
-                    icon: Icons.article_outlined,
-                    title: '免责声明',
-                    subtitle: '内容来源与版权说明',
-                    onTap: _showDisclaimer,
+                  const SizedBox(height: 6),
+                  FadeSlideIn(
+                    delay: const Duration(milliseconds: 280),
+                    child: _SettingsCard(
+                      children: [
+                        _SettingTile(
+                          icon: Icons.backup_rounded,
+                          title: '导出备份',
+                          subtitle:
+                              kIsWeb
+                                  ? 'Web 端不支持（数据保存在浏览器本地）'
+                                  : '书架、历史、设置 → JSON 文件',
+                          enabled: !kIsWeb,
+                          onTap: _exportBackup,
+                        ),
+                        Container(
+                          height: 0.5,
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.06,
+                          ),
+                        ),
+                        _SettingTile(
+                          icon: Icons.restore_rounded,
+                          title: '导入备份',
+                          subtitle: kIsWeb ? 'Web 端不支持' : '从 JSON 文件恢复数据',
+                          enabled: !kIsWeb,
+                          onTap: _importBackup,
+                        ),
+                        Container(
+                          height: 0.5,
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.06,
+                          ),
+                        ),
+                        _SettingTile(
+                          icon: Icons.cloud_sync_rounded,
+                          title: 'WebDAV 同步',
+                          subtitle:
+                              !WebDavSync.hasConfig
+                                  ? (kIsWeb ? 'Web 端不支持' : '多端同步书架 / 进度 / 设置')
+                                  : (_webdavSyncText.isEmpty
+                                      ? '已配置 ${WebDavSync.config!['url']}'
+                                      : '$_webdavSyncText · ${WebDavSync.config!['url']}'),
+                          enabled: !kIsWeb,
+                          onTap: _openWebDav,
+                        ),
+                        Container(
+                          height: 0.5,
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.06,
+                          ),
+                        ),
+                        _SettingTile(
+                          icon: Icons.download_outlined,
+                          title: '清空全部下载',
+                          subtitle: '删除已下载的章节图片，释放空间',
+                          onTap:
+                              () => _confirm(
+                                title: '清空下载',
+                                content: '确定清空所有已下载的章节？',
+                                action: () async {
+                                  await LocalStore.clearDownloads();
+                                },
+                                successMsg: '已清空下载',
+                              ),
+                        ),
+                        Container(
+                          height: 0.5,
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.06,
+                          ),
+                        ),
+                        _SettingTile(
+                          icon: Icons.history_rounded,
+                          title: '清空阅读历史',
+                          subtitle: '清除所有阅读记录',
+                          onTap:
+                              () => _confirm(
+                                title: '清空历史',
+                                content: '确定清空所有阅读历史？',
+                                action: () async {
+                                  await LocalStore.clearHistory();
+                                },
+                                successMsg: '已清空历史',
+                              ),
+                        ),
+                      ],
+                    ),
                   ),
-                  Container(
-                    height: 0.5,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  const SizedBox(height: 28),
+                  // 漫画上色（本地 AI）：默认关、仅桌面端（电脑）可见——256×256
+                  // 本地推理在手机端耗时/卡顿不达标，手机端隐藏入口（组件保留给
+                  // 电脑端）。自包含状态组件，不与本页其它开关耦合。
+                  if (DesktopUi.isDesktopPlatform) const _ColorizerSection(),
+                  const SizedBox(height: 28),
+                  FadeSlideIn(
+                    delay: const Duration(milliseconds: 220),
+                    child: _SectionLabel(label: '关于'),
                   ),
-                  _SettingTile(
-                    icon: Icons.privacy_tip_outlined,
-                    title: '隐私说明',
-                    subtitle: '本地存储与网络请求',
-                    onTap: _showPrivacy,
+                  const SizedBox(height: 6),
+                  FadeSlideIn(
+                    delay: const Duration(milliseconds: 280),
+                    child: _SettingsCard(
+                      children: [
+                        _SettingTile(
+                          icon: Icons.keyboard_alt_rounded,
+                          title: '键盘快捷键',
+                          subtitle: '全局 / 漫画阅读器 / 小说阅读器 / 视频播放器',
+                          onTap:
+                              () => Navigator.of(context).push(
+                                PageRouteBuilder<void>(
+                                  opaque: false,
+                                  barrierColor: Colors.transparent,
+                                  pageBuilder:
+                                      (_, __, ___) =>
+                                          const ShortcutHelpOverlay(),
+                                ),
+                              ),
+                        ),
+                        Container(
+                          height: 0.5,
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.06,
+                          ),
+                        ),
+                        _SettingTile(
+                          icon: Icons.article_outlined,
+                          title: '免责声明',
+                          subtitle: '内容来源与版权说明',
+                          onTap: _showDisclaimer,
+                        ),
+                        Container(
+                          height: 0.5,
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.06,
+                          ),
+                        ),
+                        _SettingTile(
+                          icon: Icons.privacy_tip_outlined,
+                          title: '隐私说明',
+                          subtitle: '本地存储与网络请求',
+                          onTap: _showPrivacy,
+                        ),
+                        Container(
+                          height: 0.5,
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.06,
+                          ),
+                        ),
+                        _SettingTile(
+                          icon: Icons.bug_report_outlined,
+                          title: '导出错误日志',
+                          subtitle:
+                              kIsWeb
+                                  ? 'Web 端不支持（错误仅记录在浏览器控制台）'
+                                  : '崩溃 / 网络 / 解析错误的本地记录',
+                          enabled: !kIsWeb,
+                          onTap: _exportLogs,
+                        ),
+                      ],
+                    ),
                   ),
-                  Container(
-                    height: 0.5,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
-                  ),
-                  _SettingTile(
-                    icon: Icons.bug_report_outlined,
-                    title: '导出错误日志',
-                    subtitle: kIsWeb
-                        ? 'Web 端不支持（错误仅记录在浏览器控制台）'
-                        : '崩溃 / 网络 / 解析错误的本地记录',
-                    enabled: !kIsWeb,
-                    onTap: _exportLogs,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 28),
-            FadeSlideIn(
-              delay: const Duration(milliseconds: 500),
-              child: Center(
-                child: Column(
-                  children: [
-                    GestureDetector(
-                      onTap: () {
-                        HapticFeedback.selectionClick();
-                        Clipboard.setData(
-                          const ClipboardData(text: 'https://github.com/lxfebd'),
-                        );
-                        AppToast.info(context, '已复制 GitHub 地址');
-                      },
-                      child: Text.rich(
-                        TextSpan(
-                          children: [
-                            TextSpan(
-                              text: '涙不再为你而流  ',
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w600,
-                                color: theme.colorScheme.onSurface,
+                  const SizedBox(height: 28),
+                  FadeSlideIn(
+                    delay: const Duration(milliseconds: 500),
+                    child: Center(
+                      child: Column(
+                        children: [
+                          GestureDetector(
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              Clipboard.setData(
+                                const ClipboardData(
+                                  text: 'https://github.com/lxfebd',
+                                ),
+                              );
+                              AppToast.info(context, '已复制 GitHub 地址');
+                            },
+                            child: Text.rich(
+                              TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: '涙不再为你而流  ',
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: theme.colorScheme.onSurface,
+                                    ),
+                                  ),
+                                  TextSpan(
+                                    text: '@lxfebd',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: theme.colorScheme.primary,
+                                      decoration: TextDecoration.underline,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            TextSpan(
-                              text: '@lxfebd',
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'github.com/lxfebd',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.5,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary.withValues(
+                                alpha: 0.12,
+                              ),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              '星漫匣 · ${UpdateChecker.currentVersion()}',
                               style: TextStyle(
-                                fontSize: 11,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
                                 color: theme.colorScheme.primary,
-                                decoration: TextDecoration.underline,
                               ),
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'github.com/lxfebd',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        '星漫匣 · ${UpdateChecker.currentVersion()}',
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w700,
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
-          ],
+          ),
         ),
-      ),
-      ),
-      ),
       ),
     );
   }
@@ -714,7 +792,10 @@ class _SettingsPageState extends State<SettingsPage> {
       );
       if (result == null) return;
       if (mounted) {
-        AppToast.info(context, '已导出到 ${result.split('\\').last.split('/').last}');
+        AppToast.info(
+          context,
+          '已导出到 ${result.split('\\').last.split('/').last}',
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -743,61 +824,68 @@ class _SettingsPageState extends State<SettingsPage> {
 
   /// 备份口令输入框。allowSkip 时“跳过加密”返回空串（导出明文备份）；
   /// 取消（或导入场景）返回 null。
-  Future<String?> _askBackupPassword(
-      {required String title, String? prompt, bool allowSkip = false}) async {
+  Future<String?> _askBackupPassword({
+    required String title,
+    String? prompt,
+    bool allowSkip = false,
+  }) async {
     final controller = TextEditingController();
     final pwd = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: Text(title),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (prompt != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Text(
-                  prompt,
-                  style: TextStyle(
-                      fontSize: 13,
-                      color: Theme.of(ctx).colorScheme.onSurfaceVariant),
+      builder:
+          (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            title: Text(title),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (prompt != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      prompt,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                TextField(
+                  controller: controller,
+                  obscureText: true,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: '密码',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
-              ),
-            TextField(
-              controller: controller,
-              obscureText: true,
-              autofocus: true,
-              decoration: const InputDecoration(
-                labelText: '密码',
-                border: OutlineInputBorder(),
-              ),
+              ],
             ),
-          ],
-        ),
-        actions: [
-          if (allowSkip)
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(''),
-              child: const Text('跳过加密'),
-            ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('取消'),
+            actions: [
+              if (allowSkip)
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(''),
+                  child: const Text('跳过加密'),
+                ),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  if (controller.text.trim().isEmpty) {
+                    AppToast.error(context, '密码不能为空');
+                    return;
+                  }
+                  Navigator.of(ctx).pop(controller.text);
+                },
+                child: const Text('确定'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () {
-              if (controller.text.trim().isEmpty) {
-                AppToast.error(context, '密码不能为空');
-                return;
-              }
-              Navigator.of(ctx).pop(controller.text);
-            },
-            child: const Text('确定'),
-          ),
-        ],
-      ),
     );
     return pwd;
   }
@@ -815,22 +903,27 @@ class _SettingsPageState extends State<SettingsPage> {
         allowSkip: true,
       );
       if (password == null) return; // 用户取消
-      final out = password.isEmpty ? json : BackupCipher.encrypt(json, password);
+      final out =
+          password.isEmpty ? json : BackupCipher.encrypt(json, password);
       // 移动端 saveFile 必须携带 bytes，否则抛 ArgumentError；
       // 传 bytes 后 file_picker 会写入所选路径，全平台一致。
       final bytes = Uint8List.fromList(utf8.encode(out));
       final result = await FilePicker.saveFile(
         dialogTitle: '导出备份',
-        fileName: password.isEmpty
-            ? '星漫匣_备份_${DateTime.now().millisecondsSinceEpoch}.json'
-            : '星漫匣_备份_${DateTime.now().millisecondsSinceEpoch}_enc.json',
+        fileName:
+            password.isEmpty
+                ? '星漫匣_备份_${DateTime.now().millisecondsSinceEpoch}.json'
+                : '星漫匣_备份_${DateTime.now().millisecondsSinceEpoch}_enc.json',
         type: FileType.custom,
         allowedExtensions: ['json'],
         bytes: bytes,
       );
       if (result == null) return;
       if (mounted) {
-        AppToast.info(context, '已导出到 ${result.split('\\').last.split('/').last}');
+        AppToast.info(
+          context,
+          '已导出到 ${result.split('\\').last.split('/').last}',
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -876,26 +969,27 @@ class _SettingsPageState extends State<SettingsPage> {
       if (!mounted) return;
       final confirmed = await showDialog<bool>(
         context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('导入备份'),
-          content: const Text(
-            '导入将覆盖当前本地的书架、阅读历史与设置数据，且不可撤销。\n\n确定继续吗？',
-            style: TextStyle(fontSize: 13.5, height: 1.6),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(ctx).colorScheme.error,
+        builder:
+            (ctx) => AlertDialog(
+              title: const Text('导入备份'),
+              content: const Text(
+                '导入将覆盖当前本地的书架、阅读历史与设置数据，且不可撤销。\n\n确定继续吗？',
+                style: TextStyle(fontSize: 13.5, height: 1.6),
               ),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('覆盖导入'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Theme.of(ctx).colorScheme.error,
+                  ),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('覆盖导入'),
+                ),
+              ],
             ),
-          ],
-        ),
       );
       if (confirmed != true) return; // 取消导入
       // 恢复书架
@@ -907,7 +1001,10 @@ class _SettingsPageState extends State<SettingsPage> {
       }
       final count = await LocalStore.restoreBackup(data);
       if (mounted) {
-        AppToast.info(context, '已恢复 $count 项数据（书架${data['bookshelf'] is Map ? ' +' : ''}${data['novel_shelf'] is Map ? '小说书架' : ''}）');
+        AppToast.info(
+          context,
+          '已恢复 $count 项数据（书架${data['bookshelf'] is Map ? ' +' : ''}${data['novel_shelf'] is Map ? '小说书架' : ''}）',
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -917,7 +1014,7 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-    /// 系统通知开关：开启时请求通知权限（Android 13+ 运行时弹窗）。
+  /// 系统通知开关：开启时请求通知权限（Android 13+ 运行时弹窗）。
   Future<void> _toggleNotify(bool value) async {
     setState(() => _notifyEnabled = value);
     try {
@@ -935,8 +1032,11 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
     if (mounted && value) {
-      AppToast.show(context, '已开启：收藏更新时在通知栏提醒',
-          duration: const Duration(seconds: 2));
+      AppToast.show(
+        context,
+        '已开启：收藏更新时在通知栏提醒',
+        duration: const Duration(seconds: 2),
+      );
     }
   }
 
@@ -946,11 +1046,10 @@ class _SettingsPageState extends State<SettingsPage> {
     await Net.setTrustSelfSigned(value);
     if (mounted) {
       AppToast.show(
-          context,
-          value
-              ? '已开启：信任自签证书（仅安全网络建议）'
-              : '已关闭：严格校验服务器证书',
-          duration: const Duration(seconds: 2));
+        context,
+        value ? '已开启：信任自签证书（仅安全网络建议）' : '已关闭：严格校验服务器证书',
+        duration: const Duration(seconds: 2),
+      );
     }
   }
 
@@ -958,34 +1057,38 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _pickUpdateFreq() async {
     final v = await showDialog<UpdateFreq>(
       context: context,
-      builder: (ctx) => SimpleDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: const Text('收藏更新提醒'),
-        children: [
-          for (final f in UpdateFreq.values)
-            SimpleDialogOption(
-              onPressed: () => Navigator.of(ctx).pop(f),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Row(
-                  children: [
-                    Icon(
-                      _updateFreq == f
-                          ? Icons.radio_button_checked_rounded
-                          : Icons.radio_button_off_rounded,
-                      size: 18,
-                      color: _updateFreq == f
-                          ? Theme.of(ctx).colorScheme.primary
-                          : Theme.of(ctx).colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 12),
-                    Text(f.label, style: const TextStyle(fontSize: 14)),
-                  ],
-                ),
-              ),
+      builder:
+          (ctx) => SimpleDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
             ),
-        ],
-      ),
+            title: const Text('收藏更新提醒'),
+            children: [
+              for (final f in UpdateFreq.values)
+                SimpleDialogOption(
+                  onPressed: () => Navigator.of(ctx).pop(f),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _updateFreq == f
+                              ? Icons.radio_button_checked_rounded
+                              : Icons.radio_button_off_rounded,
+                          size: 18,
+                          color:
+                              _updateFreq == f
+                                  ? Theme.of(ctx).colorScheme.primary
+                                  : Theme.of(ctx).colorScheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 12),
+                        Text(f.label, style: const TextStyle(fontSize: 14)),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
     );
     if (v == null || !mounted) return;
     await ShelfUpdater.setFrequency(v);
@@ -993,9 +1096,10 @@ class _SettingsPageState extends State<SettingsPage> {
     ShelfUpdater.instance.applyFrequency(v);
     setState(() => _updateFreq = v);
     AppToast.show(
-        context,
-        v == UpdateFreq.off ? '已关闭收藏更新提醒' : '已开启：${v.label}自动检查收藏更新',
-        duration: const Duration(seconds: 2));
+      context,
+      v == UpdateFreq.off ? '已关闭收藏更新提醒' : '已开启：${v.label}自动检查收藏更新',
+      duration: const Duration(seconds: 2),
+    );
   }
 
   Future<void> _checkUpdate() async {
@@ -1028,12 +1132,13 @@ class _SettingsPageState extends State<SettingsPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (_) => _WebDavSheet(
-        onChanged: () async {
-          _webdavSyncText = await _syncText();
-          if (mounted) setState(() {});
-        },
-      ),
+      builder:
+          (_) => _WebDavSheet(
+            onChanged: () async {
+              _webdavSyncText = await _syncText();
+              if (mounted) setState(() {});
+            },
+          ),
     );
   }
 
@@ -1047,9 +1152,13 @@ class _SettingsPageState extends State<SettingsPage> {
       String day;
       if (t.year == now.year && t.month == now.month && t.day == now.day) {
         day = '今天';
-      } else if (t
-          .isAfter(DateTime(now.year, now.month, now.day).subtract(
-              const Duration(days: 1)))) {
+      } else if (t.isAfter(
+        DateTime(
+          now.year,
+          now.month,
+          now.day,
+        ).subtract(const Duration(days: 1)),
+      )) {
         day = '昨天';
       } else {
         day = '${t.month}月${t.day}日';
@@ -1065,49 +1174,51 @@ class _SettingsPageState extends State<SettingsPage> {
   void _showUpdateDialog(UpdateInfo info) {
     showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: Text('发现新版本 v${info.version}'),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (info.notes != null && info.notes!.isNotEmpty) ...[
-                Text(
-                  info.notes!,
-                  style: const TextStyle(fontSize: 12.5),
-                ),
-                const SizedBox(height: 12),
-              ],
-              Text(
-                '当前版本：v${UpdateChecker.currentVersion()}',
-                style: TextStyle(
-                  fontSize: 11.5,
-                  color: Theme.of(ctx)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.6),
-                ),
+      builder:
+          (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            title: Text('发现新版本 v${info.version}'),
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (info.notes != null && info.notes!.isNotEmpty) ...[
+                    Text(info.notes!, style: const TextStyle(fontSize: 12.5)),
+                    const SizedBox(height: 12),
+                  ],
+                  Text(
+                    '当前版本：v${UpdateChecker.currentVersion()}',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: Theme.of(
+                        ctx,
+                      ).colorScheme.onSurface.withValues(alpha: 0.6),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('以后再说'),
+              ),
+              FilledButton(
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  showUpdateDownloadDialog(
+                    context,
+                    info.apkUrl,
+                    assetName: info.assetName,
+                  );
+                },
+                child: const Text('更新'),
               ),
             ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('以后再说'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              showUpdateDownloadDialog(context, info.apkUrl,
-                  assetName: info.assetName);
-            },
-            child: const Text('更新'),
-          ),
-        ],
-      ),
     );
   }
 
@@ -1119,21 +1230,24 @@ class _SettingsPageState extends State<SettingsPage> {
   }) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: Text(title),
-        content: Text(content),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
+      builder:
+          (_) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            title: Text(title),
+            content: Text(content),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('确定'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('确定'),
-          ),
-        ],
-      ),
     );
     if (ok == true) {
       try {
@@ -1154,67 +1268,77 @@ class _SettingsPageState extends State<SettingsPage> {
   void _showDisclaimer() {
     showDialog<void>(
       context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: const Text('免责声明'),
-        content: SingleChildScrollView(
-          child: Text(
-            '1. 本应用为开源学习项目，仅用于技术交流与个人学习，不提供任何影视、'
-            '漫画、小说等内容的制作、上传或存储服务。\n\n'
-            '2. 应用内所有内容（含图片、文字、视频链接等）均来自互联网公开站点，'
-            '由多个第三方数据源自动抓取聚合呈现，版权归原作者/权利人所有。\n\n'
-            '3. 应用不拥有、不控制、不审核任何第三方源站的内容，也不对源站内容'
-            '的合法性、准确性、完整性作任何保证。\n\n'
-            '4. 请勿使用本应用从事任何商业用途或侵犯他人合法权益的行为。'
-            '因使用本应用或其聚合内容产生的任何纠纷与损失，应用开发者不承担任何责任。\n\n'
-            '5. 如认为任何内容侵犯了您的合法权益，请通过源站渠道联系权利人下架，'
-            '应用开发者会尽力配合处理。',
-            style: TextStyle(
-              fontSize: 13,
-              height: 1.6,
-              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.85),
+      builder:
+          (_) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
             ),
+            title: const Text('免责声明'),
+            content: SingleChildScrollView(
+              child: Text(
+                '1. 本应用为开源学习项目，仅用于技术交流与个人学习，不提供任何影视、'
+                '漫画、小说等内容的制作、上传或存储服务。\n\n'
+                '2. 应用内所有内容（含图片、文字、视频链接等）均来自互联网公开站点，'
+                '由多个第三方数据源自动抓取聚合呈现，版权归原作者/权利人所有。\n\n'
+                '3. 应用不拥有、不控制、不审核任何第三方源站的内容，也不对源站内容'
+                '的合法性、准确性、完整性作任何保证。\n\n'
+                '4. 请勿使用本应用从事任何商业用途或侵犯他人合法权益的行为。'
+                '因使用本应用或其聚合内容产生的任何纠纷与损失，应用开发者不承担任何责任。\n\n'
+                '5. 如认为任何内容侵犯了您的合法权益，请通过源站渠道联系权利人下架，'
+                '应用开发者会尽力配合处理。',
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.6,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.85),
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('我知道了'),
+              ),
+            ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('我知道了'),
-          ),
-        ],
-      ),
     );
   }
 
   void _showPrivacy() {
     showDialog<void>(
       context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: const Text('隐私说明'),
-        content: SingleChildScrollView(
-          child: Text(
-            '1. 书架、阅读历史、偏好设置等数据均只保存在本机，不上传任何服务器，'
-            '支持随时导出/导入备份（JSON 文件由您自行保管）。\n\n'
-            '2. 应用仅向您浏览的第三方内容源站发起网络请求，应用自身不收集'
-            '您的任何个人信息。\n\n'
-            '3. 更新检查仅向 GitHub Releases 请求版本信息，不发送任何个人数据。\n\n'
-            '4. 若您在「网络工具」中配置了代理，之后的所有网络请求将通过该代理'
-            '转发，请确保您的代理环境安全可信。',
-            style: TextStyle(
-              fontSize: 13,
-              height: 1.6,
-              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.85),
+      builder:
+          (_) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
             ),
+            title: const Text('隐私说明'),
+            content: SingleChildScrollView(
+              child: Text(
+                '1. 书架、阅读历史、偏好设置等数据均只保存在本机，不上传任何服务器，'
+                '支持随时导出/导入备份（JSON 文件由您自行保管）。\n\n'
+                '2. 应用仅向您浏览的第三方内容源站发起网络请求，应用自身不收集'
+                '您的任何个人信息。\n\n'
+                '3. 更新检查仅向 GitHub Releases 请求版本信息，不发送任何个人数据。\n\n'
+                '4. 若您在「网络工具」中配置了代理，之后的所有网络请求将通过该代理'
+                '转发，请确保您的代理环境安全可信。',
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.6,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.85),
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('我知道了'),
+              ),
+            ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('我知道了'),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -1237,14 +1361,20 @@ class _ThemeSelector extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.palette_outlined,
-                  size: 20, color: scheme.onSurface.withValues(alpha: 0.85)),
+              Icon(
+                Icons.palette_outlined,
+                size: 20,
+                color: scheme.onSurface.withValues(alpha: 0.85),
+              ),
               const SizedBox(width: 12),
-              Text('主题色',
-                  style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: scheme.onSurface)),
+              Text(
+                '主题色',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: scheme.onSurface,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -1263,33 +1393,43 @@ class _ThemeSelector extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: AppTheme.seedOf(i),
                           shape: BoxShape.circle,
-                          border: current == i
-                              ? Border.all(
-                                  color: scheme.onSurface,
-                                  width: 2.5,
-                                )
-                              : null,
-                          boxShadow: current == i
-                              ? [
-                                  BoxShadow(
-                                      color: AppTheme.seedOf(i)
-                                          .withValues(alpha: 0.4),
+                          border:
+                              current == i
+                                  ? Border.all(
+                                    color: scheme.onSurface,
+                                    width: 2.5,
+                                  )
+                                  : null,
+                          boxShadow:
+                              current == i
+                                  ? [
+                                    BoxShadow(
+                                      color: AppTheme.seedOf(
+                                        i,
+                                      ).withValues(alpha: 0.4),
                                       blurRadius: 8,
-                                      offset: const Offset(0, 2)),
-                                ]
-                              : null,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ]
+                                  : null,
                         ),
-                        child: current == i
-                            ? const Icon(Icons.check_rounded,
-                                color: Colors.white, size: 20)
-                            : null,
+                        child:
+                            current == i
+                                ? const Icon(
+                                  Icons.check_rounded,
+                                  color: Colors.white,
+                                  size: 20,
+                                )
+                                : null,
                       ),
                       const SizedBox(height: 4),
-                      Text(_names[i],
-                          style: TextStyle(
-                              fontSize: 10,
-                              color: scheme.onSurface
-                                  .withValues(alpha: 0.6))),
+                      Text(
+                        _names[i],
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: scheme.onSurface.withValues(alpha: 0.6),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1375,7 +1515,8 @@ class _ColorizerSectionState extends State<_ColorizerSection> {
           (true, _, _, _) => 'Web 端不支持本地 AI 推理',
           (false, true, _, _) => '低端机（内存 < 4GB）不可用',
           (false, false, false, _) => '未导入模型（需 .tflite）',
-          (false, false, true, final p?) => '模型：${p.split('\\').last.split('/').last}',
+          (false, false, true, final p?) =>
+            '模型：${p.split('\\').last.split('/').last}',
           _ => '已启用，可在阅读器内使用',
         };
       });
@@ -1471,9 +1612,10 @@ class _ColorizerSectionState extends State<_ColorizerSection> {
                 _SettingTile(
                   icon: Icons.file_download_rounded,
                   title: '导入上色模型',
-                  subtitle: _m.modelPath != null
-                      ? '已加载，点击可替换'
-                      : '选择 .tflite 文件（AnimeGAN/DDColor 等）',
+                  subtitle:
+                      _m.modelPath != null
+                          ? '已加载，点击可替换'
+                          : '选择 .tflite 文件（AnimeGAN/DDColor 等）',
                   enabled: !_busy,
                   onTap: _pickModel,
                 ),
@@ -1557,9 +1699,11 @@ class _SettingTile extends StatelessWidget {
                     color: scheme.primary.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(icon,
-                      size: 18,
-                      color: enabled ? scheme.primary : disabledColor),
+                  child: Icon(
+                    icon,
+                    size: 18,
+                    color: enabled ? scheme.primary : disabledColor,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -1572,8 +1716,7 @@ class _SettingTile extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color:
-                              enabled ? scheme.onSurface : disabledColor,
+                          color: enabled ? scheme.onSurface : disabledColor,
                         ),
                       ),
                       if (subtitle != null) ...[
@@ -1582,21 +1725,25 @@ class _SettingTile extends StatelessWidget {
                           subtitle!,
                           style: TextStyle(
                             fontSize: 11.5,
-                            color: enabled
-                                ? scheme.onSurface.withValues(alpha: 0.6)
-                                : disabledColor,
+                            color:
+                                enabled
+                                    ? scheme.onSurface.withValues(alpha: 0.6)
+                                    : disabledColor,
                           ),
                         ),
                       ],
                     ],
                   ),
                 ),
-              if (trailing != null) trailing!,
-              if (trailing == null)
-                Icon(Icons.chevron_right_rounded,
-                    color: scheme.onSurface.withValues(alpha: 0.4), size: 22),
-            ],
-          ),
+                if (trailing != null) trailing!,
+                if (trailing == null)
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: scheme.onSurface.withValues(alpha: 0.4),
+                    size: 22,
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1721,11 +1868,10 @@ class _GestureSettingsSheetState extends State<_GestureSettingsSheet> {
           padding: const EdgeInsets.fromLTRB(22, 16, 22, 20),
           decoration: BoxDecoration(
             color: scheme.surface,
-            borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(24)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
             border: Border(
-                top:
-                    BorderSide(color: scheme.onSurface.withValues(alpha: 0.1))),
+              top: BorderSide(color: scheme.onSurface.withValues(alpha: 0.1)),
+            ),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1742,16 +1888,22 @@ class _GestureSettingsSheetState extends State<_GestureSettingsSheet> {
                 ),
               ),
               const SizedBox(height: 16),
-              Text('手势配置',
-                  style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: scheme.onSurface)),
+              Text(
+                '手势配置',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: scheme.onSurface,
+                ),
+              ),
               const SizedBox(height: 4),
-              Text('点击阅读器三等分区域触发的操作',
-                  style: TextStyle(
-                      fontSize: 12,
-                      color: scheme.onSurface.withValues(alpha: 0.5))),
+              Text(
+                '点击阅读器三等分区域触发的操作',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: scheme.onSurface.withValues(alpha: 0.5),
+                ),
+              ),
               const SizedBox(height: 18),
               Flexible(
                 child: SingleChildScrollView(
@@ -1778,7 +1930,9 @@ class _GestureSettingsSheetState extends State<_GestureSettingsSheet> {
                     try {
                       await LocalStore.setGestureConfig(_cfg);
                     } catch (e) {
-                      ErrorLogger.instance.warn('save gesture config failed: $e');
+                      ErrorLogger.instance.warn(
+                        'save gesture config failed: $e',
+                      );
                       if (context.mounted) {
                         AppToast.error(context, '手势配置保存失败，请重试');
                       }
@@ -1801,11 +1955,14 @@ class _GestureSettingsSheetState extends State<_GestureSettingsSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(_regionLabels[region] ?? region,
-            style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: scheme.onSurface.withValues(alpha: 0.85))),
+        Text(
+          _regionLabels[region] ?? region,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: scheme.onSurface.withValues(alpha: 0.85),
+          ),
+        ),
         const SizedBox(height: 6),
         Wrap(
           spacing: 6,
@@ -1829,14 +1986,16 @@ class _GestureSettingsSheetState extends State<_GestureSettingsSheet> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(
-          color: active
-              ? scheme.primary
-              : scheme.onSurface.withValues(alpha: 0.05),
+          color:
+              active
+                  ? scheme.primary
+                  : scheme.onSurface.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: active
-                ? scheme.primary
-                : scheme.onSurface.withValues(alpha: 0.14),
+            color:
+                active
+                    ? scheme.primary
+                    : scheme.onSurface.withValues(alpha: 0.14),
           ),
         ),
         child: Text(
@@ -1893,8 +2052,11 @@ class _WebDavSheetState extends State<_WebDavSheet> {
     super.dispose();
   }
 
-  Future<void> _run(String label, Future<void> Function() fn,
-      {String ok = ''}) async {
+  Future<void> _run(
+    String label,
+    Future<void> Function() fn, {
+    String ok = '',
+  }) async {
     if (_busy) return;
     setState(() {
       _busy = true;
@@ -1941,9 +2103,10 @@ class _WebDavSheetState extends State<_WebDavSheet> {
     });
     try {
       // 密码框留空 = 沿用已存密码（WebDavSync 内部处理），探测时同样沿用。
-      final pass = _passCtrl.text.isEmpty
-          ? (WebDavSync.config?['password'] as String? ?? '')
-          : _passCtrl.text;
+      final pass =
+          _passCtrl.text.isEmpty
+              ? (WebDavSync.config?['password'] as String? ?? '')
+              : _passCtrl.text;
       if (pass.isEmpty && _userCtrl.text.trim().isNotEmpty) {
         // 有账号但没密码：绝大多数 WebDAV 服务（坚果云/Nextcloud）都要求
         // 认证，空密码探测只会得到 401/403，这里直接提示避免误伤。
@@ -2092,7 +2255,10 @@ class _WebDavSheetState extends State<_WebDavSheet> {
                 Expanded(
                   child: Text(
                     '加密同步文件（AES-256-GCM，口令不落盘）',
-                    style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
                 Switch(
@@ -2114,9 +2280,14 @@ class _WebDavSheetState extends State<_WebDavSheet> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed: _busy ? null : () => _run('上传',
-                        () => WebDavSync.push(),
-                        ok: '已上传到 WebDAV'),
+                    onPressed:
+                        _busy
+                            ? null
+                            : () => _run(
+                              '上传',
+                              () => WebDavSync.push(),
+                              ok: '已上传到 WebDAV',
+                            ),
                     icon: const Icon(Icons.upload_rounded, size: 18),
                     label: const Text('上传同步'),
                   ),
@@ -2127,9 +2298,7 @@ class _WebDavSheetState extends State<_WebDavSheet> {
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: _busy
-                    ? null
-                    : () => _confirmPull(),
+                onPressed: _busy ? null : () => _confirmPull(),
                 icon: const Icon(Icons.download_rounded, size: 18),
                 label: const Text('从 WebDAV 拉取并覆盖本地'),
               ),
@@ -2137,16 +2306,22 @@ class _WebDavSheetState extends State<_WebDavSheet> {
             if (_status != null) ...[
               const SizedBox(height: 12),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
-                  color: (_statusOk ? scheme.primary : scheme.error)
-                      .withValues(alpha: 0.08),
+                  color: (_statusOk ? scheme.primary : scheme.error).withValues(
+                    alpha: 0.08,
+                  ),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Row(
                   children: [
                     Icon(
-                      _statusOk ? Icons.check_circle_outline : Icons.error_outline,
+                      _statusOk
+                          ? Icons.check_circle_outline
+                          : Icons.error_outline,
                       size: 18,
                       color: _statusOk ? scheme.primary : scheme.error,
                     ),
@@ -2154,7 +2329,10 @@ class _WebDavSheetState extends State<_WebDavSheet> {
                     Expanded(
                       child: Text(
                         _status!,
-                        style: TextStyle(fontSize: 12.5, color: scheme.onSurface),
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: scheme.onSurface,
+                        ),
                       ),
                     ),
                   ],
@@ -2170,22 +2348,27 @@ class _WebDavSheetState extends State<_WebDavSheet> {
   Future<void> _confirmPull() async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: const Text('拉取远端数据'),
-        content: const Text('将用 WebDAV 上的数据覆盖本地的收藏、历史、进度和设置。'
-            '本地上传之后的新改动会被覆盖，确定继续？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('取消'),
+      builder:
+          (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            title: const Text('拉取远端数据'),
+            content: const Text(
+              '将用 WebDAV 上的数据覆盖本地的收藏、历史、进度和设置。'
+              '本地上传之后的新改动会被覆盖，确定继续？',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('拉取并覆盖'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('拉取并覆盖'),
-          ),
-        ],
-      ),
     );
     if (ok != true || !mounted) return;
     await _run('拉取', () async {

@@ -312,9 +312,17 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
       ToolboxPage(key: _toolboxKey),
       ProfilePage(key: _profileKey, onSwitchTab: _onTab),
     ];
-    // 底栏只有 0/4/5/6 四项（手机布局），索引永远落在合法范围。
+    // _index 是侧栏/底栏的原始导航索引（书架=4/工具=5/我的=6，1/2/3 在
+    // _onTab 已归一到 hub 0），而 tabs 只有 4 页——必须映射后再喂
+    // IndexedStack，否则 index=4 越界直接红屏断言崩溃。
+    final stackIndex = switch (_index) {
+      4 => 1,
+      5 => 2,
+      6 => 3,
+      _ => 0,
+    };
     final body = IndexedStack(
-      index: _index,
+      index: stackIndex,
       children: tabs,
     );
 

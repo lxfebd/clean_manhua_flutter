@@ -9,6 +9,7 @@ import '../net/error_logger.dart';
 import '../sources/local_novel_source.dart';
 import 'novel_reader_page.dart';
 import 'widgets/app_toast.dart';
+import 'keyboard_shortcuts.dart';
 
 /// 本地小说导入页：选择 TXT/EPUB 文件 → 解析（isolate）→ 入库 → 进入阅读。
 class NovelImportPage extends StatefulWidget {
@@ -44,7 +45,8 @@ class _NovelImportPageState extends State<NovelImportPage> {
       // web 上 file_picker 的 path 是 blob URL（无本地文件系统），只信任 bytes；
       // 移动/桌面 path 为本地路径兜底读取。
       final pickedBytes = f.bytes;
-      final raw = pickedBytes ??
+      final raw =
+          pickedBytes ??
           (kIsWeb || f.path == null ? null : await File(f.path!).readAsBytes());
       if (raw == null) {
         _toast('读取文件失败');
@@ -54,19 +56,23 @@ class _NovelImportPageState extends State<NovelImportPage> {
       // 书名可编辑：默认剥扩展名的文件名（EPUB 可用元数据书名）。
       final title = await _askTitle(f.name, isEpub);
       if (title == null) return; // 用户取消
-      final bookId = isEpub
-          ? await LocalNovelSource.importEpubBytes(bytes,
-              overrideTitle: title)
-          : await LocalNovelSource.importTxtBytes(bytes, f.name,
-              overrideTitle: title);
+      final bookId =
+          isEpub
+              ? await LocalNovelSource.importEpubBytes(
+                bytes,
+                overrideTitle: title,
+              )
+              : await LocalNovelSource.importTxtBytes(
+                bytes,
+                f.name,
+                overrideTitle: title,
+              );
       if (!mounted) return;
       _toast('导入成功');
       // 替换当前页，避免返回栈叠两层导入页。
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(
-          builder: (_) => NovelDetailPageLocal(bookId: bookId),
-        ),
+        MaterialPageRoute(builder: (_) => NovelDetailPageLocal(bookId: bookId)),
       );
     } catch (e) {
       ErrorLogger.instance.warn('novel import failed: $e');
@@ -79,35 +85,37 @@ class _NovelImportPageState extends State<NovelImportPage> {
   final TextEditingController _titleCtrl = TextEditingController();
 
   Future<String?> _askTitle(String fileName, bool isEpub) async {
-    final defaultTitle = fileName.contains('.')
-        ? fileName.substring(0, fileName.lastIndexOf('.'))
-        : fileName;
+    final defaultTitle =
+        fileName.contains('.')
+            ? fileName.substring(0, fileName.lastIndexOf('.'))
+            : fileName;
     _titleCtrl.text = defaultTitle;
     final result = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('导入本地小说'),
-        content: TextField(
-          controller: _titleCtrl,
-          autofocus: true,
-          maxLines: 1,
-          decoration: InputDecoration(
-            labelText: '书名',
-            hintText: isEpub ? 'EPUB 元数据里的书名' : 'TXT 文件名',
-            border: const OutlineInputBorder(),
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text('导入本地小说'),
+            content: TextField(
+              controller: _titleCtrl,
+              autofocus: true,
+              maxLines: 1,
+              decoration: InputDecoration(
+                labelText: '书名',
+                hintText: isEpub ? 'EPUB 元数据里的书名' : 'TXT 文件名',
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, _titleCtrl.text.trim()),
+                child: const Text('开始导入'),
+              ),
+            ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, _titleCtrl.text.trim()),
-            child: const Text('开始导入'),
-          ),
-        ],
-      ),
     );
     return result;
   }
@@ -124,7 +132,9 @@ class _NovelImportPageState extends State<NovelImportPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => EscPopScope(child: _buildRoot(context));
+
+  Widget _buildRoot(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       backgroundColor: scheme.surface,
@@ -150,16 +160,22 @@ class _NovelImportPageState extends State<NovelImportPage> {
                     color: scheme.primary.withValues(alpha: 0.12),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(Icons.local_library_outlined,
-                      size: 40, color: scheme.primary),
+                  child: Icon(
+                    Icons.local_library_outlined,
+                    size: 40,
+                    color: scheme.primary,
+                  ),
                 ),
                 const SizedBox(height: 18),
-                Text('把本地小说导入书架',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                        color: scheme.onSurface)),
+                Text(
+                  '把本地小说导入书架',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: scheme.onSurface,
+                  ),
+                ),
                 const SizedBox(height: 10),
                 Text(
                   '支持 TXT 与 EPUB 格式。'
@@ -167,20 +183,25 @@ class _NovelImportPageState extends State<NovelImportPage> {
                   'EPUB 按目录（spine）顺序导入。解析在后台完成，大文件不卡界面。',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                      fontSize: 13,
-                      height: 1.6,
-                      color: scheme.onSurface.withValues(alpha: 0.65)),
+                    fontSize: 13,
+                    height: 1.6,
+                    color: scheme.onSurface.withValues(alpha: 0.65),
+                  ),
                 ),
                 const SizedBox(height: 26),
                 FilledButton.icon(
                   onPressed: _busy ? null : _pickAndImport,
-                  icon: _busy
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white))
-                      : const Icon(Icons.file_open_outlined, size: 20),
+                  icon:
+                      _busy
+                          ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                          : const Icon(Icons.file_open_outlined, size: 20),
                   label: Text(_busy ? '正在解析…' : '选择 TXT / EPUB 文件'),
                   style: FilledButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
@@ -227,18 +248,21 @@ class _NovelDetailPageLocalState extends State<NovelDetailPageLocal> {
     if (_deleting) return;
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('删除本地书'),
-        content: const Text('删除后无法恢复，确定删除这本书吗？'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('删除')),
-        ],
-      ),
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text('删除本地书'),
+            content: const Text('删除后无法恢复，确定删除这本书吗？'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('删除'),
+              ),
+            ],
+          ),
     );
     if (confirm != true) return;
     setState(() => _deleting = true);
@@ -262,22 +286,24 @@ class _NovelDetailPageLocalState extends State<NovelDetailPageLocal> {
     if (meta == null) return;
     HapticFeedback.selectionClick();
     final chapters = (meta['chapters'] as List? ?? []);
-    final title = seq < chapters.length
-        ? ((chapters[seq] as Map)['title'] as String?) ?? ''
-        : '';
+    final title =
+        seq < chapters.length
+            ? ((chapters[seq] as Map)['title'] as String?) ?? ''
+            : '';
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => NovelReaderPage(
-          // 本地源已注册：阅读器完整复用（阅读设置/上下章/键盘翻页/历史）。
-          sourceId: LocalNovelSource.sourceId,
-          novelId: widget.bookId,
-          chapterId: '${widget.bookId}|$seq',
-          title: title,
-          novelName: (meta['name'] as String?) ?? '',
-          novelPic: '',
-          novelAuthor: (meta['author'] as String?) ?? '',
-        ),
+        builder:
+            (_) => NovelReaderPage(
+              // 本地源已注册：阅读器完整复用（阅读设置/上下章/键盘翻页/历史）。
+              sourceId: LocalNovelSource.sourceId,
+              novelId: widget.bookId,
+              chapterId: '${widget.bookId}|$seq',
+              title: title,
+              novelName: (meta['name'] as String?) ?? '',
+              novelPic: '',
+              novelAuthor: (meta['author'] as String?) ?? '',
+            ),
       ),
     );
   }
@@ -291,23 +317,32 @@ class _NovelDetailPageLocalState extends State<NovelDetailPageLocal> {
       appBar: AppBar(
         backgroundColor: scheme.surface,
         foregroundColor: scheme.onSurface,
-        title: Text(meta?['name'] as String? ?? '本地书',
-            style: const TextStyle(fontSize: 16)),
+        title: Text(
+          meta?['name'] as String? ?? '本地书',
+          style: const TextStyle(fontSize: 16),
+        ),
         actions: [
           IconButton(
             tooltip: '删除本地书',
-            icon: Icon(_deleting ? Icons.hourglass_empty : Icons.delete_outline,
-                size: 20),
+            icon: Icon(
+              _deleting ? Icons.hourglass_empty : Icons.delete_outline,
+              size: 20,
+            ),
             onPressed: _deleting ? null : _delete,
           ),
         ],
       ),
-      body: meta == null
-          ? Center(
-              child: Text('书已不存在',
+      body:
+          meta == null
+              ? Center(
+                child: Text(
+                  '书已不存在',
                   style: TextStyle(
-                      color: scheme.onSurface.withValues(alpha: 0.6))))
-          : _body(scheme, meta),
+                    color: scheme.onSurface.withValues(alpha: 0.6),
+                  ),
+                ),
+              )
+              : _body(scheme, meta),
     );
   }
 
@@ -329,27 +364,40 @@ class _NovelDetailPageLocalState extends State<NovelDetailPageLocal> {
                   color: scheme.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(Icons.menu_book_rounded,
-                    size: 40, color: scheme.primary),
+                child: Icon(
+                  Icons.menu_book_rounded,
+                  size: 40,
+                  color: scheme.primary,
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(meta['name'] as String? ?? '',
-                        style: const TextStyle(
-                            fontSize: 17, fontWeight: FontWeight.w700)),
+                    Text(
+                      meta['name'] as String? ?? '',
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                     const SizedBox(height: 6),
-                    Text('作者：${author.isEmpty ? '未知' : author}',
-                        style: TextStyle(
-                            fontSize: 13,
-                            color: scheme.onSurface.withValues(alpha: 0.6))),
+                    Text(
+                      '作者：${author.isEmpty ? '未知' : author}',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: scheme.onSurface.withValues(alpha: 0.6),
+                      ),
+                    ),
                     const SizedBox(height: 4),
-                    Text('来源：$sourceName · ${chapters.length} 章',
-                        style: TextStyle(
-                            fontSize: 13,
-                            color: scheme.onSurface.withValues(alpha: 0.6))),
+                    Text(
+                      '来源：$sourceName · ${chapters.length} 章',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: scheme.onSurface.withValues(alpha: 0.6),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -358,18 +406,22 @@ class _NovelDetailPageLocalState extends State<NovelDetailPageLocal> {
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Text('目录（${chapters.length} 章）',
-              style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: scheme.onSurface)),
+          child: Text(
+            '目录（${chapters.length} 章）',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: scheme.onSurface,
+            ),
+          ),
         ),
         for (var i = 0; i < chapters.length; i++)
           ListTile(
             dense: true,
             title: Text(
-                ((chapters[i] as Map)['title'] as String?) ?? '第 ${i + 1} 章',
-                style: TextStyle(fontSize: 14, color: scheme.onSurface)),
+              ((chapters[i] as Map)['title'] as String?) ?? '第 ${i + 1} 章',
+              style: TextStyle(fontSize: 14, color: scheme.onSurface),
+            ),
             trailing: const Icon(Icons.chevron_right_rounded, size: 18),
             onTap: () => _openChapter(i),
           ),

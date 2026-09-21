@@ -35,4 +35,16 @@ void main() {
     await pumpAt(tester, 1920);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('桌面 1440dp：点书架/工具/我的不越界崩溃', (tester) async {
+    // 回归：hub 保活重构后侧栏原始索引 4/5/6 直喂 IndexedStack（仅 4 页）
+    // 必红屏断言崩溃。点这三个入口验证映射正确、无异常。
+    await pumpAt(tester, 1440);
+    for (final label in ['书架', '工具', '我的']) {
+      await tester.tap(find.text(label).first);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(tester.takeException(), isNull, reason: '点击$label后崩溃');
+    }
+  });
 }

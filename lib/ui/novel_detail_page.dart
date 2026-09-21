@@ -10,6 +10,7 @@ import '../ui/responsive.dart';
 import '../ui/widgets/app_toast.dart';
 import '../ui/widgets/cached_image.dart';
 import '../ui/widgets/motion.dart';
+import 'keyboard_shortcuts.dart';
 
 /// 小说详情页：封面/元信息 + 章节目录。章节点击进入阅读器。
 class NovelDetailPage extends StatefulWidget {
@@ -17,12 +18,13 @@ class NovelDetailPage extends StatefulWidget {
   final String novelId;
   final String? name;
   final String? pic;
-  const NovelDetailPage(
-      {super.key,
-      required this.sourceId,
-      required this.novelId,
-      this.name,
-      this.pic});
+  const NovelDetailPage({
+    super.key,
+    required this.sourceId,
+    required this.novelId,
+    this.name,
+    this.pic,
+  });
 
   @override
   State<NovelDetailPage> createState() => _NovelDetailPageState();
@@ -64,7 +66,9 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
       return;
     }
     try {
-      final d = await s.detail(widget.novelId).timeout(const Duration(seconds: 15));
+      final d = await s
+          .detail(widget.novelId)
+          .timeout(const Duration(seconds: 15));
       if (mounted) {
         _detail = d;
         _error = null;
@@ -93,8 +97,11 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
     }
     if (mounted) {
       setState(() => _saved = !_saved);
-      AppToast.info(context, _saved ? '已加入书架' : '已移出书架',
-          duration: const Duration(seconds: 1));
+      AppToast.info(
+        context,
+        _saved ? '已加入书架' : '已移出书架',
+        duration: const Duration(seconds: 1),
+      );
     }
   }
 
@@ -106,9 +113,13 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
     try {
       final d = _detail!;
       final hist = await LocalStore.history();
-      final key = Bookmark(
-              sourceId: widget.sourceId, comicId: widget.novelId, name: '', pic: '')
-          .key;
+      final key =
+          Bookmark(
+            sourceId: widget.sourceId,
+            comicId: widget.novelId,
+            name: '',
+            pic: '',
+          ).key;
       // 倒序找最新一条：同一章节被多次记录时取最近一次位置。
       var scrollOffset = 0.0;
       for (final h in hist.reversed) {
@@ -121,16 +132,17 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
       await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => NovelReaderPage(
-            sourceId: widget.sourceId,
-            novelId: widget.novelId,
-            chapterId: ch.id,
-            title: ch.title,
-            novelName: d.name,
-            novelPic: d.pic ?? '',
-            novelAuthor: d.author ?? d.comic.author ?? '',
-            initialOffset: scrollOffset,
-          ),
+          builder:
+              (_) => NovelReaderPage(
+                sourceId: widget.sourceId,
+                novelId: widget.novelId,
+                chapterId: ch.id,
+                title: ch.title,
+                novelName: d.name,
+                novelPic: d.pic ?? '',
+                novelAuthor: d.author ?? d.comic.author ?? '',
+                initialOffset: scrollOffset,
+              ),
         ),
       );
     } finally {
@@ -139,7 +151,9 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => EscPopScope(child: _buildRoot(context));
+
+  Widget _buildRoot(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       backgroundColor: scheme.surface,
@@ -151,42 +165,51 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
           if (_detail != null)
             IconButton(
               tooltip: _saved ? '移出书架' : '加入书架',
-              icon: Icon(_saved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded),
+              icon: Icon(
+                _saved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+              ),
               onPressed: _toggleSave,
             ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-          : _error != null
+      body:
+          _loading
+              ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+              : _error != null
               ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(_error!,
-                          style: TextStyle(
-                              color: scheme.onSurface.withValues(alpha: 0.6))),
-                      const SizedBox(height: 12),
-                      FilledButton(onPressed: () {
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      _error!,
+                      style: TextStyle(
+                        color: scheme.onSurface.withValues(alpha: 0.6),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    FilledButton(
+                      onPressed: () {
                         setState(() => _loading = true);
                         _load();
-                      }, child: const Text('重试')),
-                    ],
-                  ),
-                )
+                      },
+                      child: const Text('重试'),
+                    ),
+                  ],
+                ),
+              )
               : Responsive.isExpanded(context)
-                  ? _bodyTablet(scheme)
-                  : _body(scheme),
+              ? _bodyTablet(scheme)
+              : _body(scheme),
     );
   }
 
   Widget _bodyTablet(scheme) {
     final d = _detail!;
     final pad = Responsive.pagePadding(context);
-    
+
     // 使用响应式左侧面板宽度
     final leftPanelWidth = Responsive.detailLeftWidth(context);
-    
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -198,68 +221,88 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
           // 长描述在矮屏/平板竖屏时左侧会超出视口：整列可滚动，杜绝溢出。
           child: SingleChildScrollView(
             child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 2),
-              // 封面保持 2:3 比例：固定 height:200 在宽面板下会把封面压扁变形。
-              Center(
-                child: AspectRatio(
-                  aspectRatio: 2 / 3,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: CachedImage(d.pic ?? '',
-                        width: double.infinity, height: 200, radius: 10),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(d.name,
-                  style: const TextStyle(
-                      fontSize: 17, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 6),
-              Text('作者：${d.author ?? d.comic.author ?? '未知'}',
-                  style: TextStyle(
-                      fontSize: 13,
-                      color: scheme.onSurface.withValues(alpha: 0.6))),
-              if (d.status != null)
-                Text('状态：${d.status}',
-                    style: TextStyle(
-                        fontSize: 13,
-                        color: scheme.onSurface.withValues(alpha: 0.6))),
-              const SizedBox(height: 10),
-              FilledButton.icon(
-                onPressed: _toggleSave,
-                icon: Icon(_saved
-                    ? Icons.bookmark_rounded
-                    : Icons.bookmark_border_rounded),
-                label: Text(_saved ? '已在书架' : '加入书架'),
-              ),
-              if (d.description != null && d.description!.isNotEmpty) ...[
-                const SizedBox(height: 14),
-                Text(d.description!,
-                    maxLines: _descExpanded ? null : 4,
-                    overflow: _descExpanded ? null : TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: 13,
-                        height: 1.6,
-                        color: scheme.onSurface.withValues(alpha: 0.8))),
-                if (d.description!.length > 100)
-                  GestureDetector(
-                    onTap: () =>
-                        setState(() => _descExpanded = !_descExpanded),
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text(
-                        _descExpanded ? '收起' : '展开',
-                        style: TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w600,
-                            color: scheme.primary),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 2),
+                // 封面保持 2:3 比例：固定 height:200 在宽面板下会把封面压扁变形。
+                Center(
+                  child: AspectRatio(
+                    aspectRatio: 2 / 3,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: CachedImage(
+                        d.pic ?? '',
+                        width: double.infinity,
+                        height: 200,
+                        radius: 10,
                       ),
                     ),
                   ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  d.name,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '作者：${d.author ?? d.comic.author ?? '未知'}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: scheme.onSurface.withValues(alpha: 0.6),
+                  ),
+                ),
+                if (d.status != null)
+                  Text(
+                    '状态：${d.status}',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: scheme.onSurface.withValues(alpha: 0.6),
+                    ),
+                  ),
+                const SizedBox(height: 10),
+                FilledButton.icon(
+                  onPressed: _toggleSave,
+                  icon: Icon(
+                    _saved
+                        ? Icons.bookmark_rounded
+                        : Icons.bookmark_border_rounded,
+                  ),
+                  label: Text(_saved ? '已在书架' : '加入书架'),
+                ),
+                if (d.description != null && d.description!.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Text(
+                    d.description!,
+                    maxLines: _descExpanded ? null : 4,
+                    overflow: _descExpanded ? null : TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      height: 1.6,
+                      color: scheme.onSurface.withValues(alpha: 0.8),
+                    ),
+                  ),
+                  if (d.description!.length > 100)
+                    GestureDetector(
+                      onTap:
+                          () => setState(() => _descExpanded = !_descExpanded),
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          _descExpanded ? '收起' : '展开',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: scheme.primary,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ],
-            ],
             ),
           ),
         ),
@@ -270,11 +313,14 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
             children: [
               Padding(
                 padding: EdgeInsets.fromLTRB(pad, 16, pad, 8),
-                child: Text('目录（${d.chapters.length} 章）',
-                    style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: scheme.onSurface)),
+                child: Text(
+                  '目录（${d.chapters.length} 章）',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: scheme.onSurface,
+                  ),
+                ),
               ),
               Expanded(
                 child: ListView.builder(
@@ -284,11 +330,14 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
                     final ch = d.chapters[i];
                     return ListTile(
                       dense: true,
-                      title: Text(ch.title,
-                          style: TextStyle(
-                              fontSize: 14, color: scheme.onSurface)),
-                      trailing:
-                          const Icon(Icons.chevron_right_rounded, size: 18),
+                      title: Text(
+                        ch.title,
+                        style: TextStyle(fontSize: 14, color: scheme.onSurface),
+                      ),
+                      trailing: const Icon(
+                        Icons.chevron_right_rounded,
+                        size: 18,
+                      ),
                       onTap: () => _openChapter(ch),
                     );
                   },
@@ -313,32 +362,49 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
               children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(10),
-                  child: CachedImage(d.pic ?? '', width: 96, height: 132, radius: 10),
+                  child: CachedImage(
+                    d.pic ?? '',
+                    width: 96,
+                    height: 132,
+                    radius: 10,
+                  ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(d.name,
-                          style: const TextStyle(
-                              fontSize: 17, fontWeight: FontWeight.w700)),
+                      Text(
+                        d.name,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                       const SizedBox(height: 6),
-                      Text('作者：${d.author ?? d.comic.author ?? '未知'}',
-                          style: TextStyle(
-                              fontSize: 13,
-                              color: scheme.onSurface.withValues(alpha: 0.6))),
+                      Text(
+                        '作者：${d.author ?? d.comic.author ?? '未知'}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: scheme.onSurface.withValues(alpha: 0.6),
+                        ),
+                      ),
                       if (d.status != null)
-                        Text('状态：${d.status}',
-                            style: TextStyle(
-                                fontSize: 13,
-                                color: scheme.onSurface.withValues(alpha: 0.6))),
+                        Text(
+                          '状态：${d.status}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: scheme.onSurface.withValues(alpha: 0.6),
+                          ),
+                        ),
                       const SizedBox(height: 10),
                       FilledButton.icon(
                         onPressed: _toggleSave,
-                        icon: Icon(_saved
-                            ? Icons.bookmark_rounded
-                            : Icons.bookmark_border_rounded),
+                        icon: Icon(
+                          _saved
+                              ? Icons.bookmark_rounded
+                              : Icons.bookmark_border_rounded,
+                        ),
                         label: Text(_saved ? '已在书架' : '加入书架'),
                       ),
                     ],
@@ -355,25 +421,29 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(d.description!,
-                      maxLines: _descExpanded ? null : 4,
-                      overflow: _descExpanded ? null : TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 13.5,
-                          height: 1.6,
-                          color: scheme.onSurface.withValues(alpha: 0.8))),
+                  Text(
+                    d.description!,
+                    maxLines: _descExpanded ? null : 4,
+                    overflow: _descExpanded ? null : TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      height: 1.6,
+                      color: scheme.onSurface.withValues(alpha: 0.8),
+                    ),
+                  ),
                   if (d.description!.length > 100)
                     GestureDetector(
-                      onTap: () =>
-                          setState(() => _descExpanded = !_descExpanded),
+                      onTap:
+                          () => setState(() => _descExpanded = !_descExpanded),
                       child: Padding(
                         padding: const EdgeInsets.only(top: 6),
                         child: Text(
                           _descExpanded ? '收起' : '展开',
                           style: TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w600,
-                              color: scheme.primary),
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: scheme.primary,
+                          ),
                         ),
                       ),
                     ),
@@ -386,33 +456,35 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
             delay: const Duration(milliseconds: 200),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Text('目录（${d.chapters.length} 章）',
-                  style: TextStyle(
-                      fontSize: 15, fontWeight: FontWeight.w700, color: scheme.onSurface)),
+              child: Text(
+                '目录（${d.chapters.length} 章）',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: scheme.onSurface,
+                ),
+              ),
             ),
           ),
         ),
         SliverList(
-          delegate: SliverChildBuilderDelegate(
-            (ctx, i) {
-              final ch = d.chapters[i];
-              return FadeSlideIn(
-                delay: Duration(milliseconds: 250 + 30 * (i % 20)),
-                child: ListTile(
-                  dense: true,
-                  title: Text(ch.title,
-                      style: TextStyle(fontSize: 14, color: scheme.onSurface)),
-                  trailing: const Icon(Icons.chevron_right_rounded, size: 18),
-                  onTap: () => _openChapter(ch),
+          delegate: SliverChildBuilderDelegate((ctx, i) {
+            final ch = d.chapters[i];
+            return FadeSlideIn(
+              delay: Duration(milliseconds: 250 + 30 * (i % 20)),
+              child: ListTile(
+                dense: true,
+                title: Text(
+                  ch.title,
+                  style: TextStyle(fontSize: 14, color: scheme.onSurface),
                 ),
-              );
-            },
-            childCount: d.chapters.length,
-          ),
+                trailing: const Icon(Icons.chevron_right_rounded, size: 18),
+                onTap: () => _openChapter(ch),
+              ),
+            );
+          }, childCount: d.chapters.length),
         ),
       ],
     );
   }
 }
-
-

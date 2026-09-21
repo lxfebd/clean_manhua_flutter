@@ -1,6 +1,42 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+/// 推入页通用「Esc / Alt+← 返回」：包裹页面根节点即可。
+///
+/// 主壳全局键在子页推入后主动让位（防抢阅读器/播放器按键），导致普通
+/// 推入页（详情/设置/搜索等）没有任何键盘返回手段。业界桌面惯例
+/// （浏览器 Alt+←、对话框 Esc）由本组件补齐：
+/// - Esc / Alt+←：pop 当前路由；
+/// - 后代已消费 Esc（阅读器工具栏、播放器控制层）时事件不冒泡，零冲突；
+/// - 弹窗/对话框由 Flutter DialogRoute 自带 Esc 关闭，不经过本页。
+class EscPopScope extends StatelessWidget {
+  final Widget child;
+  const EscPopScope({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      // 无聚焦后代的页面（如详情页）也要收到按键：autofocus 拿到作用域焦点，
+      // 有 TextField 聚焦时焦点在输入框，Esc 沿祖先链冒泡仍会回到这里。
+      autofocus: true,
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+          return KeyEventResult.ignored;
+        }
+        final esc = event.logicalKey == LogicalKeyboardKey.escape;
+        final altBack = event.logicalKey == LogicalKeyboardKey.arrowLeft &&
+            HardwareKeyboard.instance.isAltPressed;
+        if ((esc || altBack) && Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: child,
+    );
+  }
+}
+
 /// 桌面端快捷键总览面板（`?` 呼出）。
 ///
 /// 只做静态展示：每组按“键位 → 动作”渲染，数据来自 [groupedShortcuts]。

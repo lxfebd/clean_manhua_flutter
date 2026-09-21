@@ -15,6 +15,7 @@ import 'widgets/cached_image.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/motion.dart';
 import 'widgets/state_view.dart';
+import 'keyboard_shortcuts.dart';
 
 /// 跨源统一搜索：输入关键词，并发搜索所有启用的漫画源，结果按源分组展示。
 class UnifiedSearchPage extends StatefulWidget {
@@ -129,9 +130,10 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
           _loading = false;
           _results = [];
           _hasMore = false;
-          _error = failed > 0
-              ? '搜索失败：全部 $failed 个源请求失败（可能是网络或源站问题）'
-              : '没有找到「$kw」相关的结果';
+          _error =
+              failed > 0
+                  ? '搜索失败：全部 $failed 个源请求失败（可能是网络或源站问题）'
+                  : '没有找到「$kw」相关的结果';
         });
         return;
       }
@@ -208,8 +210,9 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
           if (seen.add(it.id)) merged.add(it);
         }
         anyMore = anyMore || newItems.length >= _pageSize;
-        updated.add(_SourceResult(
-            source: r.source, items: merged, page: r.page + 1));
+        updated.add(
+          _SourceResult(source: r.source, items: merged, page: r.page + 1),
+        );
       }
       setState(() {
         _results = updated;
@@ -232,9 +235,13 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
   /// 拖垮 `Future.wait` 里的其他源结果（被墙/验证码/反爬都只是该源无结果）。
   /// 返回 `(items, failed)`：failed 标记该源请求是否真正失败（区别于无结果）。
   Future<(List<ComicItem>, bool)> _safeSearch(
-      ComicSource src, String keyword, int page) async {
+    ComicSource src,
+    String keyword,
+    int page,
+  ) async {
     try {
-      final items = await src.search(keyword, page)
+      final items = await src
+          .search(keyword, page)
           .timeout(const Duration(seconds: 15));
       return (items, false);
     } catch (_) {
@@ -274,11 +281,15 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
   void _scheduleSelect(ComicSource src, ComicItem item) {
     _selectDebounce?.cancel();
     _selectDebounce = Timer(
-        const Duration(milliseconds: 250), () => _select(src, item));
+      const Duration(milliseconds: 250),
+      () => _select(src, item),
+    );
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => EscPopScope(child: _buildRoot(context));
+
+  Widget _buildRoot(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -296,18 +307,23 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
                 children: [
                   Padding(
                     padding: EdgeInsets.fromLTRB(
-                        Responsive.pagePadding(context), 10,
-                        Responsive.pagePadding(context), 8),
+                      Responsive.pagePadding(context),
+                      10,
+                      Responsive.pagePadding(context),
+                      8,
+                    ),
                     child: Row(
                       children: [
                         IconButton(
                           tooltip: '返回',
                           onPressed: () => Navigator.maybePop(context),
                           icon: Icon(
-                              DesktopUi.isDesktopPlatform
-                                  ? Icons.arrow_back_rounded
-                                  : Icons.arrow_back_ios_new_rounded,
-                              size: 18, color: scheme.onSurface),
+                            DesktopUi.isDesktopPlatform
+                                ? Icons.arrow_back_rounded
+                                : Icons.arrow_back_ios_new_rounded,
+                            size: 18,
+                            color: scheme.onSurface,
+                          ),
                         ),
                         const SizedBox(width: 4),
                         // Flexible（loose）而非 Expanded（tight）：tight 约束会吞掉
@@ -315,7 +331,8 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
                         Flexible(
                           child: ConstrainedBox(
                             constraints: BoxConstraints(
-                                maxWidth: Responsive.fieldMaxWidth(context)),
+                              maxWidth: Responsive.fieldMaxWidth(context),
+                            ),
                             child: SizedBox(
                               height: 40,
                               child: TextField(
@@ -323,19 +340,26 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
                                 textInputAction: TextInputAction.search,
                                 onSubmitted: (_) => _search(),
                                 style: TextStyle(
-                                    fontSize: 14, color: scheme.onSurface),
+                                  fontSize: 14,
+                                  color: scheme.onSurface,
+                                ),
                                 decoration: InputDecoration(
                                   hintText: '搜索所有源…',
                                   hintStyle: TextStyle(
-                                      fontSize: 13.5,
-                                      color: scheme.onSurface
-                                          .withValues(alpha: 0.4)),
-                                  prefixIcon: Icon(Icons.search_rounded,
-                                      size: 20,
-                                      color: scheme.primary),
+                                    fontSize: 13.5,
+                                    color: scheme.onSurface.withValues(
+                                      alpha: 0.4,
+                                    ),
+                                  ),
+                                  prefixIcon: Icon(
+                                    Icons.search_rounded,
+                                    size: 20,
+                                    color: scheme.primary,
+                                  ),
                                   isDense: true,
                                   contentPadding: const EdgeInsets.symmetric(
-                                      vertical: 10),
+                                    vertical: 10,
+                                  ),
                                   border: InputBorder.none,
                                   filled: true,
                                   fillColor: scheme.surface,
@@ -380,35 +404,42 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
       if (_history.isNotEmpty) {
         return ListView(
           padding: EdgeInsets.fromLTRB(
-              Responsive.pagePadding(context), 12,
-              Responsive.pagePadding(context), 24),
+            Responsive.pagePadding(context),
+            12,
+            Responsive.pagePadding(context),
+            24,
+          ),
           children: [
             Row(
               children: [
-                Text('搜索历史',
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: scheme.onSurface.withValues(alpha: 0.7))),
+                Text(
+                  '搜索历史',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: scheme.onSurface.withValues(alpha: 0.7),
+                  ),
+                ),
                 const Spacer(),
                 InkWell(
                   onTap: () async {
                     final ok = await showDialog<bool>(
                       context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('清空搜索历史'),
-                        content: const Text('确定要清空全部搜索历史吗？此操作不可撤销。'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx, false),
-                            child: const Text('取消'),
+                      builder:
+                          (ctx) => AlertDialog(
+                            title: const Text('清空搜索历史'),
+                            content: const Text('确定要清空全部搜索历史吗？此操作不可撤销。'),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx, false),
+                                child: const Text('取消'),
+                              ),
+                              FilledButton(
+                                onPressed: () => Navigator.pop(ctx, true),
+                                child: const Text('清空'),
+                              ),
+                            ],
                           ),
-                          FilledButton(
-                            onPressed: () => Navigator.pop(ctx, true),
-                            child: const Text('清空'),
-                          ),
-                        ],
-                      ),
                     );
                     if (ok != true || !mounted) return;
                     await LocalStore.clearSearchHistory();
@@ -417,11 +448,16 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
                   borderRadius: BorderRadius.circular(6),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 4),
-                    child: Text('清空',
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: scheme.error.withValues(alpha: 0.9))),
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    child: Text(
+                      '清空',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: scheme.error.withValues(alpha: 0.9),
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -434,9 +470,11 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
                 for (final h in _history)
                   ActionChip(
                     label: Text(h, style: const TextStyle(fontSize: 12.5)),
-                    avatar: Icon(Icons.history_rounded,
-                        size: 15,
-                        color: scheme.onSurface.withValues(alpha: 0.5)),
+                    avatar: Icon(
+                      Icons.history_rounded,
+                      size: 15,
+                      color: scheme.onSurface.withValues(alpha: 0.5),
+                    ),
                     onPressed: () {
                       _searchCtrl.text = h;
                       _search();
@@ -458,14 +496,20 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
                 shape: BoxShape.circle,
                 color: scheme.primary.withValues(alpha: 0.08),
               ),
-              child: Icon(Icons.search_off_rounded,
-                  size: 40, color: scheme.primary),
+              child: Icon(
+                Icons.search_off_rounded,
+                size: 40,
+                color: scheme.primary,
+              ),
             ),
             const SizedBox(height: 12),
-            Text('没有找到相关结果',
-                style: TextStyle(
-                    fontSize: 14,
-                    color: scheme.onSurface.withValues(alpha: 0.6))),
+            Text(
+              '没有找到相关结果',
+              style: TextStyle(
+                fontSize: 14,
+                color: scheme.onSurface.withValues(alpha: 0.6),
+              ),
+            ),
           ],
         ),
       );
@@ -479,14 +523,9 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
       return Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: _buildResultList(scheme, compactCards: false),
-          ),
+          Expanded(child: _buildResultList(scheme, compactCards: false)),
           const VerticalDivider(width: 1, thickness: 1),
-          SizedBox(
-            width: panelW,
-            child: _buildPreviewPanel(scheme),
-          ),
+          SizedBox(width: panelW, child: _buildPreviewPanel(scheme)),
         ],
       );
     }
@@ -497,9 +536,11 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
     return ListView.builder(
       controller: _listCtrl,
       padding: EdgeInsets.fromLTRB(
-          Responsive.pagePadding(context), 4,
-          Responsive.pagePadding(context),
-          (Responsive.isTablet(context) ? 24 : 110)),
+        Responsive.pagePadding(context),
+        4,
+        Responsive.pagePadding(context),
+        (Responsive.isTablet(context) ? 24 : 110),
+      ),
       itemCount: _results.length + (_failedCount > 0 ? 1 : 0) + 1,
       itemBuilder: (_, i) {
         if (_failedCount > 0 && i == _results.length) {
@@ -516,9 +557,11 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
           compact: compactCards,
           // 双栏模式：点卡片 = 选中并在右侧预览（master-detail）；
           // 单栏模式：点卡片 = 直接进详情页。
-          onTap: (item) => compactCards
-              ? _openDetail(_results[resultIdx].source, item)
-              : _select(_results[resultIdx].source, item),
+          onTap:
+              (item) =>
+                  compactCards
+                      ? _openDetail(_results[resultIdx].source, item)
+                      : _select(_results[resultIdx].source, item),
           onHover: (item) => _scheduleSelect(_results[resultIdx].source, item),
         );
       },
@@ -531,15 +574,19 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
       padding: const EdgeInsets.fromLTRB(4, 12, 4, 4),
       child: Row(
         children: [
-          Icon(Icons.cloud_off_rounded,
-              size: 15, color: scheme.onSurface.withValues(alpha: 0.5)),
+          Icon(
+            Icons.cloud_off_rounded,
+            size: 15,
+            color: scheme.onSurface.withValues(alpha: 0.5),
+          ),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
               '$_failedCount 个源请求失败，已展示其余源结果',
               style: TextStyle(
-                  fontSize: 12,
-                  color: scheme.onSurface.withValues(alpha: 0.55)),
+                fontSize: 12,
+                color: scheme.onSurface.withValues(alpha: 0.55),
+              ),
             ),
           ),
         ],
@@ -559,17 +606,19 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
         child: Center(
           child: TextButton.icon(
             onPressed: _loadMore,
-            icon: Icon(Icons.refresh_rounded,
-                size: 16, color: scheme.primary),
-            label: Text('加载更多失败，点此重试',
-                style: TextStyle(fontSize: 12.5, color: scheme.primary)),
+            icon: Icon(Icons.refresh_rounded, size: 16, color: scheme.primary),
+            label: Text(
+              '加载更多失败，点此重试',
+              style: TextStyle(fontSize: 12.5, color: scheme.primary),
+            ),
           ),
         ),
       );
     }
     // 滚动触底即加载下一页（滚近底部时提前触发，避免等到底部才闪现加载态）
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_loadingMore && _hasMore &&
+      if (!_loadingMore &&
+          _hasMore &&
           _listCtrl.hasClients &&
           _listCtrl.position.extentAfter < 400) {
         _loadMore();
@@ -583,7 +632,9 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
             width: 18,
             height: 18,
             child: CircularProgressIndicator(
-                strokeWidth: 2, color: scheme.primary),
+              strokeWidth: 2,
+              color: scheme.primary,
+            ),
           ),
         ),
       );
@@ -592,9 +643,13 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 18),
         child: Center(
-          child: Text('已经到底啦',
-              style: TextStyle(
-                  fontSize: 12, color: scheme.onSurface.withValues(alpha: 0.35))),
+          child: Text(
+            '已经到底啦',
+            style: TextStyle(
+              fontSize: 12,
+              color: scheme.onSurface.withValues(alpha: 0.35),
+            ),
+          ),
         ),
       );
     }
@@ -611,14 +666,20 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.touch_app_rounded,
-                  size: 40, color: scheme.onSurface.withValues(alpha: 0.25)),
+              Icon(
+                Icons.touch_app_rounded,
+                size: 40,
+                color: scheme.onSurface.withValues(alpha: 0.25),
+              ),
               const SizedBox(height: 12),
-              Text('从左侧选择一部作品查看详情',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontSize: 13,
-                      color: scheme.onSurface.withValues(alpha: 0.45))),
+              Text(
+                '从左侧选择一部作品查看详情',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: scheme.onSurface.withValues(alpha: 0.45),
+                ),
+              ),
             ],
           ),
         ),
@@ -636,13 +697,14 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
             child: SizedBox(
               width: 132,
               height: 188,
-              child: CachedImage(sel.pic,
-                  fit: BoxFit.cover,
-                  radius: 0,
-                  fallbackUrls: [
-                    if (sel.picFallback?.isNotEmpty ?? false)
-                      sel.picFallback!,
-                  ]),
+              child: CachedImage(
+                sel.pic,
+                fit: BoxFit.cover,
+                radius: 0,
+                fallbackUrls: [
+                  if (sel.picFallback?.isNotEmpty ?? false) sel.picFallback!,
+                ],
+              ),
             ),
           ),
         ),
@@ -654,7 +716,10 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-              fontSize: 17, fontWeight: FontWeight.w700, color: scheme.onSurface),
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
+            color: scheme.onSurface,
+          ),
         ),
         if (d != null && d.author != null && d.author!.isNotEmpty) ...[
           const SizedBox(height: 4),
@@ -664,7 +729,9 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-                fontSize: 12.5, color: scheme.onSurface.withValues(alpha: 0.6)),
+              fontSize: 12.5,
+              color: scheme.onSurface.withValues(alpha: 0.6),
+            ),
           ),
         ],
         if (d != null && (d.type?.isNotEmpty ?? false)) ...[
@@ -675,7 +742,9 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-                fontSize: 12, color: scheme.onSurface.withValues(alpha: 0.45)),
+              fontSize: 12,
+              color: scheme.onSurface.withValues(alpha: 0.45),
+            ),
           ),
         ],
         const SizedBox(height: 16),
@@ -703,24 +772,28 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
         if (_detailLoading)
           const Padding(
             padding: EdgeInsets.only(top: 40),
-            child: Center(
-                child: CircularProgressIndicator(strokeWidth: 2)),
+            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
           )
         else if (d == null)
           Padding(
             padding: const EdgeInsets.only(top: 32),
             child: Column(
               children: [
-                Text('详情加载失败',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        fontSize: 12.5,
-                        color: scheme.onSurface.withValues(alpha: 0.4))),
+                Text(
+                  '详情加载失败',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    color: scheme.onSurface.withValues(alpha: 0.4),
+                  ),
+                ),
                 const SizedBox(height: 10),
                 OutlinedButton.icon(
                   onPressed: () {
                     // 新 key 重新发起（已有 key 已消费，复用会与旧请求错配）。
-                    final key = _fetchKey = '${_selectedSource!.id}::${_selected!.id}::retry';
+                    final key =
+                        _fetchKey =
+                            '${_selectedSource!.id}::${_selected!.id}::retry';
                     setState(() => _detailLoading = true);
                     _loadDetail(_selectedSource!, _selected!.id, key);
                   },
@@ -743,9 +816,10 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
               maxLines: 8,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                  fontSize: 12.5,
-                  height: 1.6,
-                  color: scheme.onSurface.withValues(alpha: 0.7)),
+                fontSize: 12.5,
+                height: 1.6,
+                color: scheme.onSurface.withValues(alpha: 0.7),
+              ),
             ),
           ),
         ],
@@ -758,16 +832,17 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ReaderPage(
-          sourceId: _selectedSource!.id,
-          comicId: d.id,
-          chapterId: d.chapters.first.id,
-          title: d.chapters.first.title,
-          comicName: d.name,
-          comicPic: d.pic ?? '',
-          comicAuthor: d.author ?? '',
-          chapters: d.chapters,
-        ),
+        builder:
+            (_) => ReaderPage(
+              sourceId: _selectedSource!.id,
+              comicId: d.id,
+              chapterId: d.chapters.first.id,
+              title: d.chapters.first.title,
+              comicName: d.name,
+              comicPic: d.pic ?? '',
+              comicAuthor: d.author ?? '',
+              chapters: d.chapters,
+            ),
       ),
     );
   }
@@ -777,12 +852,13 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => DetailPage(
-          sourceId: source.id,
-          comicId: item.id,
-          name: item.name,
-          pic: item.pic,
-        ),
+        builder:
+            (_) => DetailPage(
+              sourceId: source.id,
+              comicId: item.id,
+              name: item.name,
+              pic: item.pic,
+            ),
       ),
     );
   }
@@ -792,8 +868,11 @@ class _SourceResult {
   final ComicSource source;
   final List<ComicItem> items;
   final int page; // 已加载到的页码（从 1 开始）
-  const _SourceResult(
-      {required this.source, required this.items, this.page = 1});
+  const _SourceResult({
+    required this.source,
+    required this.items,
+    this.page = 1,
+  });
 }
 
 class _SourceResultGroup extends StatelessWidget {
@@ -828,14 +907,21 @@ class _SourceResultGroup extends StatelessWidget {
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: result.items.map((item) => _UnifiedCard(
-            item: item,
-            sourceId: result.source.id,
-            compact: compact,
-            selected: selected?.id == item.id && selectedSourceId == result.source.id,
-            onTap: () => onTap(item),
-            onHover: () => onHover(item),
-          )).toList(),
+          children:
+              result.items
+                  .map(
+                    (item) => _UnifiedCard(
+                      item: item,
+                      sourceId: result.source.id,
+                      compact: compact,
+                      selected:
+                          selected?.id == item.id &&
+                          selectedSourceId == result.source.id,
+                      onTap: () => onTap(item),
+                      onHover: () => onHover(item),
+                    ),
+                  )
+                  .toList(),
         ),
       ],
     );
@@ -881,16 +967,19 @@ class _UnifiedCardState extends State<_UnifiedCard> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 240),
           curve: Curves.easeOutCubic,
-          transform: Matrix4.identity()..translateByDouble(0.0, _hover ? -4 : 0, 0.0, 1.0),
+          transform:
+              Matrix4.identity()
+                ..translateByDouble(0.0, _hover ? -4 : 0, 0.0, 1.0),
           width: size,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
             // Minimalist：卡片无投影，悬停仅微位移反馈。
             boxShadow: const [],
             // 双栏模式：选中项用主题色描边标明当前预览对象。
-            border: widget.selected
-                ? Border.all(color: scheme.primary, width: 2)
-                : null,
+            border:
+                widget.selected
+                    ? Border.all(color: scheme.primary, width: 2)
+                    : null,
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
