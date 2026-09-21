@@ -268,10 +268,19 @@ jobs:
       - name: Setup NSIS
         shell: pwsh
         run: |
-          # NSIS 3.11 便携版（官方 SourceForge 项目文件），解压即用，无需管理员
+          # NSIS 3.11 便携版（官方 SourceForge 项目文件），解压即用，无需管理员。
+          # SourceForge 会 302 到随机镜像，runner 上偶发瞬断（Invoke-WebRequest 直接
+          # OperationStopped）→ 改用 curl 自带重试，再外层套 5 次退避循环兜底。
           $nsisVersion = "3.11"
           $url = "https://downloads.sourceforge.net/project/nsis/NSIS%203/$nsisVersion/nsis-$nsisVersion.zip"
-          Invoke-WebRequest -Uri $url -OutFile nsis.zip
+          $ok = $false
+          for ($i = 1; $i -le 5; $i++) {
+            curl.exe -sSL --fail --retry 3 --retry-all-errors --max-time 180 -o nsis.zip $url
+            if ($LASTEXITCODE -eq 0 -and (Get-Item nsis.zip -ErrorAction SilentlyContinue).Length -gt 1MB) { $ok = $true; break }
+            Write-Host "NSIS download attempt $i failed, retrying in $($i * 5)s..."
+            Start-Sleep -Seconds ($i * 5)
+          }
+          if (-not $ok) { throw "NSIS download failed after 5 attempts" }
           Expand-Archive -Path nsis.zip -DestinationPath . -Force
           $makensis = (Resolve-Path ".\nsis-$nsisVersion\makensis.exe").Path
           Add-Content $env:GITHUB_ENV "MAKENSIS=$makensis"

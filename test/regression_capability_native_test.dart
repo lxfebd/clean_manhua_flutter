@@ -23,7 +23,11 @@ void main() {
     final root = Directory.current;
     // 测试运行时 cwd 是包根目录。
     final asset = File('${root.path}/test/assets/demo_native/demo_math.dll');
-    expect(asset.existsSync(), isTrue, reason: '缺少演示 DLL 资产，先编译 test/assets/demo_native/demo_math.c');
+    expect(
+      asset.existsSync(),
+      isTrue,
+      reason: '缺少演示 DLL 资产，先编译 test/assets/demo_native/demo_math.c',
+    );
     demoDll = asset;
     // flutter_test 下 path_provider 无 platform channel，注入临时目录。
     tmpDir = await Directory.systemTemp.createTemp('cap_native_test');
@@ -54,13 +58,15 @@ void main() {
     });
 
     test('probe 纯 Dart 能力直接 ok（无 artifact）', () async {
-      await CapabilityPluginManager.instance.install(const CapabilityPlugin(
-        id: 'utility.pure',
-        name: '纯Dart',
-        category: 'utility',
-        version: '1.0.0',
-        author: '测试',
-      ));
+      await CapabilityPluginManager.instance.install(
+        const CapabilityPlugin(
+          id: 'utility.pure',
+          name: '纯Dart',
+          category: 'utility',
+          version: '1.0.0',
+          author: '测试',
+        ),
+      );
       final r = await CapabilityRuntime.instance.probe('utility.pure');
       expect(r, isA<CapabilityOk>());
     });
@@ -87,8 +93,10 @@ void main() {
       final r = await CapabilityRuntime.instance.probe('utility.native');
       expect(r, isA<CapabilityFailure>());
       expect(
-          (r as CapabilityFailure).reason, contains('构件'),
-          reason: '损坏文件必须走重下并给明确原因，不能静默通过');
+        (r as CapabilityFailure).reason,
+        contains('构件'),
+        reason: '损坏文件必须走重下并给明确原因，不能静默通过',
+      );
       // 恢复：重新放回正确 DLL，避免影响其他用例。
       await target.writeAsBytes(await demoDll.readAsBytes());
     });
@@ -101,8 +109,9 @@ void main() {
     test('启用 + artifact 就绪 → ok', () async {
       final store = CapabilityArtifactStore.instance;
       final dir = await store.artifactDir('utility.native');
-      await File('${dir!.path}/demo_math.dll')
-          .writeAsBytes(await demoDll.readAsBytes());
+      await File(
+        '${dir!.path}/demo_math.dll',
+      ).writeAsBytes(await demoDll.readAsBytes());
 
       final r = await CapabilityRuntime.instance.acquire('utility.native');
       expect(r, isA<CapabilityOk>());
@@ -123,7 +132,8 @@ void main() {
       final root = Directory.current;
       for (final abi in ['arm64-v8a', 'armeabi-v7a', 'x86_64']) {
         final so = File(
-            '${root.path}/android/app/src/main/jniLibs/$abi/libdemo_math.so');
+          '${root.path}/android/app/src/main/jniLibs/$abi/libdemo_math.so',
+        );
         expect(so.existsSync(), isTrue, reason: '缺少 $abi jniLibs 演示 so');
       }
     });
@@ -135,7 +145,8 @@ void main() {
       // 否则运行期加载的是未知版本（构建时应 fail-fast，此处单测兜底）。
       for (final abi in ['arm64-v8a', 'armeabi-v7a', 'x86_64']) {
         final so = File(
-            '${Directory.current.path}/android/app/src/main/jniLibs/$abi/libdemo_math.so');
+          '${Directory.current.path}/android/app/src/main/jniLibs/$abi/libdemo_math.so',
+        );
         final h = await store.sha256Of(so);
         expect(h, artifact.sha256[abi], reason: '$abi so 与元数据 sha256 不一致');
       }
@@ -169,17 +180,21 @@ void main() {
       expect((r as CapabilityFailure).reason, contains('构件'));
     });
 
-    test('runNative 加载真实 DLL 并调用导出函数', () async {
-      final store = CapabilityArtifactStore.instance;
-      final dir = await store.artifactDir('utility.native');
-      final target = File('${dir!.path}/demo_math.dll');
-      await target.writeAsBytes(await demoDll.readAsBytes());
+    test(
+      'runNative 加载真实 DLL 并调用导出函数',
+      () async {
+        final store = CapabilityArtifactStore.instance;
+        final dir = await store.artifactDir('utility.native');
+        final target = File('${dir!.path}/demo_math.dll');
+        await target.writeAsBytes(await demoDll.readAsBytes());
 
-      final r = await DemoNativePlugin.sum(40, 2);
-      expect(r, isA<CapabilityOk>());
-      final data = (r as CapabilityOk).data as Map<String, dynamic>;
-      expect(data['sum'], 42);
-      expect(data['version'], 0x20260911);
-    });
+        final r = await DemoNativePlugin.sum(40, 2);
+        expect(r, isA<CapabilityOk>());
+        final data = (r as CapabilityOk).data as Map<String, dynamic>;
+        expect(data['sum'], 42);
+        expect(data['version'], 0x20260911);
+      },
+      skip: Platform.isWindows ? false : '演示构件为 Windows DLL，CI 非 Windows 平台跳过',
+    );
   });
 }
