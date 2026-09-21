@@ -289,10 +289,12 @@ jobs:
       - name: Package Windows installer (NSIS exe)
         shell: pwsh
         run: |
-          # makensis 只认 UTF-16LE 或纯 ASCII 脚本；仓库里存 UTF-8，先转码再编译
+          # makensis 只认 UTF-16LE 或纯 ASCII 脚本；仓库里存 UTF-8，先转码再编译。
+          # -D 参数必须整体加引号：PowerShell 会把 -DAPP_VERSION=1.5.1 按点号拆成
+          # "APP_VERSION=1" + ".5.1"，makensis 把 .5.1 当脚本名报 Can't open script。
           $t = Get-Content -Raw -Encoding UTF8 windows/installer.nsi
           [IO.File]::WriteAllText("$env:TEMP\installer_u16.nsi", $t, [Text.Encoding]::Unicode)
-          & $env:MAKENSIS -DAPP_VERSION=${{ steps.version.outputs.version }} "$env:TEMP\installer_u16.nsi"
+          & $env:MAKENSIS "-DAPP_VERSION=${{ steps.version.outputs.version }}" "$env:TEMP\installer_u16.nsi"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-ChildItem xingmanxia-windows-*.exe
 
