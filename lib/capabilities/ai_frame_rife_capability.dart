@@ -10,6 +10,7 @@ import 'capability_artifact_store.dart';
 import 'capability_plugin.dart';
 import 'capability_plugin_manager.dart';
 import 'capability_runtime.dart';
+import 'process_timeout.dart';
 
 /// AI 视频插帧能力（RIFE 引擎，桌面专属插件）。
 ///
@@ -212,20 +213,37 @@ class AiFrameRifePlugin extends CapabilityPlugin {
       return store.lastError ?? '引擎包下载失败';
     }
     // 解压 zip 到 artifactDir（覆盖式，幂等）。
+    // Windows：整条 Expand-Archive 进单个 -Command 字符串，路径经
+    // psExpandArchiveCommand 的单引号字面量包裹——拆 argv 再让 PowerShell
+    // 拼回会丢引号，路径含空格必炸（与 ffmpeg 同因）；单引号同时挡住文件名
+    // 里的 `$(...)` 求值（命令注入）。
+    // 5 分钟超时：损坏 zip 时 Expand-Archive 可能挂死，无超时会让
+    // ensure 界面永远卡在"解压中"。解压后清理 zip，坏包不反复占盘。
     try {
-      final out = await Process.run('powershell', [
-        '-NoProfile', '-Command',
-        'Expand-Archive -Path "${zip.path}" -DestinationPath "${dir.path}" -Force',
-      ]);
+      final out = await runProcessWithTimeout(
+        'powershell',
+        [
+          '-NoProfile',
+          '-Command',
+          psExpandArchiveCommand(zip.path, dir.path),
+        ],
+        const Duration(minutes: 5),
+      );
       if (out.exitCode != 0) {
         ErrorLogger.instance
-            .warn('[capability] rife engine unzip failed: ${out.stderr}');
+            .warn('[capability] rife engine unzip failed: ${processStderrText(out)}');
         return '引擎包解压失败，请检查磁盘空间与权限';
       }
+    } on TimeoutException {
+      ErrorLogger.instance.warn('[capability] rife engine unzip timeout');
+      return '引擎包解压超时，请重试';
     } catch (e) {
       ErrorLogger.instance.warn('[capability] rife engine unzip error: $e');
       return '引擎包解压失败，请重试';
     }
+    try {
+      if (await zip.exists()) await zip.delete();
+    } catch (_) {}
     if (!await File('${dir.path}/$engineExeName').exists()) {
       return '引擎包解压后缺少 $engineExeName';
     }

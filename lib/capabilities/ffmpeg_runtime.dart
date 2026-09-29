@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -6,6 +7,7 @@ import '../net/error_logger.dart';
 import '../ui/responsive.dart' show DesktopUi;
 import 'capability_artifact_store.dart';
 import 'capability_plugin.dart';
+import 'process_timeout.dart';
 
 /// ffmpeg 运行期分发（F2 离线导出依赖）：直链下载 zip + SHA256 校验 + 幂等。
 ///
@@ -104,34 +106,43 @@ class FfmpegRuntime {
       return store.lastError ?? 'ffmpeg 包下载失败';
     }
     // 解压 zip 到 artifactDir（覆盖式，幂等）。
+    // Windows：整条 Expand-Archive 进单个 -Command 字符串，路径经
+    // psExpandArchiveCommand 的单引号字面量包裹——拆成多个 argv 再让
+    // PowerShell 拼回时会丢引号，路径含空格必炸（实测 `arch ive.zip` 被拆成
+    // 两个位置参数）；单引号同时挡住文件名里的 `$(...)` 求值（命令注入）。
+    // 3 分钟超时防损坏 zip 挂死。
     try {
-      if (Platform.isWindows) {
-        // 参数用数组逐项传入，幂等命令由 dash args 组装——不把路径拼进
-        // 命令文本，避免含空格路径被错误引号破坏。
-        final out = await Process.run('powershell', [
-          '-NoProfile', '-Command',
-          'Expand-Archive',
-          '-LiteralPath', zip.path,
-          '-DestinationPath', dir.path,
-          '-Force',
-        ]);
-        if (out.exitCode != 0) {
-          ErrorLogger.instance
-              .warn('[capability] ffmpeg unzip failed: ${out.stderr}');
-          return 'ffmpeg 解压失败，请检查磁盘空间与权限';
-        }
-      } else {
-        final out = await Process.run('unzip', ['-o', zip.path, '-d', dir.path]);
-        if (out.exitCode != 0) {
-          ErrorLogger.instance
-              .warn('[capability] ffmpeg unzip failed: ${out.stderr}');
-          return 'ffmpeg 解压失败，请检查磁盘空间与权限';
-        }
+      final out = Platform.isWindows
+          ? await runProcessWithTimeout(
+              'powershell',
+              [
+                '-NoProfile',
+                '-Command',
+                psExpandArchiveCommand(zip.path, dir.path),
+              ],
+              const Duration(minutes: 3),
+            )
+          : await runProcessWithTimeout(
+              'unzip',
+              ['-o', zip.path, '-d', dir.path],
+              const Duration(minutes: 3),
+            );
+      if (out.exitCode != 0) {
+        ErrorLogger.instance
+            .warn('[capability] ffmpeg unzip failed: ${processStderrText(out)}');
+        return 'ffmpeg 解压失败，请检查磁盘空间与权限';
       }
+    } on TimeoutException {
+      ErrorLogger.instance.warn('[capability] ffmpeg unzip timeout');
+      return 'ffmpeg 解压超时，请重试';
     } catch (e) {
       ErrorLogger.instance.warn('[capability] ffmpeg unzip error: $e');
       return 'ffmpeg 解压失败，请重试';
     }
+    // 解压成功后清理 zip，避免坏包/大包反复占盘。
+    try {
+      if (await zip.exists()) await zip.delete();
+    } catch (_) {}
     if (await _findExe(dir) == null) {
       return 'ffmpeg 包解压后未找到 ${Platform.operatingSystem} 的 $exeName';
     }

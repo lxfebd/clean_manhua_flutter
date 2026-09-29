@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../net/http_client.dart' show Net;
 import '../net/error_logger.dart';
+import 'capability_path_safety.dart';
 import 'capability_plugin.dart';
 
 /// 能力构件存储：下载 + SHA256 校验 + 落盘（桌面 artifact / 权重统一入口）。
@@ -38,8 +39,22 @@ class CapabilityArtifactStore {
     }
   }
 
-  /// artifact 落盘目录：`<support>/capabilities/<id>/`。
+  /// 能力 id 合法性：字母开头，其后仅字母/数字/点/下划线/连字符，且不得含 `..`。
+  /// id 直接拼进落盘路径（`capabilities` 与 `.model_cache` 下的 id 子目录），
+  /// 放开 `../` 会让恶意市场索引越界写文件/递归删目录（purge）。
+  /// 必须字母开头：`.` / `..` 若放行会解析成父目录本身，`purge('.')` 会清空整树。
+  static bool isValidId(String id) => isValidPathSegment(id);
+
+  /// 落盘文件名白名单（artifact 文件名 / 权重 name 通用）：与 [isValidId]
+  /// 同规则。这两处同样是把**远端可控字符串**（URL path 最后一段 percent
+  /// 解码后可含 `/`，权重 name 来自市场索引）直接拼进路径——`%2e%2e%2f`
+  /// 解码成 `../` 即可写出 id 目录之外，故必须先过白名单再拼接。
+  static bool isValidFileName(String name) => isValidPathSegment(name);
+
+  /// artifact 落盘目录：`support/capabilities/` 下的 id 子目录
+  /// （id 必须通过 [isValidId]）。
   Future<Directory?> artifactDir(String id) async {
+    if (!isValidId(id)) return null;
     final base = await _baseDir();
     if (base == null) return null;
     final d = Directory('${base.path}/capabilities/$id');
@@ -47,9 +62,11 @@ class CapabilityArtifactStore {
     return d;
   }
 
-  /// 权重落盘目录：`<support>/.model_cache/<id>/`。
+  /// 权重落盘目录：`support/.model_cache/` 下的 id 子目录
+  /// （id 必须通过 [isValidId]）。
   /// 项目红线：`.model_cache/` 保持为空（权重仅运行期下载，不入 git/APK）。
   Future<Directory?> weightDir(String id) async {
+    if (!isValidId(id)) return null;
     final base = await _baseDir();
     if (base == null) return null;
     final d = Directory('${base.path}/.model_cache/$id');
@@ -87,6 +104,45 @@ class CapabilityArtifactStore {
     }
   }
 
+  /// artifact 落盘文件名：取 URL 最后一段，过白名单；非法（percent 解码后
+  /// 含 `/`、`..`、空等）则退回 `<id>.artifact`——id 已过 [isValidId]，
+  /// 派生名恒安全。纯函数，便于单测锁死「恶意 URL 不产生越界路径」。
+  static String artifactFileName(String id, String url) {
+    final raw = Uri.parse(url).pathSegments
+        .where((s) => s.isNotEmpty)
+        .lastOrNull;
+    return (raw != null && isValidFileName(raw)) ? raw : '$id.artifact';
+  }
+
+  /// [f] 是否确实落在 [dir] 之内（兜底校验：白名单是第一道闸，这里防未来
+  /// 改动把带 `..` 的字符串再拼进来）。按段解析 `.`/`..` 后逐段比较——
+  /// `File.absolute` 不解析 `..`，直接前缀比较会把 `base/../x` 误判成在 base 内。
+  static bool isInside(Directory dir, File f) {
+    // 解析为规范化段列表；`..` 越过根时返回 null（越界，一律不算在内）。
+    List<String>? segs(String p) {
+      final out = <String>[];
+      for (final s in p.replaceAll('\\', '/').split('/')) {
+        if (s.isEmpty || s == '.') continue;
+        if (s == '..') {
+          if (out.isEmpty) return null;
+          out.removeLast();
+        } else {
+          out.add(s);
+        }
+      }
+      return out;
+    }
+
+    final base = segs(dir.absolute.path);
+    final path = segs(f.absolute.path);
+    if (base == null || path == null) return false;
+    if (path.length <= base.length) return false; // 必须是 dir 下的文件，不是 dir 本身
+    for (var i = 0; i < base.length; i++) {
+      if (base[i] != path[i]) return false;
+    }
+    return true;
+  }
+
   /// 下载/就绪单个 artifact，返回本地文件。
   /// - 桌面（[CapabilityArtifact.url]）：直链下载到应用支持目录。
   /// - Android：构建期 bundle（jniLibs / Maven AAR），运行期系统 loader 直接
@@ -100,10 +156,12 @@ class CapabilityArtifactStore {
     final dir = await artifactDir(id);
     if (dir == null || artifact.url == null) return null;
     final url = artifact.url!;
-    final fname = Uri.parse(url).pathSegments
-        .where((s) => s.isNotEmpty)
-        .lastOrNull;
-    final target = File('${dir.path}/${fname ?? '$id.artifact'}');
+    final target = File('${dir.path}/${artifactFileName(id, url)}');
+    if (!isInside(dir, target)) {
+      _lastError = '构件文件名非法，已拒绝落盘';
+      ErrorLogger.instance.warn('[capability] artifact path escapes dir ($id)');
+      return null;
+    }
 
     // 已存在且 SHA256 匹配 → 直接复用（幂等，避免重复下载）。
     final expected = artifact.sha256.values.isNotEmpty
@@ -160,7 +218,21 @@ class CapabilityArtifactStore {
   }) async {
     final dir = await weightDir(id);
     if (dir == null || weight.url.isEmpty) return null;
+    // 权重 name 来自市场索引（完全远端可控）：白名单 + 包含校验双重闸，
+    // 含 `../` 的 name 会让 `writeAsBytes` 越出 `.model_cache/<id>/`。
+    if (!isValidFileName(weight.name)) {
+      _lastError = '权重文件名非法，已拒绝落盘';
+      ErrorLogger.instance
+          .warn('[capability] weight filename rejected ($id): ${weight.name}');
+      return null;
+    }
     final target = File('${dir.path}/${weight.name}');
+    if (!isInside(dir, target)) {
+      _lastError = '权重文件名非法，已拒绝落盘';
+      ErrorLogger.instance
+          .warn('[capability] weight path escapes dir ($id): ${weight.name}');
+      return null;
+    }
 
     // 幂等：已存在且哈希匹配直接复用。
     if (await target.exists()) {

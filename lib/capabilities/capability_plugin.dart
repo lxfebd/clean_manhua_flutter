@@ -1,3 +1,5 @@
+import 'capability_path_safety.dart';
+
 /// 能力插件：算力/功能型插件的元数据 + 生命周期契约（SourcePlugin 的泛化）。
 ///
 /// 与 [SourcePlugin] 的差异（这是设计里反复强调的那条分界线）：
@@ -116,6 +118,9 @@ class CapabilityPlugin {
       if (wn is! String || wn.isEmpty || wu is! String || wu.isEmpty) {
         return null;
       }
+      // 快照同索引一样把 name 拼进落盘路径：拒绝含 `../` 等非法字符的条目
+      // （本地快照被改/由旧版恶意索引写入时兜底，store 侧还有第二道闸）。
+      if (!isValidPathSegment(wn)) return null;
       return CapabilityWeight(
         name: wn,
         url: wu,

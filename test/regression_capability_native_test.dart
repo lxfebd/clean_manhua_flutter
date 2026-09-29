@@ -50,6 +50,108 @@ void main() {
     });
   });
 
+  group('CapabilityArtifactStore.isValidId（目录穿越锁死）', () {
+    test('合法 id：字母开头 + 点/下划线/连字符', () {
+      for (final id in [
+        'ai.frame.rife',
+        'utility_native',
+        'cap-1',
+        '1x', // 数字开头也放行（仍非 . / ..）
+      ]) {
+        expect(CapabilityArtifactStore.isValidId(id), isTrue, reason: id);
+      }
+    });
+
+    test('非法 id：. / .. / 含 .. / 斜杠 / 空串 一律拒绝', () {
+      for (final id in ['.', '..', '../x', 'a..b', 'a/b', 'a\\b', '', ' ']) {
+        expect(CapabilityArtifactStore.isValidId(id), isFalse, reason: id);
+      }
+    });
+
+    test('artifactDir/weightDir 对非法 id 返回 null（不落盘）', () async {
+      final store = CapabilityArtifactStore.instance;
+      expect(await store.artifactDir('.'), isNull);
+      expect(await store.weightDir('.'), isNull);
+      expect(await store.artifactDir('..'), isNull);
+      expect(await store.artifactDir('../evil'), isNull);
+    });
+  });
+
+  // H2 补漏：id 之外，URL 文件名段与权重 name 同样拼进落盘路径。
+  group('落盘文件名/路径穿越锁死（H2 补漏）', () {
+    test('isValidFileName 与 id 同口径：拒绝 ../ 斜杠 空串', () {
+      for (final n in [
+        'model.tflite',
+        'flownet.bin',
+        'ffmpeg-win-x86_64.zip',
+        '1x',
+      ]) {
+        expect(CapabilityArtifactStore.isValidFileName(n), isTrue, reason: n);
+      }
+      for (final n in ['.', '..', '../x', 'a..b', 'a/b', r'a\b', '', ' ']) {
+        expect(CapabilityArtifactStore.isValidFileName(n), isFalse, reason: n);
+      }
+    });
+
+    test('artifactFileName：percent 编码的 ../ 被拒绝并退回安全名', () {
+      // `%2e%2e%2f` 解码成 `../`：pathSegments 单段即可带斜杠。
+      expect(
+        CapabilityArtifactStore.artifactFileName(
+            'ai.test', 'https://x/%2e%2e%2f%2e%2e%2fevil.dll'),
+        'ai.test.artifact',
+      );
+      expect(
+        CapabilityArtifactStore.artifactFileName(
+            'ai.test', 'https://x/..%2fevil.dll'),
+        'ai.test.artifact',
+      );
+      // 合法文件名原样保留（幂等复用依赖同名）。
+      expect(
+        CapabilityArtifactStore.artifactFileName(
+            'ai.test', 'https://x/dir/demo_math.dll'),
+        'demo_math.dll',
+      );
+    });
+
+    test('isInside：base/../x 不算在 base 内（File.absolute 不解析 ..）', () {
+      final base = Directory('${Directory.current.path}/cap_base');
+      expect(
+        CapabilityArtifactStore.isInside(base, File('${base.path}/ok.dll')),
+        isTrue,
+      );
+      expect(
+        CapabilityArtifactStore.isInside(base, File('${base.path}/../esc.dll')),
+        isFalse,
+      );
+      expect(
+        CapabilityArtifactStore.isInside(base, File('${base.path}/../../x')),
+        isFalse,
+      );
+      // dir 本身不算「dir 内的文件」
+      expect(CapabilityArtifactStore.isInside(base, File(base.path)), isFalse);
+    });
+
+    test('downloadWeight 拒绝非法 name（不发起下载、不落盘）', () async {
+      final store = CapabilityArtifactStore.instance;
+      store.clearError();
+      final f = await store.downloadWeight(
+        'ai.test',
+        const CapabilityWeight(
+          name: '../../evil.tflite',
+          url: 'https://x/evil.tflite',
+          sizeBytes: 1,
+          sha256: '',
+        ),
+      );
+      expect(f, isNull, reason: '非法权重名必须直接拒绝');
+      expect(store.lastError, contains('文件名非法'));
+      // 确认没有在 .model_cache 之外留下任何文件。
+      final base = await store.weightDir('ai.test');
+      expect(base, isNotNull);
+      expect(File('${base!.parent.parent.path}/evil.tflite').existsSync(), isFalse);
+    });
+  });
+
   group('probe 桌面 artifact 链路', () {
     test('probe 未注册能力 → 失败带原因', () async {
       final r = await CapabilityRuntime.instance.probe('not.registered');

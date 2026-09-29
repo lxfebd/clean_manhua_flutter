@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../net/http_client.dart';
 import '../net/local_store.dart';
+import 'capability_artifact_store.dart';
 import 'capability_plugin.dart';
 import 'capability_plugin_manager.dart';
 
@@ -120,6 +121,8 @@ class CapabilityMarket {
       if (id is! String || id.isEmpty || name is! String || name.isEmpty) {
         continue; // 跳过无 id/name 的坏条目，不阻塞整个市场
       }
+      // id 会拼进落盘路径：拒绝含 `../` 等非法字符的条目，防目录穿越。
+      if (!CapabilityArtifactStore.isValidId(id)) continue;
       final weights = <CapabilityWeight>[];
       final wl = m['weights'];
       if (wl is List) {
@@ -130,6 +133,9 @@ class CapabilityMarket {
           if (wn is! String || wn.isEmpty || wu is! String || wu.isEmpty) {
             continue;
           }
+          // 权重 name 直接拼进 .model_cache/<id>/<name> 落盘路径：
+          // 拒绝含 `../` 等非法字符的条目，防目录穿越（store 侧还有第二道闸）。
+          if (!CapabilityArtifactStore.isValidFileName(wn)) continue;
           weights.add(CapabilityWeight(
             name: wn,
             url: wu,

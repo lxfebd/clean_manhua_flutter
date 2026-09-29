@@ -79,6 +79,36 @@ void main() {
       expect(() => CapabilityMarket.parseIndex('not json'), throwsFormatException);
     });
 
+    // H2 补漏：权重 name 来自市场索引（完全远端可控）且直接拼进落盘路径。
+    test('权重 name 含 ../ 或斜杠 → 该权重被跳过，不影响其他条目', () {
+      const text = '''
+      {"name": "测试", "capabilities": [
+        {"id": "ai.evil", "name": "恶意", "weights": [
+          {"name": "../../evil.tflite", "url": "https://x/e"},
+          {"name": "sub/dir.bin", "url": "https://x/s"},
+          {"name": "..", "url": "https://x/d"},
+          {"name": "ok.tflite", "url": "https://x/ok"}
+        ]}
+      ]}
+      ''';
+      final entries = CapabilityMarket.parseIndex(text);
+      expect(entries, hasLength(1));
+      expect(entries.first.weights, hasLength(1));
+      expect(entries.first.weights.first.name, 'ok.tflite');
+    });
+
+    test('能力 id 含 ../ → 整个条目被跳过', () {
+      const text = '''
+      {"name": "测试", "capabilities": [
+        {"id": "../evil", "name": "恶意"},
+        {"id": "ok.legal", "name": "合法"}
+      ]}
+      ''';
+      final entries = CapabilityMarket.parseIndex(text);
+      expect(entries, hasLength(1));
+      expect(entries.first.id, 'ok.legal');
+    });
+
     test('MarketCapabilityEntry 字段映射', () {
       final e = MarketCapabilityEntry(
         id: 'ai.test',
