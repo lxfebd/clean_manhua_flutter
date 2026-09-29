@@ -22,6 +22,7 @@ import '../utils/anime4k.dart';
 import '../utils/danmaku.dart';
 import '../utils/desktop_fullscreen.dart';
 import '../utils/pip_channel.dart';
+import '../utils/tv_platform.dart';
 import 'episode_grouping.dart';
 import 'responsive.dart';
 import 'widgets/app_toast.dart';
@@ -296,6 +297,13 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 周期读取 mpv 属性验证超分实际输出与播放速率，结果写 ErrorLogger。
   Timer? _diagTimer;
 
+  /// 诊断采样代际：每次 _startDiag 递增。播放页重建（画中画/路由替换）后
+  /// 旧 timer 回调靠它识别自己已过期，不再操作新播放器。
+  int _diagGen = 0;
+
+  /// 诊断周期重入锁：上一周期 FFI 读取未结束时跳过本次采样。
+  bool _diagBusy = false;
+
   // ── 手势 ────────────────────────────────────
   /// 亮度下限。系统亮度可以压到 0，遮罩兜底时不能低于 0.12 否则全黑。
   static const double _minBrightness = 0.0;
@@ -424,6 +432,15 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     // M 静音、F 全屏、Esc 隐藏控制层。仅桌面注册，避免蓝牙键盘误触。
     if (DesktopUi.isDesktopPlatform) {
       HardwareKeyboard.instance.addHandler(_keyHandler);
+    } else {
+      // Android TV：遥控器媒体键映射到等价操作。D-pad 中心键/方向键
+      // 不抢——那是焦点系统的（按钮激活/列表导航）。
+      unawaited(TvPlatform.isTv.then((tv) {
+        if (tv && mounted) {
+          _tvKeysRegistered = true;
+          HardwareKeyboard.instance.addHandler(_tvKeyHandler);
+        }
+      }));
     }
   }
 
@@ -577,6 +594,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   }
 
   Future<void> _applyVolume(double v) async {
+    // 立即同步状态：mpv 路径（桌面无系统音量插件）没有平台事件回写，
+    // 不 setState 的话键盘/手势改完音量滑块和 HUD 仍是旧值。
+    if (mounted) setState(() => _volume = v);
     if (_volumeNative) {
       _selfVolumeChange = true;
       try {
@@ -810,10 +830,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       'User-Agent': Net.defaultUA,
       if (!RegExp(r'(^|\.)pan\.wo\.cn$').hasMatch(host))
         'Referer': '${uri.scheme}://$host/',
+      ...hostHeaderFor(url),
     };
-    if (RegExp(r'^\d{1,3}(\.\d{1,3}){3}$').hasMatch(host)) {
-      h['Host'] = 'www.tvtfun.net';
-    }
     return h;
   }
 
@@ -924,9 +942,11 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         if (resumeAt > _stablePos) _stablePos = resumeAt;
         if (mounted) setState(() {});
       }
-      // 诊断轮询每 2 秒做十几次同步 FFI 属性读取（会阻塞 UI 线程），
-      // 只在桌面端跑；移动端不需要这项观测。
-      if (DesktopUi.isDesktopPlatform) _startDiag();
+      // 诊断/自愈轮询：桌面端每 2 秒输出完整诊断行；Android 也要跑——
+      // 超分自愈（vo-passes 判据）只在该平台成立，此前因只在桌面启动而
+      // 成了死路径。移动端没有可观测的 vo-passes 时不做额外读（Web stub
+      // getProperty 失败返回 ERR，成本可忽略）。
+      _startDiag();
       _scheduleHide();
       return true;
     } catch (e) {
@@ -1184,171 +1204,189 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     final native = _player?.platform;
     if (native is! NativePlayer) return;
     final dyn = native as dynamic;
+    final gen = ++_diagGen;
     String? last;
     _diagTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
-      if (!mounted) return;
-      // 逐个读取并容错：某个属性失败时记下错误，不拖垮整行诊断。
-      Future<String> rd(String name) async {
-        try {
-          return (await dyn.getProperty(name)).toString();
-        } catch (e) {
-          return 'ERR($e)';
-        }
-      }
-
-      final wp = await rd('video-params/w');
-      final hp = await rd('video-params/h');
-      final dw = await rd('dwidth');
-      final dh = await rd('dheight');
-      final wop = await rd('video-out-params/w');
-      final hop = await rd('video-out-params/h');
-      final efps = await rd('estimated-vf-fps');
-      final cfps = await rd('container-fps');
-      final dfps = await rd('display-fps');
-      final edfps = await rd('estimated-display-fps');
-      final glsl = await rd('glsl-shaders');
-      final vsync = await rd('video-sync');
-      final hw = await rd('hwdec');
-      // 音频通路是否真的活着（设备被独占 / 网络流音轨未解码 / wasapi 被占
-      // 时 aid 非 no 但 channels 读不到 → 无音频时钟 → display-resample 会
-      // 按显示时钟追赶视频造成倍速）。这是定位「播放被倍速」的关键证据。
-      final ach = await rd('audio-params/channels');
-      final aaid = await rd('aid');
-      final spd = await rd('speed');
-      // 墙钟速率（仅观测）：mpv 的 `speed` 属性在显示时钟估算错误时恒读回
-      // 1.0（用户机器实测 edisp=419~525Hz 垃圾值、视频实时倍速、speed 仍
-      // 1.000000），time-pos 推进 / 墙钟流逝 才是能看出实际倍速的量。
-      final pos = await rd('time-pos');
-      final posSec = double.tryParse(pos);
-      if (posSec != null && _posWatch.isRunning) {
-        final wallSec = _posWatch.elapsedMilliseconds / 1000.0;
-        if (_lastPosSec >= 0 && wallSec >= 1.0) {
-          _wallClockRate = (posSec - _lastPosSec) / wallSec;
-        }
-        _lastPosSec = posSec;
-        _posWatch
-          ..reset()
-          ..start();
-      }
-      // 超分是否**真的进了渲染管线**：只认 vo-passes 里的 user shader pass。
-      // glsl-shaders 读回非空不算数——真机实测过"属性读回两个路径、
-      // vo-passes 里一个用户着色器 pass 都没有"的静默失效。
-      final srPasses =
-          Anime4KManager.userShaderPassCount(await rd('vo-passes'));
-      // 同步目标刷新率：优先读真实 display-fps（Windows ANGLE 常为 ?），
-      // 读不到时用 override-display-fps 设定的 60Hz 兜底。
-      final ovr = await rd('options/override-display-fps');
-      final srcW = int.tryParse(wp) ?? 0;
-      final srcH = int.tryParse(hp) ?? 0;
-      // 渲染输出 = VO 侧尺寸（`dwidth`/`dheight`）。个别构建可能读不回，
-      // 此时退到 video-out-params：该值恒等于源尺寸，会让判据「偏向成立」
-      // （src/src = 1.0 > 0.999），属于可接受的退化——日志里用 voSrc 标注
-      // 实际取的是哪一个，方便一次性确认本构建能不能读 dwidth。
-      var ow = int.tryParse(dw) ?? 0;
-      var oh = int.tryParse(dh) ?? 0;
-      var voSrc = 'dw';
-      if (ow <= 0 || oh <= 0) {
-        ow = int.tryParse(wop) ?? 0;
-        oh = int.tryParse(hop) ?? 0;
-        voSrc = 'vop';
-      }
-      // x2 放大链的执行条件判定（与 shader 的 //!WHEN 同源，见
-      // Anime4KManager.srChainEligible）。尺寸缺一不可判，故用三态。
-      final eligible = (srcW > 0 && srcH > 0 && ow > 0 && oh > 0)
-          ? Anime4KManager.srChainEligible(
-              srcW: srcW, srcH: srcH, outW: ow, outH: oh)
-          : null;
-      // 输出帧率：VO 出帧节奏即源容器帧率（无帧率级后处理时）。mpv 没有
-      // 直接可读的「VO 实际出帧 fps」属性，用 container-fps 作源帧率、
-      // display-fps 作显示同步目标；真正的倍速异常由墙钟 wrate 判定。
-      final ddisp = double.tryParse(dfps) ?? ovrFps(ovr);
-      final realFps = double.tryParse(cfps) ?? _outFps;
-      if (!mounted) return;
-      if (ow != _outW || oh != _outH || eligible != _srEligible ||
-          realFps != _outFps || ddisp != _dispFps) {
-        setState(() {
-          _outW = ow;
-          _outH = oh;
-          _srEligible = eligible;
-          _outFps = realFps;
-          _dispFps = ddisp;
-        });
-      }
-      final shaderCount = glsl
-          .split(RegExp('[,\\n]'))
-          .where((s) => s.trim().isNotEmpty)
-          .length;
-      // ── 超分自愈：属性设上了、但 pass 没进渲染图 ──────────────
-      // 真机实测（2026-09-14，Android）存在这种静默失效：`glsl-shaders` 读回两个
-      // 文件路径完全正常，`vo-passes` 里却一个 user shader pass 都没有 ——
-      // 旧实现只信读回值，于是"以为开着"，用户看到的就是"开了超分毫无变化"。
-      // 这里改成以 vo-passes 为准：连续 2 次采样（约 4 秒）都没有 pass，
-      // 就强制重建一次视频链并重新下发 shader（实测这是唯一能让它生效的动作）；
-      // 连试 3 次仍无效则如实报"未生效"，不再假装成功。
-      //
-      // ⚠️ 平台收口（2026-09-19 探针铁证）：`vo-passes` 只在真实 gpu VO 下可读。
-      // Windows/macOS/Linux 桌面走 media_kit 的 `vo=libmpv` 渲染 API——mpv 官方
-      // 证实该 API 只提供完整 VO 的一小部分能力（#10810），`vo-passes` **恒空**，
-      // 但 `glsl-shaders` 列表被接受、无编译错误（探针 GLSHADERS_READBACK 正常 +
-      // SHADERERR=0 + H/W D3D11/ANGLE 渲染）。若桌面端也按 vo-passes 判，会把
-      // 「shader 已接受」误报成「未生效」→ 连重建 3 次视频链 → 弹红条（用户
-      // 实测看到的假"超分没有"）。故自愈/红条只保留给能读 vo-passes 的
-      // Android；桌面端以「glsl-shaders 被接受 + 无编译错误」为准，不重建。
-      final canObservePasses = !DesktopUi.isDesktopPlatform;
-      if (canObservePasses &&
-          _sr.enabled && _ready && !_srApplying && srPasses == 0) {
-        _srPassMiss++;
-        if (_srPassMiss >= 2) {
-          _srPassMiss = 0;
-          if (_srHealTries < 3) {
-            _srHealTries++;
-            unawaited(_healSrPipeline());
-          } else if (_srFault == null) {
-            setState(() {
-              _srFault = '着色器未进入渲染管线（已重建视频链重试 3 次仍无 pass，'
-                  '可能是硬解模式或显卡驱动不支持）';
-            });
+      // 代际守卫：播放页重建（画中画进出/路由替换）后旧 timer 直接废弃，
+      // 避免叠加多份周期采样同时操作新播放器。
+      if (!mounted || gen != _diagGen) return;
+      // 重入锁：上一周期的 FFI 属性读取可能还没跑完就进下一周期，跳过
+      // 本次采样（2 秒后自然补上），杜绝旧周期写新状态。
+      if (_diagBusy) return;
+      _diagBusy = true;
+      try {
+        // 逐个读取并容错：某个属性失败时记下错误，不拖垮整行诊断。
+        Future<String> rd(String name) async {
+          try {
+            return (await dyn.getProperty(name)).toString();
+          } catch (e) {
+            return 'ERR($e)';
           }
         }
-      } else if (!canObservePasses || srPasses > 0) {
-        _srPassMiss = 0;
-        _srHealTries = 0;
+
+        final wp = await rd('video-params/w');
+        final hp = await rd('video-params/h');
+        final dw = await rd('dwidth');
+        final dh = await rd('dheight');
+        final wop = await rd('video-out-params/w');
+        final hop = await rd('video-out-params/h');
+        final efps = await rd('estimated-vf-fps');
+        final cfps = await rd('container-fps');
+        final dfps = await rd('display-fps');
+        final edfps = await rd('estimated-display-fps');
+        final glsl = await rd('glsl-shaders');
+        final vsync = await rd('video-sync');
+        final hw = await rd('hwdec');
+        // 音频通路是否真的活着（设备被独占 / 网络流音轨未解码 / wasapi 被占
+        // 时 aid 非 no 但 channels 读不到 → 无音频时钟 → display-resample 会
+        // 按显示时钟追赶视频造成倍速）。这是定位「播放被倍速」的关键证据。
+        final ach = await rd('audio-params/channels');
+        final aaid = await rd('aid');
+        final spd = await rd('speed');
+        // 墙钟速率（仅观测）：mpv 的 `speed` 属性在显示时钟估算错误时恒读回
+        // 1.0（用户机器实测 edisp=419~525Hz 垃圾值、视频实时倍速、speed 仍
+        // 1.000000），time-pos 推进 / 墙钟流逝 才是能看出实际倍速的量。
+        final pos = await rd('time-pos');
+        final posSec = double.tryParse(pos);
+        if (posSec != null && _posWatch.isRunning) {
+          final wallSec = _posWatch.elapsedMilliseconds / 1000.0;
+          if (_lastPosSec >= 0 && wallSec >= 1.0) {
+            _wallClockRate = (posSec - _lastPosSec) / wallSec;
+          }
+          _lastPosSec = posSec;
+          _posWatch
+            ..reset()
+            ..start();
+        }
+        // 超分是否**真的进了渲染管线**：只认 vo-passes 里的 user shader pass。
+        // glsl-shaders 读回非空不算数——真机实测过"属性读回两个路径、
+        // vo-passes 里一个用户着色器 pass 都没有"的静默失效。
+        final srPasses =
+            Anime4KManager.userShaderPassCount(await rd('vo-passes'));
+        // 同步目标刷新率：优先读真实 display-fps（Windows ANGLE 常为 ?），
+        // 读不到时用 override-display-fps 设定的 60Hz 兜底。
+        final ovr = await rd('options/override-display-fps');
+        final srcW = int.tryParse(wp) ?? 0;
+        final srcH = int.tryParse(hp) ?? 0;
+        // 渲染输出 = VO 侧尺寸（`dwidth`/`dheight`）。个别构建可能读不回，
+        // 此时退到 video-out-params：该值恒等于源尺寸，会让判据「偏向成立」
+        // （src/src = 1.0 > 0.999），属于可接受的退化——日志里用 voSrc 标注
+        // 实际取的是哪一个，方便一次性确认本构建能不能读 dwidth。
+        var ow = int.tryParse(dw) ?? 0;
+        var oh = int.tryParse(dh) ?? 0;
+        var voSrc = 'dw';
+        if (ow <= 0 || oh <= 0) {
+          ow = int.tryParse(wop) ?? 0;
+          oh = int.tryParse(hop) ?? 0;
+          voSrc = 'vop';
+        }
+        // x2 放大链的执行条件判定（与 shader 的 //!WHEN 同源，见
+        // Anime4KManager.srChainEligible）。尺寸缺一不可判，故用三态。
+        final eligible = (srcW > 0 && srcH > 0 && ow > 0 && oh > 0)
+            ? Anime4KManager.srChainEligible(
+                srcW: srcW, srcH: srcH, outW: ow, outH: oh)
+            : null;
+        // 输出帧率：VO 出帧节奏即源容器帧率（无帧率级后处理时）。mpv 没有
+        // 直接可读的「VO 实际出帧 fps」属性，用 container-fps 作源帧率、
+        // display-fps 作显示同步目标；真正的倍速异常由墙钟 wrate 判定。
+        final ddisp = double.tryParse(dfps) ?? ovrFps(ovr);
+        final realFps = double.tryParse(cfps) ?? _outFps;
+        if (!mounted || gen != _diagGen) return;
+        if (ow != _outW || oh != _outH || eligible != _srEligible ||
+            realFps != _outFps || ddisp != _dispFps) {
+          setState(() {
+            _outW = ow;
+            _outH = oh;
+            _srEligible = eligible;
+            _outFps = realFps;
+            _dispFps = ddisp;
+          });
+        }
+        final shaderCount = glsl
+            .split(RegExp('[,\\n]'))
+            .where((s) => s.trim().isNotEmpty)
+            .length;
+        // ── 超分自愈：属性设上了、但 pass 没进渲染图 ──────────────
+        // 真机实测（2026-09-14，Android）存在这种静默失效：`glsl-shaders` 读回两个
+        // 文件路径完全正常，`vo-passes` 里却一个 user shader pass 都没有 ——
+        // 旧实现只信读回值，于是"以为开着"，用户看到的就是"开了超分毫无变化"。
+        // 这里改成以 vo-passes 为准：连续 2 次采样（约 4 秒）都没有 pass，
+        // 就强制重建一次视频链并重新下发 shader（实测这是唯一能让它生效的动作）；
+        // 连试 3 次仍无效则如实报"未生效"，不再假装成功。
+        //
+        // ⚠️ 平台收口（2026-09-19 探针铁证）：`vo-passes` 只在真实 gpu VO 下可读。
+        // Windows/macOS/Linux 桌面走 media_kit 的 `vo=libmpv` 渲染 API——mpv 官方
+        // 证实该 API 只提供完整 VO 的一小部分能力（#10810），`vo-passes` **恒空**，
+        // 但 `glsl-shaders` 列表被接受、无编译错误（探针 GLSHADERS_READBACK 正常 +
+        // SHADERERR=0 + H/W D3D11/ANGLE 渲染）。若桌面端也按 vo-passes 判，会把
+        // 「shader 已接受」误报成「未生效」→ 连重建 3 次视频链 → 弹红条（用户
+        // 实测看到的假"超分没有"）。故自愈/红条只保留给能读 vo-passes 的
+        // Android；桌面端以「glsl-shaders 被接受 + 无编译错误」为准，不重建。
+        //
+        // ⚠️ 平台覆盖（2026-09-30 补）：该自愈在 Android 上此前是死路径——
+        // _startDiag 只在桌面调用，而 vo-passes 判据只在 Android 成立。
+        // 现在周期采样全平台跑（移动端只是多 4 次/秒的轻量属性读），
+        // Android 的自愈逻辑才真正生效；桌面端照旧跳过。
+        final canObservePasses = !DesktopUi.isDesktopPlatform;
+        if (canObservePasses &&
+            _sr.enabled && _ready && !_srApplying && srPasses == 0) {
+          _srPassMiss++;
+          if (_srPassMiss >= 2) {
+            _srPassMiss = 0;
+            if (_srHealTries < 3) {
+              _srHealTries++;
+              unawaited(_healSrPipeline());
+            } else if (_srFault == null) {
+              setState(() {
+                _srFault = '着色器未进入渲染管线（已重建视频链重试 3 次仍无 pass，'
+                    '可能是硬解模式或显卡驱动不支持）';
+              });
+            }
+          }
+        } else if (!canObservePasses || srPasses > 0) {
+          _srPassMiss = 0;
+          _srHealTries = 0;
+        }
+        // 桌面端附加诊断行；移动端不需要这项复杂观测（自愈判据已在上方）。
+        if (!DesktopUi.isDesktopPlatform) return;
+        // 字段含义（避免以后再误读）：
+        //   src    = 解码源；vo = VO 实际绘制尺寸（超分判据）；voSrc = vo 取自
+        //            哪个属性（dw=dwidth 可靠 / vop=video-out-params 退化值）；
+        //   vop    = 滤镜链输出（**不含超分**，仅对照）；
+        //   elig   = x2 链是否具备执行条件（1 成立 / 0 不成立 / ? 尺寸未知）；
+        //   a4k    = vo-passes 里 user shader pass 数（0 = 着色器没进渲染图）。
+        final srcTag = _wh(srcW, srcH);
+        final voTag = _wh(ow, oh);
+        // 渲染后端判定（2026-09-19 加）：超分「属性被接受但 vo-passes 0 pass」
+        // 的静默失效，最常是渲染后端不支持用户着色器——软件 Vulkan
+        // （vk_swiftshader）或 VO 回退到软渲染时 user shader 根本不执行。
+        // 读回实际生效的 vo / gpu-api / gpu-context，一眼定位是哪条链。
+        final rvo = await rd('vo');
+        final rgapi = await rd('gpu-api');
+        final rgctx = await rd('gpu-context');
+        // 缓存取证：区分卡顿是「等网络分片」还是「渲染/音频停顿」。
+        //   pfc=paused-for-cache（yes = mpv 因缓存空而主动暂停 → 等数据）
+        //   dct=demuxer-cache-time（缓存内还剩多少秒媒体；≈0 且 pfc=yes → 网络瓶颈）
+        // wrate≈0 且 pfc=yes → 网络慢，加大缓冲/超时有用；
+        // wrate≈0 且 pfc=no 且 dct 有值 → 不是网络，是渲染链/音频设备/磁盘 I/O。
+        final pfc = await rd('paused-for-cache');
+        final dct = await rd('demuxer-cache-time');
+        final line = 'DIAG src=$srcTag vo=$voTag($voSrc) vop=$wop x$hop '
+            'elig=${eligible == null ? '?' : (eligible ? 1 : 0)} '
+            'a4k=${canObservePasses ? srPasses : "?"} '
+            'fps=${_fmtFps(efps)} srcFps=${_fmtFps(cfps)} realFps=${_fmtFps(realFps.toString())} '
+            'disp=${_fmtFps(dfps)} ovr=${_fmtFps(ovr)} edisp=${_fmtFps(edfps)} '
+            'shader=$shaderCount vsync=$vsync hwdec=$hw '
+            'ach=$ach aid=$aaid speed=$spd wrate=${_fmtFps(_wallClockRate.toStringAsFixed(3))} '
+            'rvo=$rvo gapi=$rgapi gctx=$rgctx '
+            'pfc=$pfc dct=$dct';
+        if (line == last) return;
+        last = line;
+        ErrorLogger.instance.debug(line);
+        debugPrint('MPV[$line]');
+      } finally {
+        _diagBusy = false;
       }
-      // 字段含义（避免以后再误读）：
-      //   src    = 解码源；vo = VO 实际绘制尺寸（超分判据）；voSrc = vo 取自
-      //            哪个属性（dw=dwidth 可靠 / vop=video-out-params 退化值）；
-      //   vop    = 滤镜链输出（**不含超分**，仅对照）；
-      //   elig   = x2 链是否具备执行条件（1 成立 / 0 不成立 / ? 尺寸未知）；
-      //   a4k    = vo-passes 里 user shader pass 数（0 = 着色器没进渲染图）。
-      final srcTag = _wh(srcW, srcH);
-      final voTag = _wh(ow, oh);
-      // 渲染后端判定（2026-09-19 加）：超分「属性被接受但 vo-passes 0 pass」
-      // 的静默失效，最常是渲染后端不支持用户着色器——软件 Vulkan
-      // （vk_swiftshader）或 VO 回退到软渲染时 user shader 根本不执行。
-      // 读回实际生效的 vo / gpu-api / gpu-context，一眼定位是哪条链。
-      final rvo = await rd('vo');
-      final rgapi = await rd('gpu-api');
-      final rgctx = await rd('gpu-context');
-      // 缓存取证：区分卡顿是「等网络分片」还是「渲染/音频停顿」。
-      //   pfc=paused-for-cache（yes = mpv 因缓存空而主动暂停 → 等数据）
-      //   dct=demuxer-cache-time（缓存内还剩多少秒媒体；≈0 且 pfc=yes → 网络瓶颈）
-      // wrate≈0 且 pfc=yes → 网络慢，加大缓冲/超时有用；
-      // wrate≈0 且 pfc=no 且 dct 有值 → 不是网络，是渲染链/音频设备/磁盘 I/O。
-      final pfc = await rd('paused-for-cache');
-      final dct = await rd('demuxer-cache-time');
-      final line = 'DIAG src=$srcTag vo=$voTag($voSrc) vop=$wop x$hop '
-          'elig=${eligible == null ? '?' : (eligible ? 1 : 0)} '
-          'a4k=${canObservePasses ? srPasses : "?"} '
-          'fps=${_fmtFps(efps)} srcFps=${_fmtFps(cfps)} realFps=${_fmtFps(realFps.toString())} '
-          'disp=${_fmtFps(dfps)} ovr=${_fmtFps(ovr)} edisp=${_fmtFps(edfps)} '
-          'shader=$shaderCount vsync=$vsync hwdec=$hw '
-          'ach=$ach aid=$aaid speed=$spd wrate=${_fmtFps(_wallClockRate.toStringAsFixed(3))} '
-          'rvo=$rvo gapi=$rgapi gctx=$rgctx '
-          'pfc=$pfc dct=$dct';
-      if (line == last) return;
-      last = line;
-      ErrorLogger.instance.debug(line);
-      debugPrint('MPV[$line]');
     });
   }
 
@@ -1687,6 +1725,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
 
   // ── 播放控制 ────────────────────────────────
   void _togglePlay() {
+    // 网页通道激活时 mpv 没有可播放的流，直接对空 Player 操作无意义；
+    // 且内嵌模式下网页通道的 handler 也在监听，双 handler 会重复响应。
+    if (_useWeb) return;
     if (_playing) {
       _player?.pause();
     } else {
@@ -1902,6 +1943,16 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     final ok = await _open(src);
     _handoffOpening = false;
     if (!mounted) return false;
+    // 竞态防御：_open 的 10s 首帧等待窗口内，error 监听可能已经判定
+    // 「直链打不开」并把 _useWeb 翻转回 true（同时 _open 本身成功返回）。
+    // 此刻若照常返回 true，AnimePlayerPage 会杀掉网页媒体，只剩 mpv 一条
+    // 通道——但 mpv 那条刚开出来就是 error 态，等于两个通道全灭。识别
+    // 该情况按「接管失败」处理：停下刚打开的 mpv，把决定权交还网页通道。
+    if (ok && _useWeb) {
+      ErrorLogger.instance.debug('handoff raced with stream error, staying on web: $src');
+      _player?.stop();
+      return false;
+    }
     if (ok) return true;
     // mpv 打不开（_open 或异步 error 已把该直链记入 _rejectedHandoffs）：
     // 留在网页通道（AnimePlayerPage 仍在树中），不叠加报错。
@@ -2191,14 +2242,14 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     for (final s in _subs) {
       s.cancel();
     }
-    // 还原系统亮度，否则退出播放器后屏幕会一直保持播放时的亮度
+    // 还原系统音量提示与亮度，否则退出播放器后系统音量键没有原生提示。
+    // showSystemUI 可能在 init 时已被关掉（即使后面插件失败 _volumeNative
+    // 变 false），所以无论成败都恢复。
     _volumeSub?.cancel();
-    if (_volumeNative) {
-      try {
-        VolumeController.instance.removeListener();
-        VolumeController.instance.showSystemUI = true;
-      } catch (_) {}
-    }
+    try {
+      VolumeController.instance.removeListener();
+      VolumeController.instance.showSystemUI = true;
+    } catch (_) {}
     if (_brightnessNative) {
       try {
         ScreenBrightness.instance.resetApplicationScreenBrightness();
@@ -2215,7 +2266,41 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     if (DesktopUi.isDesktopPlatform) {
       HardwareKeyboard.instance.removeHandler(_keyHandler);
     }
+    if (_tvKeysRegistered) {
+      HardwareKeyboard.instance.removeHandler(_tvKeyHandler);
+    }
     super.dispose();
+  }
+
+  bool _tvKeysRegistered = false;
+
+  /// Android TV 遥控器媒体键：播放/暂停、快进/快退、上下集。
+  /// 只认 media-* 键，不碰 select/方向键（那是焦点系统的领地）。
+  bool _tvKeyHandler(KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
+    // 内嵌模式下网页通道（AnimePlayerPage）也注册了同一组媒体键：mpv 通道
+    // 未激活（还在网页通道）时不抢键，交给网页通道处理；接管成功后才由
+    // 这里响应（届时网页子树已卸载，单 handler 无冲突）。
+    if (_useWeb) return false;
+    switch (event.logicalKey) {
+      case LogicalKeyboardKey.mediaPlayPause:
+        _togglePlay();
+        return true;
+      case LogicalKeyboardKey.mediaFastForward:
+        _seekBy(10);
+        return true;
+      case LogicalKeyboardKey.mediaRewind:
+        _seekBy(-10);
+        return true;
+      case LogicalKeyboardKey.mediaTrackNext:
+        if (_hasNext) _goRelative(1);
+        return true;
+      case LogicalKeyboardKey.mediaTrackPrevious:
+        if (_hasPrev) _goRelative(-1);
+        return true;
+      default:
+        return false;
+    }
   }
 
   /// 桌面端播放快捷键：空格 播放/暂停、←/→ 快退/快进 10s、

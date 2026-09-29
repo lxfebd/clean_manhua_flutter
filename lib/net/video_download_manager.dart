@@ -357,7 +357,9 @@ class VideoDownloadManager {
       }
       final sink = part.openSync(mode: FileMode.append);
       try {
-        await for (final chunk in _throttle(resp)) {
+        // 分块停滞超时：单文件直链下载期间源站中途挂死时，等待下一块
+        // 20 秒无数据即放弃本任务（可重试），不无限悬挂。
+        await for (final chunk in _stallGuarded(resp, stall: const Duration(seconds: 45))) {
           if (_canceled.contains(t.key)) {
             resp.drain<void>();
             throw HttpException('已取消');
@@ -550,7 +552,10 @@ class VideoDownloadManager {
 
   Future<Uint8List> _fetchBytes(String url, Map<String, String> headers) async {
     final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15);
+      ..connectionTimeout = const Duration(seconds: 15)
+      // 响应体停滞兜底：源站连上了、头也回了，但 body 一直不吐数据
+      // （cdn 悬挂/被掐），没有 idleTimeout 会永久挂起这个分片下载。
+      ..idleTimeout = const Duration(seconds: 20);
     try {
       return _fetchBytesWith(client, url, headers);
     } finally {
@@ -569,16 +574,18 @@ class VideoDownloadManager {
       throw HttpException('HTTP ${resp.statusCode}');
     }
     final builder = BytesBuilder(copy: false);
-    await for (final chunk in resp) {
+    // 每块都带停滞超时：body 中途长时间不吐数据（源站挂死）不能无限等。
+    await for (final chunk in _stallGuarded(resp)) {
       builder.add(chunk);
     }
     return builder.takeBytes();
   }
 
-  /// 原始 chunk 流按 1s 节流（避免每分片都触发 setState 级通知）。
-  Stream<List<int>> _throttle(HttpClientResponse resp) async* {
-    final src = resp;
-    await for (final chunk in src) {
+  /// 带停滞超时的分块流：相邻两个块间隔超过 [stall] 即抛超时，
+  /// 避免「头已返回但 body 悬挂」的下载永远卡住。
+  Stream<List<int>> _stallGuarded(HttpClientResponse resp,
+      {Duration stall = const Duration(seconds: 20)}) async* {
+    await for (final chunk in resp.timeout(stall)) {
       yield chunk;
     }
   }

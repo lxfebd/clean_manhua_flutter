@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
@@ -214,10 +215,12 @@ class ErrorLogger {
           ..write('\n\n');
       }
       // 2) 各日日志独立归档（便于按天查看/对比）
+      // codeUnits 是 UTF-16 码元（中文日志会变成乱码字节），
+      // 必须 utf8.encode 才是 zip 里正确的 UTF-8 内容。
+      final combinedBytes = utf8.encode(combined.toString());
       final archive = Archive()
         ..addFile(
-            ArchiveFile('logs.txt', combined.toString().codeUnits.length,
-                combined.toString().codeUnits));
+            ArchiveFile('logs.txt', combinedBytes.length, combinedBytes));
       for (final f in files) {
         final bytes = f.readAsBytesSync();
         archive.addFile(

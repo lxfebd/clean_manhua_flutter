@@ -34,6 +34,27 @@ class MainActivity : FlutterActivity() {
     private var pipChannel: MethodChannel? = null
     private var lastPipAspect: Rational? = null
 
+    /// Android TV 判定：Dart 播放器需要知道是否处于 TV 模式以注册媒体键。
+    private val tvChannelName = "xingmanxia/tv"
+    private var isTvChecked = false
+    private var isTvResult = false
+
+    private fun detectTv(): Boolean {
+        try {
+            val uiMode = resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_TYPE_MASK
+            if (uiMode == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION) return true
+        } catch (_: Exception) {
+        }
+        return try {
+            packageManager.hasSystemFeature(
+                android.content.pm.PackageManager.FEATURE_LEANBACK
+            )
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     /// 进入 PiP（API 26+ 且系统支持时生效；返回是否成功进入）。
     private fun enterPip(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
@@ -96,6 +117,19 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, tvChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "isTv" -> {
+                        if (!isTvChecked) {
+                            isTvResult = detectTv()
+                            isTvChecked = true
+                        }
+                        result.success(isTvResult)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "xingmanxia/install")
             .setMethodCallHandler { call, result ->
                 when (call.method) {

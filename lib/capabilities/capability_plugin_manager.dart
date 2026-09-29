@@ -81,12 +81,30 @@ class CapabilityPluginManager {
   /// 能力是否启用（异步版，与源插件签名对齐）。
   Future<bool> isEnabled(String id) async => isEnabledSync(id);
 
+  /// 预置能力壳（随版本发布的实现类，如 AI 上色/插帧）：平台支持判定与
+  /// 版本语义的事实源。restore 只在平台支持时把它们注册进 _registry；
+  /// 市场条目安装前也查这里（远端条目不携带平台声明）。
+  static final Map<String, CapabilityPlugin> _presetShells = () {
+    final c = AiColorizePlugin();
+    final r = AiFrameRifePlugin();
+    return <String, CapabilityPlugin>{c.id: c, r.id: r};
+  }();
+
+  /// 当前平台是否支持指定能力：注册实例优先，未注册查预置壳
+  /// （平台不支持时壳不注册），都无则默认支持（纯 Dart/全平台能力）。
+  bool isSupportedOnCurrentPlatform(String id) =>
+      (_registry[id] ?? _presetShells[id])?.isSupportedOnCurrentPlatform ??
+      true;
+
   /// 注册能力（内置/市场安装统一入口）：幂等（同 id 已存在则忽略），
   /// 触发 onInstall + bind。市场安装（非 builtin）会记录到 installed 集合
   /// 并落盘——卸载/重启后仍能恢复（见 [restore]）。重新从市场安装时
   /// 解除「已卸载」标记。
   Future<void> install(CapabilityPlugin plugin) async {
     if (_registry.containsKey(plugin.id)) return;
+    // 平台门闸：当前平台不支持的能力不注册（能力中心/市场不可见的最后防线；
+    // 内置/市场全平台能力默认 supported=true 不受影响）。
+    if (!plugin.isSupportedOnCurrentPlatform) return;
     _registry[plugin.id] = plugin;
     if (!plugin.builtin) {
       _installed.add(plugin.id);
@@ -167,14 +185,19 @@ class CapabilityPluginManager {
     await _registerBuiltin();
     // AI 上色/插帧的元数据壳随版本预注册（不经 install、不落盘、不进
     // installed）：保证能力中心能看到、id 稳定，用户从市场安装/更新后才
-    // 持久化。用户已显式卸载的（_removed）不重建。
-    if (!_removed.contains(AiColorizePlugin().id)) {
+    // 持久化。用户已显式卸载的（_removed）不重建。当前平台不支持的
+    // （isSupportedOnCurrentPlatform 门闸，如插帧仅 Windows）不注册——
+    // 手机/Web 能力中心不显示，也不可被卸载记入 removed（那会静默删掉
+    // 桌面端壳）。
+    if (!_removed.contains(AiColorizePlugin().id) &&
+        AiColorizePlugin().isSupportedOnCurrentPlatform) {
       _registry[AiColorizePlugin().id] = AiColorizePlugin();
     }
     // AI 插帧：RIFE 引擎恢复为可注册能力（2026-09-18 由「mpv interpolation
     // 显示同步」错误路线改回独立引擎插件——mpv 那条会按显示时钟变速，见
     // native_player_page._applySync 注释）。用户已显式卸载的不重建。
-    if (!_removed.contains(AiFrameRifePlugin().id)) {
+    if (!_removed.contains(AiFrameRifePlugin().id) &&
+        AiFrameRifePlugin().isSupportedOnCurrentPlatform) {
       _registry[AiFrameRifePlugin().id] = AiFrameRifePlugin();
     }
     try {
@@ -187,7 +210,10 @@ class CapabilityPluginManager {
             if (item is! Map) continue;
             try {
               final p = CapabilityPlugin.fromJson(Map<String, dynamic>.from(item));
-              if (p != null && !p.builtin && !_registry.containsKey(p.id)) {
+              // 平台门闸：快照可能来自旧版本（桌面卸载过/手机装过），当前
+              // 平台不支持则不恢复注册（也不记 installed，市场重新显示可安装）。
+              if (p != null && !p.builtin && !_registry.containsKey(p.id) &&
+                  p.isSupportedOnCurrentPlatform) {
                 _installed.add(p.id);
                 _removed.remove(p.id);
                 _registry[p.id] = p;

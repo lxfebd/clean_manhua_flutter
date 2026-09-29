@@ -119,7 +119,11 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
 
   Widget _buildRoot(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final plugins = CapabilityPluginManager.instance.plugins;
+    // 平台门闸：当前平台不支持的能力（如插帧仅 Windows）不列表——
+    // 与 restore/install 的 isSupportedOnCurrentPlatform 一致。
+    final plugins = CapabilityPluginManager.instance.plugins
+        .where((p) => p.isSupportedOnCurrentPlatform)
+        .toList();
     return Scaffold(
       appBar: AppBar(
         title: const Text('能力中心'),

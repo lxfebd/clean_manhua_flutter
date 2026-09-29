@@ -13,6 +13,7 @@ import '../net/http_client.dart';
 import '../net/local_store.dart';
 import '../sources/video_source.dart';
 import '../utils/desktop_fullscreen.dart';
+import '../utils/tv_platform.dart';
 import 'desktop_webview.dart';
 import 'episode_grouping.dart';
 import 'native_player_page.dart';
@@ -188,17 +189,10 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   static const ua = 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
-  /// 若 URL 主机是 IP（Cloudflare 优选 IP 直连），返回正确的 Host 头，
-  /// 否则返回空。WebView 直连 IP 仍需 CDN 证书覆盖该域名，否则会证书错误。
-  static Map<String, String> _hostHeader(String url) {
-    try {
-      final host = Uri.parse(url).host;
-      if (RegExp(r'^\d{1,3}(\.\d{1,3}){3}$').hasMatch(host)) {
-        return {'Host': 'www.tvtfun.net'};
-      }
-    } catch (_) {}
-    return const {};
-  }
+  /// 若 URL 主机是已知优选 IP，返回正确的 Host 头（映射见表
+  /// [preferredIpHosts]），否则返回空。WebView 直连 IP 仍需 CDN 证书覆盖该
+  /// 域名，否则会证书错误。
+  static Map<String, String> _hostHeader(String url) => hostHeaderFor(url);
 
   @override
   void initState() {
@@ -211,6 +205,14 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     // F 全屏、Esc 返回。仅桌面注册，避免移动端蓝牙键盘误触。
     if (DesktopUi.isDesktopPlatform) {
       HardwareKeyboard.instance.addHandler(_keyHandler);
+    } else {
+      // Android TV：遥控器媒体键（网页通道也有等价 JS 操作）。
+      unawaited(TvPlatform.isTv.then((tv) {
+        if (tv && mounted) {
+          _tvKeysRegistered = true;
+          HardwareKeyboard.instance.addHandler(_tvKeyHandler);
+        }
+      }));
     }
     if (isWindowsWebView2) {
       // Windows：内嵌 WebView2 解析直链 → 切内置原生播放器（mpv 硬解 + Anime4K 超分）。
@@ -792,6 +794,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   void dispose() {
     if (DesktopUi.isDesktopPlatform) {
       HardwareKeyboard.instance.removeHandler(_keyHandler);
+    }
+    if (_tvKeysRegistered) {
+      HardwareKeyboard.instance.removeHandler(_tvKeyHandler);
     }
     _videoPollTimer?.cancel();
     _resolveTimer?.cancel();
@@ -1603,6 +1608,43 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
         return true;
       case LogicalKeyboardKey.escape:
         Navigator.of(context).maybePop();
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  bool _tvKeysRegistered = false;
+
+  /// Android TV 遥控器媒体键（网页通道）：播放/暂停、快进/快退、上下集。
+  /// 只认 media-* 键，不碰 select/方向键（那是焦点系统的领地）。
+  bool _tvKeyHandler(KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
+    switch (event.logicalKey) {
+      case LogicalKeyboardKey.mediaPlayPause:
+        _runJs(_toggleWebMediaJs);
+        return true;
+      case LogicalKeyboardKey.mediaFastForward:
+        _runJs('''
+          (function(){
+            var v = document.querySelector('video');
+            if(v) v.currentTime = (v.currentTime||0) + 10;
+          })();
+        ''');
+        return true;
+      case LogicalKeyboardKey.mediaRewind:
+        _runJs('''
+          (function(){
+            var v = document.querySelector('video');
+            if(v) v.currentTime = Math.max(0, (v.currentTime||0) - 10);
+          })();
+        ''');
+        return true;
+      case LogicalKeyboardKey.mediaTrackNext:
+        if (_hasNext) _goToAdjacent(1);
+        return true;
+      case LogicalKeyboardKey.mediaTrackPrevious:
+        if (_hasPrev) _goToAdjacent(-1);
         return true;
       default:
         return false;

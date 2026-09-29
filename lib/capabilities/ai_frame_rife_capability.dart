@@ -2,7 +2,8 @@ import 'dart:async' show TimeoutException;
 import 'dart:io';
 import 'dart:typed_data' show Uint8List;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 
 import '../net/error_logger.dart';
 import '../ui/responsive.dart' show DesktopUi;
@@ -74,6 +75,12 @@ class AiFrameRifePlugin extends CapabilityPlugin {
           weights: const [], // 模型随引擎包分发，无独立权重下载
         );
 
+  /// 引擎仅 Windows 产物（rife.exe + rife-engine-win.zip，无 macOS/Linux
+  /// 构建）：能力中心/市场/注册恢复统一按此门闸，手机/Web 不显示、不可装。
+  @override
+  bool get isSupportedOnCurrentPlatform =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+
   /// 单帧补帧调用入口：**子进程调用 rife.exe**。
   ///
   /// 输入两帧 [frameA] / [frameB]（RGB888 原始像素，长度 = w*h*3），输出
@@ -89,9 +96,12 @@ class AiFrameRifePlugin extends CapabilityPlugin {
   ) async {
     const id = 'ai.frame.rife';
 
-    // 1. 平台门闸：桌面 PoC（web 恒不可用，手机端 F4 再定）。
-    if (kIsWeb || !DesktopUi.isDesktopPlatform) {
-      return const CapabilityFailure(id, 'AI 插帧仅支持桌面端（Windows/macOS/Linux）');
+    // 1. 平台门闸：引擎仅 Windows 产物（rife.exe），无 macOS/Linux/Web/手机
+    //    构建；与 isSupportedOnCurrentPlatform 同源，双保险（注册门闸漏放时
+    //    调用层仍拦截）。
+    if (kIsWeb || !DesktopUi.isDesktopPlatform ||
+        defaultTargetPlatform != TargetPlatform.windows) {
+      return const CapabilityFailure(id, 'AI 插帧仅支持 Windows 桌面端');
     }
 
     // 2. 启用开关（先于 probe——url 未配置时 probe 会报「构件不可用」，
@@ -146,11 +156,8 @@ class AiFrameRifePlugin extends CapabilityPlugin {
       try {
         code = await proc.exitCode.timeout(inferTimeout);
       } on TimeoutException {
-        // 超时兜底：必须杀进程并等其回收，否则 rife 僵尸常驻、tmp 删不掉。
-        proc.kill();
-        try {
-          await proc.exitCode.timeout(const Duration(seconds: 5));
-        } catch (_) {}
+        // 超时兜底：必须杀进程树并等其回收，否则 rife 僵尸常驻、tmp 删不掉。
+        await killProcessTree(proc);
         return const CapabilityFailure(id, '插帧超时（已终止进程）');
       } finally {
         await drain;
@@ -189,8 +196,11 @@ class AiFrameRifePlugin extends CapabilityPlugin {
   /// 待发布方配置直链。
   static Future<String?> ensureEngine() async {
     const id = 'ai.frame.rife';
-    if (kIsWeb || !DesktopUi.isDesktopPlatform) {
-      return 'AI 插帧仅支持桌面端（Windows/macOS/Linux）';
+    // 平台门闸：引擎仅 Windows 产物；手机/Web 明确提示（注册侧本就不应
+    // 出现，防 restore 旧快照漏网）。
+    if (kIsWeb || !DesktopUi.isDesktopPlatform ||
+        defaultTargetPlatform != TargetPlatform.windows) {
+      return 'AI 插帧仅支持 Windows 桌面端';
     }
     final store = CapabilityArtifactStore.instance;
     final dir = await store.artifactDir(id);
@@ -232,13 +242,23 @@ class AiFrameRifePlugin extends CapabilityPlugin {
       if (out.exitCode != 0) {
         ErrorLogger.instance
             .warn('[capability] rife engine unzip failed: ${processStderrText(out)}');
+        // 解压失败：删除坏 zip，避免坏包/半解压状态反复占盘。
+        try {
+          if (await zip.exists()) await zip.delete();
+        } catch (_) {}
         return '引擎包解压失败，请检查磁盘空间与权限';
       }
     } on TimeoutException {
       ErrorLogger.instance.warn('[capability] rife engine unzip timeout');
+      try {
+        if (await zip.exists()) await zip.delete();
+      } catch (_) {}
       return '引擎包解压超时，请重试';
     } catch (e) {
       ErrorLogger.instance.warn('[capability] rife engine unzip error: $e');
+      try {
+        if (await zip.exists()) await zip.delete();
+      } catch (_) {}
       return '引擎包解压失败，请重试';
     }
     try {

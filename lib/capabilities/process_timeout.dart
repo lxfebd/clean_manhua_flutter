@@ -6,7 +6,7 @@ import 'dart:io';
 ///
 /// `Process.run` 没有 timeout 参数，且超时后拿不到进程句柄、无法终止——
 /// 损坏的压缩包或挂起的 powershell/unzip 会永久占着解压流程（UI 卡死）。
-/// 这里用 [Process.start] + [Process.exitCode.timeout] + 超时 kill，
+/// 这里用 [Process.start] + [Process.exitCode.timeout] + 超时杀进程树，
 /// 保证超时后进程被终止、调用方能拿到明确结果。
 ///
 /// 超时抛 [TimeoutException]，由调用方转成用户可读原因。
@@ -26,15 +26,43 @@ Future<ProcessResult> runProcessWithTimeout(
     await errSub.cancel();
     return ProcessResult(proc.pid, code, out, err);
   } on TimeoutException {
-    // 超时：杀进程并等回收，避免僵尸/半解压目录残留。
-    proc.kill();
-    try {
-      await proc.exitCode.timeout(const Duration(seconds: 5));
-    } catch (_) {}
+    // 超时：杀**进程树**并等回收，避免僵尸/半解压目录残留。
+    // Windows 上 proc.kill() 只杀直接子进程——powershell 里挂起的
+    // Expand-Archive 是它的子进程，光杀 powershell 会留下孤儿进程继续
+    // 写半解压目录。taskkill /T /F 递归杀整棵进程树。
+    await killProcessTree(proc);
     await outSub.cancel();
     await errSub.cancel();
     rethrow;
   }
+}
+
+/// 杀进程树（Windows 用 taskkill /T /F 递归终止；其余平台直接 kill）。
+/// 等待回收后再返回，确保调用方继续往下走时进程已不存活。
+Future<void> killProcessTree(Process proc) async {
+  if (Platform.isWindows) {
+    try {
+      final killer = await Process.start('taskkill', [
+        '/PID',
+        '${proc.pid}',
+        '/T',
+        '/F',
+      ]);
+      await killer.exitCode.timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // taskkill 失败（进程已自行退出）时兜底直接 kill。
+      try {
+        proc.kill();
+      } catch (_) {}
+    }
+  } else {
+    try {
+      proc.kill();
+    } catch (_) {}
+  }
+  try {
+    await proc.exitCode.timeout(const Duration(seconds: 5));
+  } catch (_) {}
 }
 
 /// 从 [ProcessResult.stderr] 提取可读文本（二进制/编码异常时容错）。

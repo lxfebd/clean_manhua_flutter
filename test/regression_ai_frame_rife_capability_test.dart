@@ -59,6 +59,40 @@ void main() {
       expect(p.artifact!.url, isEmpty); // 发布时填，当前占位
       expect(p.weights, isEmpty); // 模型随引擎包分发，无独立权重
     });
+
+    // 2026-09-30 P3 门闸：引擎仅 Windows 产物（rife.exe + rife-engine-win.zip），
+    // 手机/Web/其他桌面不得显示、不得装、不得注册。
+    test('平台门闸：仅 Windows 支持（override isSupportedOnCurrentPlatform）', () {
+      final p = AiFrameRifePlugin();
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      expect(p.isSupportedOnCurrentPlatform, isTrue);
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      expect(p.isSupportedOnCurrentPlatform, isFalse);
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      expect(p.isSupportedOnCurrentPlatform, isFalse);
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    test('调用门闸：非 Windows → CapabilityFailure 中文原因（不抛异常）', () async {
+      final mgr = CapabilityPluginManager.instance;
+      if (mgr.byId('ai.frame.rife') == null) {
+        await mgr.install(AiFrameRifePlugin());
+      }
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final r = await AiFrameRifePlugin.interpolate(
+          Uint8List(0), Uint8List(0), 0, 0);
+      expect(r, isA<CapabilityFailure>());
+      expect((r as CapabilityFailure).reason, contains('Windows'));
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    test('ensureEngine 非 Windows → 明确原因（不尝试下载/解压）', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final err = await AiFrameRifePlugin.ensureEngine();
+      expect(err, isNotNull);
+      expect(err, contains('Windows'));
+      debugDefaultTargetPlatformOverride = null;
+    });
   });
 
   group('AiFrameRifePlugin 调用门闸', () {

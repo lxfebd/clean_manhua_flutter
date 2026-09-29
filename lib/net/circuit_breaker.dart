@@ -17,6 +17,11 @@ class CircuitBreaker {
   CircuitState _state = CircuitState.closed;
   DateTime _openedAt = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// half-open 试探是否在进行中：冷却结束后只放行**一个**探针请求，
+  /// 其余请求继续拒（防止冷却一到 N 个并发请求同时涌入已挂死的源——
+  /// 试探的语义就是"一次一探"，并发探针会让 half-open 失效）。
+  bool _probeInFlight = false;
+
   CircuitBreaker({
     this.failureThreshold = 3,
     this.cooldown = const Duration(minutes: 2),
@@ -32,21 +37,35 @@ class CircuitBreaker {
         return true;
       case CircuitState.open:
         if (DateTime.now().difference(_openedAt) >= cooldown) {
+          if (_probeInFlight) return false; // 已有探针在飞，其余请求继续拒
+          _probeInFlight = true;
           _state = CircuitState.halfOpen;
           return true;
         }
         return false;
       case CircuitState.halfOpen:
-        return true;
+        // 理论上 _probeInFlight 恒为 true；防御性兜底：异常路径丢失标记时
+        // 也不放行第二个探针。
+        return _probeInFlight;
     }
   }
 
   void recordSuccess() {
     _failures = 0;
     _state = CircuitState.closed;
+    _probeInFlight = false;
   }
 
   void recordFailure() {
+    if (_state == CircuitState.halfOpen) {
+      // 探针失败：立即回到 open（重置冷却），不等 failureThreshold——
+      // 半开试探的目的就是"确认源是否复活"，一次失败就足以否定。
+      _probeInFlight = false;
+      _state = CircuitState.open;
+      _openedAt = DateTime.now();
+      _failures = 0;
+      return;
+    }
     _failures++;
     if (_failures >= failureThreshold) {
       _state = CircuitState.open;

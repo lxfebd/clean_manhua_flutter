@@ -118,3 +118,27 @@ bool isAdMediaUrl(String url) {
   }
   return false;
 }
+
+/// 优选 IP → 源站域名 的映射。部分源为绕开 DNS 污染会用「优选 IP 直连」，
+/// 但该 IP 与源站之间走 SNI/Host 区分，拉流时（mpv/WebView）必须带正确
+/// 的 Host 头，否则 TLS 证书校验不过或回落到错误的虚拟主机。
+const Map<String, String> preferredIpHosts = {
+  // TvTFun：Cloudflare 优选 IP（见 TvTfunVideoSource.cloudflareIp）。
+  '104.16.150.186': 'www.tvtfun.net',
+};
+
+/// 返回直连 URL 所需的 Host 头：已知优选 IP 映射到对应源站域名；
+/// 未知 IP / 域名地址不补（域名地址本身即 Host）。
+/// 此前两个播放页各自硬编码 `Host: www.tvtfun.net`（IP 直连一律按
+/// tvtfun 处理）——非 tvtfun 源的 IP 直连会被打错 Host，统一收口到这里。
+Map<String, String> hostHeaderFor(String url) {
+  try {
+    final host = Uri.parse(url).host;
+    if (RegExp(r'^\d{1,3}(\.\d{1,3}){3}$').hasMatch(host)) {
+      final mapped = preferredIpHosts[host];
+      if (mapped != null) return {'Host': mapped};
+      return const {};
+    }
+  } catch (_) {}
+  return const {};
+}

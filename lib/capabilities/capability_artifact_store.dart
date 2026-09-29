@@ -195,12 +195,20 @@ class CapabilityArtifactStore {
         return null;
       }
     }
+    // 校验完成 → 原子落盘（先写 .tmp 再 rename，避免崩溃留下半截构件；
+    // 与权重落盘同套路）。tmp 与目标同目录保证 rename 原子性。
+    final tmp = File('${target.path}.tmp');
     try {
-      await target.writeAsBytes(bytes, flush: true);
+      await tmp.writeAsBytes(bytes, flush: true);
+      if (await target.exists()) await target.delete();
+      await tmp.rename(target.path);
       return target;
     } catch (e) {
       _lastError = '构件写入本地失败，请检查存储空间与权限';
       ErrorLogger.instance.warn('[capability] artifact write failed ($id): $e');
+      try {
+        if (await tmp.exists()) await tmp.delete();
+      } catch (_) {}
       return null;
     }
   }
@@ -265,12 +273,24 @@ class CapabilityArtifactStore {
         return null;
       }
     }
+    // 校验完成 → 原子落盘：先写 `.tmp` 再 rename。直接 writeAsBytes 时
+    // 若中途崩溃/断电，目标文件是半截内容——下次运行 sha256 不匹配会重新
+    // 下载（浪费几百 MB），更糟的是被误读成"已存在"直接复用（幂等分支
+    // 只认 hash 不认完整性以外的任何信息，此路径 hash 必不匹配，安全）。
+    // tmp 文件名 = 目标名 + .tmp 后缀：同目录保证 rename 原子性（跨目录
+    // rename 在 Windows 上可能因文件系统不同而失败）。
+    final tmp = File('${target.path}.tmp');
     try {
-      await target.writeAsBytes(bytes, flush: true);
+      await tmp.writeAsBytes(bytes, flush: true);
+      if (await target.exists()) await target.delete();
+      await tmp.rename(target.path);
       return target;
     } catch (e) {
       _lastError = '权重写入本地失败，请检查存储空间与权限';
       ErrorLogger.instance.warn('[capability] weight write failed ($id): $e');
+      try {
+        if (await tmp.exists()) await tmp.delete();
+      } catch (_) {}
       return null;
     }
   }

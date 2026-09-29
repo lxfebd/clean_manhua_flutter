@@ -279,7 +279,13 @@ class WebDavSync {
     }
   }
 
-  /// 上传当前本地备份（PUT）。返回远端 mtime 供 UI 展示。
+  /// 上传当前本地备份（PUT → 临时文件 → MOVE 原子替换）。
+  /// 返回远端 mtime 供 UI 展示。
+  ///
+  /// ⚠️ 原子性：直接 PUT 到目标文件时，传输中断会在远端留下**半截备份**，
+  /// 另一台设备 pull 到的是截断的 JSON（解密/解析失败，数据看起来"丢了"）。
+  /// 先 PUT 到临时文件，完成后再用 WebDAV MOVE（Overwrite: T）覆盖正式文件
+  /// ——MOVE 在服务端是重命名，不会出现半截文件。
   static Future<DateTime> push() async {
     if (!hasConfig) throw Exception('未配置 WebDAV 服务器');
     final data = await LocalStore.collectBackup(
@@ -291,9 +297,17 @@ class WebDavSync {
     await _ensureDir();
     final client = _client();
     try {
-      final res = await _send(client, 'PUT', _fileUri,
+      final tmpUri = Uri.parse('${_fileUri.toString()}.tmp');
+      final res = await _send(client, 'PUT', tmpUri,
           headers: _authHeaders(), body: payload);
       await res.drain<void>().timeout(const Duration(seconds: 20));
+      // 临时文件上传完成 → MOVE 覆盖正式文件（Overwrite: T 允许替换）。
+      final mv = await _send(client, 'MOVE', tmpUri, headers: {
+        ..._authHeaders(),
+        'Destination': _fileUri.toString(),
+        'Overwrite': 'T',
+      });
+      await mv.drain<void>().timeout(const Duration(seconds: 20));
       final now = DateTime.now().toUtc();
       // 记住本次上传的本地快照时间，避免 pull 时误判本地更旧
       await LocalStore.writeJson('webdav_last_upload', now.millisecondsSinceEpoch);

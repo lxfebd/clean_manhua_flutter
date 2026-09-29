@@ -1,13 +1,16 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:xingmanxia/capabilities/ai_colorize_capability.dart';
+import 'package:xingmanxia/capabilities/ai_frame_rife_capability.dart';
 import 'package:xingmanxia/capabilities/capability_plugin.dart';
 import 'package:xingmanxia/capabilities/capability_plugin_manager.dart';
 import 'package:xingmanxia/capabilities/capability_market.dart';
 import 'package:xingmanxia/net/local_store.dart';
-
 /// 能力安装持久化回归：installed 快照落盘/卸载清出、预置壳卸载 removed
 /// 落盘（restore 不重建的依据）、CapabilityPlugin 序列化 roundtrip。
 ///
@@ -120,7 +123,10 @@ void main() {
 
     test('卸载预置能力 → removed 落盘（restore 不重建的依据）', () async {
       final mgr = CapabilityPluginManager.instance;
-      await mgr.restore(); // 确保上色预置壳在册
+      // 上色壳仅桌面注册；restore 已在此文件更早的用例跑过（当时是默认平台，
+      // 壳未注册且幂等不再生效），这里直接 install 预置壳走卸载路径。
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      await mgr.install(AiColorizePlugin());
       expect(mgr.byId('ai.colorize.ddcolor'), isNotNull);
       await mgr.uninstall('ai.colorize.ddcolor');
       expect(mgr.byId('ai.colorize.ddcolor'), isNull);
@@ -137,6 +143,57 @@ void main() {
         author: '星漫匣上色团队',
       ));
       expect(mgr.byId('ai.colorize.ddcolor'), isNotNull);
+      // 卸载干净，避免残留实例被下游门闸用例误判（注销实例同样清 _removed）。
+      await mgr.uninstall('ai.colorize.ddcolor');
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    // 2026-09-30 P3 平台门闸：插帧仅 Windows，手机/Web 不得注册、不得从
+    // 市场安装（装一个 Windows exe 引擎的壳对手机无意义，且卸载会静默删
+    // 掉桌面端壳）。
+    test('插帧平台门闸：非 Windows 不注册、市场安装被拒', () async {
+      final mgr = CapabilityPluginManager.instance;
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      // 模拟手机侧 restore：预置壳按平台门闸不注册。
+      await mgr.restore();
+      expect(mgr.byId('ai.frame.rife'), isNull);
+      // 手机侧从市场安装 rife → 拒绝（isSupportedOnCurrentPlatform 门闸）。
+      expect(
+        await CapabilityMarket.install(MarketCapabilityEntry(
+          id: 'ai.frame.rife',
+          name: 'AI 插帧',
+          category: 'video',
+          version: '1.0.0',
+          author: '星漫匣插帧团队',
+        )),
+        isFalse,
+      );
+      expect(mgr.byId('ai.frame.rife'), isNull);
+      // 平台支持查询：未注册时按预置壳判定（插帧 false，未知 id 默认 true）。
+      expect(mgr.isSupportedOnCurrentPlatform('ai.frame.rife'), isFalse);
+      expect(mgr.isSupportedOnCurrentPlatform('utility.stats'), isTrue);
+      // 上色同为仅桌面壳：手机侧不得注册、市场安装被拒。
+      expect(mgr.byId('ai.colorize.ddcolor'), isNull);
+      expect(mgr.isSupportedOnCurrentPlatform('ai.colorize.ddcolor'), isFalse);
+      expect(
+        await CapabilityMarket.install(MarketCapabilityEntry(
+          id: 'ai.colorize.ddcolor',
+          name: 'AI 上色',
+          category: 'ai',
+          version: '1.0.0',
+          author: '星漫匣上色团队',
+        )),
+        isFalse,
+      );
+      expect(mgr.byId('ai.colorize.ddcolor'), isNull);
+      // 还原：restore 已幂等执行（_restored 不会再跑），Windows 侧直接 install
+      // 验证支持路径——插帧壳回到注册表，避免影响其他用例。
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      await mgr.install(AiFrameRifePlugin());
+      await mgr.install(AiColorizePlugin());
+      expect(mgr.byId('ai.frame.rife'), isNotNull);
+      expect(mgr.byId('ai.colorize.ddcolor'), isNotNull);
+      debugDefaultTargetPlatformOverride = null;
     });
   });
 }

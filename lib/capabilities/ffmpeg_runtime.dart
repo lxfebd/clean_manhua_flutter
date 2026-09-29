@@ -130,13 +130,23 @@ class FfmpegRuntime {
       if (out.exitCode != 0) {
         ErrorLogger.instance
             .warn('[capability] ffmpeg unzip failed: ${processStderrText(out)}');
+        // 解压失败：删除坏 zip，避免坏包/半解压状态反复占盘。
+        try {
+          if (await zip.exists()) await zip.delete();
+        } catch (_) {}
         return 'ffmpeg 解压失败，请检查磁盘空间与权限';
       }
     } on TimeoutException {
       ErrorLogger.instance.warn('[capability] ffmpeg unzip timeout');
+      try {
+        if (await zip.exists()) await zip.delete();
+      } catch (_) {}
       return 'ffmpeg 解压超时，请重试';
     } catch (e) {
       ErrorLogger.instance.warn('[capability] ffmpeg unzip error: $e');
+      try {
+        if (await zip.exists()) await zip.delete();
+      } catch (_) {}
       return 'ffmpeg 解压失败，请重试';
     }
     // 解压成功后清理 zip，避免坏包/大包反复占盘。

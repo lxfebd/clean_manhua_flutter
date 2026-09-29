@@ -53,6 +53,12 @@ class AiColorizePlugin extends CapabilityPlugin {
           ],
         );
 
+  /// 仅桌面端支持（手机端已撤下，DesktopUi 门闸×3；权重/模型链路均按桌面
+  /// 设计）：能力中心/市场/注册恢复统一按此过滤，手机/Web 不显示、不可装。
+  @override
+  bool get isSupportedOnCurrentPlatform =>
+      !kIsWeb && DesktopUi.isDesktopPlatform;
+
   /// 权重就绪检查：模型布尔就绪（ColorizerManager.isAvailable）。
   /// 供能力中心 UI 展示「模型未就绪」前调用，判断是否需要下载权重。
   static bool isModelReady() => ColorizerManager.instance.isAvailable;

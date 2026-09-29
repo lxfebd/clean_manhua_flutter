@@ -445,7 +445,11 @@ class Net {
     await RateLimiter.acquire(host);
     try {
       final bytes = await PlatformHttp.get(urlStr, headers, t, proxy);
-      return utf8.decode(bytes);
+      // 与 Cronet 路径（allowMalformed: true）保持一致：部分站点返回的
+      // 页面含非 UTF-8 字节序列（GBK 残留/编码声明与实际不符），严格解码
+      // 会抛 FormatException → 同一次请求在「Cronet 可用/不可用」两条路径
+      // 上行为不一致（一边成功一边崩溃）。容错解码替换坏字节，页面照常解析。
+      return utf8.decode(bytes, allowMalformed: true);
     } finally {
       RateLimiter.release(host, jitter: true);
     }

@@ -176,6 +176,11 @@ class CapabilityMarket {
   ///   内置能力同 id 冲突（如 utility.*）不入此路径：内置不可覆盖。
   static Future<bool> install(MarketCapabilityEntry entry) async {
     final mgr = CapabilityPluginManager.instance;
+    // 平台门闸：远端条目不携带平台声明，按预置壳（如 AI 上色/插帧）判定；
+    // 当前平台不支持的直接拒绝（手机装 rife → 引擎是 Windows exe 必失败）。
+    if (!mgr.isSupportedOnCurrentPlatform(entry.id)) {
+      return false;
+    }
     final cur = mgr.byId(entry.id);
     if (cur == null) {
       // 全新安装：直接注册（幂等）。

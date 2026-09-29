@@ -87,6 +87,10 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
   /// 正在安装的能力 id 集合（tile 按钮转 loading，禁用防重复点击）。
   final Set<String> _installingIds = {};
 
+  /// 当前平台是否支持该能力条目（按预置壳判定；远端条目不携带平台声明）。
+  bool _supported(MarketCapabilityEntry e) =>
+      CapabilityPluginManager.instance.isSupportedOnCurrentPlatform(e.id);
+
   /// 卸载已安装的能力（内置能力不可卸载，返回 false）。
   Future<void> _uninstall(MarketCapabilityEntry entry) async {
     if (_installingIds.contains(entry.id)) return; // 防重入：与安装共用同一把锁
@@ -494,8 +498,7 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
                       e.category.toLowerCase().contains(q) ||
                       e.id.toLowerCase().contains(q),
                 )
-                .toList();
-    if (visible.isEmpty) {
+                .toList();    if (visible.isEmpty) {
       return Center(
         child: Text(
           '没有匹配「$_query」的能力',
@@ -515,10 +518,10 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
             entry: visible[i],
             onInstall: () => _confirmInstall(visible[i]),
             installing: _installingIds.contains(visible[i].id),
+            supported: _supported(visible[i]),
             onUninstall: () => _uninstall(visible[i]),
             onDetail: () => _showDetail(visible[i]),
-          ),
-    );
+          ),    );
   }
 }
 
@@ -530,12 +533,16 @@ class _CapabilityMarketTile extends StatefulWidget {
   final VoidCallback onDetail;
   final bool installing;
 
+  /// 当前平台是否支持（false → 显示「当前平台不支持」，无安装/卸载按钮）。
+  final bool supported;
+
   const _CapabilityMarketTile({
     required this.entry,
     required this.onInstall,
     required this.onUninstall,
     required this.onDetail,
     this.installing = false,
+    this.supported = true,
   });
 
   @override
@@ -708,8 +715,16 @@ class _CapabilityMarketTileState extends State<_CapabilityMarketTile> {
             onPressed: widget.onDetail,
           ),
           const SizedBox(width: 8),
-          isInstalled
-              ? TextButton(
+          if (!widget.supported)
+            Text(
+              '当前平台不支持',
+              style: TextStyle(
+                fontSize: 11.5,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.35),
+              ),
+            )
+          else if (isInstalled)
+              TextButton(
                 onPressed: widget.onUninstall,
                 style: TextButton.styleFrom(
                   foregroundColor: theme.colorScheme.error,
@@ -720,28 +735,29 @@ class _CapabilityMarketTileState extends State<_CapabilityMarketTile> {
                 ),
                 child: const Text('卸载', style: TextStyle(fontSize: 12)),
               )
-              : widget.installing
-              ? const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              )
-              : FilledButton.tonal(
-                onPressed: widget.onInstall,
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 8,
+              else if (widget.installing)
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+              else
+                FilledButton.tonal(
+                  onPressed: widget.onInstall,
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
+                  ),
+                  child: Text(
+                    isUpdate ? '更新' : '安装',
+                    style: const TextStyle(fontSize: 12.5),
                   ),
                 ),
-                child: Text(
-                  isUpdate ? '更新' : '安装',
-                  style: const TextStyle(fontSize: 12.5),
-                ),
-              ),
         ],
       ),
     );

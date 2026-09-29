@@ -164,11 +164,21 @@ class SourceHealthMonitor {
         final until = _coolDownUntil[t.id];
         return until == null || now >= until;
       }).toList();
-      // 并发 3
-      final results = await Future.wait(todo.map((t) async {
-        final r = await _probe(t.host);
-        return (t, r);
-      }));
+      // 并发 3（文档宣称但实际 Future.wait 全量并发——修复：跑满 3 路
+      // worker 池，超出的排队，避免一次探 40+ 个源打满连接/Socket）。
+      const concurrency = 3;
+      final results = <(({String id, String name, String host}), HostProbeResult)>[];
+      var next = 0;
+      Future<void> worker() async {
+        while (true) {
+          final i = next++;
+          if (i >= todo.length) return;
+          final t = todo[i];
+          final r = await _probe(t.host);
+          results.add((t, r));
+        }
+      }
+      await Future.wait([for (var i = 0; i < concurrency; i++) worker()]);
       for (final (t, r) in results) {
         _record(t.id, t.name, r);
       }

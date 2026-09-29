@@ -225,10 +225,12 @@ class DownloadManager {
       done: done,
       finished: ok,
       localKey: key,
-      // 中断原因落盘：用户取消 / 网络失败（done 缺页）也能在下载列表看到具体原因。
+      // 中断原因落盘：用户取消 / 网络失败（缺页）也能在下载列表看到具体原因。
+      // 失败页数用 okCount（实际落盘页）反推：done 含「任务取消/跳到已存在
+      // 文件」等未真正拉取的页，用它算会让「N 页失败」恒为 0。
       error: cancelled
           ? '已取消'
-          : (ok ? null : '下载未完成：${urls.length - done} 页失败'),
+          : (ok ? null : '下载未完成：${urls.length - okCount} 页失败'),
     ));
     return ok ? const DownloadResult.ok() : DownloadResult.fail(cancelled ? '已取消' : '下载未完成');
   }

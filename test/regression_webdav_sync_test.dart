@@ -199,6 +199,20 @@ void main() {
           case 'MKCOL':
             req.response.statusCode = HttpStatus.created;
             req.response.close();
+          case 'MOVE':
+            // 原子替换（push 先 PUT .tmp 再 MOVE 覆盖正式文件）：
+            // 把临时键内容搬移到 Destination 指向的键，删掉临时键。
+            final dest = req.headers.value('Destination');
+            final destPath = dest == null ? null : Uri.parse(dest).path;
+            if (destPath == null) {
+              req.response.statusCode = HttpStatus.badRequest;
+            } else {
+              final body = store[p];
+              if (body != null) store[destPath] = body;
+              store.remove(p);
+              req.response.statusCode = HttpStatus.noContent;
+            }
+            req.response.close();
           default:
             req.response.statusCode = HttpStatus.methodNotAllowed;
             req.response.close();
