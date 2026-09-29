@@ -8,6 +8,7 @@ import '../net/update_checker.dart';
 import '../services/player_registry.dart';
 import 'widgets/update_download_dialog.dart';
 import 'anime_home_page.dart';
+import 'anime_player_page.dart' show animePlayerWebChannel;
 import 'bookshelf_page.dart';
 import 'home_page.dart';
 import 'keyboard_shortcuts.dart';
@@ -15,10 +16,12 @@ import 'native_player_page.dart';
 import 'novel_home_page.dart';
 import 'profile_page.dart';
 import 'responsive.dart';
+import 'tokens.dart';
 import 'toolbox_page.dart';
 import 'unified_search_page.dart';
 import 'widgets/mini_player.dart';
 import 'widgets/motion.dart';
+import 'widgets/tap_target.dart';
 
 /// 主框架：底部 Tab 导航（首页 / 书架 / 工具 / 我的）。
 ///
@@ -418,6 +421,7 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
           videoId: taken.videoId,
           historyKey: taken.historyKey,
           take: taken,
+          webChannelBuilder: animePlayerWebChannel,
         ),
       ),
     );
@@ -645,7 +649,8 @@ class _NavigationRailItem extends StatelessWidget {
                 size: 20,
                 color: isSelected
                     ? scheme.onPrimary
-                    : scheme.onSurface.withValues(alpha: 0.6),
+                    : T.color(scheme.onSurface, TextTier.low,
+                        brightness: scheme.brightness),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -690,7 +695,8 @@ class _NavigationRailItem extends StatelessWidget {
               size: 22,
               color: isSelected
                   ? scheme.onPrimary
-                  : scheme.onSurface.withValues(alpha: 0.55),
+                  : T.color(scheme.onSurface, TextTier.low,
+                      brightness: scheme.brightness),
             ),
             if (showLabel) ...[
               const SizedBox(height: 5),
@@ -704,7 +710,8 @@ class _NavigationRailItem extends StatelessWidget {
                       isSelected ? FontWeight.w600 : FontWeight.w500,
                   color: isSelected
                       ? scheme.onPrimary
-                      : scheme.onSurface.withValues(alpha: 0.55),
+                      : T.color(scheme.onSurface, TextTier.mid,
+                          brightness: scheme.brightness),
                 ),
               ),
             ],
@@ -813,51 +820,56 @@ class _Item extends StatelessWidget {
       child: PressableScale(
         onTap: () => onTap(index),
         scale: 0.95,
-        child: Stack(
-          children: [
-            // 选中指示条：顶部居中的墨色短线（Minimalist 标志性细节）
-            AnimatedPositioned(
-              duration: const Duration(milliseconds: 240),
-              curve: Curves.easeOutCubic,
-              top: 0,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 240),
-                  curve: Curves.easeOutCubic,
-                  width: isOn ? 20 : 0,
-                  height: 2,
-                  color: fg,
+        // 命中区 ≥44×44：PressableScale 不约束热区，图标+文字内容
+        // 高度不足 44 时会缩成 ~33dp（8-31 门禁实测），TapTargetMin 放
+        // 手势组件内部作 child 才能把手势盒子本身撑到 44。
+        child: TapTargetMin(
+          child: Stack(
+            children: [
+              // 选中指示条：顶部居中的墨色短线（Minimalist 标志性细节）
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 240),
+                curve: Curves.easeOutCubic,
+                top: 0,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 240),
+                    curve: Curves.easeOutCubic,
+                    width: isOn ? 20 : 0,
+                    height: 2,
+                    color: fg,
+                  ),
                 ),
               ),
-            ),
-            Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    isOn ? active : icon,
-                    size: 20,
-                    color: isOn ? fg : softColor,
-                  ),
-                  const SizedBox(height: 2),
-                  AnimatedDefaultTextStyle(
-                    duration: const Duration(milliseconds: 200),
-                    style: TextStyle(
-                      fontSize: 10,
-                      height: 1.1,
-                      letterSpacing: 0.2,
-                      fontWeight: isOn ? FontWeight.w600 : FontWeight.w500,
+              Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      isOn ? active : icon,
+                      size: 20,
                       color: isOn ? fg : softColor,
                     ),
-                    child: Text(label),
-                  ),
-                ],
+                    const SizedBox(height: 2),
+                    AnimatedDefaultTextStyle(
+                      duration: const Duration(milliseconds: 200),
+                      style: TextStyle(
+                        fontSize: 10,
+                        height: 1.1,
+                        letterSpacing: 0.2,
+                        fontWeight: isOn ? FontWeight.w600 : FontWeight.w500,
+                        color: isOn ? fg : softColor,
+                      ),
+                      child: Text(label),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

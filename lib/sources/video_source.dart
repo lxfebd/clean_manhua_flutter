@@ -58,3 +58,63 @@ class VideoDetail {
       this.tags = const [],
       this.sourceNames});
 }
+
+/// 判断 URL 是否为直接可播的视频媒体直链。
+///
+/// 支持常见的视频扩展名、HLS 路径，以及已知视频 CDN 域名（如 toutiao50.com）。
+/// 从 resolve-play-url 等 API 拦截到的 URL 也会被放行（由调用方保证来源可靠）。
+bool isDirectMediaUrl(String url) {
+  if (url.isEmpty) return false;
+  final u = url.toLowerCase();
+  // 视频文件扩展名
+  if (u.contains('.m3u8') || u.contains('.mp4') ||
+      u.contains('.webm') || u.contains('.mkv') || u.contains('.flv')) {
+    return true;
+  }
+  // HLS / TS 流路径
+  if (u.contains('/hls/') || u.contains('.ts')) {
+    return true;
+  }
+  // 字节跳动 TOS 对象存储视频路径（AGE 等源换域名但路径固定）
+  if (u.contains('/video/tos/')) {
+    return true;
+  }
+  // 已知视频 CDN 域名（头条/抖音/topbuzz/capcut/剪映等字节系）
+  if (u.contains('toutiao50.com') || u.contains('toutiao') ||
+      u.contains('pstatp.com') || u.contains('bytedance') ||
+      u.contains('douyin') || u.contains('ixigua.com') ||
+      u.contains('snssdk.com') || u.contains('topbuzzcdn.com') ||
+      u.contains('topbuzz.com') || u.contains('capcutvod.com') ||
+      u.contains('capcut.com')) {
+    return true;
+  }
+  // blob URL（WASM 解密的 MSE 流）
+  if (u.startsWith('blob:')) return true;
+  return false;
+}
+
+/// 判断 URL 是否为广告直链：path 独立段 ad/ads/adv 等，或已知广告域名。
+/// 广告 m3u8 混入正片流（站点先放广告再放正片）时，若广告被无条件捕获，
+/// 会先接管原生播放器、从 0:00 播广告；此判定用于在捕获入口拦截，
+/// 确保正片成为首个被接管的对象。
+bool isAdMediaUrl(String url) {
+  if (url.isEmpty) return false;
+  final u = url.toLowerCase();
+  final noQuery = u.split('?').first;
+  final segments = noQuery.split('/');
+  const adSegments = {
+    'ad', 'ads', 'adv', 'advert', 'adverts', 'advertise', 'advertising',
+    'advertisement', 'adserve', 'adserver', 'adservice', 'adtrack', 'adtag',
+  };
+  for (final s in segments) {
+    if (adSegments.contains(s)) return true;
+  }
+  const adDomains = {
+    'doubleclick', 'googlesyndication', 'amazon-adsystem', 'adnxs',
+    'applovin', 'unityads', 'adcolony',
+  };
+  for (final d in adDomains) {
+    if (u.contains(d)) return true;
+  }
+  return false;
+}

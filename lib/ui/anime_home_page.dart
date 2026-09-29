@@ -6,11 +6,14 @@ import '../models/comic_item.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
 import '../sources/video_source.dart';
-import 'anime_player_page.dart';
+import 'episode_list_page.dart';
 import 'responsive.dart';
+import 'tokens.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
+import 'widgets/skeleton.dart';
+import 'widgets/tap_target.dart';
 
 /// 动漫首页：搜索 + 分类胶囊 + 番剧网格。
 class AnimeHomePage extends StatefulWidget {
@@ -230,7 +233,8 @@ class AnimeHomePageState extends State<AnimeHomePage> {
   /// 主壳 Ctrl+R 刷新入口。
   void refresh() => _refresh();
 
-  void _refresh() {
+  /// 主动刷新：清空列表重启首屏加载，返回的 Future 供下拉指示器等待。
+  Future<void> _refresh() {
     _loadToken++; // 作废在途请求（旧响应到达后按 token 丢弃）
     _loading = false; // 放行新请求（旧请求 finally 复位无害）
     _page = 1;
@@ -240,42 +244,31 @@ class AnimeHomePageState extends State<AnimeHomePage> {
     _loadMoreError = false;
     _autoLoadCount = 0;
     setState(() {});
-    _loadMore();
+    return _loadMore();
   }
+
+  /// 下拉刷新入口（RefreshIndicator 要求 RefreshCallback）。
+  Future<void> _onRefresh() => _refresh();
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
-      body: Column(children: [
-        _buildHeader(theme),
-        _buildChips(theme),
-        Expanded(child: _buildContent()),
-      ]),
+      body: _buildScrollArea(theme),
     );
   }
 
-  Widget _buildContent() {
-    if (_error != null) {
-      return _ErrorView(message: _error!, onRetry: _refresh);
-    }
-    if (_items.isEmpty) {
-      // 加载态与空态分离：正在拉取首屏时显示 spinner；加载完成但源没返回内容时
-      // 显示明确的空态引导，避免用户误以为"永远转圈"。
-      if (_loading) {
-        return const Center(
-          child: CircularProgressIndicator(strokeWidth: 2),
-        );
-      }
-      return _EmptyView(onRetry: _refresh);
-    }
+  /// 统一滚动区：头部 [SliverPersistentHeader]（随滚动收起）+ 内容 slivers。
+  /// 手机/平板保留下拉刷新；桌面保持 clamping + 滚动条。
+  Widget _buildScrollArea(ThemeData theme) {
     final isDesktop = DesktopUi.isDesktopPlatform;
-    return CustomScrollView(
+    final scrollView = CustomScrollView(
       controller: _scrollCtrl,
       physics: isDesktop
           ? const ScrollPhysics(parent: ClampingScrollPhysics())
-          : const BouncingScrollPhysics(),
+          : const AlwaysScrollableScrollPhysics(
+              parent: BouncingScrollPhysics()),
       scrollBehavior: isDesktop
           ? ScrollConfiguration.of(context).copyWith(
               scrollbars: true,
@@ -283,6 +276,52 @@ class AnimeHomePageState extends State<AnimeHomePage> {
             )
           : null,
       slivers: [
+        _buildHeaderSliver(theme),
+        ..._buildContentSlivers(theme),
+      ],
+    );
+    if (!isDesktop) {
+      return RefreshIndicator(
+        onRefresh: _onRefresh,
+        color: theme.colorScheme.primary,
+        child: scrollView,
+      );
+    }
+    return scrollView;
+  }
+
+  /// 整屏区块 sliver（错误/空态/加载骨架）。
+  ///
+  /// 不能直接把 [HomeGridSkeleton](内部是 CustomScrollView/Viewport)交给
+  /// [SliverFillRemaining]：它会对 child 求 intrinsic 高度，Viewport 不支持
+  /// → 崩溃。改为包一层按视口高度定高的 SizedBox，intrinsic 直接取定值、
+  /// 不再递归进嵌套滚动视图。
+  Widget _fillRemaining(Widget child) {
+    final h = MediaQuery.sizeOf(context).height;
+    return SliverFillRemaining(
+      hasScrollBody: false,
+      child: SizedBox(height: h, child: child),
+    );
+  }
+
+  /// 内容区 slivers：错误/空态/加载为整屏区块，正常态为分区头 + 网格。
+  List<Widget> _buildContentSlivers(ThemeData theme) {
+    if (_error != null) {
+      return [
+        _fillRemaining(_ErrorView(message: _error!, onRetry: _refresh)),
+      ];
+    }
+    if (_items.isEmpty) {
+      // 加载态与空态分离：正在拉取首屏时显示骨架屏；加载完成但源没返回内容时
+      // 显示明确的空态引导，避免用户误以为"永远转圈"。
+      return [
+        _fillRemaining(_loading
+            ? const HomeGridSkeleton()
+            : _EmptyView(onRetry: _refresh)),
+      ];
+    }
+    final isDesktop = DesktopUi.isDesktopPlatform;
+    return [
         SliverPadding(
           padding: EdgeInsets.fromLTRB(
               Responsive.pagePadding(context), 4,
@@ -365,8 +404,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
             ),
           ),
         const SliverToBoxAdapter(child: SizedBox(height: 100)),
-      ],
-    );
+      ];
   }
 
   String _modeTitle() {
@@ -394,198 +432,249 @@ class AnimeHomePageState extends State<AnimeHomePage> {
     }
   }
 
-  Widget _buildHeader(ThemeData theme) {
-    final scheme = theme.colorScheme;
-    // 桌面端（Windows/macOS/Linux）：工具栏形态——不重复 Logo 与标题（侧栏已有），
-    // 一行内放 搜索框 + 番剧源切换 + 刷新 + 类型分段。
-    // 窄窗（逻辑宽 <600dp，用户把桌面窗口拖成手机式竖条时）回退到手机式 Column 头部，
-    // 避免桌面工具栏在一行内塞不下而拥挤/溢出；中等宽度下搜索框随可用宽度收缩自适应。
-    if (DesktopUi.isDesktopPlatform && Responsive.isTablet(context)) {
-      final searchMaxWidth =
-          Responsive.widthOf(context) * 0.5 <= 520.0
-              ? Responsive.widthOf(context) * 0.5
-              : 520.0;
-      return SafeArea(
+  /// 滚动收起头部 sliver：展开为完整头部（logo/星漫匣/双源切换/搜索/类型/胶囊），
+  /// 收起为单行精简栏（搜索 + 类型切换；桌面为完整工具栏）。
+  ///
+  /// 与 home_page 同构：自绘 delegate 精确控制展开/收起两态与滚动过渡，
+  /// 动画随 shrinkOffset 连续映射（SliverAppBar 的 toolbar 区放不下两套布局）。
+  Widget _buildHeaderSliver(ThemeData theme) {
+    final isDesktop = DesktopUi.isDesktopPlatform;
+    final isTablet = Responsive.isTablet(context);
+    final topPad = MediaQuery.paddingOf(context).top;
+    // 展开高度 = 完整头自然高度（含 TapTargetMin 44 强制热区）+ 余量，
+    // 溢出会触发 RenderFlex 黄条断言。logo 行收敛为单行（源切换只保留右侧
+    // 胶囊）后与 home 同高：
+    // 手机 6+44+8+48搜索行+4+44胶囊+4 = 158 → 168；平板 6+44+8+52+4+48+4
+    // = 166 → 176；桌面工具栏行被 44 热区撑到约 50：10+50+10+44+10 = 124
+    // → 138（实测 128 时溢出 2dp）。
+    // 44 热区行不随文字长，但搜索/标题行会随系统文字缩放长高
+    // （1.5×/2.0× 实测会溢），故按缩放补余量（与 home 同公式）。
+    final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+    final textSlack = (textScale - 1.0).clamp(0.0, 1.0) * 60;
+    final expanded =
+        (isDesktop ? 138.0 : (isTablet ? 176.0 : 168.0)) + textSlack + topPad;
+    final collapsed = kToolbarHeight + topPad;
+    return SliverPersistentHeader(
+      pinned: true,
+      delegate: _AnimeHeaderDelegate(
+        minExtent: collapsed,
+        maxExtent: expanded,
+        builder: (context, shrinkOffset, overlapsContent) {
+          final current = (expanded - shrinkOffset).clamp(collapsed, expanded);
+          final t =
+              ((expanded - current) / (expanded - collapsed)).clamp(0.0, 1.0);
+          return _buildShrinkableHeader(theme, expanded, current, t);
+        },
+      ),
+    );
+  }
+
+  /// 展开态完整头与收起态精简栏的过渡：完整头随收缩淡出并上移，
+  /// 精简栏从底部淡入（带不透明底，遮住下层重叠的展开态内容）。
+  Widget _buildShrinkableHeader(
+      ThemeData theme, double expanded, double current, double t) {
+    return ClipRect(
+      child: SizedBox(
+        height: current,
+        child: Stack(
+          fit: StackFit.loose,
+          clipBehavior: Clip.none,
+          children: [
+            // 展开头随收缩淡出：透明度归零后必须同时 IgnorePointer，
+            // 否则半收起时看不见的搜索框/胶囊仍在吃掉点击（收起层有
+            // IgnorePointer、展开层原先没有，两态热区会重叠）。
+            IgnorePointer(
+              key: const ValueKey('anime-header-expanded-guard'),
+              ignoring: t > 0.5,
+              child: Opacity(
+                opacity: (1.0 - t * 1.6).clamp(0.0, 1.0),
+                child: Transform.translate(
+                  offset: Offset(0, -t * 24),
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: OverflowBox(
+                      minHeight: 0,
+                      maxHeight: expanded,
+                      alignment: Alignment.topCenter,
+                      child: _buildExpandedHeader(theme, expanded),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (t > 0.01)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Opacity(
+                  opacity: ((t - 0.4) / 0.6).clamp(0.0, 1.0),
+                  child: IgnorePointer(
+                    key: const ValueKey('anime-header-collapsed-guard'),
+                    ignoring: t < 0.5,
+                    child: _buildCollapsedHeader(theme),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 展开态完整头：手机/平板为 Column（logo/标题/双源切换 + 搜索/类型 + 胶囊），
+  /// 桌面为工具栏 + 胶囊。
+  Widget _buildExpandedHeader(ThemeData theme, double height) {
+    final isDesktop = DesktopUi.isDesktopPlatform;
+    return SizedBox(
+      height: height,
+      child: SafeArea(
         bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(32, 16, 32, 12),
-          child: Row(
+        child: isDesktop
+            ? Padding(
+                padding: const EdgeInsets.fromLTRB(32, 10, 32, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildToolbarRow(theme),
+                    const SizedBox(height: 10),
+                    _buildChips(theme),
+                  ],
+                ),
+              )
+            : _buildMobileExpandedHeader(theme),
+      ),
+    );
+  }
+
+  /// 手机/平板展开态完整头：logo 行（标题 + 源切换胶囊）+ 搜索/类型 + 胶囊。
+  Widget _buildMobileExpandedHeader(ThemeData theme) {
+    final scheme = theme.colorScheme;
+    final isTablet = Responsive.isTablet(context);
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        Responsive.pagePadding(context),
+        6,
+        Responsive.pagePadding(context),
+        4,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // logo 行与 home 同构（裸 Text 不包 Column，否则 Column 的基线
+          // 参照点会让 logo 图标与文字纵向错位、换页即变位置）。
+          Row(
             children: [
-              Expanded(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: searchMaxWidth),
-                  child: _animeSearch(theme),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(isTablet ? 8 : 9),
+                child: Image.asset(
+                  'ui_assets/icon-logo.png',
+                  width: isTablet ? 28 : 32,
+                  height: isTablet ? 28 : 32,
+                  fit: BoxFit.cover,
+                ),
+              ),
+              SizedBox(width: isTablet ? 8 : 10),
+              Text(
+                '星漫匣',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: isTablet ? 18 : 21,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.5,
+                  color: scheme.onSurface,
                 ),
               ),
               const SizedBox(width: 10),
+              // 源切换胶囊（点击切源）：移动端唯一源切换入口。
+              // 样式与桌面工具栏胶囊、home _SourceSwitchButton 一致（primary 色调），
+              // 避免换页时 logo 旁的胶囊样式跳变。
               GestureDetector(
                 onTap: _pickSource,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: scheme.primary.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(
-                      color: scheme.primary.withValues(alpha: 0.22),
-                      width: 0.8,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.public_rounded,
-                          size: 15, color: scheme.primary),
-                      const SizedBox(width: 6),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 110),
-                        child: Text(
-                          _source.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                            color: scheme.primary,
-                          ),
-                        ),
-                      ),
-                      Icon(Icons.keyboard_arrow_down_rounded,
-                          size: 16, color: scheme.primary),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              IconButton(
-                tooltip: '刷新',
-                onPressed: _refresh,
-                icon: const Icon(Icons.refresh_rounded, size: 20),
-                color: scheme.onSurface.withValues(alpha: 0.7),
-              ),
-              const Spacer(),
-              TypeSegment(
-                type: widget.type,
-                onChanged: widget.onTypeChanged,
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-    // SafeArea 已计入状态栏高度，不再叠加 topPad（否则平板/桌面头部被双重下推）。
-    // 顶部间距与 home_page 保持一致：平板紧凑、手机大一些。
-    final top = Responsive.isTablet(context) ? 16.0 : 52.0;
-    return SafeArea(
-      bottom: false,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-            Responsive.pagePadding(context), top,
-            Responsive.pagePadding(context), 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(9),
-                  child: Image.asset(
-                    'ui_assets/icon-logo.png',
-                    width: 32,
-                    height: 32,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Flexible(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '星漫匣',
-                        style: TextStyle(
-                          fontSize: 21,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.5,
-                          color: scheme.onSurface,
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: _pickSource,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Flexible(
-                              child: Text(
-                                _source.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: scheme.onSurface.withValues(alpha: 0.5),
-                                  letterSpacing: 1,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 3),
-                            Icon(Icons.swap_horiz_rounded,
-                                size: 13,
-                                color: scheme.onSurface.withValues(alpha: 0.4)),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                GestureDetector(
-                  onTap: _pickSource,
+                child: TapTargetMin(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 7),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                     decoration: BoxDecoration(
-                      color: scheme.surface,
-                      borderRadius: BorderRadius.circular(9),
+                      color: scheme.primary.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(999),
                       border: Border.all(
-                        color: scheme.onSurface.withValues(alpha: 0.15),
-                        width: 1,
+                        color: scheme.primary.withValues(alpha: 0.22),
+                        width: 0.8,
                       ),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(Icons.public_rounded,
-                            size: 14,
-                            color: scheme.onSurface.withValues(alpha: 0.8)),
+                            size: 14, color: scheme.primary),
                         const SizedBox(width: 5),
-                        Flexible(
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 110),
                           child: Text(
                             _source.name,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: scheme.onSurface,
+                              fontWeight: FontWeight.w700,
+                              color: scheme.primary,
                             ),
                           ),
                         ),
-                        const SizedBox(width: 3),
-                        Icon(Icons.unfold_more_rounded,
-                            size: 14,
-                            color: scheme.onSurface.withValues(alpha: 0.6)),
+                        Icon(Icons.keyboard_arrow_down_rounded,
+                            size: 15, color: scheme.primary),
                       ],
                     ),
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            // 搜索栏 + 漫画/动漫切换（同一行）
-            Row(
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // 搜索栏 + 漫画/动漫切换（同一行）
+          Row(
+            children: [
+              Flexible(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                      maxWidth: Responsive.fieldMaxWidth(context)),
+                  child: _animeSearch(theme),
+                ),
+              ),
+              const SizedBox(width: 10),
+              TypeSegment(
+                type: widget.type,
+                onChanged: widget.onTypeChanged,
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          _buildChips(theme),
+        ],
+      ),
+    );
+  }
+
+  /// 收起态头部：手机端为搜索 + 类型切换（保核心操作），桌面为完整工具栏。
+  Widget _buildCollapsedHeader(ThemeData theme) {
+    final isDesktop = DesktopUi.isDesktopPlatform;
+    return Container(
+      height: kToolbarHeight,
+      color: theme.scaffoldBackgroundColor,
+      padding: EdgeInsets.fromLTRB(
+        isDesktop ? 32 : Responsive.pagePadding(context),
+        2,
+        isDesktop ? 32 : Responsive.pagePadding(context),
+        2,
+      ),
+      alignment: Alignment.center,
+      child: isDesktop
+          ? _buildToolbarRow(theme)
+          : Row(
               children: [
-                Flexible(
+                Expanded(
                   child: ConstrainedBox(
                     constraints: BoxConstraints(
                         maxWidth: Responsive.fieldMaxWidth(context)),
@@ -599,9 +688,79 @@ class AnimeHomePageState extends State<AnimeHomePage> {
                 ),
               ],
             ),
-          ],
+    );
+  }
+
+  /// 桌面工具栏行（展开/收起两态共用）：搜索 + 番剧源切换 + 刷新 + 类型分段。
+  /// 窄窗（逻辑宽 <600dp，桌面窗口拖成手机式竖条时）不进入本方法——头部走
+  /// 手机式 Column（_buildMobileExpandedHeader），避免一行塞不下而拥挤/溢出。
+  Widget _buildToolbarRow(ThemeData theme) {
+    final scheme = theme.colorScheme;
+    final searchMaxWidth =
+        Responsive.widthOf(context) * 0.5 <= 520.0
+            ? Responsive.widthOf(context) * 0.5
+            : 520.0;
+    return Row(
+      children: [
+        Expanded(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: searchMaxWidth),
+            child: _animeSearch(theme),
+          ),
         ),
-      ),
+        const SizedBox(width: 10),
+        GestureDetector(
+          onTap: _pickSource,
+          child: TapTargetMin(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: scheme.primary.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: scheme.primary.withValues(alpha: 0.22),
+                  width: 0.8,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.public_rounded,
+                      size: 15, color: scheme.primary),
+                  const SizedBox(width: 6),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 110),
+                    child: Text(
+                      _source.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: scheme.primary,
+                      ),
+                    ),
+                  ),
+                  Icon(Icons.keyboard_arrow_down_rounded,
+                      size: 16, color: scheme.primary),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        IconButton(
+          tooltip: '刷新',
+          onPressed: _refresh,
+          icon: const Icon(Icons.refresh_rounded, size: 20),
+          color: scheme.onSurface.withValues(alpha: 0.7),
+        ),
+        const Spacer(),
+        TypeSegment(
+          type: widget.type,
+          onChanged: widget.onTypeChanged,
+        ),
+      ],
     );
   }
 
@@ -631,12 +790,14 @@ class AnimeHomePageState extends State<AnimeHomePage> {
           hintText: '搜索番剧、剧场版…',
           hintStyle: TextStyle(
             fontSize: 13,
-            color: scheme.onSurface.withValues(alpha: 0.4),
+            color: T.color(scheme.onSurface, TextTier.low,
+                brightness: scheme.brightness),
           ),
           prefixIcon: Icon(
             Icons.search_rounded,
             size: 19,
-            color: scheme.onSurface.withValues(alpha: 0.5),
+            color: T.color(scheme.onSurface, TextTier.low,
+                brightness: scheme.brightness),
           ),
           isDense: true,
           contentPadding: const EdgeInsets.symmetric(vertical: 10),
@@ -1203,5 +1364,46 @@ class _ErrorView extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 动漫页滚动收起头部 delegate
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 动漫页头部的 SliverPersistentHeader delegate：展开为完整头部，收起为单行
+/// 精简栏。shrinkOffset 由滚动位置驱动，build 返回随收缩变化的过渡层，
+/// 动画连续跟随滚动 —— 与 home_page 的 _HomeHeaderDelegate 同构。
+class _AnimeHeaderDelegate extends SliverPersistentHeaderDelegate {
+  const _AnimeHeaderDelegate({
+    required double minExtent,
+    required double maxExtent,
+    required this.builder,
+  })  : _minExtent = minExtent,
+        _maxExtent = maxExtent;
+
+  final double _minExtent;
+  final double _maxExtent;
+
+  /// (context, shrinkOffset, overlapsContent) → 当前头部视图。
+  final Widget Function(BuildContext, double, bool) builder;
+
+  @override
+  double get minExtent => _minExtent;
+
+  @override
+  double get maxExtent => _maxExtent;
+
+  @override
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return builder(context, shrinkOffset, overlapsContent);
+  }
+
+  @override
+  bool shouldRebuild(covariant _AnimeHeaderDelegate oldDelegate) {
+    return oldDelegate._minExtent != _minExtent ||
+        oldDelegate._maxExtent != _maxExtent ||
+        oldDelegate.builder != builder;
   }
 }

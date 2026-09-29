@@ -153,6 +153,10 @@ class VideoRecord {
   final int season;
   final int episode;
 
+  /// 当前线路（season）的总集数，0 表示未知。书架卡片显示「第 N / M 集」用。
+  /// 只记当前线路的集数，绝不把多线路剧集相加（多线路是同一部剧的镜像渠道）。
+  final int totalEpisodes;
+
   /// 上次播放位置（秒）。
   final int seconds;
 
@@ -167,6 +171,7 @@ class VideoRecord {
     this.cover,
     this.season = 1,
     this.episode = 1,
+    this.totalEpisodes = 0,
     this.seconds = 0,
     this.duration = 0,
     required this.timestamp,
@@ -179,6 +184,7 @@ class VideoRecord {
         'cover': cover,
         'season': season,
         'episode': episode,
+        'totalEpisodes': totalEpisodes,
         'seconds': seconds,
         'duration': duration,
         'timestamp': timestamp,
@@ -191,6 +197,7 @@ class VideoRecord {
         cover: m['cover'] as String?,
         season: (m['season'] as num?)?.toInt() ?? 1,
         episode: (m['episode'] as num?)?.toInt() ?? 1,
+        totalEpisodes: (m['totalEpisodes'] as num?)?.toInt() ?? 0,
         seconds: (m['seconds'] as num?)?.toInt() ?? 0,
         duration: (m['duration'] as num?)?.toInt() ?? 0,
         timestamp: (m['timestamp'] as num?)?.toInt() ?? 0,

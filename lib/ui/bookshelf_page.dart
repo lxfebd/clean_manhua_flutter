@@ -10,6 +10,8 @@ import '../net/video_download_manager.dart';
 import '../net/local_store.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
+import 'bookshelf_download_view.dart';
+import 'anime_player_page.dart' show animePlayerWebChannel;
 import 'detail_page.dart';
 import 'native_player_page.dart';
 import 'novel_detail_page.dart';
@@ -516,7 +518,19 @@ class BookshelfPageState extends State<BookshelfPage>
         else if (_tab == 2)
           _buildVideoList(scheme)
         else if (_tab == 3)
-          _buildDownloadsView(scheme)
+          BookshelfDownloadView(
+            scheme: scheme,
+            mangaDownloads: _mangaDownloads,
+            animeDownloads: _animeDownloads,
+            onClearManga: _confirmClearMangaAll,
+            onRetryAllManga: _retryAllManga,
+            onOpenMangaDetail: _openDownloadDetail,
+            onRetryManga: _retryMangaDownload,
+            onRemoveManga: _confirmRemoveManga,
+            onClearAnime: _confirmClearAnimeAll,
+            onOpenAnime: _openAnimeDownload,
+            onRemoveAnime: _confirmRemoveAnime,
+          )
         else
           _buildBookmarkList(scheme),
       ],
@@ -733,303 +747,7 @@ class BookshelfPageState extends State<BookshelfPage>
     );
   }
 
-  /// 下载 Tab：漫画章节下载 + 已下载动漫，集中在此管理
-  /// （下载本就属于「我的内容」，从工具箱挪到书架，工具箱回归纯工具）。
-  Widget _buildDownloadsView(ColorScheme scheme) {
-    final totalManga = _mangaDownloads.length;
-    final totalAnime = _animeDownloads.length;
-    // 下载 Tab 返回单个 Sliver（平板/手机外层 CustomScrollView 均已自带
-    // RefreshIndicator + BouncingScrollPhysics）。此处严禁再内嵌
-    // CustomScrollView / RefreshIndicator——它们都是 RenderBox，被塞进
-    // slivers 列表会让 Viewport 收到非法子组件，直接触发
-    // "RenderViewport expected a child of type RenderSliver but received a
-    // child of type RenderErrorBox"（书架页崩溃根因）。
-    final bottomPad = Responsive.isExpanded(context) ? 24.0 : 110.0;
-    return SliverPadding(
-      padding: EdgeInsets.fromLTRB(
-        Responsive.pagePadding(context), 8,
-        Responsive.pagePadding(context), bottomPad),
-      sliver: SliverToBoxAdapter(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _sectionHeader(scheme, Icons.menu_book_rounded, '漫画下载',
-                totalManga,
-                _mangaDownloads.isEmpty ? null : _confirmClearMangaAll,
-                trailing: _failedManga.isEmpty
-                    ? null
-                    : TextButton.icon(
-                        onPressed: _retryAllManga,
-                        icon: const Icon(Icons.refresh_rounded, size: 16),
-                        label: Text('重试 ${_failedManga.length}'),
-                      )),
-            const SizedBox(height: 8),
-            if (totalManga == 0)
-              const _TabEmpty(
-                  icon: Icons.download_done_rounded,
-                  text: '还没有漫画下载',
-                  subtitle: '在阅读页点击缓存，即可离线观看')
-            else
-              ..._mangaDownloads.map((d) => _mangaDownloadCard(scheme, d)),
-            const SizedBox(height: 20),
-            _sectionHeader(
-                scheme,
-                Icons.ondemand_video_rounded,
-                '动漫下载',
-                totalAnime,
-                _animeDownloads.isEmpty ? null : _confirmClearAnimeAll),
-            const SizedBox(height: 8),
-            if (totalAnime == 0)
-              const _TabEmpty(
-                  icon: Icons.video_library_outlined,
-                  text: '还没有下载的动漫',
-                  subtitle: '观看时点击缓存，即可离线观看')
-            else
-              ..._animeDownloads.map((t) => _animeDownloadCard(scheme, t)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _sectionHeader(ColorScheme scheme, IconData icon, String title,
-      int count, VoidCallback? onClear,
-      {Widget? trailing}) {
-    return Row(
-      children: [
-        Icon(icon, size: 18, color: scheme.primary),
-        const SizedBox(width: 8),
-        Text(title,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: scheme.onSurface,
-                )),
-        const SizedBox(width: 8),
-        if (count > 0)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: scheme.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(R.control),
-            ),
-            child: Text('$count',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: scheme.primary,
-                    )),
-          ),
-        const Spacer(),
-        if (trailing != null) ...[
-          trailing,
-          const SizedBox(width: 4),
-        ],
-        if (onClear != null)
-          TextButton.icon(
-            onPressed: onClear,
-            icon: const Icon(Icons.delete_sweep_outlined, size: 16),
-            label: const Text('清空'),
-          ),
-      ],
-    );
-  }
-
-  Widget _mangaDownloadCard(ColorScheme scheme, DownloadRecord d) {
-    final text = Theme.of(context).textTheme;
-    // 失败态判定：未 finished 且计数到齐（无法完成的重试之后中断），
-    // 显示失败样式而非"100% 但未完成"的歧义进度条。
-    final failed = !d.finished && d.total > 0 && d.done >= d.total;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(R.card),
-        border: Border.all(
-            color: T.color(scheme.onSurface, TextTier.hairline,
-                brightness: scheme.brightness)),
-      ),
-      child: InkWell(
-        onTap: () => _openDownloadDetail(d.book),
-        borderRadius: BorderRadius.circular(R.card),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: d.finished
-                    ? Colors.green.withValues(alpha: 0.1)
-                    : (failed
-                        ? Colors.red.withValues(alpha: 0.1)
-                        : Colors.orange.withValues(alpha: 0.1)),
-                borderRadius: BorderRadius.circular(R.control),
-              ),
-              child: Icon(
-                d.finished
-                    ? Icons.check_circle_outline
-                    : (failed
-                        ? Icons.error_outline_rounded
-                        : Icons.downloading_rounded),
-                size: 20,
-                color: d.finished
-                    ? Colors.green
-                    : (failed ? Colors.red : Colors.orange),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(d.book.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: text.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: scheme.onSurface)),
-                  const SizedBox(height: 4),
-                  Text(d.chapterTitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: text.bodySmall?.copyWith(
-                          color: T.color(scheme.onSurface, TextTier.low,
-                              brightness: scheme.brightness))),
-                  if (!d.finished) ...[
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(2),
-                            child: LinearProgressIndicator(
-                              value: failed
-                                  ? null
-                                  : (d.total > 0 ? d.done / d.total : 0),
-                              minHeight: 4,
-                              backgroundColor:
-                                  T.color(scheme.onSurface, TextTier.hairline,
-                                      brightness: scheme.brightness),
-                              valueColor: failed
-                                  ? AlwaysStoppedAnimation(Colors.red
-                                      .withValues(alpha: 0.6))
-                                  : AlwaysStoppedAnimation(scheme.primary),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(failed ? (d.error ?? '下载失败') : '${d.done}/${d.total}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: text.labelSmall?.copyWith(
-                                color: failed
-                                    ? Colors.red
-                                    : T.color(scheme.onSurface,
-                                        TextTier.low,
-                                        brightness: scheme.brightness))),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            if (!d.finished)
-              IconButton(
-                icon: Icon(Icons.close_rounded,
-                    color: scheme.primary.withValues(alpha: 0.8)),
-                tooltip: '取消下载',
-                onPressed: () {
-                  DownloadManager.cancelTask(d.localKey);
-                  AppToast.info(context, '已请求取消该下载', duration: const Duration(seconds: 1));
-                },
-              ),
-            if (!d.finished)
-              IconButton(
-                icon: Icon(Icons.refresh_rounded,
-                    color: scheme.primary.withValues(alpha: 0.8)),
-                tooltip: '重试',
-                onPressed: () => _retryMangaDownload(d),
-              ),
-            IconButton(
-              icon: Icon(Icons.close_rounded,
-                  color: T.color(scheme.onSurface, TextTier.disabled,
-                      brightness: scheme.brightness)),
-              tooltip: '删除',
-              onPressed: () => _confirmRemoveManga(d),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _animeDownloadCard(ColorScheme scheme, VideoDownloadTask t) {
-    final text = Theme.of(context).textTheme;
-    final hasFile = !kIsWeb &&
-        t.localPath != null &&
-        File(t.localPath!).existsSync();
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(R.card),
-        border: Border.all(
-            color: T.color(scheme.onSurface, TextTier.hairline,
-                brightness: scheme.brightness)),
-      ),
-      child: InkWell(
-        onTap: () => _openAnimeDownload(t),
-        borderRadius: BorderRadius.circular(R.card),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: hasFile
-                    ? scheme.primary.withValues(alpha: 0.12)
-                    : Colors.orange.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(R.control),
-              ),
-              child: Icon(
-                hasFile ? Icons.play_circle_outline : Icons.downloading_rounded,
-                size: 20,
-                color: hasFile ? scheme.primary : Colors.orange,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(t.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: text.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: scheme.onSurface)),
-                  const SizedBox(height: 4),
-                  Text('第 ${t.episode} 集${hasFile ? '' : ' · 文件缺失'}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: text.bodySmall?.copyWith(
-                          color: T.color(scheme.onSurface, TextTier.low,
-                              brightness: scheme.brightness))),
-                ],
-              ),
-            ),
-            IconButton(
-              icon: Icon(Icons.close_rounded,
-                  color: T.color(scheme.onSurface, TextTier.disabled,
-                      brightness: scheme.brightness)),
-              tooltip: '删除',
-              onPressed: () => _confirmRemoveAnime(t),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  /// 下载 Tab 由 [BookshelfDownloadView] 渲染（见 bookshelf_download_view.dart）。
 
   void _openDownloadDetail(Bookmark b) {
     Navigator.push(
@@ -1186,6 +904,7 @@ class BookshelfPageState extends State<BookshelfPage>
           title: t.title,
           sourceId: t.sourceId,
           videoId: t.videoId,
+          webChannelBuilder: animePlayerWebChannel,
         ),
       ),
     );
@@ -1552,7 +1271,19 @@ class BookshelfPageState extends State<BookshelfPage>
             ),
           )
         else if (_tab == 3)
-          _buildDownloadsView(scheme)
+          BookshelfDownloadView(
+            scheme: scheme,
+            mangaDownloads: _mangaDownloads,
+            animeDownloads: _animeDownloads,
+            onClearManga: _confirmClearMangaAll,
+            onRetryAllManga: _retryAllManga,
+            onOpenMangaDetail: _openDownloadDetail,
+            onRetryManga: _retryMangaDownload,
+            onRemoveManga: _confirmRemoveManga,
+            onClearAnime: _confirmClearAnimeAll,
+            onOpenAnime: _openAnimeDownload,
+            onRemoveAnime: _confirmRemoveAnime,
+          )
         else
           _buildBookmarkList(scheme),
       ],
@@ -1750,6 +1481,7 @@ class BookshelfPageState extends State<BookshelfPage>
             resolveUrl: (s, e) => src.playUrl(r.videoId, s, e),
             sourceId: r.sourceId,
             videoId: r.videoId,
+            webChannelBuilder: animePlayerWebChannel,
           ),
         ),
       );
@@ -2882,9 +2614,12 @@ class _VideoRecordCard extends StatelessWidget {
     required this.onDelete,
   });
 
-  /// 副标题：集数 + 播放位置。seconds 为 0 时只显示集数。
+  /// 副标题：集数 + 播放位置。总集数已知时显示「第 N / M 集」；
+  /// seconds 为 0 时只显示集数。
   static String _subtitleOf(VideoRecord r) {
-    final ep = '第 ${r.episode} 集';
+    final ep = r.totalEpisodes > 0
+        ? '第 ${r.episode} / ${r.totalEpisodes} 集'
+        : '第 ${r.episode} 集';
     final s = r.seconds;
     if (s <= 0) return ep;
     final h = s ~/ 3600;

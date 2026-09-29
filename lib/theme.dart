@@ -182,6 +182,8 @@ class AppTheme {
           backgroundColor: seed,
           foregroundColor: scheme.onPrimary,
           elevation: 0,
+          // 触控热区门禁：M3 默认按钮高 40dp，统一提到 44dp 最小命中区。
+          minimumSize: const Size(64, 44),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
           textStyle: const TextStyle(
@@ -192,6 +194,8 @@ class AppTheme {
         style: OutlinedButton.styleFrom(
           foregroundColor: text,
           side: BorderSide(color: border, width: 1),
+          // 触控热区门禁：M3 默认按钮高 40dp，统一提到 44dp 最小命中区。
+          minimumSize: const Size(64, 44),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
           textStyle: const TextStyle(
@@ -201,6 +205,8 @@ class AppTheme {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: text,
+          // 触控热区门禁：M3 默认按钮高 40dp，统一提到 44dp 最小命中区。
+          minimumSize: const Size(64, 44),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           textStyle: const TextStyle(
               fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.2),

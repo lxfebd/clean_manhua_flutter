@@ -17,7 +17,6 @@ import '../net/update_checker.dart';
 import '../net/update_notifier.dart';
 import '../net/webdav_sync.dart';
 import '../theme.dart';
-import '../utils/colorizer_manager.dart';
 import '../utils/danmaku.dart';
 import 'responsive.dart';
 import 'source_manage_page.dart';
@@ -25,6 +24,10 @@ import 'keyboard_shortcuts.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/update_download_dialog.dart';
 import 'widgets/motion.dart';
+import 'settings/colorizer_section.dart';
+import 'settings/gesture_settings_sheet.dart';
+import 'settings/settings_widgets.dart';
+import 'settings/webdav_sheet.dart';
 
 /// 设置页：深色模式、阅读器翻页模式、清空下载/历史。
 class SettingsPage extends StatefulWidget {
@@ -204,14 +207,14 @@ class _SettingsPageState extends State<SettingsPage> {
                   const SizedBox(height: 20),
                   FadeSlideIn(
                     delay: const Duration(milliseconds: 80),
-                    child: _SectionLabel(label: '主题'),
+                    child: SectionLabel(label: '主题'),
                   ),
                   const SizedBox(height: 6),
                   FadeSlideIn(
                     delay: const Duration(milliseconds: 140),
-                    child: _SettingsCard(
+                    child: SettingsCard(
                       children: [
-                        _SettingTile(
+                        SettingsTile(
                           icon: Icons.dark_mode_outlined,
                           title: '深色模式',
                           subtitle: '夜间阅读更护眼',
@@ -244,14 +247,14 @@ class _SettingsPageState extends State<SettingsPage> {
                   const SizedBox(height: 16),
                   FadeSlideIn(
                     delay: const Duration(milliseconds: 220),
-                    child: _SectionLabel(label: '数据源'),
+                    child: SectionLabel(label: '数据源'),
                   ),
                   const SizedBox(height: 6),
                   FadeSlideIn(
                     delay: const Duration(milliseconds: 280),
-                    child: _SettingsCard(
+                    child: SettingsCard(
                       children: [
-                        _SettingTile(
+                        SettingsTile(
                           icon: Icons.public_rounded,
                           title: '数据源管理',
                           subtitle: '启停各源、编辑域名/代理，免发版换域名',
@@ -270,14 +273,14 @@ class _SettingsPageState extends State<SettingsPage> {
                   const SizedBox(height: 16),
                   FadeSlideIn(
                     delay: const Duration(milliseconds: 220),
-                    child: _SectionLabel(label: '阅读器'),
+                    child: SectionLabel(label: '阅读器'),
                   ),
                   const SizedBox(height: 6),
                   FadeSlideIn(
                     delay: const Duration(milliseconds: 280),
-                    child: _SettingsCard(
+                    child: SettingsCard(
                       children: [
-                        _SettingTile(
+                        SettingsTile(
                           icon: Icons.swipe_right_alt_rounded,
                           title: '翻页模式',
                           subtitle:
@@ -310,7 +313,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             alpha: 0.06,
                           ),
                         ),
-                        _SettingTile(
+                        SettingsTile(
                           icon: Icons.arrow_back_ios_new_rounded,
                           title: 'RTL 反向翻页（日漫）',
                           subtitle: _rtl ? '从右往左' : '从左往右',
@@ -328,7 +331,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             alpha: 0.06,
                           ),
                         ),
-                        _SettingTile(
+                        SettingsTile(
                           icon: Icons.touch_app_rounded,
                           title: '手势配置',
                           subtitle: '自定义点击区域操作',
@@ -340,14 +343,14 @@ class _SettingsPageState extends State<SettingsPage> {
                   const SizedBox(height: 16),
                   FadeSlideIn(
                     delay: const Duration(milliseconds: 220),
-                    child: _SectionLabel(label: '播放器'),
+                    child: SectionLabel(label: '播放器'),
                   ),
                   const SizedBox(height: 6),
                   FadeSlideIn(
                     delay: const Duration(milliseconds: 280),
-                    child: _SettingsCard(
+                    child: SettingsCard(
                       children: [
-                        _SettingTile(
+                        SettingsTile(
                           icon: Icons.subtitles_rounded,
                           title: '弹幕',
                           subtitle:
@@ -429,14 +432,14 @@ class _SettingsPageState extends State<SettingsPage> {
                   const SizedBox(height: 16),
                   FadeSlideIn(
                     delay: const Duration(milliseconds: 220),
-                    child: _SectionLabel(label: '更新'),
+                    child: SectionLabel(label: '更新'),
                   ),
                   const SizedBox(height: 6),
                   FadeSlideIn(
                     delay: const Duration(milliseconds: 280),
-                    child: _SettingsCard(
+                    child: SettingsCard(
                       children: [
-                        _SettingTile(
+                        SettingsTile(
                           icon: Icons.system_update_alt_rounded,
                           title: '检查更新',
                           subtitle: '从 GitHub Releases 获取最新版本',
@@ -458,7 +461,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             alpha: 0.06,
                           ),
                         ),
-                        _SettingTile(
+                        SettingsTile(
                           icon: Icons.notifications_active_outlined,
                           title: '收藏更新提醒',
                           subtitle: _updateFreqLabel,
@@ -477,7 +480,7 @@ class _SettingsPageState extends State<SettingsPage> {
                               alpha: 0.06,
                             ),
                           ),
-                          _SettingTile(
+                          SettingsTile(
                             icon: Icons.notifications_outlined,
                             title: '系统通知',
                             subtitle:
@@ -495,14 +498,14 @@ class _SettingsPageState extends State<SettingsPage> {
                   const SizedBox(height: 16),
                   FadeSlideIn(
                     delay: const Duration(milliseconds: 220),
-                    child: _SectionLabel(label: '网络'),
+                    child: SectionLabel(label: '网络'),
                   ),
                   const SizedBox(height: 6),
                   FadeSlideIn(
                     delay: const Duration(milliseconds: 280),
-                    child: _SettingsCard(
+                    child: SettingsCard(
                       children: [
-                        _SettingTile(
+                        SettingsTile(
                           icon: Icons.verified_user_outlined,
                           title: '信任自签证书',
                           subtitle:
@@ -522,14 +525,14 @@ class _SettingsPageState extends State<SettingsPage> {
                   const SizedBox(height: 16),
                   FadeSlideIn(
                     delay: const Duration(milliseconds: 220),
-                    child: _SectionLabel(label: '数据'),
+                    child: SectionLabel(label: '数据'),
                   ),
                   const SizedBox(height: 6),
                   FadeSlideIn(
                     delay: const Duration(milliseconds: 280),
-                    child: _SettingsCard(
+                    child: SettingsCard(
                       children: [
-                        _SettingTile(
+                        SettingsTile(
                           icon: Icons.backup_rounded,
                           title: '导出备份',
                           subtitle:
@@ -545,7 +548,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             alpha: 0.06,
                           ),
                         ),
-                        _SettingTile(
+                        SettingsTile(
                           icon: Icons.restore_rounded,
                           title: '导入备份',
                           subtitle: kIsWeb ? 'Web 端不支持' : '从 JSON 文件恢复数据',
@@ -558,7 +561,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             alpha: 0.06,
                           ),
                         ),
-                        _SettingTile(
+                        SettingsTile(
                           icon: Icons.cloud_sync_rounded,
                           title: 'WebDAV 同步',
                           subtitle:
@@ -576,7 +579,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             alpha: 0.06,
                           ),
                         ),
-                        _SettingTile(
+                        SettingsTile(
                           icon: Icons.download_outlined,
                           title: '清空全部下载',
                           subtitle: '删除已下载的章节图片，释放空间',
@@ -596,7 +599,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             alpha: 0.06,
                           ),
                         ),
-                        _SettingTile(
+                        SettingsTile(
                           icon: Icons.history_rounded,
                           title: '清空阅读历史',
                           subtitle: '清除所有阅读记录',
@@ -617,18 +620,18 @@ class _SettingsPageState extends State<SettingsPage> {
                   // 漫画上色（本地 AI）：默认关、仅桌面端（电脑）可见——256×256
                   // 本地推理在手机端耗时/卡顿不达标，手机端隐藏入口（组件保留给
                   // 电脑端）。自包含状态组件，不与本页其它开关耦合。
-                  if (DesktopUi.isDesktopPlatform) const _ColorizerSection(),
+                  if (DesktopUi.isDesktopPlatform) const ColorizerSection(),
                   const SizedBox(height: 28),
                   FadeSlideIn(
                     delay: const Duration(milliseconds: 220),
-                    child: _SectionLabel(label: '关于'),
+                    child: SectionLabel(label: '关于'),
                   ),
                   const SizedBox(height: 6),
                   FadeSlideIn(
                     delay: const Duration(milliseconds: 280),
-                    child: _SettingsCard(
+                    child: SettingsCard(
                       children: [
-                        _SettingTile(
+                        SettingsTile(
                           icon: Icons.keyboard_alt_rounded,
                           title: '键盘快捷键',
                           subtitle: '全局 / 漫画阅读器 / 小说阅读器 / 视频播放器',
@@ -649,7 +652,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             alpha: 0.06,
                           ),
                         ),
-                        _SettingTile(
+                        SettingsTile(
                           icon: Icons.article_outlined,
                           title: '免责声明',
                           subtitle: '内容来源与版权说明',
@@ -661,7 +664,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             alpha: 0.06,
                           ),
                         ),
-                        _SettingTile(
+                        SettingsTile(
                           icon: Icons.privacy_tip_outlined,
                           title: '隐私说明',
                           subtitle: '本地存储与网络请求',
@@ -673,7 +676,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             alpha: 0.06,
                           ),
                         ),
-                        _SettingTile(
+                        SettingsTile(
                           icon: Icons.bug_report_outlined,
                           title: '导出错误日志',
                           subtitle:
@@ -818,7 +821,7 @@ class _SettingsPageState extends State<SettingsPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (_) => _GestureSettingsSheet(initial: cfg),
+      builder: (_) => GestureSettingsSheet(initial: cfg),
     );
   }
 
@@ -1133,7 +1136,7 @@ class _SettingsPageState extends State<SettingsPage> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder:
-          (_) => _WebDavSheet(
+          (_) => WebDavSheet(
             onChanged: () async {
               _webdavSyncText = await _syncText();
               if (mounted) setState(() {});
@@ -1441,315 +1444,6 @@ class _ThemeSelector extends StatelessWidget {
   }
 }
 
-/// 分区标题
-class _SectionLabel extends StatelessWidget {
-  final String label;
-  const _SectionLabel({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return Row(
-      children: [
-        Container(
-          width: 4,
-          height: 16,
-          decoration: BoxDecoration(
-            color: scheme.primary,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// 漫画上色设置区（本地 AI）：开关 + 模型导入/卸载。
-///
-/// 自包含状态：不依赖本页其它开关。约束（用户评审要求）：
-/// - 默认关；开关写 LocalStore（ColorizerManager.enabled）；
-/// - web / 无模型 / RAM<4GB 低端机 → 入口禁用并给出原因副标题；
-/// - 模型由用户自放/导入（不内置，公开仓库红线），选中 .tflite 后复制
-///   到应用文档目录并热加载。
-class _ColorizerSection extends StatefulWidget {
-  const _ColorizerSection();
-
-  @override
-  State<_ColorizerSection> createState() => _ColorizerSectionState();
-}
-
-class _ColorizerSectionState extends State<_ColorizerSection> {
-  final ColorizerManager _m = ColorizerManager.instance;
-  bool _enabled = false;
-  String? _subtitle; // 状态说明（禁用原因 / 模型路径）
-  bool _busy = false;
-  bool _lowEnd = false; // 低端机（RAM<4GB）：隐藏导入入口
-
-  @override
-  void initState() {
-    super.initState();
-    _refresh();
-  }
-
-  Future<void> _refresh() async {
-    final isWeb = kIsWeb;
-    try {
-      await _m.restore();
-      await _m.ensureLoaded();
-      final lowEnd = await ColorizerManager.isLowEndDevice();
-      if (!mounted) return;
-      setState(() {
-        _lowEnd = lowEnd;
-        _enabled = _m.enabled && _m.isAvailable;
-        _subtitle = switch ((isWeb, lowEnd, _m.isAvailable, _m.modelPath)) {
-          (true, _, _, _) => 'Web 端不支持本地 AI 推理',
-          (false, true, _, _) => '低端机（内存 < 4GB）不可用',
-          (false, false, false, _) => '未导入模型（需 .tflite）',
-          (false, false, true, final p?) =>
-            '模型：${p.split('\\').last.split('/').last}',
-          _ => '已启用，可在阅读器内使用',
-        };
-      });
-    } catch (e) {
-      ErrorLogger.instance.warn('colorizer refresh failed: $e');
-      if (mounted) {
-        setState(() => _subtitle = '模型状态读取失败');
-      }
-    }
-  }
-
-  Future<void> _toggle(bool on) async {
-    setState(() => _busy = true);
-    try {
-      await _m.setEnabled(on);
-    } catch (e) {
-      ErrorLogger.instance.warn('colorizer toggle failed: $e');
-      if (mounted) {
-        AppToast.error(context, '上色功能切换失败，请重试');
-      }
-    }
-    if (!mounted) return;
-    setState(() {
-      _enabled = on && _m.isAvailable;
-      _busy = false;
-    });
-  }
-
-  Future<void> _pickModel() async {
-    final result = await FilePicker.pickFiles(
-      dialogTitle: '选择上色模型文件',
-      type: FileType.custom,
-      allowedExtensions: ['tflite', 'tflite.zip'],
-    );
-    if (result == null || result.files.single.path == null) return;
-    setState(() => _busy = true);
-    final ok = await _m.importModel(result.files.single.path!);
-    if (!mounted) return;
-    setState(() {
-      _busy = false;
-      if (ok) {
-        _enabled = _m.enabled && _m.isAvailable;
-        _subtitle = '模型加载成功，可在阅读器内使用';
-      } else {
-        _subtitle = '模型导入失败（文件无效或损坏）';
-      }
-    });
-    if (ok) {
-      AppToast.info(context, '上色模型已导入');
-    } else {
-      AppToast.error(context, '模型导入失败');
-    }
-  }
-
-  Future<void> _unload() async {
-    await _m.unload();
-    if (!mounted) return;
-    setState(() {
-      _enabled = false;
-      _subtitle = '未导入模型（需 .tflite）';
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    // 开关需模型就绪；导入入口仅需平台可用（web 无 FFI、低端机禁用）。
-    final canUse = _m.isAvailable && !kIsWeb && !_lowEnd;
-    final canManage = !kIsWeb && !_lowEnd;
-    return FadeSlideIn(
-      delay: const Duration(milliseconds: 220),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _SectionLabel(label: '漫画上色'),
-          const SizedBox(height: 6),
-          _SettingsCard(
-            children: [
-              _SettingTile(
-                icon: Icons.palette_rounded,
-                title: '灰度漫画自动上色',
-                subtitle: _subtitle ?? '检测模型…',
-                trailing: Switch(
-                  value: _enabled,
-                  onChanged: (canUse && !_busy) ? _toggle : null,
-                ),
-              ),
-              if (canManage) ...[
-                Container(
-                  height: 0.5,
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
-                ),
-                _SettingTile(
-                  icon: Icons.file_download_rounded,
-                  title: '导入上色模型',
-                  subtitle:
-                      _m.modelPath != null
-                          ? '已加载，点击可替换'
-                          : '选择 .tflite 文件（AnimeGAN/DDColor 等）',
-                  enabled: !_busy,
-                  onTap: _pickModel,
-                ),
-                if (_m.modelPath != null) ...[
-                  Container(
-                    height: 0.5,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
-                  ),
-                  _SettingTile(
-                    icon: Icons.delete_forever_rounded,
-                    title: '卸载模型',
-                    subtitle: '释放内存并禁用上色',
-                    enabled: !_busy,
-                    onTap: _unload,
-                  ),
-                ],
-              ],
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SettingsCard extends StatelessWidget {
-  final List<Widget> children;
-  const _SettingsCard({required this.children});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: scheme.onSurface.withValues(alpha: 0.06)),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(children: children),
-    );
-  }
-}
-
-class _SettingTile extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String? subtitle;
-  final Widget? trailing;
-  final VoidCallback? onTap;
-
-  /// 平台不可用（如 web 上的本地文件功能）时禁用并降饱和提示。
-  final bool enabled;
-  const _SettingTile({
-    required this.icon,
-    required this.title,
-    this.subtitle,
-    this.trailing,
-    this.onTap,
-    this.enabled = true,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final disabledColor = scheme.onSurface.withValues(alpha: 0.38);
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: enabled ? onTap : null,
-        child: Opacity(
-          opacity: enabled ? 1 : 0.5,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            child: Row(
-              children: [
-                Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: scheme.primary.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(
-                    icon,
-                    size: 18,
-                    color: enabled ? scheme.primary : disabledColor,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        title,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: enabled ? scheme.onSurface : disabledColor,
-                        ),
-                      ),
-                      if (subtitle != null) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          subtitle!,
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            color:
-                                enabled
-                                    ? scheme.onSurface.withValues(alpha: 0.6)
-                                    : disabledColor,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                if (trailing != null) trailing!,
-                if (trailing == null)
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    color: scheme.onSurface.withValues(alpha: 0.4),
-                    size: 22,
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 /// 带图标标题 + 滑条 + 当前值显示的设置项（用于字号/速度/透明度等数值调节）。
 class _SliderTile extends StatelessWidget {
@@ -1828,552 +1522,6 @@ class _SliderTile extends StatelessWidget {
   }
 }
 
-/// 手势配置底部抽屉：左侧 / 中间 / 右侧各选一个动作。
-class _GestureSettingsSheet extends StatefulWidget {
-  final Map<String, String> initial;
-  const _GestureSettingsSheet({required this.initial});
 
-  @override
-  State<_GestureSettingsSheet> createState() => _GestureSettingsSheetState();
-}
 
-class _GestureSettingsSheetState extends State<_GestureSettingsSheet> {
-  late Map<String, String> _cfg;
 
-  static const _regions = ['left', 'center', 'right'];
-  static const _regionLabels = {'left': '左侧', 'center': '中间', 'right': '右侧'};
-  static const _actionLabels = {
-    'prevPage': '上一页',
-    'nextPage': '下一页',
-    'toggleMenu': '切换工具栏',
-    'toggleBrightness': '切换亮度',
-    'scrollDown': '向下滚动',
-    'scrollUp': '向上滚动',
-  };
-
-  @override
-  void initState() {
-    super.initState();
-    _cfg = Map.from(widget.initial);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final maxH = MediaQuery.sizeOf(context).height * 0.85;
-    return SafeArea(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: maxH),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(22, 16, 22, 20),
-          decoration: BoxDecoration(
-            color: scheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            border: Border(
-              top: BorderSide(color: scheme.onSurface.withValues(alpha: 0.1)),
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: scheme.onSurface.withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                '手势配置',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: scheme.onSurface,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '点击阅读器三等分区域触发的操作',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: scheme.onSurface.withValues(alpha: 0.5),
-                ),
-              ),
-              const SizedBox(height: 18),
-              Flexible(
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      for (final r in _regions) ...[
-                        _regionRow(r, scheme),
-                        const SizedBox(height: 12),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: scheme.primary,
-                  ),
-                  onPressed: () async {
-                    try {
-                      await LocalStore.setGestureConfig(_cfg);
-                    } catch (e) {
-                      ErrorLogger.instance.warn(
-                        'save gesture config failed: $e',
-                      );
-                      if (context.mounted) {
-                        AppToast.error(context, '手势配置保存失败，请重试');
-                      }
-                      return;
-                    }
-                    if (context.mounted) Navigator.pop(context);
-                  },
-                  child: const Text('保存'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _regionRow(String region, ColorScheme scheme) {
-    final current = _cfg[region] ?? 'toggleMenu';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          _regionLabels[region] ?? region,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: scheme.onSurface.withValues(alpha: 0.85),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          children: [
-            for (final a in LocalStore.gestureActions)
-              _optBtn(a, current == a, () {
-                setState(() => _cfg[region] = a);
-              }),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _optBtn(String action, bool active, VoidCallback onTap) {
-    final scheme = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-        decoration: BoxDecoration(
-          color:
-              active
-                  ? scheme.primary
-                  : scheme.onSurface.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color:
-                active
-                    ? scheme.primary
-                    : scheme.onSurface.withValues(alpha: 0.14),
-          ),
-        ),
-        child: Text(
-          _actionLabels[action] ?? action,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-            color: active ? scheme.onPrimary : scheme.onSurfaceVariant,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// WebDAV 同步配置面板：服务器地址 / 账号 / 目录 / 加密开关 / 上传下载。
-class _WebDavSheet extends StatefulWidget {
-  final VoidCallback onChanged;
-  const _WebDavSheet({required this.onChanged});
-
-  @override
-  State<_WebDavSheet> createState() => _WebDavSheetState();
-}
-
-class _WebDavSheetState extends State<_WebDavSheet> {
-  final _urlCtrl = TextEditingController();
-  final _userCtrl = TextEditingController();
-  final _passCtrl = TextEditingController();
-  final _dirCtrl = TextEditingController();
-  bool _encrypt = true;
-  bool _busy = false;
-  String? _status;
-  bool _statusOk = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final c = WebDavSync.config;
-    if (c != null) {
-      _urlCtrl.text = c['url'] as String? ?? '';
-      _userCtrl.text = c['username'] as String? ?? '';
-      _passCtrl.text = ''; // 明文密码不落盘；有密码时用「已设置」占位提示
-      _dirCtrl.text = c['dir'] as String? ?? '';
-      _encrypt = (c['encrypt'] as bool?) ?? true;
-    }
-  }
-
-  @override
-  void dispose() {
-    _urlCtrl.dispose();
-    _userCtrl.dispose();
-    _passCtrl.dispose();
-    _dirCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _run(
-    String label,
-    Future<void> Function() fn, {
-    String ok = '',
-  }) async {
-    if (_busy) return;
-    setState(() {
-      _busy = true;
-      _status = null;
-    });
-    try {
-      await fn();
-      if (mounted) {
-        setState(() {
-          _status = ok.isEmpty ? '完成' : ok;
-          _statusOk = true;
-        });
-      }
-      widget.onChanged();
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _status = '$label失败，请检查网络后重试';
-          _statusOk = false;
-        });
-      }
-      ErrorLogger.instance.warn('webdav $label failed: $e');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  /// 保存配置：先探测连通性（URL/账号/密码一次性校验），失败红字提示、
-  /// 不写配置不关面板；成功才落盘。
-  Future<void> _save() async {
-    final url = _urlCtrl.text.trim();
-    if (url.isEmpty) {
-      setState(() {
-        _status = '请填写 WebDAV 服务器地址';
-        _statusOk = false;
-      });
-      return;
-    }
-    if (_busy) return;
-    setState(() {
-      _busy = true;
-      _status = '正在连接服务器…';
-      _statusOk = false;
-    });
-    try {
-      // 密码框留空 = 沿用已存密码（WebDavSync 内部处理），探测时同样沿用。
-      final pass =
-          _passCtrl.text.isEmpty
-              ? (WebDavSync.config?['password'] as String? ?? '')
-              : _passCtrl.text;
-      if (pass.isEmpty && _userCtrl.text.trim().isNotEmpty) {
-        // 有账号但没密码：绝大多数 WebDAV 服务（坚果云/Nextcloud）都要求
-        // 认证，空密码探测只会得到 401/403，这里直接提示避免误伤。
-        setState(() {
-          _status = '请输入密码（或应用密码）';
-          _statusOk = false;
-        });
-        return;
-      }
-      await WebDavSync.probe(
-        url: url,
-        username: _userCtrl.text.trim(),
-        password: pass,
-        dir: _dirCtrl.text.trim(),
-      );
-      WebDavSync.saveConfig(
-        url: url,
-        username: _userCtrl.text.trim(),
-        password: _passCtrl.text,
-        dir: _dirCtrl.text.trim(),
-        encrypt: _encrypt,
-      );
-      widget.onChanged();
-      if (mounted) {
-        setState(() {
-          _status = '已保存并验证连接';
-          _statusOk = true;
-        });
-        // 先置状态再关面板（context 在 async gap 后已用 mounted 校验）
-        Navigator.of(context).maybePop();
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _status = '连接失败，请检查网络后重试';
-          _statusOk = false;
-        });
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 18,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.cloud_sync_rounded, size: 20, color: scheme.primary),
-                const SizedBox(width: 8),
-                Text(
-                  'WebDAV 同步',
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    color: scheme.onSurface,
-                  ),
-                ),
-                const Spacer(),
-                IconButton(
-                  tooltip: '关闭',
-                  icon: const Icon(Icons.close_rounded),
-                  onPressed: () => Navigator.of(context).maybePop(),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '把收藏、阅读进度、设置同步到你的 WebDAV 网盘\n'
-              '（坚果云 / Nextcloud / 群晖 WebDAV 等），实现多端同步。',
-              style: TextStyle(
-                fontSize: 12,
-                height: 1.5,
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _urlCtrl,
-              keyboardType: TextInputType.url,
-              decoration: const InputDecoration(
-                labelText: '服务器地址',
-                hintText: 'https://dav.jianguoyun.com/dav/',
-                prefixIcon: Icon(Icons.link_rounded, size: 20),
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _userCtrl,
-                    decoration: const InputDecoration(
-                      labelText: '账号',
-                      prefixIcon: Icon(Icons.person_outline_rounded, size: 20),
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextField(
-                    controller: _passCtrl,
-                    obscureText: true,
-                    decoration: InputDecoration(
-                      labelText: '密码 / 应用密码',
-                      prefixIcon: Icon(Icons.key_rounded, size: 20),
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      hintText: WebDavSync.hasPassword ? '已设置（留空保持不变）' : null,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _dirCtrl,
-              decoration: const InputDecoration(
-                labelText: '保存目录（可选）',
-                hintText: 'Apps/星漫匣',
-                prefixIcon: Icon(Icons.folder_outlined, size: 20),
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '加密同步文件（AES-256-GCM，口令不落盘）',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-                Switch(
-                  value: _encrypt,
-                  onChanged: (v) => setState(() => _encrypt = v),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _busy ? null : _save,
-                    icon: const Icon(Icons.save_outlined, size: 18),
-                    label: const Text('保存配置'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed:
-                        _busy
-                            ? null
-                            : () => _run(
-                              '上传',
-                              () => WebDavSync.push(),
-                              ok: '已上传到 WebDAV',
-                            ),
-                    icon: const Icon(Icons.upload_rounded, size: 18),
-                    label: const Text('上传同步'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: _busy ? null : () => _confirmPull(),
-                icon: const Icon(Icons.download_rounded, size: 18),
-                label: const Text('从 WebDAV 拉取并覆盖本地'),
-              ),
-            ),
-            if (_status != null) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: (_statusOk ? scheme.primary : scheme.error).withValues(
-                    alpha: 0.08,
-                  ),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      _statusOk
-                          ? Icons.check_circle_outline
-                          : Icons.error_outline,
-                      size: 18,
-                      color: _statusOk ? scheme.primary : scheme.error,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _status!,
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: scheme.onSurface,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _confirmPull() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder:
-          (ctx) => AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-            title: const Text('拉取远端数据'),
-            content: const Text(
-              '将用 WebDAV 上的数据覆盖本地的收藏、历史、进度和设置。'
-              '本地上传之后的新改动会被覆盖，确定继续？',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(false),
-                child: const Text('取消'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(ctx).pop(true),
-                child: const Text('拉取并覆盖'),
-              ),
-            ],
-          ),
-    );
-    if (ok != true || !mounted) return;
-    await _run('拉取', () async {
-      await WebDavSync.pull();
-      await WebDavSync.recordPull();
-    }, ok: '已从 WebDAV 恢复数据');
-  }
-}

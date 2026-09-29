@@ -15,6 +15,7 @@ import 'tools/text_tools_page.dart';
 import 'webview_page.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/motion.dart';
+import 'widgets/tap_target.dart';
 
 /// 工具箱：本地实用工具集合。
 ///
@@ -132,21 +133,24 @@ class ToolboxPageState extends State<ToolboxPage> {
         );
       },
       scale: 0.92,
-      child: Container(
-        width: 38,
-        height: 38,
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: BorderRadius.circular(R.control),
-          border: Border.all(
-            color: T.color(scheme.onSurface, TextTier.hairline,
-                brightness: scheme.brightness),
+      // 命中区 ≥44×44：38 视觉胶囊由 TapTargetMin 撑到 44（8-31 门禁实测）。
+      child: TapTargetMin(
+        child: Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            borderRadius: BorderRadius.circular(R.control),
+            border: Border.all(
+              color: T.color(scheme.onSurface, TextTier.hairline,
+                  brightness: scheme.brightness),
+            ),
           ),
+          child: Icon(Icons.settings_outlined,
+              size: 20,
+              color: T.color(scheme.onSurface, TextTier.mid,
+                  brightness: scheme.brightness)),
         ),
-        child: Icon(Icons.settings_outlined,
-            size: 20,
-            color: T.color(scheme.onSurface, TextTier.mid,
-                brightness: scheme.brightness)),
       ),
     );
     return Scaffold(
@@ -665,22 +669,26 @@ class ToolboxPageState extends State<ToolboxPage> {
                           );
                         },
                         scale: 0.92,
-                        child: Container(
-                          width: 38,
-                          height: 38,
-                          decoration: BoxDecoration(
-                            color: scheme.surface,
-                            borderRadius: BorderRadius.circular(R.control),
-                            border: Border.all(
-                              color: T.color(scheme.onSurface,
-                                  TextTier.hairline,
-                                  brightness: scheme.brightness),
+                        // 命中区 ≥44×44：38 视觉胶囊由 TapTargetMin 撑到 44。
+                        child: TapTargetMin(
+                          child: Container(
+                            width: 38,
+                            height: 38,
+                            decoration: BoxDecoration(
+                              color: scheme.surface,
+                              borderRadius: BorderRadius.circular(R.control),
+                              border: Border.all(
+                                color: T.color(scheme.onSurface,
+                                    TextTier.hairline,
+                                    brightness: scheme.brightness),
+                              ),
                             ),
+                            child: Icon(Icons.settings_outlined,
+                                size: 20,
+                                color: T.color(scheme.onSurface,
+                                    TextTier.mid,
+                                    brightness: scheme.brightness)),
                           ),
-                          child: Icon(Icons.settings_outlined,
-                              size: 20,
-                              color: T.color(scheme.onSurface, TextTier.mid,
-                                  brightness: scheme.brightness)),
                         ),
                       ),
                     ],

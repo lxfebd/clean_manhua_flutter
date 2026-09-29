@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'tokens.dart' as tok;
+
 // ══════════════════════════════════════════════════════════════════════════════
 // 响应式布局系统 - 遵循 Material Design 3 + 业界标准
 // ══════════════════════════════════════════════════════════════════════════════
@@ -927,14 +929,19 @@ class TypeSegment extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final height = AdaptiveValue.of<double>(context, compact: 40, medium: 44);
+    // 触控热区门禁：段命中区须 ≥44，容器高度 = 44 + 2×padding(2) = 48。
+    // （旧值 compact 40 / medium 44 会让段 GestureDetector 只有 29~38dp。）
+    final height = AdaptiveValue.of<double>(context, compact: 48, medium: 52);
     final hPad = AdaptiveValue.of<double>(context, compact: 12, medium: 14);
     final fontSize =
         AdaptiveValue.of<double>(context, compact: 12, medium: 13);
+    // 段槽内高 = 轨道高 − 上下 padding(2)。选中块必须等于槽高，
+    // 否则会缩成贴字横条（用户反馈"没撑满整段"）。
+    final segH = height - 4;
 
     return Container(
       height: height,
-      padding: const EdgeInsets.all(3),
+      padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
         color: scheme.onSurface.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(12),
@@ -943,34 +950,49 @@ class TypeSegment extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           for (var i = 0; i < labels.length; i++)
-            _seg(context, labels[i], i, hPad, fontSize),
+            _seg(context, labels[i], i, hPad, fontSize, segH),
         ],
       ),
     );
   }
 
-  Widget _seg(
-      BuildContext context, String label, int v, double hPad, double fontSize) {
+  Widget _seg(BuildContext context, String label, int v, double hPad,
+      double fontSize, double segH) {
     final scheme = Theme.of(context).colorScheme;
     final active = type == v;
+    // 不用 TapTargetMin（ConstrainedBox+Align）：Align 会把子节点宽松居中，
+    // AnimatedContainer 只按文字+padding 定宽高，撑不满 ≥44 热区，选中态
+    // 只剩贴字的小色条。ConstrainedBox 的 min 约束直接压给容器即可撑满。
     return GestureDetector(
       onTap: onChanged == null ? null : () => onChanged!(v),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOutCubic,
-        padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 6),
-        decoration: BoxDecoration(
-          color: active ? scheme.primary : Colors.transparent,
-          borderRadius: BorderRadius.circular(9),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: fontSize,
-            fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-            color: active
-                ? scheme.onPrimary
-                : scheme.onSurface.withValues(alpha: 0.6),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          // 高度锁死槽高（44/48），宽度随 min 44 与文字+padding 取大，
+          // decoration 铺满整个 RenderBox —— 选中块在宽、高两个方向都撑满。
+          height: segH < 44 ? 44 : segH,
+          padding: EdgeInsets.symmetric(horizontal: hPad),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: active ? scheme.primary : Colors.transparent,
+            borderRadius: BorderRadius.circular(9),
+          ),
+          child: Text(
+            label,
+            softWrap: false,
+            maxLines: 1,
+            overflow: TextOverflow.clip,
+            style: TextStyle(
+              fontSize: fontSize,
+              height: 1.0,
+              fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+              color: active
+                  ? scheme.onPrimary
+                  : tok.T.color(scheme.onSurface, tok.TextTier.mid,
+                      brightness: scheme.brightness),
+            ),
           ),
         ),
       ),

@@ -22,7 +22,7 @@ import '../utils/anime4k.dart';
 import '../utils/danmaku.dart';
 import '../utils/desktop_fullscreen.dart';
 import '../utils/pip_channel.dart';
-import 'anime_player_page.dart';
+import 'episode_grouping.dart';
 import 'responsive.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/danmaku_overlay.dart';
@@ -31,6 +31,49 @@ import 'widgets/subtitle_overlay.dart';
 
 /// 手势类型。
 enum _Gesture { none, brightness, volume, seek }
+
+/// 网页通道子树的构建参数（由宿主播放器状态机填充）。
+///
+/// 依赖倒置：native 播放器不再直接依赖 AnimePlayerPage，网页通道子树由
+/// 上层通过 [NativePlayerPage.webChannelBuilder] 注入，native 只认这份
+/// 纯数据契约，双状态机协作行为完全由注入方决定。
+class WebChannelArgs {
+  const WebChannelArgs({
+    required this.key,
+    required this.url,
+    required this.title,
+    this.cover,
+    this.description,
+    this.episodes = const [],
+    this.initialSeason = 1,
+    this.initialEpisode = 1,
+    this.resolveUrl,
+    this.sourceNames,
+    this.sourceId,
+    this.videoId,
+    this.onDirectUrl,
+  });
+
+  /// 网页通道子树重建键：换集/换地址时由宿主生成新值强制重建。
+  final Key? key;
+  final String url;
+  final String title;
+  final String? cover;
+  final String? description;
+  final List<VideoEpisode> episodes;
+  final int initialSeason;
+  final int initialEpisode;
+  final Future<String> Function(int season, int episode)? resolveUrl;
+  final Map<int, String>? sourceNames;
+  final String? sourceId;
+  final String? videoId;
+  final Future<bool> Function(String src)? onDirectUrl;
+}
+
+/// 网页通道子树构建器：由上层（调用 NativePlayerPage 的入口）注入
+/// AnimePlayerPage 的构建闭包，native 侧不再 import 动画播放页，
+/// 从而断开 native_player_page ⇄ anime_player_page 的 import 环。
+typedef WebChannelBuilder = Widget Function(WebChannelArgs args);
 
 /// 现代化原生播放器。
 ///
@@ -73,6 +116,14 @@ class NativePlayerPage extends StatefulWidget {
   /// Player 继续播放（不新建），实现"全屏 → 小窗 → 全屏"无缝续播。
   final PlayerHandoff? take;
 
+  /// 网页通道子树构建器（依赖倒置，默认无网页通道）。
+  ///
+  /// 为 null 时本页只走 mpv 直链通道；传入后，遇到网页播放页地址时由该
+  /// 构建器渲染网页通道子树（如 AnimePlayerPage 完整状态机），捕获直链
+  /// 后再切回 mpv。上层入口注入 [WebChannelBuilder]，native 不直接依赖
+  /// 具体网页播放页实现，避免 import 环。
+  final WebChannelBuilder? webChannelBuilder;
+
   const NativePlayerPage({
     super.key,
     required this.url,
@@ -88,6 +139,7 @@ class NativePlayerPage extends StatefulWidget {
     this.sourceId,
     this.videoId,
     this.take,
+    this.webChannelBuilder,
   });
 
   @override
@@ -172,7 +224,19 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// mpv 已确认打不开的直链（源站失效/防盗链拒绝等）。同一失效直链不反复
   /// handoff，避免「mpv 失败 → 重建 WebView → 又解析同一失效直链 → 又失败」
   /// 的循环。仅本次页面生命周期内有效，换源/换集后自然失效。
-  final Set<String> _rejectedHandoffs = {};
+  /// 集合字面量即 LinkedHashSet，按插入序记录，上限 [_rejectedHandoffsMax]：防无界增长。
+  final Set<String> _rejectedHandoffs = <String>{};
+
+  static const int _rejectedHandoffsMax = 32;
+
+  /// 记录一条打不开的直链；超出上限时移除最旧一条。
+  void _rememberRejectedHandoff(String src) {
+    if (src.isEmpty) return;
+    _rejectedHandoffs.add(src);
+    while (_rejectedHandoffs.length > _rejectedHandoffsMax) {
+      _rejectedHandoffs.remove(_rejectedHandoffs.first);
+    }
+  }
 
   // ── 画质 ────────────────────────────────────
   String _srId = 'off';
@@ -309,24 +373,25 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   int get _curIndex => widget.episodes.indexWhere(
       (e) => e.season == _curSeason && e.episode == _curEpisode);
 
+  /// 某线路（season）的剧集数：书架「第 N / M 集」用，与 [groupEpisodesBySeason]
+  /// 的分组口径一致——只数本线路，不把多线路相加。
+  int _seasonEpisodeCount(int season) =>
+      widget.episodes.where((e) => e.season == season).length;
+
   /// 把扁平的剧集按 [VideoEpisode.season]（播放源/线路）分组，保持源的顺序。
   /// 返回每组：源名（带「第N源」兜底）+ 该源下的剧集。仅当存在多个源时才展示分组头。
-  List<({String name, List<VideoEpisode> eps})> get _groupedSeasons {
-    final bySeason = <int, List<VideoEpisode>>{};
-    for (final e in widget.episodes) {
-      (bySeason[e.season] ??= []).add(e);
-    }
-    final keys = bySeason.keys.toList()..sort();
-    return [
-      for (final k in keys)
-        (
-          name: widget.sourceNames?[k] ?? '线路 $k',
-          eps: bySeason[k]!,
-        ),
-    ];
-  }
+  List<({String name, List<VideoEpisode> eps})> get _groupedSeasons =>
+      groupEpisodesBySeason(widget.episodes, widget.sourceNames);
 
   bool get _multiSource => _groupedSeasons.length > 1;
+
+  /// 集数标签：委托 [episodeCountLabelFor]，多线路绝不把各渠道剧集相加。
+  String _episodeCountLabel() => episodeCountLabelFor(
+        widget.episodes,
+        widget.sourceNames,
+        currentSeason: _curSeason,
+        currentEpisode: _curEpisode,
+      );
 
   bool get _hasPrev => _curIndex > 0 && widget.resolveUrl != null;
   bool get _hasNext =>
@@ -555,6 +620,17 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     // 初始地址是网页播放页（非直链）：先走内嵌 WebView 通道，等捕获到
     // 直链再切 mpv。Player 仍需创建（_handoffWebToMpv 的 _open 要用），
     // 只是不 open 任何地址。
+    // 广告直链兜底：源站把广告 mp4/m3u8 当正片返回时不交给 mpv
+    // （否则打开即播广告、0:00 起播错内容），给明确失败出口。
+    if (isDirectMediaUrl(widget.url) && isAdMediaUrl(widget.url)) {
+      setState(() {
+        _failed = true;
+        _failMsg = '解析到广告地址，请重试或换线路';
+        _ready = false;
+        _buffering = false;
+      });
+      return;
+    }
     if (!isDirectMediaUrl(widget.url)) {
       setState(() {
         _useWeb = true;
@@ -645,7 +721,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           if (_handoffOpening) {
             _handoffOpening = false;
             if (_handoffSrc.isNotEmpty) {
-              _rejectedHandoffs.add(_handoffSrc);
+              _rememberRejectedHandoff(_handoffSrc);
             }
             setState(() {
               _useWeb = true;
@@ -969,6 +1045,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         cover: widget.cover,
         season: _curSeason,
         episode: _curEpisode,
+        totalEpisodes: _seasonEpisodeCount(_curSeason),
         seconds: done ? _dur.inSeconds : sec,
         duration: _dur.inSeconds,
         timestamp: ts,
@@ -1720,6 +1797,22 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         });
         return;
       }
+      // 广告直链兜底：源站解析出的"正片直链"其实是广告 m3u8/mp4 时不切
+      // （不改集数状态、保留当前集画面），给出明确失败出口（重试/换线路）。
+      if (isAdMediaUrl(url)) {
+        ErrorLogger.instance.debug('ad url filtered on switch: $url');
+        if (mounted) {
+          _toast('该集解析到广告地址，请重试或换线路');
+          setState(() {
+            _failed = true;
+            _failMsg = '切集失败：${ep.season} 第 ${ep.episode} 集解析到广告地址';
+            _pendingRetryEp = ep;
+            _ready = false;
+            _buffering = false;
+          });
+        }
+        return;
+      }
       setState(() {
         _curSeason = ep.season;
         _curEpisode = ep.episode;
@@ -1781,6 +1874,12 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 隐藏 WebView 子树并尝试用直链 open mpv。返回 true 表示接管成功。
   Future<bool> _handoffWebToMpv(String src) async {
     if (!mounted) return false;
+    // 广告直链兜底：WebView 捕获到的"直链"是广告 m3u8/mp4 时不接管
+    // （mpv 不会从 0:00 播广告），留在网页通道等正片直链再 handoff。
+    if (isAdMediaUrl(src)) {
+      ErrorLogger.instance.debug('ad url filtered on handoff: $src');
+      return false;
+    }
     // 该直链已确认打不开（源站失效/防盗链拒绝）：不再反复尝试，
     // 让 WebView 留在网页通道播放，避免循环失败。
     if (_rejectedHandoffs.contains(src)) return false;
@@ -1796,7 +1895,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     // 留在网页通道（AnimePlayerPage 仍在树中），不叠加报错。
     if (mounted && !_useWeb) {
       setState(() {
-        _rejectedHandoffs.add(src);
+        _rememberRejectedHandoff(src);
         _useWeb = true;
         _failed = false;
         _webGeneration++;
@@ -2221,7 +2320,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   @override
   Widget build(BuildContext context) {
     if (_failed) return _failedView();
-    // 网页通道：同一 Route 内渲染 AnimePlayerPage 完整状态机（WebView +
+    // 网页通道：同一 Route 内渲染注入的网页播放页状态机（WebView +
     // 手势/亮度音量/选集/弹幕/全屏/直链捕获），不再跳另一个播放页。
     if (_useWeb) return _webChannelView();
     return PopScope(
@@ -2243,11 +2342,14 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     );
   }
 
-  /// 网页通道视图：直接渲染 AnimePlayerPage（完整 WebView 状态机：
-  /// 手势/亮度音量/选集/弹幕/全屏/直链捕获/降级页），ValueKey 变更即重建。
-  /// onDirectUrl 捕获直链时切回 mpv 通道，实现「一套播放器」双通道。
+  /// 网页通道视图：通过注入的 [webChannelBuilder] 渲染网页播放页完整
+  /// 状态机（WebView/手势/亮度音量/选集/弹幕/全屏/直链捕获/降级页），
+  /// ValueKey 变更即重建。onDirectUrl 捕获直链时切回 mpv 通道，
+  /// 实现「一套播放器」双通道。未注入 builder 时回退到 mpv 错误页。
   Widget _webChannelView() {
-    return AnimePlayerPage(
+    final builder = widget.webChannelBuilder;
+    if (builder == null) return _failedView();
+    return builder(WebChannelArgs(
       key: ValueKey('web-$_webGeneration'),
       url: _webUrl,
       title: widget.title,
@@ -2261,7 +2363,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       sourceId: widget.sourceId,
       videoId: widget.videoId,
       onDirectUrl: _handoffWebToMpv,
-    );
+    ));
   }
 
   Widget _failedView() {    return Scaffold(
@@ -2424,9 +2526,13 @@ class _NativePlayerPageState extends State<NativePlayerPage>
               onLongPressStart: (_) => _onLongPressStart(),
               onLongPressEnd: (_) => _onLongPressEnd(),
               onLongPressCancel: _onLongPressEnd,
-              onVerticalDragStart: (d) => _onVerticalStart(d, size),
-              onVerticalDragUpdate: (d) => _onVerticalUpdate(d, size),
-              onVerticalDragEnd: _onVerticalEnd,
+              // 桌面端禁用垂直拖（鼠标左键按住拖会误调亮度/音量）；
+              // 单击/双击/水平拖 seek 保留，移动端手势不变。
+              onVerticalDragStart:
+                  DesktopUi.isDesktopPlatform ? null : (d) => _onVerticalStart(d, size),
+              onVerticalDragUpdate:
+                  DesktopUi.isDesktopPlatform ? null : (d) => _onVerticalUpdate(d, size),
+              onVerticalDragEnd: DesktopUi.isDesktopPlatform ? null : _onVerticalEnd,
               onHorizontalDragStart: _onHorizontalStart,
               onHorizontalDragUpdate: (d) => _onHorizontalUpdate(d, size),
               onHorizontalDragEnd: _onHorizontalEnd,
@@ -3058,7 +3164,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                       fontSize: 14,
                       fontWeight: FontWeight.w700)),
               const SizedBox(width: 8),
-              Text('共 ${widget.episodes.length} 集',
+              Text(_episodeCountLabel(),
                   style: TextStyle(
                       color: scheme.onSurface.withValues(alpha: 0.5),
                       fontSize: 12)),
@@ -3718,7 +3824,7 @@ child: Icon(Icons.auto_awesome,
     final groups = _groupedSeasons;
     showPlayerPanel(
       context: context,
-      title: '选集（共 ${widget.episodes.length} 集）',
+      title: '选集 · ${_episodeCountLabel()}',
       fromRight: _fullscreen,
       width: 360,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {

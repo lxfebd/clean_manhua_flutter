@@ -108,6 +108,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
             cover: h.cover,
             season: h.season,
             episode: h.episode,
+            totalEpisodes: h.episodes.where((e) => e.season == h.season).length,
             seconds: done ? _dur.inSeconds : sec,
             duration: _dur.inSeconds,
             timestamp: DateTime.now().millisecondsSinceEpoch,
