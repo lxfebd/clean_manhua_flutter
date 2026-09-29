@@ -446,7 +446,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           sourceId: widget.sourceId,
           videoId: widget.videoId,
           historyKey: widget.sourceId != null && widget.videoId != null
-              ? '${widget.sourceId}::$widget.videoId::$_curSeason-$_curEpisode'
+              ? '${widget.sourceId}::${widget.videoId}::$_curSeason-$_curEpisode'
               : '${widget.title}::${_curSeason}_$_curEpisode',
           webChannelBuilder: animePlayerWebChannel,
         ),
@@ -1685,6 +1685,10 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       _webError = null; // 切集开始即离开上次错误态，回到解析 loading
       _switchFail = false;
     });
+    // _played 标记首屏自动播放已触发过；切集后必须复位，否则新一集重新
+    // loadRequest + onPageFinished 再调 _triggerAutoPlay 时直接 return，
+    // 新集既不做静音预载也不做播放点击兜底（对需手势的站点是唯一启动手段）。
+    _played = false;
     // 新一集重新走捕获流程：清掉旧集直链缓存与接管标志，否则新集直链
     // 会被 _onVideoSrcCaptured 误判为「已接管后的换源」直接忽略，
     // 永远切不回原生播放器。
@@ -2144,6 +2148,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       _loading = true;
       _resolving = true;
     });
+    _played = false; // 重载后允许重新触发自动播放
     _resolveTimer?.cancel();
     _resolveTimer = Timer(const Duration(seconds: 8), () {
       if (mounted && _resolving) {

@@ -145,8 +145,22 @@ class CustomSourceDef {
     if (categoryListUrl != null && categoryListRule == null) errs.add('categoryList 配置了 URL 但缺少规则');
     if (searchUrl != null && searchRule == null) errs.add('search 配置了 URL 但缺少规则');
     if (detailUrl != null && detailRule == null) errs.add('detail 配置了 URL 但缺少规则');
+    // 正则可编译性预检：非法正则（如孤立的 `[`）会在运行期 RegExp 构造时
+    // 抛 FormatException 逃逸到 UI 层，这里在安装/校验阶段就拦截。
+    for (final r in [categoryListRule, rankRule, searchRule]) {
+      if (r != null && r.regex.isNotEmpty) _checkRegex(r.regex, errs);
+    }
     detailRule?.validate(errs, detailUrl);
     return errs;
+  }
+}
+
+/// 校验一段 DSL 正则可编译（非法则向 [errs] 追加一条）。
+void _checkRegex(String pattern, List<String> errs) {
+  try {
+    RegExp(pattern);
+  } catch (e) {
+    errs.add('非法正则「$pattern」: $e');
   }
 }
 
@@ -360,6 +374,10 @@ class DslDetailRule {
         picListCss.isEmpty &&
         picListRe.isEmpty) {
       errs.add('picListUrl 已配置但缺少 picListCss/picListRe');
+    }
+    // 正则预检（见 CustomSourceDef.validate 注释）
+    for (final re in [titleRe, chapterUrlRe, chaptersRe, picListRe, idRegex]) {
+      if (re.isNotEmpty) _checkRegex(re, errs);
     }
   }
 }

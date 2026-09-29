@@ -186,7 +186,10 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
 
   @override
   void dispose() {
-    _tts.dispose();
+    // 只做会话级清理：NovelTtsService 是全局单例，dispose() 会置 _disposed
+    // 使本次会话内朗读功能永久失效。退出阅读器只需停止并复位当前会话，
+    // 保持引擎可再次 init/play。
+    _tts.reset();
     if (DesktopUi.isDesktopPlatform) {
       HardwareKeyboard.instance.removeHandler(_keyHandler);
     }

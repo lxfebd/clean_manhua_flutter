@@ -496,6 +496,9 @@ class _ReaderPageState extends State<ReaderPage>
       _prefetch(target);
       _prefetchNextChapter();
       _startAutoPage();
+      // 刷新书签状态：_bookmarked 只在 _init 与 _toggleBookmark 里赋值，
+      // 跨章/连读后菜单仍显示上一章的书签态（误标误翻转）。异步重查当前章。
+      _refreshBookmark();
     } catch (e) {
       ErrorLogger.instance.warn('reader openChapter failed: $e');
       if (mounted && gen == _openGen) {
@@ -783,8 +786,12 @@ class _ReaderPageState extends State<ReaderPage>
             : DownloadQuality.original,
         onProgress: (d, t) {
           if (!mounted) return;
-          _downloadDone = d;
-          _downloadTotal = t;
+          // onProgress 是高频回调：直接 setState 驱动底部下载指示器
+          // （否则 _downloadDone/Total 只改不改 UI，全程固定 0/0）。
+          setState(() {
+            _downloadDone = d;
+            _downloadTotal = t;
+          });
         },
       );
       if (mounted) {
@@ -984,7 +991,7 @@ class _ReaderPageState extends State<ReaderPage>
 
   /// 上一话：非首章时加载前一章并跳到第一页（与连读对称）。
   Future<void> _goPrevChapter() async {
-    if (_chapterIndex <= 0) return;
+    if (_chapterIndex <= 0 || _loading) return;
     final prev = widget.chapters[_chapterIndex - 1];
     _chapterIndex--;
     _indexOffsetCache.clear();
@@ -1381,6 +1388,18 @@ class _ReaderPageState extends State<ReaderPage>
         duration: const Duration(milliseconds: 900));
   }
 
+  /// 异步重查当前章的书签态并刷新 _bookmarked（切章/连读后菜单与磁盘失步）。
+  Future<void> _refreshBookmark() async {
+    try {
+      final bm = await LocalStore.isBookmarked(
+          widget.sourceId, widget.comicId, _activeChapterId,
+          _horizontal ? _curPage : 0);
+      if (mounted) setState(() => _bookmarked = bm);
+    } catch (_) {
+      // 读失败保持原状态，下次操作时按磁盘为准，不翻转界面误导。
+    }
+  }
+
 /// 工具栏切换翻页模式：纵向滚动 → 单页横向 → 双页并排 → 纵向滚动。
   /// 进入/退出横向时保留当前阅读位置（页/视图换算），重建 PageController。
   void _cycleReaderMode() {
@@ -1467,6 +1486,7 @@ class _ReaderPageState extends State<ReaderPage>
         currentIndex: _chapterIndex,
         onSelect: (i) {
           Navigator.pop(context);
+          if (_loading) return;
           final ch = widget.chapters[i];
           _chapterIndex = i;
           _indexOffsetCache.clear();
@@ -2067,10 +2087,16 @@ class _ReaderPageState extends State<ReaderPage>
 
   /// 沉浸式连读：加载下一话并跳到第一页。
   Future<void> _continueToNextChapter() async {
+    // _loading 守卫前置（_openChapter 内也有，但索引自增发生在其之前）：
+    // 尾页 onPageChanged 与尾页按钮连点时若不加此守卫会重复 +1 跳过一话。
+    if (_loading) return;
     final next = _nextChapter();
     if (next == null) return;
     _chapterIndex++;
     _indexOffsetCache.clear();
+    // 与 _goPrevChapter / _showChapterList 对齐：旧章上报的高度若不清，
+    // 新章未回填的高度槽位沿用旧章数值，纵向跳页/续读定位会漂移。
+    _layoutHeights.clear();
     await _openChapter(next.id, next.title, startPage: 0);
   }
 

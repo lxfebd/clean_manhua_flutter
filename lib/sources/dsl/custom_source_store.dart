@@ -126,8 +126,20 @@ class CustomSourceStore {
     return '';
   }
 
-  /// 启动恢复：注册全部已存自定义源为插件。
-  static Future<void> restorePlugins() async {
+  /// 启动/恢复：注册全部已存自定义源为插件。
+  /// [replaceExisting] 为 true 时先卸载内存中已注册的自定义插件（备份恢复等
+  /// 场景：磁盘内容已被新数据替换，旧插件若残留会与新源并存或覆盖），再重建。
+  static Future<void> restorePlugins({bool replaceExisting = false}) async {
+    if (replaceExisting) _cache = null;
+    if (replaceExisting) {
+      final pm = SourcePluginManager.instance;
+      for (final p in pm.plugins.toList()) {
+        if (p.id.isNotEmpty && !p.builtin) {
+          await pm.uninstall(p.id);
+        }
+      }
+      // 卸载会触发 persist（写 disabled 集合），磁盘数据刚被覆盖，这里已被清。
+    }
     for (final d in await all()) {
       if (d.validate().isNotEmpty) continue;
       await SourcePluginManager.instance.install(CustomSourcePlugin(d));

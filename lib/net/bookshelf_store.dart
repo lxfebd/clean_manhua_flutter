@@ -346,6 +346,7 @@ class BookshelfStore {
   /// 清掉内存缓存标记，下次 [folders] 从磁盘重新读取。
   static void importData(Map<String, dynamic> data) {
     _cache = Map.from(data);
+    _rebuildIndex(); // 替换缓存后必须重建 id→sourceId 索引，否则恢复后 sourceIdOf 失效
     _save();
     _foldersLoaded = false;
     _folderNames = {};

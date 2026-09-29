@@ -143,7 +143,12 @@ class DslComicSource extends ComicSource {
         var href = _attr(n, d.chapterUrl);
         if (href.isEmpty && hrefRe != null) {
           final m = hrefRe.firstMatch(n.innerText);
-          if (m != null) href = m.group(1) ?? m.group(0)!;
+          // 避免 group(1) 越界：无捕获组正则写成 `/.../` 时 groupCount==0，
+          // Dart 的 Match.group 对越界抛 RangeError 而非返回 null。有捕获组
+          // 用组 1（通常是 href），否则退回整个匹配串。
+          if (m != null) {
+            href = m.groupCount >= 1 ? (m.group(1) ?? m.group(0)!) : m.group(0)!;
+          }
         }
         if (href.isEmpty) continue;
         final cid = _extractId(href, comicId);

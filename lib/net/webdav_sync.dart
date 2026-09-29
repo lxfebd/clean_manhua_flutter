@@ -9,6 +9,8 @@ import 'bookshelf_store.dart';
 import 'http_client.dart';
 import 'local_store.dart';
 import 'novel_shelf_store.dart';
+import '../sources/source_config.dart';
+import '../sources/dsl/custom_source_store.dart';
 
 /// WebDAV 请求失败：非 2xx 状态码。
 class WebDavException implements Exception {
@@ -347,6 +349,12 @@ class WebDavSync {
         NovelShelfStore.importData(data['novel_shelf'] as Map<String, dynamic>);
       }
       await LocalStore.restoreBackup(data);
+      // 恢复的数据含有源配置/自定义源/插件启用态，而这三个走各自的常驻内存
+      // 缓存与插件注册表——不刷新的话：① 恢复进来的源配置/自定义源不生效
+      // （读走旧缓存）；② 用户随后任意保存会把旧缓存全量回写，静默覆盖刚
+      // 恢复的数据。这里统一失效并重建自定义源插件。
+      SourceConfigStore.invalidateCache();
+      await CustomSourceStore.restorePlugins(replaceExisting: true);
       return true;
     } on WebDavException catch (e) {
       if (e.statusCode == 404) throw Exception('远端还没有同步文件，请先点「上传同步」');

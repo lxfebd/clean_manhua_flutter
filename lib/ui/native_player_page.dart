@@ -1833,6 +1833,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         // 断点带偏（seek 回上一集的位置播）。
         _stablePos = Duration.zero;
       });
+      // 换集后失效直链记忆作废：源站常复用同一 CDN 模板，新旧集解析出的
+      // 直链可能相同，不清空会让新集的合法直链被旧失效记录静默拒绝。
+      if (_rejectedHandoffs.isNotEmpty) _rejectedHandoffs.clear();
       await _open(url);
       // 换集后重新拉取该集弹幕
       setState(() {
@@ -1847,7 +1850,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         // 提供「重试/用网页播放」两个出口。
         setState(() {
           _failed = true;
-          _failMsg = '切集失败：$ep.season 第 $ep.episode 集解析失败';
+          _failMsg = '切集失败：${ep.season} 第 ${ep.episode} 集解析失败';
           _pendingRetryEp = ep;
           _ready = false;
           _buffering = false;

@@ -188,7 +188,10 @@ class DslVideoSource implements VideoSource {
     var href = _attr(n, d.chapterUrl);
     if (href.isEmpty && d.chapterUrlRe.isNotEmpty) {
       final m = RegExp(d.chapterUrlRe).firstMatch(n.innerText);
-      if (m != null) href = m.group(1) ?? m.group(0)!;
+      if (m != null) {
+        // 无捕获组正则 group(1) 越界抛异常，判 groupCount 再取
+        href = m.groupCount >= 1 ? (m.group(1) ?? m.group(0)!) : m.group(0)!;
+      }
     }
     return href;
   }
