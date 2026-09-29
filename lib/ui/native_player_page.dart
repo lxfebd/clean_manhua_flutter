@@ -204,6 +204,11 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 网页通道当前要加载的地址；切通道/换集时更新。
   String _webUrl = '';
 
+  /// mpv 当前实际打开的直链。切集(_switchTo)、网页 handoff、
+  /// 断流重连等场景都会更新；断流自愈(_tryRecoverFromStreamError)与
+  /// 重试据此重开「当前正在播」的地址，而非进页面时的初始集 widget.url。
+  String _currentUrl = '';
+
   /// 网页通道当前集（换集后同步给 AnimePlayerPage 的 initialSeason/Episode）。
   int _webSeason = 1;
   int _webEpisode = 1;
@@ -861,6 +866,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       await _applySr(silent: true);
       await _applySync();
       await p.setRate(_speed);
+      _currentUrl = url;
       if (adopted) {
         // 画中画恢复：Player 已在播放同一直链，仅需同步界面状态，不再重开。
         if (mounted) {
@@ -969,7 +975,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     resumeFrom = resumeFrom > const Duration(seconds: 6)
         ? resumeFrom - const Duration(seconds: 3)
         : Duration.zero;
-    final ok = await _open(widget.url, resumeAt: resumeFrom);
+    final ok = await _open(
+      _currentUrl.isNotEmpty ? _currentUrl : widget.url,
+      resumeAt: resumeFrom,
+    );
     if (mounted) {
       setState(() => _recovering = false);
       if (ok) _toast('重连成功，继续播放');
@@ -2429,7 +2438,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         await _switchTo(retry);
         ok = !_failed;
       } else {
-        ok = await _open(widget.url);
+        ok = await _open(_currentUrl.isNotEmpty ? _currentUrl : widget.url);
       }
       if (!ok && mounted) {
         setState(() {

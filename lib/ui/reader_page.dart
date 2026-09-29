@@ -370,6 +370,9 @@ class _ReaderPageState extends State<ReaderPage>
   /// 切换阅读模式并保留当前页位置（页→视图换算，旋转不丢进度）。
   void _switchReaderMode(ReaderMode next) {
     if (next == _readerMode) return;
+    // 空章节/加载中无页可锚：clamp(0, -1) 会抛 ArgumentError，直接跳过
+    // （didChangeMetrics 另有保护，工具栏/设置抽屉入口在这里兜底）。
+    if (_urls.isEmpty || _loading) return;
     final anchorPage = _curPage.clamp(0, _urls.length - 1);
     // 旧 controller 可能仍有在途翻页动画持有它：先挪到局部变量，
     // setState 内只换新值，等新 controller 接管本帧后再 dispose，

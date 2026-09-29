@@ -399,6 +399,17 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       if (taken) {
         _handedOffToMpv = true;
         await _killWebMedia();
+      } else {
+        // handoff 被拒（直链失效/打不开）：留在网页通道。此时 _resolving
+        // 仍为 true 而上面的 cancel 已把 8 秒计时器取消 —— 不重武装的话
+        // "解析直链中…"黑幕会永久挂着、轮询持续强杀网页音量。重新武装
+        // 一次超时放弃计时器，让 _resolving 能正常回落。
+        _resolveTimer = Timer(const Duration(seconds: 8), () {
+          if (mounted && _resolving) {
+            setState(() => _resolving = false);
+            _resolveFault = true;
+          }
+        });
       }
       return;
     }
@@ -1737,6 +1748,19 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     // 装载成功：复位切集失败标记（_webError 由加载状态回调清空）。
     if (_switchFail && mounted && gen == _switchGen) {
       setState(() => _switchFail = false);
+    }
+    // ⚠️ _resolving 自本次切换起为 true，且 initState 里的 8 秒 _resolveTimer
+    // 早已触发过：不重建的话（目标集走 blob/MSE 或捕获失败时）_resolving
+    // 永远为 true，黑幕"解析直链中…"永挂 + 轮询每 900ms 强杀网页音频，
+    // 用户既看不到画面也听不到声音。这里重新武装一次超时放弃计时器。
+    if (mounted && gen == _switchGen) {
+      _resolveTimer?.cancel();
+      _resolveTimer = Timer(const Duration(seconds: 8), () {
+        if (mounted && _resolving) {
+          setState(() => _resolving = false);
+          _resolveFault = true;
+        }
+      });
     }
     _switchingEp = false;
   }

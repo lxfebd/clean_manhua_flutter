@@ -90,10 +90,13 @@ class UpdateDownloadManager {
     // 应用私有目录可被 FileProvider 的 files-path 正常分享用于安装。
     final dl = await LocalStore.downloadDir();
     await dl.create(recursive: true);
-    _dlPath = '${dl.path}/$_fileName';
+    // 按 release tag 分目录隔离不同版本：断点续传的残留文件与当前版本严格
+    // 一一对应，杜绝「上一版半截包撞上新版本长度拼出损坏安装包」。
+    final tag = updateTagFromUrl(apkUrl);
+    final dir = tag == null ? dl : Directory('${dl.path}/update/$tag');
+    await dir.create(recursive: true);
+    _dlPath = '${dir.path}/$_fileName';
     _notify('更新下载', '开始下载…', 0, 0, false);
-    _state = const UpdateDownloadState();
-    _stateCtrl.add(_state);
     _downloadWithMirrors(apkUrl);
   }
 
@@ -107,7 +110,13 @@ class UpdateDownloadManager {
     final p = _dlPath;
     if (p != null) {
       final f = File(p);
-      if (f.existsSync()) f.deleteSync();
+      // 下载循环可能仍在写同一文件（Windows 上文件被占用/权限拒绝），
+      // 删除失败仅记日志，不向上抛（cancel 是用户主动触发的收尾操作）。
+      try {
+        if (f.existsSync()) f.deleteSync();
+      } catch (e) {
+        ErrorLogger.instance.warn('更新下载取消清理失败: $e');
+      }
     }
   }
 
@@ -189,14 +198,23 @@ class UpdateDownloadManager {
         if (file.existsSync()) await file.delete();
       }
 
+      // 206 时校验 Content-Range 起始字节与本地长度一致，防止同路径下残留
+      // 文件内容与服务器当前内容错位（跨版本/缓存的半截包）导致拼接损坏。
+      // 不一致则作废本地文件并中止本次尝试：响应体是从 crStart 开始的
+      // 中段字节，直接追加会让新文件以错误偏移开头，必须让下一个镜像从头下。
+      final cr = res.headers.value('content-range');
+      final crStart = cr != null ? _contentRangeStart(cr) : -1;
+      if (res.statusCode == 206 && crStart >= 0 && received > 0 && crStart != received) {
+        if (file.existsSync()) await file.delete();
+        throw Exception('续传位置与本地文件不一致，重新下载 ($label)');
+      }
+
       // 总大小只设一次（第一个返回 content-length 的镜像），后续镜像不覆盖
       final respTotal =
           res.contentLength > 0
               ? received + res.contentLength
-              : (res.headers.value('content-range') != null
-                  ? int.parse(
-                    res.headers.value('content-range')!.split('/').last,
-                  )
+              : (cr != null
+                  ? _contentRangeTotal(cr)
                   : 0);
       if (respTotal > 0 && _totalSize == 0) {
         _totalSize = respTotal;
@@ -245,11 +263,22 @@ class UpdateDownloadManager {
         }
       }
       await sink.close();
+      // 完整度对账：已知目标大小时，收到的字节数必须啃够；否则说明
+      // 服务器提前断流/长度变化，不能拿残缺包去安装。
+      if (total > 0 && received != total) {
+        throw Exception('下载不完整 $received/$total ($label)');
+      }
       return file.path;
     } finally {
       client.close(force: true);
     }
   }
+
+  /// 解析 Content-Range: `bytes=<start>-<end>/<total>` 的起始字节，解析失败返回 -1。
+  static int _contentRangeStart(String cr) => contentRangeStart(cr);
+
+  /// 解析 Content-Range 的完整总大小（斜杠后的值），解析失败返回 0。
+  static int _contentRangeTotal(String cr) => contentRangeTotal(cr);
 
   /// 通过 MethodChannel 调用原生通知（进度条）。
   Future<void> _notify(
@@ -383,4 +412,34 @@ String fallbackFileName(String apkUrl, String platformKey) {
     if (RegExp(r'^[a-zA-Z0-9]+$').hasMatch(cand)) fallbackExt = cand;
   }
   return 'xingmanxia_update$platformKey.$fallbackExt';
+}
+
+/// 从 GitHub releases 下载 URL 提取 release tag（`/releases/download/<tag>/…`），
+/// 用于按版本隔离下载目录。非 GitHub 直链（镜像也会保留原路径）或解析失败
+/// 返回 null，此时退回到下载根目录。
+@visibleForTesting
+String? updateTagFromUrl(String url) {
+  const marker = '/releases/download/';
+  final idx = url.indexOf(marker);
+  if (idx < 0) return null;
+  final rest = url.substring(idx + marker.length);
+  final slash = rest.indexOf('/');
+  if (slash <= 0) return null;
+  return rest.substring(0, slash).replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+}
+
+/// 解析 Content-Range: `bytes=<start>-<end>/<total>` 的起始字节，解析失败返回 -1。
+@visibleForTesting
+int contentRangeStart(String cr) {
+  final m = RegExp(r'bytes\s+(\d+)-').firstMatch(cr);
+  if (m == null) return -1;
+  return int.tryParse(m.group(1)!) ?? -1;
+}
+
+/// 解析 Content-Range 的完整总大小（斜杠后的值），解析失败返回 0。
+@visibleForTesting
+int contentRangeTotal(String cr) {
+  final m = RegExp(r'/(\d+)\s*$').firstMatch(cr);
+  if (m == null) return 0;
+  return int.tryParse(m.group(1)!) ?? 0;
 }

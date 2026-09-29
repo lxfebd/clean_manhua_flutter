@@ -68,18 +68,54 @@ SetOverwrite on
 Section "Install"
   ${if} ${Silent}
     ; app 是「启动本 installer 后马上退出」的。Windows 上运行中的 exe 处于文件
-    ; 锁状态，此刻 File 覆盖必失败。给进程退出并释放句柄留时间（2.5s 足够）。
+    ; 锁状态，直接覆盖会失败。给进程退出并释放句柄留时间（2.5s）。
     Sleep 1500
     Sleep 500
     Sleep 500
 
-    ; 干净升级：清掉旧目录再拷新版。只覆盖 dll/exe/data 等运行时文件，
-    ; 用户数据在 %LOCALAPPDATA%\com.xingmanxia.app，不在 $INSTDIR 内，不受影响。
-    RMDir /r "$INSTDIR"
-  ${endif}
+    ; —— 原子化静默升级 ——
+    ; 旧设计是「先 RMDir /r 删掉旧目录，再 File /r 拷新版」：若拷贝中途失败
+    ; （磁盘满/断电/杀毒占用），旧版已被删、新版没拷全，应用直接无法启动且无回滚。
+    ; 现在改为：1) 新版先完整落到 $INSTDIR.new；2) 把当前目录改名成 $INSTDIR.old；
+    ; 3) 新版改名为正式目录；4) 最后才删除旧目录。任何一步失败都保留旧版本。
+    SetOutPath "$INSTDIR.new"
+    File /r "build\windows\x64\runner\Release\*"
+    IfErrors 0 f1_staged
+      ; 新版没能写入：清理暂存，保留旧版，中止
+      RMDir /r "$INSTDIR.new"
+      MessageBox MB_OK|MB_ICONSTOP "升级失败：新版文件写入失败，已保留当前版本。"
+      SetErrorLevel 1
+      Abort
+    f1_staged:
 
-  SetOutPath "$INSTDIR"
-  File /r "build\windows\x64\runner\Release\*"
+    ; 把旧安装目录改名为 .old 留作备份。目录改名若失败 → 旧 exe 仍被占用，
+    ; 说明旧进程还没真正退出；此时不动任何东西、保留旧版。
+    Rename "$INSTDIR" "$INSTDIR.old"
+    IfErrors 0 f2_old_moved
+      MessageBox MB_OK|MB_ICONSTOP "升级失败：应用仍在后台运行，请关闭后可重试。当前版本已保留。"
+      RMDir /r "$INSTDIR.new"
+      SetErrorLevel 2
+      Abort
+    f2_old_moved:
+
+    ; 新版改名为正式目录
+    Rename "$INSTDIR.new" "$INSTDIR"
+    IfErrors 0 f3_new_moved
+      ; 改名失败：把旧版换回，丢弃新版暂存，保留旧版可运行
+      Rename "$INSTDIR.old" "$INSTDIR"
+      RMDir /r "$INSTDIR.new"
+      SetErrorLevel 3
+      Abort
+    f3_new_moved:
+
+    ; 新版已在正式目录，此刻才安全清掉旧目录（即使因占用删不掉，也不影响新版启动）
+    RMDir /r "$INSTDIR.old"
+  ${else}
+    ; 手动安装：直接写并（正式目录可能为空或已有的用户所选目录）。
+    ; 用户数据在 %LOCALAPPDATA%\com.xingmanxia.app，不在 $INSTDIR 内，不受影响。
+    SetOutPath "$INSTDIR"
+    File /r "build\windows\x64\runner\Release\*"
+  ${endif}
 
   WriteUninstaller "$INSTDIR\${UNINSTALL_EXE}"
 
