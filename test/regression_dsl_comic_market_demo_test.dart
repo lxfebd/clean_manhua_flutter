@@ -84,7 +84,10 @@ void main() {
   });
 
   /// 与远端 index.json 的 demo.dsl.manhua 条目保持同步的 JSON 定义。
-  CustomSourceDef def() => CustomSourceDef.fromJson({
+  ///
+  /// [publicBase] 为 true 时 baseUrl 用公网占位地址（仅校验用），
+  /// 抓取测试仍走本机回环 [$base]。
+  CustomSourceDef def({bool publicBase = false}) => CustomSourceDef.fromJson({
         'id': 'demo.dsl.manhua',
         'name': '漫画演示源（通用结构）',
         'type': 'comic',
@@ -93,7 +96,7 @@ void main() {
         'description':
             '源市场演示源：标准漫画站通用结构（分类列表 + 章节目录 + 章节图片），'
             '验证源市场一键安装全链路与 comic 型 DSL 解析。',
-        'baseUrl': base,
+        'baseUrl': publicBase ? 'https://example.com' : base,
         'headers': const {
           'User-Agent':
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -120,7 +123,7 @@ void main() {
       });
 
   test('def.validate() 通过', () {
-    expect(def().validate(), isEmpty);
+    expect(def(publicBase: true).validate(), isEmpty);
   });
 
   test('listByCategory 解析漫画卡片', () async {

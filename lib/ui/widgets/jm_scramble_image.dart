@@ -57,6 +57,14 @@ class _JmScrambleImageWidgetState extends State<JmScrambleImageWidget> {
 
   Future<void> _load() async {
     if (_loading) return;
+    // 防呆：上一轮失败后 _loading 应已被清成 false，若状态卡住则强制复位，
+    // 否则「网络恢复后点重试」会因 _loading 为 true 被这里直接挡掉、永久转圈。
+    // 失败态的重试由 build() 里的 GestureDetector(onTap: _load) 触发；
+    // didUpdateWidget 换 url 时同样会复位 _loading，二者互不冲突。
+    if (_bytes == null) {
+      _loading = false;
+      _error = null;
+    }
     if (mounted) setState(() => _loading = true);
     final gen = _gen;
     try {

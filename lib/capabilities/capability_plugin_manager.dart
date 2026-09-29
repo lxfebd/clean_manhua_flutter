@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../net/error_logger.dart';
 import '../net/local_store.dart';
+import '../utils/colorizer_manager.dart';
 import 'ai_colorize_capability.dart';
 import 'ai_frame_rife_capability.dart';
 import 'capability_artifact_store.dart';
@@ -137,6 +138,14 @@ class CapabilityPluginManager {
       await p.onUninstall();
       // 卸载即清理本地构件（artifact / 权重），避免「卸载了还占几十~数百 MB」。
       await CapabilityArtifactStore.instance.purge(id);
+      // AI 上色额外联动：能力卸载时同步清理 colorizer 私有模型目录
+      // （`colorizer/model.tflite`）并释放后端，避免「卸载了但功能仍可用」——
+      // 只清 `.model_cache/<id>/` 会让 `ColorizerManager.isAvailable` 保持
+      // true，reader 侧仍显示上色入口。按 id 判断，不引入与 colorizer 的
+      // 双向依赖（colorizer_manager 已 import 到本文件；反向不 import）。
+      if (id == AiColorizePlugin().id) {
+        await ColorizerManager.instance.deleteModelFile();
+      }
     } catch (e) {
       ErrorLogger.instance.warn(
           'CapabilityPluginManager.uninstall($id) failed: $e');
@@ -251,8 +260,15 @@ class CapabilityPluginManager {
 
   /// 内置能力：仅元数据壳（正文随版本代码发布，bind 空实现），
   /// 不落盘、不可卸载。注册闪存索引，供能力中心 UI 统一枚举。
+  ///
+  /// 平台门闸：与 install/restore 路径对齐——`isSupportedOnCurrentPlatform`
+  /// 为 false 的内置能力不注册（如未来某内置能力仅桌面可用，Web/手机侧
+  /// 能力中心不应展示）。全平台能力默认 true 不受影响（`utility.stats`）。
   Future<void> _registerBuiltin() async {
     void add(CapabilityPlugin p) {
+      // 平台门闸：与 install()/restore() 一致，避免「市场安装路径查门闸，
+      // 但内置注册路径不查」导致同一条能力在不同平台显示不一致。
+      if (!p.isSupportedOnCurrentPlatform) return;
       _registry[p.id] = p;
     }
 

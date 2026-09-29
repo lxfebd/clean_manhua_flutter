@@ -143,19 +143,37 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
     }
   }
 
-  /// 确认安装对话框（第三方源风险提示）。
+  /// 确认安装对话框（第三方源风险提示 + 展示关键字段帮用户判断）。
   Future<void> _confirmInstall(MarketSourceEntry entry) async {
+    // P1 修复：把 baseUrl 与 hosts/headers 声明亮出来，避免用户"盲装"——
+    // 至少能看到这个源要访问哪些域名。
+    final def = entry.def;
+    final sb = StringBuffer()
+      ..writeln('即将安装：${entry.name} v${entry.version}')
+      ..writeln('来源：${entry.provider}')
+      ..writeln('')
+      ..writeln('base URL：${def.baseUrl}');
+    if (def.hosts.isNotEmpty) {
+      sb.writeln('域名 hosts：${def.hosts.join(', ')}');
+    }
+    if (def.headers.isNotEmpty) {
+      sb.writeln('请求头 headers：');
+      for (final e in def.headers.entries) {
+        sb.writeln('  ${e.key}: ${e.value}');
+      }
+    }
+    sb.writeln('');
+    sb.writeln('自定义源由社区开发，未经官方审计。请确认你信任该来源后再安装。');
     final ok = await showDialog<bool>(
       context: context,
       builder:
           (ctx) => AlertDialog(
             title: const Text('安装来源'),
-            content: Text(
-              '即将安装：${entry.name} v${entry.version}\n'
-              '来源：${entry.provider}\n\n'
-              '自定义源由社区开发，未经官方审计。'
-              '请确认你信任该来源后再安装。',
-              style: const TextStyle(fontSize: 13.5, height: 1.6),
+            content: SingleChildScrollView(
+              child: Text(
+                sb.toString(),
+                style: const TextStyle(fontSize: 13.5, height: 1.6),
+              ),
             ),
             actions: [
               TextButton(

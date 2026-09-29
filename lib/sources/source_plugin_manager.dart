@@ -78,14 +78,36 @@ class SourcePluginManager {
   }
 
   /// 注册插件：幂等（同 id 已存在则忽略），触发 onInstall + bind。
+  ///
+  /// 安全时序（P0 修复）：先跑 onInstall → 再进注册表 → 再 bind；bind 抛异常
+  /// 时**回滚**——从注册表移除，并尽力 unbind（避免半注册状态让 UI 显示已装
+  /// 但 SourceManager 里没有源）。旧实现先 `_registry[id]=plugin` 后 bind，
+  /// 且吞掉 bind 异常，导致「看似安装成功、实际不可用」。
   Future<void> install(SourcePlugin plugin) async {
     if (_registry.containsKey(plugin.id)) return;
-    _registry[plugin.id] = plugin;
     try {
       await plugin.onInstall();
+    } catch (e) {
+      ErrorLogger.instance.warn('SourcePluginManager.install(${plugin.id}) onInstall failed: $e');
+      return;
+    }
+    _registry[plugin.id] = plugin;
+    try {
       await plugin.bind();
     } catch (e) {
-      ErrorLogger.instance.warn('SourcePluginManager.install(${plugin.id}) failed: $e');
+      // 回滚：移出注册表 + 尽力 unbind，让磁盘/内存状态一致。
+      ErrorLogger.instance.warn('SourcePluginManager.install(${plugin.id}) bind failed, rollback: $e');
+      _registry.remove(plugin.id);
+      _disabledCustom.remove(plugin.id);
+      try {
+        await plugin.unbind();
+      } catch (_) {
+        // unbind 尽力而为：绑定都没成功，此处失败只能记日志
+      }
+      try {
+        await plugin.onUninstall();
+      } catch (_) {}
+      return;
     }
     revision.value++;
   }

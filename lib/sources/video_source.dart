@@ -116,6 +116,13 @@ bool isAdMediaUrl(String url) {
   for (final d in adDomains) {
     if (u.contains(d)) return true;
   }
+  // 字节系内容/广告 CDN：toutiao/topbuzz 等域名被 [isDirectMediaUrl] 判为
+  // 「直链」（按域名白名单），广告流若走这些 CDN 会被当成正片接管原生播放器
+  // （从 0:00 播广告）。本应用 6 个视频源的正片均不用字节 CDN，这里整体拦截。
+  const byteAdCdns = {'pstatp.com', 'topbuzzcdn.com', 'capcut.com'};
+  for (final d in byteAdCdns) {
+    if (u.contains(d)) return true;
+  }
   return false;
 }
 

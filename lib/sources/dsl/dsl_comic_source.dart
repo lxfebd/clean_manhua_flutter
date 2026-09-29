@@ -137,7 +137,7 @@ class DslComicSource extends ComicSource {
     if (d.chapters.isNotEmpty) {
       final nodes = root.querySelectorAll(d.chapters);
       final hrefRe = d.chapterUrlRe.isNotEmpty
-          ? RegExp(d.chapterUrlRe)
+          ? safeRegExp(d.chapterUrlRe)
           : null;
       for (final n in nodes) {
         var href = _attr(n, d.chapterUrl);
@@ -161,7 +161,7 @@ class DslComicSource extends ComicSource {
       }
     }
     if (chapters.isEmpty && d.chaptersRe.isNotEmpty) {
-      final re = RegExp(d.chaptersRe);
+      final re = safeRegExp(d.chaptersRe);
       for (final m in re.allMatches(html)) {
         // 与 novel 引擎一致：组 1 = 标题、组 2 = 链接；支持命名组 href/title。
         final title = dslGroup(m, re, 'title', 1);
@@ -199,7 +199,7 @@ class DslComicSource extends ComicSource {
         if (u.isNotEmpty) urls.add(u);
       }
     } else if (d.picListRe.isNotEmpty) {
-      final re = RegExp(d.picListRe);
+      final re = safeRegExp(d.picListRe);
       for (final m in re.allMatches(html)) {
         final u = m.group(1) ?? '';
         if (u.isNotEmpty) urls.add(u);
@@ -209,7 +209,8 @@ class DslComicSource extends ComicSource {
     final filtered = <String>[];
     for (var u in urls) {
       if (d.picFilter.isNotEmpty) {
-        if (!RegExp(d.picFilter).hasMatch(u)) continue;
+        final re = safeRegExp(d.picFilter);
+        if (!re.hasMatch(u)) continue;
       }
       u = _applyReplace(u, d.picReplace);
       if (u.isNotEmpty && !filtered.contains(u)) filtered.add(_abs(d.picListUrl, u));
@@ -370,7 +371,7 @@ String _extract(HtmlNode e, String field) {
       els = root.querySelectorAll(rule.selector);
     } else if (rule.regex.isNotEmpty) {
       // 正则行式：把每个匹配包装成虚拟节点，供 map 复用统一抽取逻辑
-      final re = RegExp(rule.regex);
+      final re = safeRegExp(rule.regex);
       final groups = <List<String>>[];
       for (final m in re.allMatches(html)) {
         final g = <String>[];
@@ -426,7 +427,7 @@ class DslDecrypt {
         final body = t.substring(3);
         final sepIdx = body.indexOf('|');
         if (sepIdx > 0) {
-          final re = RegExp(body.substring(0, sepIdx), dotAll: true);
+          final re = safeRegExp(body.substring(0, sepIdx), dotAll: true);
           final rep = body.substring(sepIdx + 1);
           out = out.replaceAll(re, rep);
         }

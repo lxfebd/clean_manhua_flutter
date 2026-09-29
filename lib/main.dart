@@ -36,19 +36,44 @@ Future<void> _initDesktopWindow() async {
   await windowManager.setMinimumSize(minSize);
   await windowManager.setTitle('星漫匣');
   final geo = await LocalStore.windowGeometry();
-  if (geo != null) {
-    await windowManager.setSize(Size(geo['w']!, geo['h']!));
-    // 坐标异常（如曾拖到副屏后该屏断开）时居中，避免窗口跑到屏幕外。
-    if (geo['x']! >= 0 && geo['y']! >= 0) {
-      await windowManager.setPosition(Offset(geo['x']!, geo['y']!));
+  if (geo == null) {
+    await windowManager.setSize(const Size(1100, 720));
+    await windowManager.center();
+  } else {
+    // 防御式读取：早期版本可能缺 w/h/x/y 任意键（或值非 num），
+    // 全部按缺失处理并回退默认尺寸/居中，避免强非空断言导致启动即崩。
+    final w = _toDouble(geo['w'], 1100);
+    final h = _toDouble(geo['h'], 720);
+    await windowManager.setSize(Size(w, h));
+    // 坐标异常（如曾拖到副屏后该屏断开、或缺失/非数）时居中，避免窗口跑到屏幕外。
+    final x = _toDoubleOrNull(geo['x']);
+    final y = _toDoubleOrNull(geo['y']);
+    if (x != null && y != null && x >= 0 && y >= 0) {
+      await windowManager.setPosition(Offset(x, y));
     } else {
       await windowManager.center();
     }
-  } else {
-    await windowManager.setSize(const Size(1100, 720));
-    await windowManager.center();
   }
   windowManager.addListener(_DesktopWindowListener());
+}
+
+/// 从任意类型读取数值（历史持久化格式可能是 int/double/String），
+/// 非法或缺失时返回 [fallback]（必须提供回退值，用于尺寸这类不允许为空的字段）。
+double _toDouble(Object? raw, double fallback) {
+  if (raw is num) return raw.toDouble();
+  if (raw is String) {
+    final v = double.tryParse(raw);
+    if (v != null) return v;
+  }
+  return fallback;
+}
+
+/// 与 [_toDouble] 相同，但缺失/非法时返回 null（用于坐标这类「无法判断则
+/// 走居中兜底」的字段）。
+double? _toDoubleOrNull(Object? raw) {
+  if (raw is num) return raw.toDouble();
+  if (raw is String) return double.tryParse(raw);
+  return null;
 }
 
 /// 监听窗口尺寸/位置变化，落盘以便下次启动恢复。

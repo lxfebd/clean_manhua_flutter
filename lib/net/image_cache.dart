@@ -154,7 +154,25 @@ class ImageCacheManager {
     }
     final running = _inflightDeg[norm];
     if (running != null) {
-      return running;
+      // 复用 in-flight；失败 future 不再污染后续调用：消费方负责清槽并
+      // 重新发起一次（避免失败 future 永久占槽，网络恢复后重试也拿不到
+      // 成功结果）。若期间已有新 future 入槽则不动。
+      return running.then<ImageDegResult>(
+        (v) => v,
+        onError: (Object e, StackTrace st) {
+          if (identical(_inflightDeg[norm], running)) {
+            _inflightDeg.remove(norm);
+          }
+          return _loadDegraded(
+            ImageDeg.chain(norm, engineId: engineId, useSaver: useSaver),
+            headers: headers,
+            loader: loader,
+            proxy: proxy,
+            engineId: engineId,
+            useSaver: useSaver,
+          );
+        },
+      );
     }
     final chain = ImageDeg.chain(norm, engineId: engineId, useSaver: useSaver);
     final future = _loadDegraded(
@@ -166,7 +184,6 @@ class ImageCacheManager {
       useSaver: useSaver,
     );
     _inflightDeg[norm] = future;
-    future.whenComplete(() => _inflightDeg.remove(norm));
     return future;
   }
 
@@ -217,10 +234,22 @@ class ImageCacheManager {
       return Future.value(mem);
     }
     final running = _inflight[norm];
-    if (running != null) return running;
+    if (running != null) {
+      // 复用 in-flight；失败 future 不再污染后续调用：消费方负责清槽并
+      // 重新发起一次（避免失败 future 永久占槽，网络恢复后重试也拿不到
+      // 成功结果）。若期间已有新 future 入槽则不动。
+      return running.then<Uint8List>(
+        (v) => v,
+        onError: (Object e, StackTrace st) {
+          if (identical(_inflight[norm], running)) {
+            _inflight.remove(norm);
+          }
+          return _load(norm, headers: headers, fetch: fetch, proxy: proxy);
+        },
+      );
+    }
     final future = _load(norm, headers: headers, fetch: fetch, proxy: proxy);
     _inflight[norm] = future;
-    future.whenComplete(() => _inflight.remove(norm));
     return future;
   }
 

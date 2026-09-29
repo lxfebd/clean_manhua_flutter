@@ -15,6 +15,11 @@ import 'widgets/app_toast.dart';
 import 'widgets/state_view.dart';
 import 'keyboard_shortcuts.dart';
 
+/// 自定义源 JSON 大小上限（64 KB）：导入粘贴和编辑器共用。正常一份源定义
+/// 通常几百字节到几 KB，超过这个上限基本是异常输入（或攻击面），直接拒绝
+/// 可以防止 jsonDecode / DSL 校验阶段长时间占用主 Isolate（P1 修复）。
+const int kCustomSourceJsonMaxBytes = 64 * 1024;
+
 /// 数据源管理页：列出所有源，可启用/停用、编辑域名/图片CDN/代理/请求头/层级，
 /// 保存后持久化（源配置免发版更新），并同步 SourceManager 的启用列表。
 class SourceManagePage extends StatefulWidget {
@@ -727,9 +732,20 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
     if (result != null) await _load();
   }
 
+  /// 粘贴 JSON 的大小上限：见 [kCustomSourceJsonMaxBytes]。
   Future<void> _import() async {
     final text = await _promptText('导入自定义源', '粘贴 JSON（单份或数组）。校验通过后立即生效。');
     if (text == null) return;
+    // 长度上限：超长直接拒绝，避免解析阶段卡死
+    if (text.length > kCustomSourceJsonMaxBytes) {
+      AppToast.error(
+        context,
+        '导入内容过长（${(text.length / 1024).toStringAsFixed(1)} KB > '
+        '64 KB 上限），已拒绝',
+      );
+      await _load();
+      return;
+    }
     final ok = await CustomSourceStore.importJson(text);
     if (mounted) {
       if (ok > 0) {
@@ -1107,6 +1123,12 @@ class _CustomSourceEditorDialogState extends State<CustomSourceEditorDialog> {
   });
 
   Future<void> _save() async {
+    // 长度上限（P1 修复）：和导入对话框一致，防止超大 DSL 定义拖垮解析
+    if (_controller.text.length > kCustomSourceJsonMaxBytes) {
+      setState(() => _error =
+          '定义内容过长（超过 64 KB 上限），已拒绝保存');
+      return;
+    }
     final def = decodeCustomSourceDef(_controller.text);
     if (def == null) {
       setState(() => _error = 'JSON 解析失败，请检查格式');

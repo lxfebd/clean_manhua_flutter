@@ -56,6 +56,16 @@ class NovelHomePageState extends State<NovelHomePage> {
     if (_sourceId != null) _loadNovels();
   }
 
+  /// 刷新书架缓存（在线收藏 + 本地导入），供详情页/导入页返回后调用，
+  /// 避免用户"加书架"成功后回来看不到、"删除本地书"回来还残留的错觉。
+  void _refreshShelf() {
+    if (!mounted) return;
+    setState(() {
+      _shelf = NovelShelfStore.listAll();
+      _localBooks = LocalNovelSource.store.listAll();
+    });
+  }
+
   /// 主壳 Ctrl+R 刷新入口。
   void refresh() {
     if (_sourceId != null) _loadNovels();
@@ -124,9 +134,12 @@ class NovelHomePageState extends State<NovelHomePage> {
                             color: scheme.onSurface)),
                   ),
                   TextButton.icon(
-                    onPressed: () {
-                      Navigator.push(context,
-                          MaterialPageRoute(builder: (_) => const NovelImportPage()));
+                    onPressed: () async {
+                      // await 返回后再刷新：导入完成后 _localBooks 需立刻同步，
+                      // 否则用户以为"导入没成功"。
+                      await Navigator.push(
+                          context, MaterialPageRoute(builder: (_) => const NovelImportPage()));
+                      _refreshShelf();
                     },
                     icon: const Icon(Icons.file_open_outlined, size: 17),
                     label: const Text('本地导入'),
@@ -189,9 +202,11 @@ class NovelHomePageState extends State<NovelHomePage> {
             title: '书架还是空的',
             subtitle: '去添加喜欢的小说，或导入本地 TXT/EPUB 吧～',
             action: OutlinedButton.icon(
-              onPressed: () {
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const NovelImportPage()));
+              onPressed: () async {
+                // 导入完成返回后立刻刷新，避免"导入成功但书架不显示"的错觉。
+                await Navigator.push(
+                    context, MaterialPageRoute(builder: (_) => const NovelImportPage()));
+                _refreshShelf();
               },
               icon: const Icon(Icons.file_open_outlined, size: 18),
               label: const Text('本地导入'),
@@ -208,7 +223,7 @@ class NovelHomePageState extends State<NovelHomePage> {
         FadeSlideIn(
           delay: const Duration(milliseconds: 40),
           offset: 16,
-          child: _ShelfCard(d: d, scheme: scheme),
+          child: _ShelfCard(d: d, scheme: scheme, onReturned: _refreshShelf),
         ),
     ];
     return SliverPadding(
@@ -233,7 +248,7 @@ class NovelHomePageState extends State<NovelHomePage> {
       return const SliverToBoxAdapter(
           child: Center(
               child: Padding(
-                  padding: EdgeInsets.all(32),
+                  padding: const EdgeInsets.all(32),
                   child: CircularProgressIndicator(strokeWidth: 2))));
     }
     if (_error != null) {
@@ -276,9 +291,10 @@ class NovelHomePageState extends State<NovelHomePage> {
               child: _NovelCard(
                 item: it,
                 scheme: scheme,
-                onTap: () {
+                onTap: () async {
                   HapticFeedback.lightImpact();
-                  Navigator.push(
+                  // 详情页可能触发加/移书架；返回后刷新避免"以为加失败"。
+                  await Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (_) => NovelDetailPage(
@@ -289,6 +305,7 @@ class NovelHomePageState extends State<NovelHomePage> {
                       ),
                     ),
                   );
+                  _refreshShelf();
                 },
               ),
             );
@@ -349,16 +366,19 @@ class _NovelCard extends StatelessWidget {
 class _ShelfCard extends StatelessWidget {
   final NovelDetail d;
   final ColorScheme scheme;
-  const _ShelfCard({required this.d, required this.scheme});
+  final VoidCallback? onReturned;
+  const _ShelfCard({required this.d, required this.scheme, this.onReturned});
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () {
+      onTap: () async {
         // 用条目自带的 sourceId 定位源（listAll 返回解包后的纯 id，
         // 从 id 里拆复合 key 会解析成空串导致点不开书架）
         final sourceId = d.sourceId ?? '';
         if (sourceId.isEmpty) return;
-        Navigator.push(
+        // await 详情页返回后回调：详情页可能触发移书架操作，
+        // 首页在此重新拉一次缓存以同步"已移书架"状态。
+        await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => NovelDetailPage(
@@ -369,6 +389,7 @@ class _ShelfCard extends StatelessWidget {
             ),
           ),
         );
+        onReturned?.call();
       },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

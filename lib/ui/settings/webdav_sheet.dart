@@ -93,6 +93,9 @@ class WebDavSheetState extends State<WebDavSheet> {
       _status = '正在连接服务器…';
       _statusOk = false;
     });
+    // 阶段标记：区分「连接探测失败」和「配置落盘失败」，让用户知道
+    // 该改服务器地址还是该清磁盘空间。声明在 try 外，catch 分支可访问。
+    var stage = 'probe';
     try {
       // 密码框留空 = 沿用已存密码（WebDavSync 内部处理），探测时同样沿用。
       final pass =
@@ -114,7 +117,10 @@ class WebDavSheetState extends State<WebDavSheet> {
         password: pass,
         dir: _dirCtrl.text.trim(),
       );
-      WebDavSync.saveConfig(
+      // 必须 await：saveConfig 落盘失败（磁盘满/权限）时会抛异常，若不等待
+      // 会误报「已保存」并关面板，重启后配置丢失。
+      stage = 'save';
+      await WebDavSync.saveConfig(
         url: url,
         username: _userCtrl.text.trim(),
         password: _passCtrl.text,
@@ -132,11 +138,18 @@ class WebDavSheetState extends State<WebDavSheet> {
       }
     } catch (e) {
       if (mounted) {
+        final saveFailed = stage == 'save';
         setState(() {
-          _status = '连接失败，请检查网络后重试';
+          _status = saveFailed
+              ? '配置保存失败，请检查存储权限后重试'
+              : '连接失败，请检查网络后重试';
           _statusOk = false;
         });
       }
+      ErrorLogger.instance.error(
+        'webdav 保存配置失败: $e',
+        error: e,
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }

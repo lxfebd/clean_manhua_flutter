@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'html_parser.dart';
+
 /// 自定义源 JSON DSL 定义模型。
 ///
 /// 一份 JSON（见 [CustomSourceDef.fromJson]）即可声明一个完整漫画源：
@@ -132,8 +134,16 @@ class CustomSourceDef {
     if (id.isEmpty) errs.add('缺少 id');
     if (name.isEmpty) errs.add('缺少 name');
     if (baseUrl.isEmpty) errs.add('缺少 baseUrl');
-    if (!(baseUrl.startsWith('http://') || baseUrl.startsWith('https://'))) {
-      errs.add('baseUrl 必须以 http(s):// 开头');
+    else {
+      // 必须 http(s) + 拒绝本机/内网/组播地址（P1 SSRF）
+      if (!(baseUrl.startsWith('http://') || baseUrl.startsWith('https://'))) {
+        errs.add('baseUrl 必须以 http(s):// 开头');
+      } else {
+        final reason = _internalHostReason(baseUrl);
+        if (reason != null) {
+          errs.add('baseUrl 指向 $reason，禁止内网/本机地址');
+        }
+      }
     }
     if (type != 'comic' && type != 'video' && type != 'novel') {
       errs.add('type 仅支持 comic/video/novel');
@@ -155,13 +165,71 @@ class CustomSourceDef {
   }
 }
 
-/// 校验一段 DSL 正则可编译（非法则向 [errs] 追加一条）。
-void _checkRegex(String pattern, List<String> errs) {
+/// 单条正则字段的长度上限（防 ReDoS：过长 pattern 会让主 Isolate 卡死）。
+/// 合法 DSL 规则通常几十到几百字符，2000 已经是极端宽松的上限。
+const int _maxRegexLen = 2000;
+
+/// 校验一段 DSL 正则：长度 + 可编译性（任一失败则向 [errs] 追加一条）。
+/// 附带字段名，便于用户定位问题字段。
+void _checkRegex(String pattern, List<String> errs, {String? field}) {
+  final tag = field != null ? '${field}=' : '';
+  if (pattern.length > _maxRegexLen) {
+    errs.add('正则过长（${pattern.length} > $_maxRegexLen 字符）：$tag${_clip(pattern)}');
+    return;
+  }
   try {
     RegExp(pattern);
   } catch (e) {
-    errs.add('非法正则「$pattern」: $e');
+    errs.add('非法正则「${_clip(pattern)}」: $e');
   }
+}
+
+/// 错误提示里的 pattern 片段截断（避免一条错误信息塞下几千字符）。
+String _clip(String s, [int n = 40]) =>
+    s.length <= n ? s : '${s.substring(0, n)}…';
+
+/// 检查 [url] 是否为内网/本机地址；返回中文拒绝理由（null 表示合法）。
+/// 覆盖：localhost / 127.0.0.0/8 / ::1 / 0.0.0.0 / 10.0.0.0/8 /
+/// 172.16.0.0/12 / 192.168.0.0/16 / 169.254.0.0/16（链路本地）/
+/// fc00::/7（IPv6 内网）/ fe80::/10（链路本地）/ 100.64.0.0/10（运营商 NAT）。
+String? _internalHostReason(String url) {
+  final u = Uri.tryParse(url);
+  if (u == null) return null; // 交给 baseUrl 前缀检查兜底
+  final host = u.host;
+  if (host.isEmpty) return null;
+  final lower = host.toLowerCase();
+  if (lower == 'localhost') return '本机地址 localhost';
+  // IPv6 字面量（Uri.host 会剥掉方括号，形如 ::1 或 2001:db8::1）
+  if (lower.contains(':')) {
+    if (lower == '::1' || lower == '0:0:0:0:0:0:0:1' || lower == '::') {
+      return '本机地址 ::1';
+    }
+    if (lower.startsWith('fe80')) return '链路本地地址 fe80::/10';
+    if (lower.startsWith('fc') || lower.startsWith('fd')) return '内网地址 fc00::/7';
+    // 混合 IPv6-IPv4 写法（如 ::ffff:127.0.0.1），取后缀 IPv4 再判一次
+    final idx = lower.lastIndexOf(':');
+    if (idx >= 0 && lower.substring(idx + 1).contains('.')) {
+      return _internalHostReason('http://${lower.substring(idx + 1)}');
+    }
+    return null;
+  }
+  // IPv4 字面量（无方括号）
+  final parts = lower.split('.');
+  if (parts.length == 4 &&
+      parts.every((p) => p.isNotEmpty && int.tryParse(p) != null)) {
+    final a = int.parse(parts[0]);
+    final b = int.parse(parts[1]);
+    // 按段判断，覆盖 127.0.0.1 / 127.5.6.7 等回环写法
+    if (a == 127) return '本机地址 127/8';
+    // 只拒 0.0.0.0 本身（RFC 1918 保留）；不拒整个 0/8 段以避免误伤
+    if (lower == '0.0.0.0') return '本机地址 0.0.0.0';
+    if (a == 10) return '内网地址 10/8';
+    if (a == 172 && b >= 16 && b <= 31) return '内网地址 172.16/12';
+    if (a == 192 && b == 168) return '内网地址 192.168/16';
+    if (a == 169 && b == 254) return '链路本地地址 169.254/16';
+    if (a == 100 && b >= 64 && b <= 127) return '运营商 NAT 保留段 100.64/10';
+  }
+  return null;
 }
 
 /// 列表类规则（分类列表/分类内容/排行/搜索共用）。
@@ -375,9 +443,21 @@ class DslDetailRule {
         picListRe.isEmpty) {
       errs.add('picListUrl 已配置但缺少 picListCss/picListRe');
     }
-    // 正则预检（见 CustomSourceDef.validate 注释）
-    for (final re in [titleRe, chapterUrlRe, chaptersRe, picListRe, idRegex]) {
+    // 正则预检（见 CustomSourceDef.validate 注释）：全部正则字段做长度 + 编译
+    // 检查，包括此前漏检的 picFilter。
+    for (final re in [titleRe, chapterUrlRe, chaptersRe, picListRe, idRegex, picFilter]) {
       if (re.isNotEmpty) _checkRegex(re, errs);
+    }
+    // m3u8Rewrite 目标安全校验：值是「子串替换 pattern」而非完整 URL
+    // （如 "kkzycdn.com:65" → "play.modujx16.com"），因此不能强制 URL 格式。
+    // 但要拒绝会注入危险 scheme 的目标——否则第三方源可把合法 m3u8 分片
+    // 替换为 file:///etc/passwd，让 mpv 读取本机任意文件。
+    for (final e in m3u8Rewrite.entries) {
+      final why = unsafeRewriteTarget(e.value);
+      if (why != null) {
+        errs.add(
+            'm3u8Rewrite 值「${_clip(e.value)}」不安全：$why');
+      }
     }
   }
 }

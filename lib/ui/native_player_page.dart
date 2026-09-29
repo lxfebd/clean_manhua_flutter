@@ -202,6 +202,11 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 通道切换，杜绝双页互跳/双播放器叠音。
   bool _useWeb = false;
 
+  /// 系统画中画（PiP）在本机是否可用：`PipChannel.install()` 返回 false
+  /// （非 Android 或系统不支持）时保持 false，据此隐藏底部控制栏的 PiP 入口
+  /// ——否则按钮点了静默失败（`PipChannel.enter()` 返回 false 才弹提示）。
+  bool _pipAvailable = false;
+
   /// 网页通道当前要加载的地址；切通道/换集时更新。
   String _webUrl = '';
 
@@ -425,8 +430,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     _loadDanmaku();
     _autoMatchSubtitle(); // 本地播放自动匹配同目录同名 SRT
     // 系统画中画（Android 8+）：仅安装通道与状态监听，非 Android 静默跳过。
+    // install() 返回 false 表示本机不支持 PiP：记录能力位后隐藏底部 PiP 入口，
+    // 避免用户点了按钮才收到「不支持」提示。
     unawaited(PipChannel.install().then((ok) {
-      if (mounted && ok) setState(() {});
+      if (mounted) setState(() => _pipAvailable = ok);
     }));
     // 桌面端播放快捷键：空格 播放/暂停、←/→ 快退/快进、↑/↓ 音量、
     // M 静音、F 全屏、Esc 隐藏控制层。仅桌面注册，避免蓝牙键盘误触。
@@ -3060,9 +3067,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
               if (widget.episodes.isNotEmpty)
                 _textBtn('选集', _showEpisodePanel,
                     icon: Icons.playlist_play_rounded),
-              // 系统画中画：仅 Android（原生通道安装成功）显示；非 Android
-              // 走 App 内小窗（_minimizeToPip），入口在左上返回位。
-              if (PipChannel.inPip != null)
+              // 系统画中画：仅本机原生通道安装成功（Android 8+ 且系统支持）
+              // 显示；不支持时不渲染入口，避免点了静默失败。非 Android 走
+              // App 内小窗（_minimizeToPip），入口在左上返回位。
+              if (_pipAvailable)
                 _barBtn(Icons.picture_in_picture_alt_rounded, _toggleSystemPip),
               _barBtn(Icons.fullscreen_exit_rounded, _toggleFullscreen),
             ]),

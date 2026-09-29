@@ -130,7 +130,7 @@ class DslNovelSource extends NovelSource {
     for (final n in nodes) {
       var href = _attr(n, d.chapterUrl);
       if (href.isEmpty && d.chapterUrlRe.isNotEmpty) {
-        final m = RegExp(d.chapterUrlRe).firstMatch(n.innerText);
+        final m = safeRegExp(d.chapterUrlRe).firstMatch(n.innerText);
         if (m != null) {
         // 无捕获组正则 group(1) 越界抛异常，判 groupCount 再取
         href = m.groupCount >= 1 ? (m.group(1) ?? m.group(0)!) : m.group(0)!;
@@ -147,7 +147,7 @@ class DslNovelSource extends NovelSource {
     }
     // 或正则：组 1 = 标题、组 2 = 链接（支持命名组 href/title）
     if (chapters.isEmpty && d.chaptersRe.isNotEmpty) {
-      final re = RegExp(d.chaptersRe);
+      final re = safeRegExp(d.chaptersRe);
       for (final m in re.allMatches(html)) {
         final title = dslGroup(m, re, 'title', 1);
         if (title.isEmpty) continue;
@@ -188,15 +188,15 @@ class DslNovelSource extends NovelSource {
       for (final n in nodes) {
         final t = n.innerText.trim();
         if (t.isEmpty) continue;
-        if (d.picFilter.isNotEmpty && !RegExp(d.picFilter).hasMatch(t)) continue;
+        if (d.picFilter.isNotEmpty && !safeRegExp(d.picFilter).hasMatch(t)) continue;
         paragraphs.add(t);
       }
     } else if (d.picListRe.isNotEmpty) {
-      final re = RegExp(d.picListRe);
+      final re = safeRegExp(d.picListRe);
       for (final m in re.allMatches(html)) {
         final t = (m.group(1) ?? '').trim();
         if (t.isEmpty) continue;
-        if (d.picFilter.isNotEmpty && !RegExp(d.picFilter).hasMatch(t)) continue;
+        if (d.picFilter.isNotEmpty && !safeRegExp(d.picFilter).hasMatch(t)) continue;
         paragraphs.add(t);
       }
     }
@@ -244,7 +244,7 @@ class DslNovelSource extends NovelSource {
       els = root.querySelectorAll(rule.selector);
     } else if (rule.regex.isNotEmpty) {
       // 正则行式：每个匹配包装成虚拟节点，attrs['r1']..'rn' = 捕获组
-      final re = RegExp(rule.regex);
+      final re = safeRegExp(rule.regex);
       final groups = <List<String>>[];
       for (final m in re.allMatches(html)) {
         final g = <String>[];

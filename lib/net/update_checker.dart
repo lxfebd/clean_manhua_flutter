@@ -262,6 +262,9 @@ class UpdateChecker {
   }
 
   /// 比较版本号（支持 1.2.3 与 1.2.3+4）。返回 >0 表示 a 更新。
+  /// 语义：三段 `主.次.补丁` 先按数值比，若全等再比 `+build` 后缀——
+  /// CI 多轮打包（1.2.3+4 → 1.2.3+5）应提示升级；build 缺失视为 0；
+  /// build 非纯数字时按字符串比兜底（如 `1.0.0+dev` vs `1.0.0+rc`）。
   static int compareVersions(String a, String b) {
     final pa = a.split('.').first;
     final pb = b.split('.').first;
@@ -279,7 +282,28 @@ class UpdateChecker {
     if (ma != mb) return ma - mb;
     final ta2 = int.tryParse(ta) ?? 0;
     final tb2 = int.tryParse(tb) ?? 0;
-    return ta2 - tb2;
+    if (ta2 != tb2) return ta2 - tb2;
+    // 三段相等时再比 build 元数据
+    return _compareBuild(_extractBuild(a), _extractBuild(b));
+  }
+
+  /// 从版本号中提取 `+` 后的 build 元数据；无 build 返回空串。
+  static String _extractBuild(String v) {
+    final idx = v.indexOf('+');
+    return idx < 0 ? '' : v.substring(idx + 1);
+  }
+
+  /// 比较两个 build 元数据：均为纯数字按数值比；否则按字符串比兜底；
+  /// 一个为空视为 0（即「无 build」小于「有 build」）。
+  static int _compareBuild(String a, String b) {
+    final na = int.tryParse(a);
+    final nb = int.tryParse(b);
+    if (na != null && nb != null) return na.compareTo(nb);
+    // 一个有数字一个没有：有 build > 无 build
+    if (na != null) return 1;
+    if (nb != null) return -1;
+    // 均非纯数字：字符串比；两者皆空则相等
+    return a.compareTo(b);
   }
 
   /// 触发系统安装器安装 APK。

@@ -12,6 +12,34 @@ import '../utils/novel_summarizer.dart';
 import 'responsive.dart';
 import 'widgets/app_toast.dart';
 
+/// 快照构造器：把「章号 + 滚动偏移 + 书目」打包成 HistoryEntry。
+/// 抽成纯函数以便单测（无需拉起 Widget tree 就能验证快照语义）。
+/// timestamp 由调用方在写盘前补齐，函数里固定为 0。
+HistoryEntry snapshotHistoryEntry({
+  required String sourceId,
+  required String novelId,
+  required String novelName,
+  required String novelPic,
+  required String novelAuthor,
+  required String chapterId,
+  required String chapterTitle,
+  required double scrollOffset,
+}) {
+  return HistoryEntry(
+    book: Bookmark(
+      sourceId: sourceId,
+      comicId: novelId,
+      name: novelName,
+      pic: novelPic,
+      author: novelAuthor,
+    ),
+    chapterId: chapterId,
+    chapterTitle: chapterTitle,
+    timestamp: 0,
+    scrollOffset: scrollOffset,
+  );
+}
+
 /// 小说阅读器：渲染章节正文（段落列表），支持上下章导航与阅读进度记录。
 class NovelReaderPage extends StatefulWidget {
   final String sourceId;
@@ -291,28 +319,34 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     }
   }
 
+  /// 用 [snapshotHistoryEntry]（文件顶部纯函数）构造 HistoryEntry 并写盘。
+  /// 快照在 Timer 建立时刻抓取（立即读 `_curChapterId` 与 `_listController.offset`），
+  /// 500ms 防抖回调只写快照，不再读 live 状态——
+  /// 若期间 `_go` 已 `jumpTo(0)` 清偏移或切到新章，旧章续读位置依然保留。
   void _recordHistory(String chapterTitle) {
-    // 快照当前章节与偏移：防抖期间若已切章（_go 先落盘再跳顶），
-    // 定时器触发时按快照写入，避免记成新章且偏移为 0。
     final chapterId = _curChapterId;
     final scrollOffset = (_listController?.hasClients ?? false)
         ? _listController!.offset.toDouble()
         : 0.0;
     _recordHistoryDebounce?.cancel();
     _recordHistoryDebounce = Timer(const Duration(milliseconds: 500), () {
-      LocalStore.recordHistory(HistoryEntry(
-        book: Bookmark(
-          sourceId: widget.sourceId,
-          comicId: widget.novelId,
-          name: widget.novelName,
-          pic: widget.novelPic,
-          author: widget.novelAuthor,
-        ),
+      final entry = snapshotHistoryEntry(
+        sourceId: widget.sourceId,
+        novelId: widget.novelId,
+        novelName: widget.novelName,
+        novelPic: widget.novelPic,
+        novelAuthor: widget.novelAuthor,
         chapterId: chapterId,
         chapterTitle: chapterTitle,
-        timestamp: DateTime.now().millisecondsSinceEpoch,
-        // 记录精确滚动偏移（像素）：重新打开本章时恢复到上次位置续读。
         scrollOffset: scrollOffset,
+      );
+      // 时间戳在写盘时确定，快照里留的 0 会被覆盖。
+      LocalStore.recordHistory(HistoryEntry(
+        book: entry.book,
+        chapterId: entry.chapterId,
+        chapterTitle: entry.chapterTitle,
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+        scrollOffset: entry.scrollOffset,
       ));
     });
   }
@@ -322,7 +356,10 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     if (chapterId == _curChapterId) return; // 同章重复点击（含快速连点）
     if (_loading) return; // 切章加载中忽略重复点击，防并发请求
     HapticFeedback.lightImpact();
-    // 换章前落盘当前章进度（防抖计时器未触发就切走的情况）。
+    // 换章前落盘当前章进度（防抖计时器未触发就切走的情况）：
+    // `_recordHistory` 会立即抓 (章号 + 偏移) 快照，500ms 防抖回调只写快照，
+    // 不再读 live 状态——即使下面 jumpTo(0) 把 offset 清 0、新章异步加载
+    // 覆盖 _curChapterId，旧章续读位置也不会被冲掉。
     if (_content != null) _recordHistory(_content!.title);
     // 同步置 loading：让 jumpTo(0) 触发的滚动监听跳过落盘，
     // 避免把旧章位置覆盖成偏移 0（_load 里 setState 幂等）。

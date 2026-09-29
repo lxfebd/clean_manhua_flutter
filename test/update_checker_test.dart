@@ -22,8 +22,10 @@ void main() {
       expect(UpdateChecker.compareVersions('1.0.2', '1.0.3'), lessThan(0));
     });
 
-    test('忽略 build number (+n)', () {
-      expect(UpdateChecker.compareVersions('1.0.0+5', '1.0.0+1'), 0);
+    test('比较 build number (+n)——同版本不同 build 视为不同', () {
+      // CI 多轮打包场景：1.0.0+5 视为比 1.0.0+1 更新（提示升级）
+      expect(UpdateChecker.compareVersions('1.0.0+5', '1.0.0+1'), greaterThan(0));
+      expect(UpdateChecker.compareVersions('1.0.0+1', '1.0.0+5'), lessThan(0));
     });
 
     test('非数字兜底为 0', () {

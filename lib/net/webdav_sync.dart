@@ -81,6 +81,23 @@ class WebDavSync {
     return Uri.parse('$u$d$fileName');
   }
 
+  /// 远端目录 URL（末尾必带 '/'）。供 probe 判定「目录是否可达」使用，
+  /// 与 [_fileUri] 走同一套目录归一化逻辑，但拼接的是目录本身而非目录 + 文件名。
+  static Uri get _dirUri {
+    final dir = _dir;
+    var u = _config!.url.trim();
+    if (!u.endsWith('/')) u += '/';
+    var d = dir.trim();
+    while (d.startsWith('/')) {
+      d = d.substring(1);
+    }
+    while (d.endsWith('/')) {
+      d = d.substring(0, d.length - 1);
+    }
+    if (d.isNotEmpty) d += '/';
+    return Uri.parse('$u$d');
+  }
+
   /// 测试专用：清空内存配置与磁盘标记缓存，重置为未配置状态。
   @visibleForTesting
   static void resetForTest() {
@@ -241,9 +258,15 @@ class WebDavSync {
 
   /// PROPFIND 远端文件信息。返回 (lastModified, size)；不存在（404）返回 null。
   static Future<({DateTime mtime, int size})?> _propfind() async {
+    return _propfindUri(_fileUri);
+  }
+
+  /// PROPFIND 指定路径（默认目标文件）。404 → null；其他 4xx/5xx → 抛
+  /// [WebDavException]。probe 用来对目录再发一次 PROPFIND 判定「目录是否存在」。
+  static Future<({DateTime mtime, int size})?> _propfindUri(Uri uri) async {
     final client = _client();
     try {
-      final res = await _send(client, 'PROPFIND', _fileUri,
+      final res = await _send(client, 'PROPFIND', uri,
           headers: {
             ..._authHeaders(),
             'Depth': '0',
@@ -317,9 +340,19 @@ class WebDavSync {
     }
   }
 
-  /// 连通性探测：用给定凭据对远端目录发一次 PROPFIND（Depth 0）。
-  /// 不修改 _config，供「保存前校验」与设置页连通性测试复用：
-  /// 校验 URL 可达 + 账号密码有效（401/403 会带响应体，原样抛给 UI 展示）。
+  /// 连通性探测：用给定凭据校验「URL 可达 + 账号密码有效 + 目录可达」。
+  /// 不修改 _config，供「保存前校验」与设置页连通性测试复用。
+  ///
+  /// 语义（首次接入场景友好）：
+  /// - 对用户填的目录（空 = 服务器根）发一次 PROPFIND；
+  ///   2xx + body 含 lastModified → 目录可达；
+  ///   404 / 空 body → 目录不可达，抛「保存目录不可达」异常提示换目录；
+  ///   401/403 → 账号/密码无效，_send 原样抛给 UI；
+  /// - 目标文件是否存在**不再**作为探测判定（旧实现把文件 404 视为失败，
+  ///   导致用户首次接入——远端还没有同步文件——永远卡在"连接失败"、
+  ///   保存配置永不执行，即本次修复的 P0 缺陷）；
+  /// - 目录可达但目标文件不存在时，实际上传由 _ensureDir 自动 MKCOL；
+  /// - 网络/超时/URL 不可达等 → 由 _send 抛出的底层异常向上传播。
   static Future<void> probe({
     required String url,
     required String username,
@@ -328,7 +361,7 @@ class WebDavSync {
   }) async {
     final base = url.trim();
     if (base.isEmpty) throw Exception('服务器地址不能为空');
-    // 探针请求与真实同步走同一套 URL 拼接：目录 + 目标文件名。
+    // 探针请求与真实同步走同一套 URL 拼接（目录 + 目标文件名）。
     final saved = _config;
     try {
       _config = (
@@ -338,8 +371,18 @@ class WebDavSync {
         dir: dir.trim(),
         encrypt: saved?.encrypt ?? true,
       );
-      final res = await _propfind();
-      if (res == null) throw Exception('远端目录下还没有同步文件（可先保存后上传）');
+      // 目录 PROPFIND：凭据 + URL + 目录存在性判定，最关键的一步。
+      // 目录 = 服务器根（用户未填 dir）时，PROPFIND base URL 本身——
+      // 服务器只要可访问就返回 2xx（多数服务器返回 207），凭据无效则 401/403
+      // 由 _send 原样抛出。目标文件是否存在对首次接入无关：不存在时
+      // _ensureDir 上传阶段会自动 MKCOL。
+      final dirInfo = await _propfindUri(_dirUri);
+      if (dirInfo == null) {
+        throw Exception(
+            '远端保存目录不可达（目录不存在或无权限），请检查服务器地址与保存目录');
+      }
+      // 目录可达 → 凭据 + URL + 目录均 OK，probe 成功。
+      return;
     } finally {
       _config = saved;
     }

@@ -108,7 +108,10 @@ void main() {
   });
 
   /// 与远端 index.json 的 demo.dsl.biquge 条目保持同步的 JSON 定义。
-  CustomSourceDef def() => CustomSourceDef.fromJson({
+  ///
+  /// [publicBase] 为 true 时 baseUrl 用公网占位地址（仅校验用），
+  /// 抓取测试仍走本机回环 [$base]。
+  CustomSourceDef def({bool publicBase = false}) => CustomSourceDef.fromJson({
         'id': 'demo.dsl.biquge',
         'name': '笔趣阁 演示源（通用结构）',
         'type': 'novel',
@@ -117,7 +120,7 @@ void main() {
         'description':
             '源市场演示源：笔趣阁系通用结构（搜索表 + 章节目录 + 正文段落），'
             '验证源市场一键安装全链路与 novel 型 DSL 解析。',
-        'baseUrl': base,
+        'baseUrl': publicBase ? 'https://example.com' : base,
         'headers': const {
           'User-Agent':
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -153,7 +156,7 @@ void main() {
       });
 
   test('def.validate() 通过', () {
-    expect(def().validate(), isEmpty);
+    expect(def(publicBase: true).validate(), isEmpty);
   });
 
   test('search 解析书名与 id', () async {

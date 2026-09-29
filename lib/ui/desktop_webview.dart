@@ -8,6 +8,8 @@ import 'package:flutter/material.dart' show Colors, Widget;
 import 'package:path_provider/path_provider.dart';
 import 'package:webview_windows/webview_windows.dart' as ww;
 
+import '../net/error_logger.dart';
+
 /// 当前平台是否有可用的内嵌 WebView 实现。
 /// * Android/iOS/macOS：webview_flutter（官方实现）
 /// * Windows：WebView2（webview_windows）。webview_flutter 没有 Windows
@@ -44,15 +46,20 @@ class DesktopWebview {
 
   static Future<void> _ensureEnvironment() async {
     if (_envInited) return;
-    _envInited = true;
     try {
       final dir = await getApplicationSupportDirectory();
       await ww.WebviewController.initializeEnvironment(
         userDataPath: '${dir.path}${Platform.pathSeparator}webview2_data',
         additionalArguments: '--autoplay-policy=no-user-gesture-required',
       );
-    } catch (_) {
+      // 只有真正成功才置位缓存，避免首次失败后永久锁死整个会话。
+      _envInited = true;
+    } catch (e) {
       // 环境已初始化或参数不被接受：忽略，使用默认环境继续。
+      // 失败不置位 _envInited：下次 initialize() 再重试，且不静默吞掉，
+      // 记录日志便于排查（历史上静默失败会导致整会话拿不到 WebView2）。
+      ErrorLogger.instance
+          .warn('WebView2 env init failed (will retry): $e');
     }
   }
 

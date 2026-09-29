@@ -103,7 +103,9 @@ class MangaDexSource extends ComicSource {
       final chData = (chRoot['data'] as List? ?? []);
       for (final c in chData) {
         final a = c['attributes'] as Map<String, dynamic>;
-        final num = (a['chapter'] as String?) ?? '';
+        // feed 的 attributes.chapter 可能是 int / String / null：
+        // 直接 as String? 会在拿到 int 时抛 TypeError 崩掉整个详情解析。
+        final num = a['chapter']?.toString() ?? '';
         final title = (a['title'] as String?) ?? '';
         final lang = (a['translatedLanguage'] as String?) ?? '';
         final label = num.isNotEmpty

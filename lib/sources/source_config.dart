@@ -82,6 +82,18 @@ class SourceConfigStore {
   static String? remoteUrl;
 
   static List<SourceConfig>? _cache;
+  /// 缓存写入时间戳（用于 TTL 失效）：超过 [kCacheTtl] 强制重新读盘，
+  /// 保证远端/其它进程对 sources_config.json 的修改能生效（P1-7 修复）。
+  static DateTime? _cacheAt;
+  /// 默认 TTL：5 分钟。远程配置或外部工具改动 sources_config.json 后
+  /// 5 分钟内会被重新读到；save 时会顺带刷新 _cacheAt 避免无谓读盘。
+  static const Duration kCacheTtl = Duration(minutes: 5);
+
+  /// 可注入的「现在」时钟：测试里塞一个手动时间即可验证 TTL 逻辑。
+  static DateTime Function() _now = DateTime.now;
+
+  /// 仅测试用：注入自定义时钟。传 null 恢复默认。
+  static void testSetClock(DateTime Function()? fn) => _now = fn ?? DateTime.now;
 
   /// 内置默认配置（随 App 发布，保证开箱即用）。
   ///
@@ -178,23 +190,32 @@ class SourceConfigStore {
         ),
       ];
 
-  /// 合并后的全部配置（带缓存）。
+  /// 合并后的全部配置（带 TTL 缓存）。缓存超过 [kCacheTtl] 强制重新读盘，
+  /// 避免远端/其它进程改动 sources_config.json 后长期不生效（P1-7 修复）。
   static Future<List<SourceConfig>> all() async {
-    if (_cache != null) return _cache!;
+    final cached = _cache;
+    final at = _cacheAt;
+    if (cached != null && at != null) {
+      final elapsed = _now().difference(at);
+      if (elapsed < kCacheTtl) return cached;
+    }
     final raw = await _load();
     final defs = defaults();
+    final List<SourceConfig> merged;
     if (raw == null || raw.isEmpty) {
-      _cache = defs;
-      return _cache!;
+      merged = defs;
+    } else {
+      final saved = raw.map((m) => SourceConfig.fromJson(m)).toList();
+      final Map<String, SourceConfig> map = {
+        for (final d in defs) d.engineId: d,
+      };
+      for (final s in saved) {
+        if (map.containsKey(s.engineId)) map[s.engineId] = s;
+      }
+      merged = map.values.toList();
     }
-    final saved = raw.map((m) => SourceConfig.fromJson(m)).toList();
-    final Map<String, SourceConfig> map = {
-      for (final d in defs) d.engineId: d,
-    };
-    for (final s in saved) {
-      if (map.containsKey(s.engineId)) map[s.engineId] = s;
-    }
-    _cache = map.values.toList();
+    _cache = merged;
+    _cacheAt = _now();
     return _cache!;
   }
 
@@ -242,6 +263,7 @@ class SourceConfigStore {
       list.add(cfg);
     }
     _cache = list;
+    _cacheAt = _now();
     await LocalStore.writeJson(
       _file,
       list.map((c) => c.toJson()).toList(),
@@ -249,11 +271,15 @@ class SourceConfigStore {
   }
 
   /// 失效缓存（如远程配置更新后调用）。
-  static void invalidateCache() => _cache = null;
+  static void invalidateCache() {
+    _cache = null;
+    _cacheAt = null;
+  }
 
   /// 恢复内置默认配置（清空用户覆盖）。
   static Future<void> resetToDefaults() async {
     _cache = defaults();
+    _cacheAt = _now();
     await LocalStore.writeJson(_file, const <Object>[]);
   }
 

@@ -64,6 +64,10 @@ class SourceMarket {
 
   /// 拉取并解析源市场索引。网络失败先尝试缓存；
   /// 缓存也没有则抛异常（调用方给错误 UI）。
+  ///
+  /// 安全时序（P1 修复）：**先解析再写缓存**。旧实现先落盘再解析，一旦解析
+  /// 失败会留下坏缓存——下次离线时同样解析失败，把好版本挤掉。现在网络拉
+  /// 到后立即在内存里跑 [_parse]，只有解析成功才写缓存。
   static Future<List<MarketSourceEntry>> fetchIndex() async {
     try {
       // raw 限速时整体可能很慢（实测 8-10s），放宽到 30s；镜像回退按序尝试。
@@ -72,9 +76,10 @@ class SourceMarket {
         timeout: const Duration(seconds: 30),
       );
       final text = utf8.decode(bytes);
-      // 网络成功先落缓存（下次离线也能浏览市场）
+      // 先解析、解析成功才落盘；避免坏索引覆盖已有好缓存
+      final parsed = _parse(text);
       await _cache(text);
-      return _parse(text);
+      return parsed;
     } catch (e) {
       final cached = await _readCache();
       if (cached != null) return _parse(cached);

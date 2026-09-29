@@ -114,6 +114,62 @@ class CapabilityArtifactStore {
     return (raw != null && isValidFileName(raw)) ? raw : '$id.artifact';
   }
 
+  /// 按当前平台从 per-ABI SHA256 map 中选出期望值。
+  ///
+  /// 远端索引若把 `arm64-v8a` 排在首位、`windows-x64` 排在后位，直接取
+  /// `values.first` 会在 Windows 上拿到 arm 的 hash，本地 DLL 校验必失败。
+  /// 这里按当前 [Platform] 优先匹配已知 ABI key，找不到（或 key 集为空）再
+  /// 退回首值——保留「索引只提供一个通用 hash」的兼容路径。
+  ///
+  /// key 命名约定：与 [CapabilityRuntime._currentAbi] 同源但更细：桌面按
+  /// `-x64` 后缀（`windows-x64` / `macos-x64` / `linux-x64`），Android 走
+  /// NDK ABI 名（`arm64-v8a` / `armeabi-v7a` / `x86_64` / `x86`）。索引里
+  /// 若仅写平台名（如 `windows` / `macos` / `linux` / `android`）也一并匹配。
+  ///
+  /// [platformKeyOverride] 仅测试用：VM 的 [Platform] 常量无法在 flutter_test
+  /// 里改成 macOS/Android，单测要覆盖「arm 在前 win 在后」这类跨平台取 key
+  /// 场景时通过它显式指定平台键。
+  static String? expectedSha256ForCurrentPlatform(
+    Map<String, String> sha256, {
+    String? platformKeyOverride,
+  }) {
+    if (sha256.isEmpty) return null;
+    final platformKey = platformKeyOverride ?? _currentPlatformKey();
+    // 优先精确 ABI key；未声明再退平台名；再退首值（单一 hash 兼容）。
+    return sha256[_abiKeyForPlatform(platformKey)] ??
+        sha256[platformKey] ??
+        sha256.values.first;
+  }
+
+  /// 平台键：与 [CapabilityRuntime._currentAbi] 语义一致（`windows` /
+  /// `macos` / `linux` / `android` / `web`）。
+  static String _currentPlatformKey() {
+    if (kIsWeb) return 'web';
+    if (Platform.isAndroid) return 'android';
+    if (Platform.isWindows) return 'windows';
+    if (Platform.isMacOS) return 'macos';
+    if (Platform.isLinux) return 'linux';
+    return 'unknown';
+  }
+
+  /// 平台键 → 优先 ABI key（索引里通常把桌面写成 `<platform>-x64`）。
+  static String _abiKeyForPlatform(String platformKey) {
+    switch (platformKey) {
+      case 'windows':
+        return 'windows-x64';
+      case 'macos':
+        return 'macos-x64';
+      case 'linux':
+        return 'linux-x64';
+      case 'android':
+        // Android 默认 arm64（新设备主流）；老设备 armeabi-v7a / x86_64 由
+        // 索引里同名键覆盖，或走平台键兜底。
+        return 'arm64-v8a';
+      default:
+        return platformKey; // web/unknown：不做架构细化
+    }
+  }
+
   /// [f] 是否确实落在 [dir] 之内（兜底校验：白名单是第一道闸，这里防未来
   /// 改动把带 `..` 的字符串再拼进来）。按段解析 `.`/`..` 后逐段比较——
   /// `File.absolute` 不解析 `..`，直接前缀比较会把 `base/../x` 误判成在 base 内。
@@ -164,9 +220,9 @@ class CapabilityArtifactStore {
     }
 
     // 已存在且 SHA256 匹配 → 直接复用（幂等，避免重复下载）。
-    final expected = artifact.sha256.values.isNotEmpty
-        ? artifact.sha256.values.first
-        : null;
+    // 按当前平台选期望 hash：远端索引可能按 arm 在前 / win 在后排列，
+    // 直接取 values.first 会在桌面机误取手机 ABI 的 hash 导致校验必失败。
+    final expected = expectedSha256ForCurrentPlatform(artifact.sha256);
     if (await target.exists()) {
       final cur = await sha256Of(target);
       if (expected == null || cur == expected) {

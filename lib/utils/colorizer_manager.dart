@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:ffi';
 import 'dart:isolate';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -10,6 +12,40 @@ import 'colorizer.dart';
 import 'colorizer_backend.dart';
 import '../net/error_logger.dart';
 import '../net/local_store.dart';
+
+/// Windows `MEMORYSTATUSEX` 结构（`GlobalMemoryStatusEx` 的输入/输出）。
+///
+/// 字段与 SDK `_MEMORYSTATUSEX` 一致：前 4B 是 `dwLength`（必须填 sizeof=64），
+/// 之后 4B `dwMemoryLoad`，再 8 个 `ULONGLONG` 字段。Dart 端按对齐规则
+/// （Int64=8B / Uint32=4B）自然落在 SDK 声明的偏移上，无需手动 offset。
+final class MemoryStatusEx extends Struct {
+  @Uint32()
+  external int dwLength;
+
+  @Uint32()
+  external int dwMemoryLoad;
+
+  @Uint64()
+  external int ullTotalPhys;
+
+  @Uint64()
+  external int ullAvailPhys;
+
+  @Uint64()
+  external int ullTotalPageFile;
+
+  @Uint64()
+  external int ullAvailPageFile;
+
+  @Uint64()
+  external int ullTotalVirtual;
+
+  @Uint64()
+  external int ullAvailVirtual;
+
+  @Uint64()
+  external int ullAvailExtendedVirtual;
+}
 
 /// 漫画上色管理：负责模型文件的检测/加载/卸载、互斥锁保护、超时降级。
 ///
@@ -126,6 +162,23 @@ class ColorizerManager {
     _available = false;
     _modelPath = null;
     _enableChecked = false;
+  }
+
+  /// 卸载 AI 上色能力时联动调用：删除 `colorizer/model.tflite`（[importModel]
+  /// 复制过去的过渡期目标文件）并释放后端，语义 = `uninstall` 干净收尾。
+  ///
+  /// 幂等：文件不存在静默返回；后端为 null 跳过 dispose。避免「卸载能力但
+  /// 225MB 模型仍躺在磁盘、`isAvailable` 仍为 true」的孤儿残留（能力插件
+  /// manager 卸载 → 本方法清理 colorizer 私有目录）。
+  Future<void> deleteModelFile() async {
+    try {
+      final dir = await getApplicationSupportDirectory();
+      final f = File('${dir.path}/$_modelDir/$_modelFile');
+      if (await f.exists()) await f.delete();
+    } catch (e) {
+      ErrorLogger.instance.warn('Colorizer 模型文件删除失败: $e');
+    }
+    await unload();
   }
 
   /// 对单张图执行上色：入参为解码后的 RGB 像素（长度 w*h*3，无 alpha）。
@@ -379,7 +432,9 @@ class ColorizerManager {
   }
 
   static Future<int?> _totalRamBytes() async {
-    // io 平台：读取 /proc/meminfo（Android/Linux）或 sysctl（macOS/Windows）。
+    // io 平台：读取 /proc/meminfo（Android/Linux）、sysctl（macOS）或
+    // GlobalMemoryStatusEx（Windows）。缺 Windows 分支会让 [isLowEndDevice]
+    // 恒 false，低配 Windows 机仍显示上色入口（4GB 以下机跑 215MB 模型必爆）。
     if (kIsWeb) return null;
     try {
       if (Platform.isAndroid || Platform.isLinux) {
@@ -398,8 +453,52 @@ class ColorizerManager {
         if (r.exitCode == 0) {
           return int.tryParse(r.stdout.toString().trim().split(' ').last);
         }
+      } else if (Platform.isWindows) {
+        return _totalRamBytesWindows();
       }
     } catch (_) {}
+    return null;
+  }
+
+  /// Windows 物理内存总量（bytes）：FFI 调 `kernel32.dll` 的
+  /// `GlobalMemoryStatusEx`，读 `MEMORYSTATUSEX.ullTotalPhys`。
+  ///
+  /// 结构对齐（Windows SDK `_MEMORYSTATUSEX`）：
+  /// - DWORD dwLength（4B，偏移 0）
+  /// - DWORD dwMemoryLoad（4B，偏移 4）
+  /// - ULONGLONG ullTotalPhys（8B，偏移 8）
+  /// - ULONGLONG ullAvailPhys（8B，偏移 16）
+  /// - ULONGLONG ullTotalPageFile（8B，偏移 24）
+  /// - ULONGLONG ullAvailPageFile（8B，偏移 32）
+  /// - ULONGLONG ullTotalVirtual（8B，偏移 40）
+  /// - ULONGLONG ullAvailVirtual（8B，偏移 48）
+  /// - ULONGLONG ullAvailExtendedVirtual（8B，偏移 56）
+  /// 总 64B；字段偏移与大小均对齐到 8 字节边界（Dart 端 `Int64` / `Uint32`
+  /// 默认对齐即满足）。`dwLength` 必须填 sizeof(struct)=64，否则 API 返 FALSE。
+  ///
+  /// 任一 FFI 步骤失败（library 找不到 / symbol 缺失 / 返回 false）→ 返回 null，
+  /// 上层 [isLowEndDevice] 按「未知」处理（隐藏入口而非误判为高配）。
+  static int? _totalRamBytesWindows() {
+    try {
+      final kernel32 = DynamicLibrary.open('kernel32.dll');
+      // GlobalMemoryStatusEx(MEMORYSTATUSEX*)：参数是结构体指针，
+      // lookupFunction 的 Dart 侧签名用 Pointer<MemoryStatusEx>。
+      final int Function(Pointer<MemoryStatusEx>)? globalMemoryStatusEx =
+          kernel32.lookupFunction<
+              Int8 Function(Pointer<MemoryStatusEx>),
+              int Function(Pointer<MemoryStatusEx>)>('GlobalMemoryStatusEx');
+      final buffer = calloc<MemoryStatusEx>();
+      try {
+        buffer.ref.dwLength = sizeOf<MemoryStatusEx>();
+        final ok = globalMemoryStatusEx!(buffer) != 0;
+        if (ok) return buffer.ref.ullTotalPhys;
+      } finally {
+        calloc.free(buffer);
+      }
+    } catch (_) {
+      // FFI 失败（如 CI 环境缺少 dll / 模拟器）：静默降级为 null，
+      // 与「未知」语义一致，不影响其他平台分支。
+    }
     return null;
   }
 }

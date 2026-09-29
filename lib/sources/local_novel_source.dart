@@ -296,14 +296,63 @@ String _joinLines(List<String> lines, int from, int to) {
   return buf.toString();
 }
 
-/// 编码识别：UTF-8 严格解码；失败回落 latin1（GBK 等中文至少可导入，
-/// 章节标题中文正则仍可用；真正 GBK 转码后续可引入 charset 包增强）。
+/// 编码识别：显式 BOM 优先 → UTF-8 严格解码 → latin1 兜底。
+///
+/// - UTF-8 BOM (EF BB BF) / UTF-16 LE (FF FE) / UTF-16 BE (FE FF)：自带魔数，
+///   直接按对应 codec 解码，去 BOM 前缀。
+/// - UTF-8 严格解码：allowMalformed: false 让非法字节立刻抛异常，
+///   避免把 GBK 高位字节静默替换成 U+FFFD 再走 latin1 造成"导入成功但乱码"。
+/// - latin1 兜底：GBK 是 2 字节/汉字，latin1 会把高位字节映射成 \u00XX，
+///   检测到此特征时用 ErrorLogger.warn 打日志，提示后续需要 GBK codec 依赖
+///   （P2 事项，本次不做）。
 String _decodeText(Uint8List bytes) {
+  // 1. 显式 BOM 魔数（自带编码信息，零成本）
+  if (bytes.length >= 3 &&
+      bytes[0] == 0xEF &&
+      bytes[1] == 0xBB &&
+      bytes[2] == 0xBF) {
+    // UTF-8 BOM：跳过 BOM 再按 UTF-8 严格解码
+    return utf8.decode(bytes.sublist(3), allowMalformed: false);
+  }
+  if (bytes.length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE) {
+    // UTF-16 LE BOM：手动按低位在前拼 charCode（dart:convert 无 UTF-16 codec）
+    return _decodeUtf16(bytes.sublist(2), littleEndian: true);
+  }
+  if (bytes.length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF) {
+    // UTF-16 BE BOM：手动按高位在前拼 charCode
+    return _decodeUtf16(bytes.sublist(2), littleEndian: false);
+  }
+  // 2. UTF-8 严格解码优先
   try {
     return utf8.decode(bytes, allowMalformed: false);
   } catch (_) {
-    return latin1.decode(bytes);
+    // 3. latin1 兜底（GBK 等）
+    final text = latin1.decode(bytes);
+    // 检测 GBK 高位字节特征：latin1 把 GBK 的 0x80-0xFF 字节映射成 \u0080-\u00FF，
+    // 出现次数 > 总字符数 20% 就认定是"疑似 GBK 兜底"，记日志便于用户/后续排查。
+    var hi = 0;
+    for (var i = 0; i < text.length; i++) {
+      if (text.codeUnitAt(i) >= 0x80 && text.codeUnitAt(i) <= 0xFF) hi++;
+    }
+    if (hi > text.length * 0.2) {
+      ErrorLogger.instance.warn(
+          'local_novel: TXT 疑似 GBK 编码，已按 latin1 兜底解码（可能乱码，'
+          '完整 GBK 支持需引入 GBK codec 依赖，P2）');
+    }
+    return text;
   }
+}
+
+/// 手动 UTF-16 解码（dart:convert 无 UTF-16 codec，Surrogate 对正确合并）。
+/// [bytes] 已剥掉 BOM；[littleEndian] 为 true 时低位在前。
+String _decodeUtf16(Uint8List bytes, {required bool littleEndian}) {
+  final codeUnits = <int>[];
+  for (var i = 0; i + 1 < bytes.length; i += 2) {
+    final hi = bytes[i];
+    final lo = bytes[i + 1];
+    codeUnits.add(littleEndian ? (lo << 8) | hi : (hi << 8) | lo);
+  }
+  return String.fromCharCodes(codeUnits);
 }
 
 // ═══════════════════ EPUB 解析 ═══════════════════

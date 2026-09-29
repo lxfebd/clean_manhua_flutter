@@ -142,6 +142,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   /// 桌面 WebView2 初始化失败（缺运行时等）：显示系统浏览器降级页。
   bool _desktopInitFailed = false;
 
+  /// WebView2 失败态「重试」是否进行中：防止连点造成多次并发初始化。
+  bool _desktopRetry = false;
+
   /// 统一 JS 执行：自动路由到 webview_flutter 或 WebView2。
   Future<String?> _evalJs(String js) async {
     final d = _desktop;
@@ -287,6 +290,63 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
         _webviewInit = false;
         _desktopInitFailed = true;
       });
+    }
+  }
+
+  /// 降级页「重试内嵌播放」：WebView2 初始化失败后重跑一遍初始化。
+  ///
+  /// 此前失败态一旦置位就永久锁死（只能退出重进）。这里覆盖两个出口：
+  /// _desktopInitFailed=true（已建过实例，先清理再新建），以及 _desktop==null
+  /// 的极端情况（DesktopWebview() 构造即抛异常）。_desktopRetry 防连点。
+  /// 运行时仍未装时重试同样失败、回到本降级页（按钮重新可用，不再锁死）；
+  /// 已装运行时（首次因环境初始化抖动失败）则可当场恢复内嵌播放。
+  Future<void> _retryDesktopInit() async {
+    if (_desktopRetry || !mounted) return;
+    // Linux 等平台本就没有内嵌 WebView 实现，重试无意义，保持降级页。
+    if (_desktop == null && !isWindowsWebView2) return;
+    _desktopRetry = true;
+    // 清理上一轮失败的实例与事件订阅：避免旧 controller 残留句柄，
+    // 也保证新一轮 loadErrors/loadingState 不被旧流串扰。_desktop 同时置空，
+    // 让 build 的「_desktop != null 才渲染 WebView」守卫挡住重试期间的视图树。
+    // _desktopInitFailed 保持 true 直到重试成功：降级页文案与重试按钮
+    // 据此显示，重试期间按钮置灰而不是消失。
+    for (final s in _desktopSubs) {
+      s.cancel();
+    }
+    _desktopSubs.clear();
+    final old = _desktop;
+    _desktop = null;
+    _resolveTimer?.cancel();
+    setState(() {
+      _webError = null;
+      _loading = true;
+      _resolving = true;
+    });
+    try {
+      await _initDesktopWebview();
+      // 重试成功：_initDesktopWebview 内部已置 _webviewInit=true，
+      // 这里复位失败标记（build 在 _webviewInit 为真时走 WebView 分支）。
+      if (!mounted) return;
+      setState(() => _desktopInitFailed = false);
+    } catch (e) {
+      // 覆盖 DesktopWebview() 构造即抛异常的极端情况（该异常在
+      // _initDesktopWebview 的 try 之外，不会被它接住）。
+      ErrorLogger.instance.warn('WebView2 init failed: $e');
+      if (!mounted) return;
+      setState(() {
+        _desktopInitFailed = true;
+        _webError =
+            '网页播放器初始化失败\n$e\n请检查系统是否安装了 WebView2 运行时';
+        _webviewInit = false;
+        _loading = false;
+        _resolving = false;
+      });
+    } finally {
+      _desktopRetry = false;
+      // 旧实例在 initialize 失败时 _ready 仍为 false，dispose 内部自行短路。
+      try {
+        await old?.dispose();
+      } catch (_) {}
     }
   }
 
@@ -505,7 +565,10 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                    low.indexOf('adnxs') >= 0 ||
                    low.indexOf('applovin') >= 0 ||
                    low.indexOf('unityads') >= 0 ||
-                   low.indexOf('adcolony') >= 0;
+                   low.indexOf('adcolony') >= 0 ||
+                   low.indexOf('pstatp.com') >= 0 ||
+                   low.indexOf('topbuzzcdn.com') >= 0 ||
+                   low.indexOf('capcut.com') >= 0;
           } catch(e){ return false; }
         };
         var hookWin = function(w){
@@ -585,7 +648,10 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                  low.indexOf('adnxs') >= 0 ||
                  low.indexOf('applovin') >= 0 ||
                  low.indexOf('unityads') >= 0 ||
-                 low.indexOf('adcolony') >= 0;
+                 low.indexOf('adcolony') >= 0 ||
+                 low.indexOf('pstatp.com') >= 0 ||
+                 low.indexOf('topbuzzcdn.com') >= 0 ||
+                 low.indexOf('capcut.com') >= 0;
         } catch(e){ return false; }
       };
       var _hooked = window._resolvedVideoUrl || '';
@@ -970,7 +1036,10 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                  low.indexOf('adnxs') >= 0 ||
                  low.indexOf('applovin') >= 0 ||
                  low.indexOf('unityads') >= 0 ||
-                 low.indexOf('adcolony') >= 0;
+                 low.indexOf('adcolony') >= 0 ||
+                 low.indexOf('pstatp.com') >= 0 ||
+                 low.indexOf('topbuzzcdn.com') >= 0 ||
+                 low.indexOf('capcut.com') >= 0;
         } catch(e){ return false; }
       };
 
@@ -1910,6 +1979,25 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                       const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
                 ),
               ),
+              if (_desktopInitFailed) ...[
+                const SizedBox(height: 12),
+                // 重试内嵌播放：初始化失败不再永久锁死本页，
+                // 用户可在装好 WebView2 运行时后当场重试，无需退出重进。
+                OutlinedButton.icon(
+                  onPressed: _desktopRetry ? null : _retryDesktopInit,
+                  icon: _desktopRetry
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.refresh, size: 18),
+                  label: Text(_desktopRetry ? '正在重试…' : '重试内嵌播放'),
+                  style: OutlinedButton.styleFrom(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                  ),
+                ),
+              ],
               if (widget.episodes.length > 1) ...[
                 const SizedBox(height: 28),
                 Align(

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
 import 'bookshelf_store.dart';
+import 'error_logger.dart';
 import 'local_store.dart';
 import 'update_notifier.dart';
 
@@ -116,10 +117,17 @@ class ShelfUpdater {
     Future<void> checkOne(ComicDetail d) async {
       final sid = d.sourceId ?? BookshelfStore.sourceIdOf(d.id);
       if (sid == null) return;
+      // byId 会兜底回 current，因此这里除了判空，还要校验返回源是否真的匹配
+      // 请求的 sid——不匹配视为未找到（小说 sid 混入漫画书架等异常场景），
+      // 直接跳过，避免对错误源调 detail 后误报"无更新"或抛空指针被静默吞掉。
+      final src = SourceManager.byId(sid);
+      if (src == null || src.id != sid) {
+        ErrorLogger.instance.warn(
+            'shelf_updater: sid=$sid 未找到对应漫画源，跳过更新检查');
+        return;
+      }
       try {
-        final detail = await SourceManager.byId(sid)
-            .detail(d.id)
-            .timeout(_perBookTimeout);
+        final detail = await src.detail(d.id).timeout(_perBookTimeout);
         if (!_isCancelled) {
           final cur = detail.chapters.length;
           if (cur > d.chapters.length) {

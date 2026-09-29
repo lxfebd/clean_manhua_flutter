@@ -9,6 +9,53 @@
 library;
 
 import 'css_selector.dart';
+import '../source_result.dart';
+
+/// 默认 parseHtml 输入上限（8 MB）。防第三方 DSL 源抓到超大页面让主
+/// Isolate 解析时长时间挂起（ReDoS 之外最常见的解析 DoS 面）。
+const int kDefaultMaxHtmlBytes = 8 * 1024 * 1024;
+
+/// 安全构造 RegExp：pattern 非法（如 `[`）时抛 [SourceError.parse] 而非
+/// 逃逸的 FormatException。DSL 里的正则字段是远端可控的，任何一处
+/// `RegExp(xxx)` 都可能踩到用户粘贴的坏 pattern。
+RegExp safeRegExp(String pattern, {bool dotAll = false}) {
+  try {
+    return dotAll ? RegExp(pattern, dotAll: true) : RegExp(pattern);
+  } on FormatException catch (e) {
+    throw SourceError.parse('非法正则：${e.message}');
+  }
+}
+
+/// 校验 m3u8 重写的**替换值**是否安全。返回中文拒绝理由（null = 合法）。
+///
+/// 规则（值可以是主机名字符串如 "play.modujx16.com"，不必是完整 URL）：
+/// 1. 若值里出现 `scheme://` 或 `scheme:` 形式，仅允许 http/https；
+///    其他 scheme（file/data/folder/jar/ftp/gopher/ftps/smb/nfs）拒绝。
+/// 2. 无 scheme 前缀的纯子串（主机名/端口/CORS）视为合法。
+String? unsafeRewriteTarget(String v) {
+  final t = v.trim();
+  if (t.isEmpty) return null;
+  // 黑名单 scheme：这些 scheme 无 `//`（如 data:、file: 无 // 时也危险），
+  // 即使没有 `scheme://` 结构也要拒绝。其余无 `//` 的字符串（如
+  // host.com:65）视为纯主机名/端口替换，放行。
+  const bad = ['file', 'data', 'javascript', 'vbscript', 'folder', 'ftp'];
+  final m = RegExp(r'^([a-zA-Z][a-zA-Z0-9+.-]*):', caseSensitive: false)
+      .firstMatch(t);
+  if (m != null) {
+    final scheme = m.group(1)!.toLowerCase();
+    if (bad.contains(scheme)) {
+      return '禁止 scheme $scheme（仅允许 http/https）';
+    }
+    // scheme:// 形式的非 http(s) 网络 scheme（如 gopher://、ws://）也拒绝；
+    // 无 `//` 的（host.com:65）按纯主机名放行。
+    if (t.length > m.end && t.startsWith('//', m.end)) {
+      if (scheme != 'http' && scheme != 'https') {
+        return '禁止 scheme $scheme（仅允许 http/https）';
+      }
+    }
+  }
+  return null;
+}
 
 /// HTML 节点：标签节点或文本节点。
 class HtmlNode {
@@ -100,7 +147,15 @@ class HtmlNode {
 }
 
 /// 解析 HTML 字符串为节点树。解析失败/空串返回空 root。
-HtmlNode parseHtml(String html) {
+///
+/// [maxBytes] 限制输入字符串长度（按字符计数），超过时抛
+/// [SourceError.parse]。默认 8 MB；调用方如需更紧/更松可覆盖。
+/// 第三方 DSL 源抓到的页面完全远端可控，超长输入会让解析阶段卡住主
+/// Isolate，因此这里做硬上限。
+HtmlNode parseHtml(String html, {int maxBytes = kDefaultMaxHtmlBytes}) {
+  if (html.length > maxBytes) {
+    throw SourceError.parse('页面过大（${html.length} > $maxBytes 字符），已拒绝解析');
+  }
   final root = HtmlNode('', const {});
   final stack = <HtmlNode>[];
   var pos = 0;

@@ -13,10 +13,24 @@ import '../net/error_logger.dart';
 /// 它是 per-key 串行队列 + 读-改-写保护 + 返回值语义，与这里的「全量快照防抖落盘」
 /// 是两回事；混用会让局部字段更新被整表覆盖。
 class DebouncedSerialWriter {
-  DebouncedSerialWriter({required this.debugName});
+  DebouncedSerialWriter({
+    required this.debugName,
+    this.onWriteError,
+  });
 
   /// 日志上下文（写盘失败时用于区分是哪个书架）。
   final String debugName;
+
+  /// 写盘失败回调（可选）：调度完成后 [act] 抛异常时同步调用一次，
+  /// 书架/小说 store 可据此弹出「写入失败」toast 提示，避免用户长时间
+  /// 无感后重启才发现数据未落盘。回调本身抛异常不会向外冒泡——写盘失败的
+  /// 兜底仍然是 ErrorLogger.error，UI 层不能反过来打断落盘链路。
+  ///
+  /// 语义：
+  /// - 参数 (Object e, StackTrace st) 与写盘异常一致；
+  /// - 一次写失败 = 一次调用，多次防抖合并只调一次；
+  /// - 不阻塞后续 schedule，队列继续排队。
+  final void Function(Object error, StackTrace stack)? onWriteError;
 
   /// 防抖窗口：窗口内多次 [schedule] 合并为一次写入。
   static const Duration _delay = Duration(milliseconds: 300);
@@ -29,13 +43,36 @@ class DebouncedSerialWriter {
 
   /// 防抖后执行 [act] 一次，并按调度顺序串行排队。
   ///
-  /// [act] 内抛出的写盘异常（磁盘满/权限）统一拦下记日志，不打断主流程——
+  /// [act] 内抛出的写盘异常（磁盘满/权限）统一拦下记 ErrorLogger.error
+  /// （原为 warn，静默吞掉导致进程被杀时内存改动永久丢失且无提示），并调用
+  /// [onWriteError]（若已注入）让 UI 层有选择地提示用户。不打断主流程——
   /// 否则内存已更新但磁盘没落盘，下次启动数据丢失且无法追溯。
   void schedule(Future<void> Function() act) {
     _timer?.cancel();
     _timer = Timer(_delay, () {
-      _tail = _tail.then((_) => act()).catchError((Object e) {
-        ErrorLogger.instance.warn('$debugName 写盘失败: $e');
+      _tail = _tail.then((_) async {
+        try {
+          await act();
+        } catch (e, st) {
+          // 提级为 error：写盘失败是数据丢失风险，用户应能看到；
+          // 同时保留 debugName 便于定位是哪个书架的写入失败。
+          // ErrorLogger 自身异常（磁盘满、日志目录不可写）也静默兜底，
+          // 避免「写日志本身」反过来打断后续写盘队列。
+          try {
+            ErrorLogger.instance.error(
+              '$debugName 写盘失败（内存改动可能丢失）: $e',
+              error: e,
+            );
+          } catch (_) {}
+          // 可选回调：让 store/UI 层做提示，本身抛异常时静默兜底，
+          // 避免 UI 侧的异常反过来打断后续写盘队列。
+          final cb = onWriteError;
+          if (cb != null) {
+            try {
+              cb(e, st);
+            } catch (_) {}
+          }
+        }
       });
     });
   }

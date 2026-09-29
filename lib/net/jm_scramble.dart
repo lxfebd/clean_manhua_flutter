@@ -28,11 +28,17 @@ class JmScramble {
   static const int kScrambleAid2 = 421926;
 
   /// 把图片 URL 拆成 (真实地址, scramble 标记?)。
-  /// 兼容旧格式 `url@xxx`；新算法不依赖 @ 内容，仅从 URL 解析 aid。
+  ///
+  /// 只识别禁漫图源附加的 `@jm:{aid}` 标记（jm_source 拼接的就是这个前缀），
+  /// 用 `indexOf('@jm:')` 精确匹配，而不是 `lastIndexOf('@')`——后者会把
+  /// query 里正好带 `@` 的正常 URL（如 `?ref=me%40x.com` 还原后）误截成两段。
+  /// 无该标记时原样返回，scramble 为 null。新算法不依赖 @ 内容，aid 仍由
+  /// [parseAid] 从 URL 解析。
   static ({String url, String? scramble}) splitUrl(String url) {
-    final idx = url.lastIndexOf('@');
+    const marker = '@jm:';
+    final idx = url.indexOf(marker);
     if (idx < 0) return (url: url, scramble: null);
-    return (url: url.substring(0, idx), scramble: url.substring(idx + 1));
+    return (url: url.substring(0, idx), scramble: url.substring(idx));
   }
 
   /// 常用正则（编译一次）。

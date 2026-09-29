@@ -49,25 +49,49 @@ class CustomSourceStore {
   }
 
   /// 新增/更新一份定义并同步插件注册表。
+  ///
+  /// 安全时序（P0 修复）：卸载旧 → 尝试装新 → 装新失败则回滚旧实例 →
+  /// 成功才落盘新版定义。旧实现「先落盘再 install」，一旦 install/bind
+  /// 抛异常就形成「磁盘新版、内存旧版」永久错配。现在顺序反过来：任何
+  /// 异常路径下磁盘与内存版本都一致（同为旧版或同为新版）。
   static Future<void> upsert(CustomSourceDef def) async {
-    final list = await all();
-    final idx = list.indexWhere((d) => d.id == def.id);
-    if (idx >= 0) {
-      list[idx] = def;
-    } else {
-      list.add(def);
+    final pm = SourcePluginManager.instance;
+    final oldDef = await byId(def.id);
+    final hadOld = pm.byId(def.id) != null;
+    // 已注册时先卸载旧插件，让 install 走新实例路径。
+    if (hadOld) {
+      await pm.uninstall(def.id);
     }
+    // 装新：install 内部会回滚自己（bind 失败时移出注册表），这里再兜一层
+    // ——install 抛异常时把旧实例装回去，保证内存与磁盘一致。
+    bool newOk = false;
+    try {
+      await pm.install(CustomSourcePlugin(def));
+      newOk = true;
+    } catch (e) {
+      ErrorLogger.instance.warn('CustomSourceStore.upsert(${def.id}) install failed: $e');
+    }
+    if (!newOk && oldDef != null) {
+      // 尽力回滚旧实例到内存（磁盘已经是旧版，无需重写）
+      try {
+        await pm.install(CustomSourcePlugin(oldDef));
+      } catch (e) {
+        ErrorLogger.instance.warn('CustomSourceStore.upsert(${def.id}) rollback failed: $e');
+      }
+    }
+    if (!newOk) return; // 保持磁盘旧版，不写盘
+    // install 成功——现在把新版定义写入内存/磁盘缓存。
+    // 用「先移除同 id 再追加」而不是 indexWhere：卸载旧插件后内存 list
+    // 仍可能残留旧 def（uninstall 只动注册表，不动本 store 缓存），
+    // 若只是原地替换，同 id 的重复项（旧 + 新）会造成下次 all() 拿到两份。
+    final list = await all();
+    list.removeWhere((d) => d.id == def.id);
+    list.add(def);
     _cache = list;
     await LocalStore.writeJson(
       _file,
       list.map((d) => d.toJson()).toList(),
     );
-    // 已注册则卸载旧版（保实现与定义一致），再重装
-    final pm = SourcePluginManager.instance;
-    if (pm.byId(def.id) != null) {
-      await pm.uninstall(def.id);
-    }
-    await pm.install(CustomSourcePlugin(def));
   }
 
   /// 删除一份自定义源（连同插件实现）。

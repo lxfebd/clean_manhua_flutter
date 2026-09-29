@@ -513,9 +513,13 @@ class Net {
 
   /// 真正走一次 Cronet 的完整请求（探测 + 响应），整体受 [probe] 限时。
   /// 成功返回 String 或 `List<int>`（按 [asBytes]），失败抛异常由调用方回退 dart:io。
+  ///
+  /// 资源安全：外层 `.timeout(probe)` 触发时，内部 `finally` 仍同步执行
+  /// `client.close()`（close 为同步 void，无 Future 可等待），client 一定被
+  /// 释放，不会因超时路径泄漏连接。
   static Future<Object> _attemptCronet(
       String urlStr, Map<String, String>? headers, Duration t, Duration probe,
-      {required String accept, required bool asBytes}) async {
+      {required String accept, required bool asBytes}) {
     return Future<Object>(() async {
       final client = CronetHttp.defaultCronetEngine();
       // web 上 Cronet 不可用（stub 返回 null），抛错让调用方回退 dart:io。

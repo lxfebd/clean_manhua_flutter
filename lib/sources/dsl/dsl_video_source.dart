@@ -147,7 +147,7 @@ class DslVideoSource implements VideoSource {
     // 或 chaptersRe 正则（组1=标题 组2=链接 可选组3=线路号；支持命名组）
     Map<int, String>? sourceNames;
     if (episodes.isEmpty && d.chaptersRe.isNotEmpty) {
-      final re = RegExp(d.chaptersRe);
+      final re = safeRegExp(d.chaptersRe);
       final names = <int, String>{};
       for (final m in re.allMatches(html)) {
         final href = dslGroup(m, re, 'href', 2);
@@ -187,7 +187,7 @@ class DslVideoSource implements VideoSource {
   String _epHref(HtmlNode n, DslDetailRule d) {
     var href = _attr(n, d.chapterUrl);
     if (href.isEmpty && d.chapterUrlRe.isNotEmpty) {
-      final m = RegExp(d.chapterUrlRe).firstMatch(n.innerText);
+      final m = safeRegExp(d.chapterUrlRe).firstMatch(n.innerText);
       if (m != null) {
         // 无捕获组正则 group(1) 越界抛异常，判 groupCount 再取
         href = m.groupCount >= 1 ? (m.group(1) ?? m.group(0)!) : m.group(0)!;
@@ -246,7 +246,7 @@ class DslVideoSource implements VideoSource {
         if (u.isNotEmpty) urls.add(u);
       }
     } else if (d.picListRe.isNotEmpty) {
-      final re = RegExp(d.picListRe);
+      final re = safeRegExp(d.picListRe);
       for (final m in re.allMatches(html)) {
         final u = m.group(1) ?? '';
         if (u.isNotEmpty) urls.add(u);
@@ -255,7 +255,7 @@ class DslVideoSource implements VideoSource {
     final filtered = <String>[];
     for (var u in urls) {
       if (d.picFilter.isNotEmpty) {
-        if (!RegExp(d.picFilter).hasMatch(u)) continue;
+        if (!safeRegExp(d.picFilter).hasMatch(u)) continue;
       }
       u = _applyReplace(u, d.picReplace);
       if (u.isNotEmpty) filtered.add(_abs(seasonUrl, u));
@@ -368,10 +368,16 @@ class DslVideoSource implements VideoSource {
     return b.resolve(ref).toString();
   }
 
-  /// 顺次应用替换规则。
+  /// 顺次应用替换规则。运行期二次校验（P0 修复）：跳过值含危险 scheme 的
+  /// 替换项——即使 def.validate 已经拦过一次，运行期也不能信任 DSL 内容
+  /// （例如磁盘里被篡改的旧配置，或绕过 validate 的手工调用路径）。
   String _applyRewrite(String body, Map<String, String> rules) {
     var out = body;
     rules.forEach((k, v) {
+      if (unsafeRewriteTarget(v) != null) {
+        // 拒绝此项：保留原文，不执行替换
+        return;
+      }
       out = out.replaceAll(k, v);
     });
     return out;
@@ -455,25 +461,27 @@ class DslVideoSource implements VideoSource {
   /// 用正则命名组 `(?<id>...)` 或 `(?P<id>...)` 指定变换结果（组名 `id`）。
   String _transformId(String videoId, String idRegex) {
     if (idRegex.isEmpty) return videoId;
+    RegExp re;
     try {
-      final re = RegExp(idRegex);
-      final m = re.firstMatch(videoId);
-      if (m == null) return videoId;
-      if (idRegex.contains('?<id>') || idRegex.contains('?P<id>')) {
-        try {
-          final v = m.namedGroup('id');
-          if (v != null && v.isNotEmpty) return v;
-        } catch (_) {}
-      }
-      if (m.groupCount >= 1) {
-        final g = m.group(1);
-        if (g != null && g.isNotEmpty) return g;
-      }
-      final all = m.group(0);
-      return (all == null || all.isEmpty) ? videoId : all;
+      re = RegExp(idRegex);
     } catch (_) {
+      // 非法正则 → 原样返回，避免整次播放失败
       return videoId;
     }
+    final m = re.firstMatch(videoId);
+    if (m == null) return videoId;
+    if (idRegex.contains('?<id>') || idRegex.contains('?P<id>')) {
+      try {
+        final v = m.namedGroup('id');
+        if (v != null && v.isNotEmpty) return v;
+      } catch (_) {}
+    }
+    if (m.groupCount >= 1) {
+      final g = m.group(1);
+      if (g != null && g.isNotEmpty) return g;
+    }
+    final all = m.group(0);
+    return (all == null || all.isEmpty) ? videoId : all;
   }
 
   /// 按 `titleRe` 清理标题（组 1）；正则缺失/不命中时原样返回。
@@ -481,13 +489,15 @@ class DslVideoSource implements VideoSource {
   String _cleanTitle(String title, String titleRe) {
     final t = title.trim();
     if (titleRe.isEmpty) return t;
+    RegExp re;
     try {
-      final m = RegExp(titleRe).firstMatch(t);
-      final g = m?.group(1);
-      return (g == null || g.isEmpty) ? t : g.trim();
+      re = RegExp(titleRe);
     } catch (_) {
       return t;
     }
+    final m = re.firstMatch(t);
+    final g = m?.group(1);
+    return (g == null || g.isEmpty) ? t : g.trim();
   }
 
   String _extract(HtmlNode e, String field) {
@@ -554,7 +564,7 @@ class DslVideoSource implements VideoSource {
       els = root.querySelectorAll(rule.selector);
     } else if (rule.regex.isNotEmpty) {
       // 正则行式：每个匹配包装成虚拟节点，供 map 复用统一抽取逻辑
-      final re = RegExp(rule.regex);
+      final re = safeRegExp(rule.regex);
       final groups = <List<String>>[];
       for (final m in re.allMatches(html)) {
         final g = <String>[];

@@ -142,7 +142,9 @@ void main() {
   });
 
   /// 与远端 index.json 的 demo.dsl.regex 条目保持同步。
-  CustomSourceDef regexDef() => CustomSourceDef.fromJson({
+  /// [publicBase] 为 true 时 baseUrl 用公网占位地址（仅校验用），
+  /// 抓取测试仍走本机回环 [$base]。
+  CustomSourceDef regexDef({bool publicBase = false}) => CustomSourceDef.fromJson({
         'id': 'demo.dsl.regex',
         'name': '正则抽取演示源',
         'type': 'comic',
@@ -151,7 +153,7 @@ void main() {
         'description':
             '源市场演示源：正则行式抽取（regex + r1/r2/r3 捕获组），'
             '验证 DSL 正则抽取通道。',
-        'baseUrl': base,
+        'baseUrl': publicBase ? 'https://example.com' : base,
         'headers': const {'User-Agent': 'Mozilla/5.0'},
         'categoryListUrl': '$base/regex/list/{page}.html',
         'categoryList': {
@@ -184,7 +186,10 @@ void main() {
       });
 
   /// 与远端 index.json 的 demo.dsl.category 条目保持同步。
-  CustomSourceDef categoryDef() => CustomSourceDef.fromJson({
+  ///
+  /// [publicBase] 为 true 时 baseUrl 用公网占位地址（仅校验用），
+  /// 抓取测试仍走本机回环 [$base]。
+  CustomSourceDef categoryDef({bool publicBase = false}) => CustomSourceDef.fromJson({
         'id': 'demo.dsl.category',
         'name': '分类导航演示源',
         'type': 'comic',
@@ -193,7 +198,7 @@ void main() {
         'description':
             '源市场演示源：分类导航（categoriesUrl + categories），'
             '验证分类页下拉与分类内容列表。',
-        'baseUrl': base,
+        'baseUrl': publicBase ? 'https://example.com' : base,
         'headers': const {'User-Agent': 'Mozilla/5.0'},
         'picHeaders': {'Referer': '$base/'},
         'categoriesUrl': '$base/cat/categories.html',
@@ -223,7 +228,7 @@ void main() {
       });
 
   test('regex 源 validate() 通过', () {
-    expect(regexDef().validate(), isEmpty);
+    expect(regexDef(publicBase: true).validate(), isEmpty);
   });
 
   test('regex 源 listByCategory 正则抽卡', () async {
@@ -254,7 +259,7 @@ void main() {
   });
 
   test('category 源 validate() 通过', () {
-    expect(categoryDef().validate(), isEmpty);
+    expect(categoryDef(publicBase: true).validate(), isEmpty);
   });
 
   test('picHeaders round-trip 保留', () {
