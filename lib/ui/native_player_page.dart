@@ -1323,10 +1323,11 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         // 实测看到的假"超分没有"）。故自愈/红条只保留给能读 vo-passes 的
         // Android；桌面端以「glsl-shaders 被接受 + 无编译错误」为准，不重建。
         //
-        // ⚠️ 平台覆盖（2026-09-30 补）：该自愈在 Android 上此前是死路径——
-        // _startDiag 只在桌面调用，而 vo-passes 判据只在 Android 成立。
-        // 现在周期采样全平台跑（移动端只是多 4 次/秒的轻量属性读），
-        // Android 的自愈逻辑才真正生效；桌面端照旧跳过。
+        // ⚠️ 平台覆盖（2026-09-30 补）：该自愈在 Android 上仍是潜在路径而非
+        // 死路径——超分是桌面专属（_srId 恢复时强制 off、_applySr 桌面门闸、
+        // UI 入口 _srAndroidOff 隐藏），Android 上 _sr.enabled 恒 false，此分支
+        // 不触发；周期采样全平台跑的意义是消除「桌面才启动诊断」的平台耦合，
+        // 若未来 Android 放开超分，自愈判据立即可用，无需再改调用点。
         final canObservePasses = !DesktopUi.isDesktopPlatform;
         if (canObservePasses &&
             _sr.enabled && _ready && !_srApplying && srPasses == 0) {

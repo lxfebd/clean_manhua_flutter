@@ -37,9 +37,12 @@ class AiFrameRifePlugin extends CapabilityPlugin {
   /// 引擎包文件名（zip：rife.exe + flownet.bin/.param + LICENSE）。
   static const String engineZipName = 'rife-engine-win.zip';
 
-  /// 引擎包 SHA256（2026-09-18 从 xmq-video-ai 构建产物打包，版本钉死）。
+  /// 引擎包 SHA256（2026-09-16 xmq-video-ai 构建产物打包，版本钉死）。
+  /// 2026-09-30 对齐：原钉死值 48a0b0fc… 在磁盘任一产物中不存在（错记），
+  /// 以本机 /tmp/rife_engine_pack 实测 f01ca4bc…（13,131,869B，与
+  /// [engineSizeBytes] 吻合）为准。远端 release/models-v1 附件已替换为该包。
   static const String engineSha256 =
-      '48a0b0fc040b50bcd98b07ebe62a574016fcfed3a4a3e9f707eb129d9c03b5c0';
+      'f01ca4bcd78295a1a50028bc29136c6c33be9d64c5ec8308d3b7970f162ef261';
 
   /// 引擎包体积（13.1MB，UI 展示下载大小用）。
   static const int engineSizeBytes = 13131869;
@@ -68,8 +71,10 @@ class AiFrameRifePlugin extends CapabilityPlugin {
           builtin: false, // 市场能力：可卸载，走 install/persist
           artifact: CapabilityArtifact(
             // 引擎包 zip：rife.exe + flownet.bin/.param。
-            // 分发经 CapabilityArtifactStore.download（SHA256 校验后落盘）。
-            url: '', // TODO(publish): 最终引擎包直链（GitHub release 或对象存储）
+            // models-v1 Release 附件直链（2026-09-30 已替换为自编译 rife.exe
+            // 包；SHA256 与 [engineSha256] 钉死）。分发经
+            // CapabilityArtifactStore.download（SHA256 校验后落盘）。
+            url: 'https://github.com/lxfebd/xingmanxia-sources/releases/download/models-v1/rife-engine-win.zip',
             sha256: const {'windows-x64': engineSha256},
           ),
           weights: const [], // 模型随引擎包分发，无独立权重下载

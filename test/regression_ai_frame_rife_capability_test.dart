@@ -56,7 +56,10 @@ void main() {
       expect(p.category, 'video');
       expect(p.builtin, isFalse); // 市场能力：可卸载
       expect(p.artifact, isNotNull);
-      expect(p.artifact!.url, isEmpty); // 发布时填，当前占位
+      // 2026-09-30 已发布：直链指向 models-v1 Release 附件（与远端索引同源，
+      // SHA256 钉死 [engineSha256]），不再是占位空串。
+      expect(p.artifact!.url, contains(
+          'github.com/lxfebd/xingmanxia-sources/releases/download/models-v1/rife-engine-win.zip'));
       expect(p.weights, isEmpty); // 模型随引擎包分发，无独立权重
     });
 
@@ -110,9 +113,14 @@ void main() {
     });
 
     test('ensureEngine 未配置直链 → 明确原因', () async {
+      // 2026-09-30 起直链已填：真实网络被 TestWidgetsFlutterBinding 拦截
+      // （HTTP 一律 400），ensureEngine 走下载失败路径而非「地址未配置」。
+      // 该断言保留下限语义：失败原因必须明确指向引擎链路（地址/下载/网络），
+      // 不得是无意义的空串或异常。
       final err = await AiFrameRifePlugin.ensureEngine();
       expect(err, isNotNull);
-      expect(err, contains('引擎地址未配置'));
+      expect(err, anyOf(contains('引擎地址未配置'), contains('下载失败'),
+          contains('构件下载失败'), contains('网络')));
     });
 
     test('引擎未就绪（无 zip 无 url）→ interpolate 失败含「引擎」原因', () async {
