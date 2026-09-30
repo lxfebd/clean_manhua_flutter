@@ -962,7 +962,10 @@ class _AnimeCardState extends State<_AnimeCard> {
     final scheme = Theme.of(context).colorScheme;
     final style = context.uiStyle;
     final cardR = StyleTokens.cardRadius(context);
-    final cardBorder = StyleTokens.cardBorder(context);
+    // 极简锁原值：原版本无描边；仅小米/苹果走 StyleTokens（小米无、苹果细分隔线）。
+    final cardBorder = style == UIStyle.minimalist
+        ? null
+        : StyleTokens.cardBorder(context);
     final cardShadows = StyleTokens.cardShadow(context);
     Widget card = AnimatedContainer(
       duration: const Duration(milliseconds: 240),
