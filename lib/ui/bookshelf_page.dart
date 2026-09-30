@@ -1410,14 +1410,21 @@ class BookshelfPageState extends State<BookshelfPage>
             chapters: chapters,
             initialPage: m.pageIndex,
           ),
-          transitionDuration: const Duration(milliseconds: 320),
+          transitionDuration: context.uiStyle == UIStyle.minimalist
+              ? const Duration(milliseconds: 320)
+              : StyleTokens.transitionDuration(context),
           transitionsBuilder: (_, anim, __, child) => FadeTransition(
             opacity: anim,
             child: SlideTransition(
               position: Tween<Offset>(
                 begin: const Offset(0, 0.05),
                 end: Offset.zero,
-              ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOut)),
+              ).animate(CurvedAnimation(
+                parent: anim,
+                curve: context.uiStyle == UIStyle.minimalist
+                    ? Curves.easeOut
+                    : StyleTokens.transitionCurve(context),
+              )),
               child: child,
             ),
           ),

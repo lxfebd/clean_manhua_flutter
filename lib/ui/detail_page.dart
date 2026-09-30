@@ -1134,7 +1134,9 @@ class _DetailPageState extends State<DetailPage> {
                 initialPage: history.pageIndex,
                 initialOffset: history.scrollOffset,
               ),
-          transitionDuration: const Duration(milliseconds: 320),
+          transitionDuration: context.uiStyle == UIStyle.minimalist
+              ? const Duration(milliseconds: 320)
+              : StyleTokens.transitionDuration(context),
           transitionsBuilder: (_, anim, __, child) {
             return FadeTransition(
               opacity: anim,
@@ -1142,7 +1144,12 @@ class _DetailPageState extends State<DetailPage> {
                 position: Tween<Offset>(
                   begin: const Offset(0, 0.05),
                   end: Offset.zero,
-                ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOut)),
+                ).animate(CurvedAnimation(
+                  parent: anim,
+                  curve: context.uiStyle == UIStyle.minimalist
+                      ? Curves.easeOut
+                      : StyleTokens.transitionCurve(context),
+                )),
                 child: child,
               ),
             );

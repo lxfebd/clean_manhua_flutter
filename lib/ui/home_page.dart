@@ -878,15 +878,28 @@ class HomePageState extends State<HomePage> {
           name: it.name,
           pic: it.pic,
         ),
-        transitionDuration: const Duration(milliseconds: 360),
+        transitionDuration: context.uiStyle == UIStyle.minimalist
+            ? const Duration(milliseconds: 360)
+            : StyleTokens.transitionDuration(context),
         transitionsBuilder: (_, anim, __, child) {
+          final isMinimalist = context.uiStyle == UIStyle.minimalist;
           return FadeTransition(
-            opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
+            opacity: CurvedAnimation(
+              parent: anim,
+              curve: isMinimalist
+                  ? Curves.easeOut
+                  : StyleTokens.transitionCurve(context),
+            ),
             child: SlideTransition(
               position: Tween<Offset>(
                 begin: const Offset(0, 0.06),
                 end: Offset.zero,
-              ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+              ).animate(CurvedAnimation(
+                parent: anim,
+                curve: isMinimalist
+                    ? Curves.easeOutCubic
+                    : StyleTokens.transitionCurve(context),
+              )),
               child: child,
             ),
           );

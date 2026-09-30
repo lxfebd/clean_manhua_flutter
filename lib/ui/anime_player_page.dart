@@ -18,6 +18,8 @@ import 'desktop_webview.dart';
 import 'episode_grouping.dart';
 import 'native_player_page.dart';
 import 'responsive.dart';
+import 'style_scope.dart';
+import 'style_tokens.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/player_widgets.dart';
 
@@ -512,7 +514,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
               : '${widget.title}::${_curSeason}_$_curEpisode',
           webChannelBuilder: animePlayerWebChannel,
         ),
-        transitionDuration: const Duration(milliseconds: 260),
+        transitionDuration: context.uiStyle == UIStyle.minimalist
+            ? const Duration(milliseconds: 260)
+            : StyleTokens.transitionDuration(context),
         transitionsBuilder: (_, anim, __, child) =>
             FadeTransition(opacity: anim, child: child),
       ),
@@ -2067,7 +2071,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
               videoId: widget.videoId,
               webChannelBuilder: animePlayerWebChannel,
             ),
-            transitionDuration: const Duration(milliseconds: 260),
+            transitionDuration: context.uiStyle == UIStyle.minimalist
+                ? const Duration(milliseconds: 260)
+                : StyleTokens.transitionDuration(context),
             transitionsBuilder: (_, anim, __, child) =>
                 FadeTransition(opacity: anim, child: child),
           ),

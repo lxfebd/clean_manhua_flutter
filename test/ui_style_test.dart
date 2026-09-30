@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xingmanxia/ui/style_scope.dart';
 import 'package:xingmanxia/ui/style_tokens.dart';
 import 'package:xingmanxia/ui/tokens.dart';
+import 'package:xingmanxia/ui/widgets/motion.dart';
 
 /// UI 风格轴门禁（2026-09-30 三风格改造 S4）。
 ///
@@ -138,6 +139,112 @@ void main() {
       expect(border!.width, lessThan(1)); // 细分隔线 < 1px
       expect(StyleTokens.cardShadow(context), isNull);
       expect(StyleTokens.cardGradient(context), isNull);
+    });
+
+    testWidgets('动效轴：极简逐字节锁原值，小米回弹过冲、苹果平滑无过冲',
+        (tester) async {
+      // 极简 = 改造前原值（PressableScale 120ms/easeOut，FadeSlideIn 480ms/Cubic(0.16,1,0.3,1)）。
+      const baselinePress = Curves.easeOut;
+      const baselineEntrance = Cubic(0.16, 1, 0.3, 1);
+
+      for (final s in UIStyle.values) {
+        await tester.pumpWidget(
+          StyleScope.demo(
+            style: s,
+            child: const MaterialApp(home: Scaffold(body: _TokenProbe())),
+          ),
+        );
+        final context = tester.element(find.byType(_TokenProbe));
+        if (s == UIStyle.minimalist) {
+          expect(StyleTokens.pressCurve(context), baselinePress);
+          expect(StyleTokens.pressDuration(context),
+              const Duration(milliseconds: 120));
+          expect(StyleTokens.entranceCurve(context), baselineEntrance);
+          expect(StyleTokens.entranceDuration(context),
+              const Duration(milliseconds: 480));
+        } else {
+          expect(StyleTokens.pressCurve(context), isNot(baselinePress),
+              reason: '${s.name} 按下曲线必须与极简不同（否则风格无意义）');
+          expect(StyleTokens.entranceCurve(context), isNot(baselineEntrance));
+        }
+      }
+
+      // 小米 = HyperOS 回弹：曲线在收尾前越过 1（过冲后收敛）。
+      await tester.pumpWidget(
+        StyleScope.demo(
+          style: UIStyle.xiaomi,
+          child: const MaterialApp(home: Scaffold(body: _TokenProbe())),
+        ),
+      );
+      final xiaomi = tester.element(find.byType(_TokenProbe));
+      // 回弹的定义：曲线在收尾前越过 1 再收敛。这里用采样值断言，
+      // 因为 Cubic 的控制点字段是私有的，无法直接读。
+      expect(StyleTokens.pressCurve(xiaomi), Curves.easeOutBack,
+          reason: '小米按下曲线应为回弹曲线');
+      expect(StyleTokens.entranceCurve(xiaomi), Curves.easeOutBack);
+      expect(StyleTokens.entranceCurve(xiaomi).transform(0.6),
+          greaterThan(1.0), reason: '小米入场应过冲（回弹）');
+
+      // 苹果 = iOS 平滑：全程不越过 1（无回弹）。
+      await tester.pumpWidget(
+        StyleScope.demo(
+          style: UIStyle.apple,
+          child: const MaterialApp(home: Scaffold(body: _TokenProbe())),
+        ),
+      );
+      final apple = tester.element(find.byType(_TokenProbe));
+      for (var i = 1; i <= 10; i++) {
+        final t = i / 10;
+        expect(StyleTokens.pressCurve(apple).transform(t), lessThanOrEqualTo(1.0),
+            reason: '苹果曲线在 t=$t 越界（不应回弹）');
+        expect(StyleTokens.entranceCurve(apple).transform(t),
+            lessThanOrEqualTo(1.0));
+      }
+    });
+
+    testWidgets('PressableScale 真的按风格解析曲线（不是只定义 token）',
+        (tester) async {
+      for (final (style, wantCurve, wantMs) in [
+        (UIStyle.minimalist, Curves.easeOut, 120),
+        (UIStyle.xiaomi, Curves.easeOutBack, 180),
+        (UIStyle.apple, const Cubic(0.32, 0.72, 0, 1), 200),
+      ]) {
+        await tester.pumpWidget(
+          StyleScope.demo(
+            style: style,
+            child: MaterialApp(
+              home: Scaffold(
+                body: PressableScale(child: const Text('t'), onTap: () {}),
+              ),
+            ),
+          ),
+        );
+        final scale = tester.widget<AnimatedScale>(find.byType(AnimatedScale));
+        expect(scale.curve, wantCurve, reason: '${style.name} 按下曲线');
+        expect(scale.duration, Duration(milliseconds: wantMs),
+            reason: '${style.name} 按下时长');
+      }
+    });
+
+    testWidgets('显式传参仍优先于风格轴（不被覆盖）', (tester) async {
+      await tester.pumpWidget(
+        StyleScope.demo(
+          style: UIStyle.xiaomi,
+          child: MaterialApp(
+            home: Scaffold(
+              body: PressableScale(
+                child: const Text('t'),
+                onTap: () {},
+                curve: Curves.linear,
+                duration: const Duration(milliseconds: 90),
+              ),
+            ),
+          ),
+        ),
+      );
+      final scale = tester.widget<AnimatedScale>(find.byType(AnimatedScale));
+      expect(scale.curve, Curves.linear);
+      expect(scale.duration, const Duration(milliseconds: 90));
     });
 
     testWidgets('R.of 按风格解析四槽位（minimalist 与静态档位一致）', (tester) async {

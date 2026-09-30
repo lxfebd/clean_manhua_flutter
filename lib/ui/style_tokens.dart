@@ -99,6 +99,53 @@ class StyleTokens {
     );
   }
 
+  // ── 动效 ────────────────────────────────────────────────────────────
+  // 极简分支逐字节锁定改造前原值（与圆角同样的回归面原则）：
+  // PressableScale 原为 120ms/easeOut，FadeSlideIn 原为 480ms/Cubic(0.16,1,0.3,1)。
+
+  /// 按下反馈曲线：极简 = 原值 easeOut；小米 = HyperOS 回弹（过冲后收敛）；
+  /// 苹果 = iOS spring 近似（无过冲）。
+  static Curve pressCurve(BuildContext c) => switch (c.uiStyle) {
+        UIStyle.minimalist => Curves.easeOut,
+        UIStyle.xiaomi => Curves.easeOutBack,
+        UIStyle.apple => const Cubic(0.32, 0.72, 0, 1),
+      };
+
+  /// 按下反馈时长：极简 = 原值 120ms。
+  static Duration pressDuration(BuildContext c) => switch (c.uiStyle) {
+        UIStyle.minimalist => const Duration(milliseconds: 120),
+        UIStyle.xiaomi => const Duration(milliseconds: 180),
+        UIStyle.apple => const Duration(milliseconds: 200),
+      };
+
+  /// 入场曲线：极简 = 原值 Cubic(0.16, 1, 0.3, 1)；小米 = HyperOS 回弹（过冲后
+  /// 收敛）；苹果用 iOS 标准 ease（无过冲）。
+  static Curve entranceCurve(BuildContext c) => switch (c.uiStyle) {
+        UIStyle.minimalist => const Cubic(0.16, 1, 0.3, 1),
+        UIStyle.xiaomi => Curves.easeOutBack,
+        UIStyle.apple => const Cubic(0.25, 0.1, 0.25, 1),
+      };
+
+  /// 入场时长：极简 = 原值 480ms。
+  static Duration entranceDuration(BuildContext c) => switch (c.uiStyle) {
+        UIStyle.minimalist => const Duration(milliseconds: 480),
+        UIStyle.xiaomi => const Duration(milliseconds: 420),
+        UIStyle.apple => const Duration(milliseconds: 380),
+      };
+
+  /// 页面转场时长/曲线：极简各调用点锁原值（320/360/260），此处只给非极简档。
+  static Duration transitionDuration(BuildContext c) => switch (c.uiStyle) {
+        UIStyle.minimalist => const Duration(milliseconds: 320),
+        UIStyle.xiaomi => const Duration(milliseconds: 300),
+        UIStyle.apple => const Duration(milliseconds: 400),
+      };
+
+  static Curve transitionCurve(BuildContext c) => switch (c.uiStyle) {
+        UIStyle.minimalist => Curves.easeOutCubic,
+        UIStyle.xiaomi => Curves.easeOutBack,
+        UIStyle.apple => const Cubic(0.25, 0.1, 0.25, 1),
+      };
+
   // ── 苹果毛玻璃 ──────────────────────────────────────────────────────
   /// 苹果风格毛玻璃半透明底（亮/暗分档），非苹果风格返回纯表面色。
   static Color frostedBackground(BuildContext c) {
