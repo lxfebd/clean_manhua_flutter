@@ -73,8 +73,13 @@ class StyleTokens {
     ];
   }
 
-  /// 小米「高饱和渐变卡片」底色：品牌色 → 更亮/更暗一档的线性渐变。
-  /// 极简/苹果不用渐变卡，回退 null（调用方用纯色）。
+  /// 小米「高饱和渐变卡片」底色：品牌色柔和 tint 在 [surface] 上（HyperOS 卡片
+  /// 观感：浅色底 + 彩色渐变层次 + 彩色投影）。极简/苹果不用渐变卡，回退 null
+  /// （调用方用纯色）。
+  ///
+  /// 曾用「primary → 更亮/更暗」的深色渐变：桌面默认种子「墨」在亮色下是近黑，
+  /// 渐变卡变深黑底，而卡上文字是 onSurface（也深色）→ 内容不可见（用户实测
+  /// 反馈）。改为 surface 打底的 tint，文字对比度与纯色卡持平，仅叠加品牌色相。
   static Gradient? cardGradient(BuildContext c) {
     if (c.uiStyle != UIStyle.xiaomi) return null;
     final scheme = Theme.of(c).colorScheme;
@@ -82,12 +87,15 @@ class StyleTokens {
     return LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
-      colors: [
-        scheme.primary,
-        dark
-            ? Color.lerp(scheme.primary, Colors.black, 0.35)!
-            : Color.lerp(scheme.primary, Colors.white, 0.18)!,
-      ],
+      colors: dark
+          ? [
+              Color.lerp(scheme.surface, scheme.primary, 0.10)!,
+              Color.lerp(scheme.surface, scheme.primary, 0.16)!,
+            ]
+          : [
+              Color.lerp(scheme.surface, scheme.primary, 0.05)!,
+              Color.lerp(scheme.surface, scheme.primary, 0.10)!,
+            ],
     );
   }
 
