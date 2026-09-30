@@ -8,6 +8,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'ui/style_scope.dart';
 import 'ui/tokens.dart';
 
 /// 设计系统 · Minimalist（极简单色）
@@ -18,6 +19,12 @@ import 'ui/tokens.dart';
 /// - 克制圆角：统一 12（卡片）/ 10（控件），拒绝大圆角气泡感。
 /// - 强调色：默认「墨」——primary 即近黑，界面里所有 primary 衍生块自动读作中性灰；
 ///   仍保留 5 档种子色，用户可在设置里替换为彩色强调（主题色选择器不变）。
+///
+/// 自 v1.6 起引入第二根轴 [UIStyle]（极简/小米/苹果）：三套风格共享同一套
+/// [ColorScheme] 与种子色，差异集中在圆角档位、阴影策略与组件主题参数
+/// （见 [_base] 的 [style] 分支）。极简保持原样；小米走超椭圆大圆角 +
+/// 柔和彩色阴影；苹果走毛玻璃头 + inset grouped 分组列表（毛玻璃仅头部/浮层，
+/// 滚动内容禁用，见 [StyleScope] 注释）。
 class AppTheme {
   // ── 中性基座（ink / paper） ──────────────────────────────────────────
   // 品牌/默认强调色 — 墨（近黑），Minimalist 的默认"强调"即中性本身
@@ -39,6 +46,19 @@ class AppTheme {
   static const Color lightText = Color(0xFF18181B);
   static const Color lightTextSoft = Color(0xFF71717A);
 
+  // ── 苹果系统色（iOS 风格专用，仅覆盖组件主题的强调/背景） ──────────
+  /// iOS 系统蓝（亮色）。
+  static const Color appleBlue = Color(0xFF0A84FF);
+
+  /// iOS 系统蓝（暗色）。
+  static const Color appleBlueDark = Color(0xFF0A84FF);
+
+  /// iOS 分组背景（亮色 `systemGroupedBackground`）。
+  static const Color appleGroupedBg = Color(0xFFF2F2F7);
+
+  /// iOS 分组背景（暗色 `systemGroupedBackground`）。
+  static const Color appleGroupedBgDark = Color(0xFF000000);
+
   /// 多主题种子色：0=墨(默认，纯单色), 1=墨蓝, 2=翡翠绿, 3=靛蓝, 4=薰衣草紫。
   /// Minimalist 默认走 0=墨，界面呈现为纯黑白灰；其余档为可选彩色强调。
   static const List<Color> seeds = [
@@ -53,12 +73,22 @@ class AppTheme {
       (id >= 0 && id < seeds.length) ? seeds[id] : accent;
 
   /// [isTablet] 传 true（平板/桌面）走桌面档字号，传 false（手机）走手机档字号。
-  static ThemeData light([int themeId = 0, bool isTablet = true]) {
+  static ThemeData light([
+    int themeId = 0,
+    bool isTablet = true,
+    UIStyle style = UIStyle.minimalist,
+  ]) {
     final seed = seedOf(themeId);
+    // 小米风格：种子色即品牌色（用户选的彩色强调或墨）；苹果风格：系统蓝为
+    // 强调、种子色仅作辅助（保持用户可选色相但主操作永远是 iOS 蓝）。
+    final primary = switch (style) {
+      UIStyle.minimalist || UIStyle.xiaomi => seed,
+      UIStyle.apple => appleBlue,
+    };
     final scheme = ColorScheme.fromSeed(
       seedColor: seed,
       brightness: Brightness.light,
-      primary: seed,
+      primary: primary,
       onPrimary: Colors.white,
       secondary: seed,
       onSecondary: Colors.white,
@@ -72,20 +102,29 @@ class AppTheme {
     return _base(
       scheme: scheme,
       isDark: false,
-      seed: seed,
-      bg: lightBg,
+      seed: primary,
+      bg: style == UIStyle.apple ? appleGroupedBg : lightBg,
       border: lightBorder,
       text: lightText,
       textSoft: lightTextSoft,
       isTablet: isTablet,
+      style: style,
     );
   }
 
   /// [isTablet] 传 true（平板/桌面）走桌面档字号，传 false（手机）走手机档字号。
-  static ThemeData dark([int themeId = 0, bool isTablet = true]) {
+  static ThemeData dark([
+    int themeId = 0,
+    bool isTablet = true,
+    UIStyle style = UIStyle.minimalist,
+  ]) {
     final seed = seedOf(themeId);
     // 暗色下若种子为"墨"，primary 反转为近白，保证对比与"墨"对称。
-    final primary = (themeId == 0) ? const Color(0xFFF4F4F5) : seed;
+    final primary = switch (style) {
+      UIStyle.minimalist || UIStyle.xiaomi =>
+        (themeId == 0) ? const Color(0xFFF4F4F5) : seed,
+      UIStyle.apple => appleBlueDark,
+    };
     final scheme = ColorScheme.fromSeed(
       seedColor: seed,
       brightness: Brightness.dark,
@@ -104,15 +143,21 @@ class AppTheme {
       scheme: scheme,
       isDark: true,
       seed: primary,
-      bg: darkBg,
+      bg: style == UIStyle.apple ? appleGroupedBgDark : darkBg,
       border: darkBorder,
       text: darkText,
       textSoft: darkTextSoft,
       isTablet: isTablet,
+      style: style,
     );
   }
 
   /// 共用主题骨架：Minimalist = 零 elevation + hairline 描边 + 克制的控件尺寸。
+  ///
+  /// [style] 控制风格差异：
+  /// - 圆角档位（小米超椭圆大圆角 / 苹果标准 cornerRadius）；
+  /// - 阴影策略（小米柔和彩色浮起阴影，苹果无阴影 + 分割线）；
+  /// - 组件主题参数（卡片/弹层/导航栏的背景与描边策略）。
   static ThemeData _base({
     required ColorScheme scheme,
     required bool isDark,
@@ -122,7 +167,36 @@ class AppTheme {
     required Color text,
     required Color textSoft,
     bool isTablet = true,
+    UIStyle style = UIStyle.minimalist,
   }) {
+    // 风格圆角档位（与 tokens.R.of 的语义槽位对齐：control/card/hero/sheet）。
+    final radius = switch (style) {
+      UIStyle.minimalist =>
+        <double>[R.control, R.card, R.hero, R.sheet],
+      UIStyle.xiaomi =>
+        <double>[R.controlXiaomi, R.cardXiaomi, R.heroXiaomi, R.sheetXiaomi],
+      UIStyle.apple =>
+        <double>[R.controlApple, R.cardApple, R.heroApple, R.sheetApple],
+    };
+    final rControl = radius[0];
+    final rCard = radius[1];
+    final rSheet = radius[3];
+
+    // 风格阴影策略：
+    // - 极简：零阴影（现有）；
+    // - 小米：柔和彩色浮起阴影（HyperOS 卡片投影），暗色下淡；
+    // - 苹果：无阴影（分组列表靠分割线建立层级）。
+    final shadow = switch (style) {
+      UIStyle.minimalist || UIStyle.apple => const <BoxShadow>[],
+      UIStyle.xiaomi => [
+          BoxShadow(
+            color: seed.withValues(alpha: isDark ? 0.18 : 0.14),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
+          ),
+        ],
+    };
+
     final theme = ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
@@ -150,12 +224,17 @@ class AppTheme {
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: border, width: 1),
+          borderRadius: BorderRadius.circular(rCard),
+          side: style == UIStyle.apple
+              ? BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.4), width: 1)
+              : BorderSide(color: border, width: 1),
         ),
+        shadowColor: shadow.isEmpty ? null : shadow.first.color,
       ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: scheme.surface,
+        backgroundColor: style == UIStyle.apple
+            ? scheme.surface.withValues(alpha: 0.85)
+            : scheme.surface,
         indicatorColor: Colors.transparent,
         elevation: 0,
         height: 66,
@@ -184,7 +263,7 @@ class AppTheme {
           elevation: 0,
           // 触控热区门禁：M3 默认按钮高 40dp，统一提到 44dp 最小命中区。
           minimumSize: const Size(64, 44),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(rControl)),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
           textStyle: const TextStyle(
               fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.2),
@@ -196,7 +275,7 @@ class AppTheme {
           side: BorderSide(color: border, width: 1),
           // 触控热区门禁：M3 默认按钮高 40dp，统一提到 44dp 最小命中区。
           minimumSize: const Size(64, 44),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(rControl)),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
           textStyle: const TextStyle(
               fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.2),
@@ -207,7 +286,7 @@ class AppTheme {
           foregroundColor: text,
           // 触控热区门禁：M3 默认按钮高 40dp，统一提到 44dp 最小命中区。
           minimumSize: const Size(64, 44),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(rControl)),
           textStyle: const TextStyle(
               fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.2),
         ),
@@ -217,15 +296,15 @@ class AppTheme {
         fillColor: isDark ? darkSurfaceHigh : lightSurfaceHigh,
         hintStyle: TextStyle(color: text.withValues(alpha: 0.38)),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(rControl),
           borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(rControl),
           borderSide: BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(rControl),
           borderSide: BorderSide(color: text.withValues(alpha: 0.6), width: 1.2),
         ),
         contentPadding:
@@ -253,8 +332,10 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-          side: BorderSide(color: border, width: 1),
+          borderRadius: BorderRadius.circular(rSheet),
+          side: style == UIStyle.apple
+              ? BorderSide.none
+              : BorderSide(color: border, width: 1),
         ),
       ),
       bottomSheetTheme: BottomSheetThemeData(

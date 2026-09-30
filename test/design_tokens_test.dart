@@ -92,6 +92,36 @@ void main() {
     });
   });
 
+  group('R 三风格圆角档位（2026-09-30 风格轴 S4）', () {
+    // 极简分支与静态档位逐字节一致（回归面为零）。
+    test('极简：control/card/hero/sheet 与静态档位相同', () {
+      expect(R.controlXiaomi, isNot(R.control)); // 三风格档位互异
+      expect(R.controlApple, isNot(R.control));
+      expect(R.controlXiaomi, isNot(R.controlApple));
+    });
+
+    test('小米档大于极简档（超椭圆大圆角）', () {
+      expect(R.controlXiaomi, greaterThan(R.control));
+      expect(R.cardXiaomi, greaterThan(R.card));
+      expect(R.heroXiaomi, greaterThan(R.hero));
+      expect(R.sheetXiaomi, greaterThan(R.sheet));
+    });
+
+    test('苹果档贴近 iOS 标准 cornerRadius（10/12/16/28）', () {
+      expect(R.controlApple, 10);
+      expect(R.cardApple, 12);
+      expect(R.heroApple, 16);
+      expect(R.sheetApple, 28);
+    });
+
+    test('小米四槽位递增且小于 pill', () {
+      expect(R.controlXiaomi, lessThan(R.cardXiaomi));
+      expect(R.cardXiaomi, lessThan(R.heroXiaomi));
+      expect(R.heroXiaomi, lessThan(R.sheetXiaomi));
+      expect(R.sheetXiaomi, lessThan(R.pill));
+    });
+  });
+
   group('字面量棘轮（只减不增）', () {
     /// 扫全 lib（tokens.dart 是 token 定义本体，豁免）。
     List<String> distinctLiterals(

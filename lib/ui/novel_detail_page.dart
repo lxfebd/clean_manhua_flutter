@@ -11,6 +11,76 @@ import '../ui/widgets/app_toast.dart';
 import '../ui/widgets/cached_image.dart';
 import '../ui/widgets/motion.dart';
 import 'keyboard_shortcuts.dart';
+import 'style_scope.dart';
+import 'style_tokens.dart';
+import 'widgets/squircle.dart';
+
+/// 小说详情封面三风格分支（手机/平板共用）：
+/// - 极简：既有圆角 10 逐字节等同；
+/// - 小米：[StyleTokens.cardRadius] + 超椭圆剪裁 + 品牌渐变底衬；
+/// - 苹果：[StyleTokens.cardRadius] + 细分割线描边。
+/// 布局/热区/字体不动，只切装饰。
+class _NovelCover extends StatelessWidget {
+  final String url;
+  final double width;
+  final double height;
+  const _NovelCover({
+    required this.url,
+    required this.width,
+    required this.height,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final style = context.uiStyle;
+    final r = switch (style) {
+      UIStyle.minimalist => 10.0,
+      UIStyle.xiaomi || UIStyle.apple => StyleTokens.cardRadius(context),
+    };
+    if (style == UIStyle.xiaomi) {
+      return SizedBox(
+        width: width,
+        height: height,
+        child: ClipPath(
+          clipper: SquircleClipper(radius: r),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: StyleTokens.cardGradient(context),
+            ),
+            child: SizedBox(
+              width: double.infinity,
+              height: double.infinity,
+              child: CachedImage(url, fit: BoxFit.cover),
+            ),
+          ),
+        ),
+      );
+    }
+    final border = style == UIStyle.apple
+        ? StyleTokens.cardBorder(context)
+        : null;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(r),
+      child: border == null
+          ? CachedImage(url, width: width, height: height, radius: r)
+          : Container(
+              width: width,
+              height: height,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(r),
+                border: Border.all(color: border.color, width: border.width),
+              ),
+              child: CachedImage(
+                url,
+                width: double.infinity,
+                height: double.infinity,
+                fit: BoxFit.cover,
+                radius: r,
+              ),
+            ),
+    );
+  }
+}
 
 /// 小说详情页：封面/元信息 + 章节目录。章节点击进入阅读器。
 class NovelDetailPage extends StatefulWidget {
@@ -228,14 +298,10 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
                 Center(
                   child: AspectRatio(
                     aspectRatio: 2 / 3,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: CachedImage(
-                        d.pic ?? '',
-                        width: double.infinity,
-                        height: 200,
-                        radius: 10,
-                      ),
+                    child: _NovelCover(
+                      url: d.pic ?? '',
+                      width: double.infinity,
+                      height: 200,
                     ),
                   ),
                 ),
@@ -360,15 +426,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: CachedImage(
-                    d.pic ?? '',
-                    width: 96,
-                    height: 132,
-                    radius: 10,
-                  ),
-                ),
+                _NovelCover(url: d.pic ?? '', width: 96, height: 132),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(

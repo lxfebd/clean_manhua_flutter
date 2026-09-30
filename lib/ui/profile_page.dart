@@ -18,14 +18,53 @@ import '../net/local_store.dart';
 import '../net/update_checker.dart';
 import 'responsive.dart';
 import 'settings_page.dart';
+import 'style_scope.dart';
+import 'style_tokens.dart';
 import 'tokens.dart';
 import 'year_report_page.dart';
 import 'widgets/cached_image.dart';
+import 'widgets/squircle.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/motion.dart';
 import 'widgets/settings_row.dart';
 import 'widgets/state_view.dart';
 import 'widgets/tap_target.dart';
+
+/// 我的页三风格 helper：为 _UserCard / _ReadingStatsCard / _StatsCard / _MenuCard
+/// 及所有 BottomSheet 容器提供按风格分派的装饰属性。
+///
+/// 极简分支完全等价于历史实现（BoxShape.circle / hairline 0.08 描边 / 圆角=R.hero / R.sheet）；
+/// 小米/苹果只影响视觉属性（圆角档、描边/阴影、渐变底），不碰布局/热区。
+class _CardD {
+  const _CardD._();
+
+  /// 四张主卡片统一装饰：圆角 + 描边 + 小米彩色阴影 + 小米渐变底。
+  /// 极简锁 R.hero=16 圆角 + hairline 0.08 描边（现状）；
+  /// 小米/苹果走 StyleTokens.cardRadius / cardBorder / cardShadow / cardGradient。
+  static BoxDecoration cardDeco(BuildContext c, ColorScheme s) {
+    final r = c.uiStyle == UIStyle.minimalist
+        ? R.hero
+        : StyleTokens.cardRadius(c);
+    Border? b;
+    if (c.uiStyle == UIStyle.minimalist) {
+      b = Border.all(
+        color: T.color(s.onSurface, TextTier.hairline,
+            brightness: s.brightness),
+        width: 1,
+      );
+    } else {
+      final side = StyleTokens.cardBorder(c);
+      b = side == null ? null : Border.fromBorderSide(side);
+    }
+    return BoxDecoration(
+      gradient: StyleTokens.cardGradient(c),
+      color: s.surface,
+      borderRadius: BorderRadius.circular(r),
+      border: b,
+      boxShadow: StyleTokens.cardShadow(c),
+    );
+  }
+}
 
 /// 我的页面（对齐 UI_v2 S8）：设置入口 + 用户卡 + 三格统计 + 功能列表。
 class ProfilePage extends StatefulWidget {
@@ -557,33 +596,18 @@ class _UserCard extends StatelessWidget {
   const _UserCard();
 
   @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
+  Widget build(BuildContext c) {
+    final scheme = Theme.of(c).colorScheme;
+    final text = Theme.of(c).textTheme;
+    final ui = c.uiStyle;
     return Container(
       padding: const EdgeInsets.all(S.x16),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(R.hero),
-        border: Border.all(
-            color: T.color(scheme.onSurface, TextTier.hairline,
-                brightness: scheme.brightness)),
-      ),
+      decoration: _CardD.cardDeco(c, scheme),
       child: Row(
         children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: scheme.primary.withValues(alpha: 0.1),
-            ),
-            child: Icon(
-              Icons.person_rounded,
-              size: 28,
-              color: scheme.primary,
-            ),
-          ),
+          // 头像：极简锁圆形（现状）；小米换超椭圆（SquircleClipper 14dp 半径）。
+          // 苹果保持圆形（iOS 头像惯例）。
+          _UserAvatar(ui, scheme),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
@@ -623,6 +647,36 @@ class _UserCard extends StatelessWidget {
   }
 }
 
+/// 用户卡头像：极简/苹果=圆形；小米=超椭圆（SquircleClipper 半径 14dp，方中带圆）。
+class _UserAvatar extends StatelessWidget {
+  const _UserAvatar(this.ui, this.scheme);
+  final UIStyle ui;
+  final ColorScheme scheme;
+
+  @override
+  Widget build(BuildContext context) {
+    final isCircle = ui != UIStyle.xiaomi;
+    final avatar = Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        shape: isCircle ? BoxShape.circle : BoxShape.rectangle,
+        color: scheme.primary.withValues(alpha: 0.1),
+      ),
+      child: Icon(
+        Icons.person_rounded,
+        size: 28,
+        color: scheme.primary,
+      ),
+    );
+    if (isCircle) return avatar;
+    return ClipPath(
+      clipper: const SquircleClipper(radius: R.controlXiaomi),
+      child: avatar,
+    );
+  }
+}
+
 /// 阅读统计卡：今日/本周/累计 + 点击进入周报。
 class _ReadingStatsCard extends StatelessWidget {
   final int today;
@@ -653,13 +707,7 @@ class _ReadingStatsCard extends StatelessWidget {
       scale: 0.98,
       child: Container(
         padding: const EdgeInsets.all(S.x16),
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: BorderRadius.circular(R.hero),
-          border: Border.all(
-              color: T.color(scheme.onSurface, TextTier.hairline,
-                  brightness: scheme.brightness)),
-        ),
+        decoration: _CardD.cardDeco(context, scheme),
         child: Column(
           children: [
             Row(
@@ -803,13 +851,7 @@ class _StatsCard extends StatelessWidget {
     final isTablet = Responsive.isTablet(context);
 
     return Container(
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(R.hero),
-        border: Border.all(
-            color: T.color(scheme.onSurface, TextTier.hairline,
-                brightness: scheme.brightness)),
-      ),
+      decoration: _CardD.cardDeco(context, scheme),
       clipBehavior: Clip.antiAlias,
       child: Row(
         children: [
@@ -892,13 +934,7 @@ class _MenuCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(R.hero),
-        border: Border.all(
-            color: T.color(scheme.onSurface, TextTier.hairline,
-                brightness: scheme.brightness)),
-      ),
+      decoration: _CardD.cardDeco(context, scheme),
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
@@ -1005,7 +1041,7 @@ class _HistorySheet extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(R.sheet),
+          borderRadius: BorderRadius.circular(StyleTokens.sheetRadius(context)),
         ),
         child: entries.isEmpty
             ? StateView(
@@ -1106,7 +1142,7 @@ class _HelpSheet extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(R.sheet),
+          borderRadius: BorderRadius.circular(StyleTokens.sheetRadius(context)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1187,7 +1223,7 @@ class _ReadingReportSheet extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(R.sheet),
+          borderRadius: BorderRadius.circular(StyleTokens.sheetRadius(context)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1321,7 +1357,7 @@ class _TextExportSheet extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(R.sheet),
+          borderRadius: BorderRadius.circular(StyleTokens.sheetRadius(context)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1441,7 +1477,7 @@ class _ImageLoadingSheet extends StatelessWidget {
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(R.sheet),
+          borderRadius: BorderRadius.circular(StyleTokens.sheetRadius(context)),
         ),
         child: const Row(
           mainAxisSize: MainAxisSize.min,
@@ -1512,7 +1548,7 @@ class _ImageExportSheetState extends State<_ImageExportSheet> {
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(R.sheet),
+          borderRadius: BorderRadius.circular(StyleTokens.sheetRadius(context)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1689,7 +1725,7 @@ class _PosterCard extends StatelessWidget {
       children: [
         Expanded(
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(StyleTokens.controlRadius(context)),
             child: cover != null
                 ? Image.memory(
                     cover!,
@@ -1801,7 +1837,7 @@ class _ImportBooklistSheetState extends State<_ImportBooklistSheet> {
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(R.sheet),
+          borderRadius: BorderRadius.circular(StyleTokens.sheetRadius(context)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,

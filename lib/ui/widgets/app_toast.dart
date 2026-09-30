@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../style_scope.dart';
+import '../style_tokens.dart';
+import '../tokens.dart';
+
 /// 全局统一 toast 反馈（替代散落的裸 SnackBar 调用）。
 ///
 /// 职责：
@@ -23,6 +27,10 @@ class AppToast {
     SnackBarAction? action,
   }) {
     final messenger = ScaffoldMessenger.of(context);
+    // 风格化圆角：极简/苹果走标准控件圆角，小米走超椭圆大圆角。
+    final toastRadius = context.uiStyle == UIStyle.xiaomi
+        ? StyleTokens.controlRadius(context)
+        : R.control;
     messenger
       ..clearSnackBars()
       ..showSnackBar(SnackBar(
@@ -44,7 +52,7 @@ class AppToast {
         behavior: SnackBarBehavior.floating,
         backgroundColor: Colors.black.withValues(alpha: 0.78),
         shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8)),
+            borderRadius: BorderRadius.circular(toastRadius)),
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         padding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 12),

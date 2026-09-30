@@ -117,15 +117,10 @@ class ShelfUpdater {
     Future<void> checkOne(ComicDetail d) async {
       final sid = d.sourceId ?? BookshelfStore.sourceIdOf(d.id);
       if (sid == null) return;
-      // byId 会兜底回 current，因此这里除了判空，还要校验返回源是否真的匹配
+      // byId 兜底回 current 永不返回 null；这里校验返回源是否真的匹配
       // 请求的 sid——不匹配视为未找到（小说 sid 混入漫画书架等异常场景），
       // 直接跳过，避免对错误源调 detail 后误报"无更新"或抛空指针被静默吞掉。
       final src = SourceManager.byId(sid);
-      if (src == null) {
-        ErrorLogger.instance.warn(
-            'shelf_updater: sid=$sid 未找到对应漫画源，跳过更新检查');
-        return;
-      }
       if (src.id != sid) {
         ErrorLogger.instance.warn(
             'shelf_updater: sid=$sid 返回源 ${src.id} 不匹配，跳过更新检查');

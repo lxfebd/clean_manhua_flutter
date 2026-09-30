@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../style_tokens.dart';
 import '../tokens.dart';
 
 /// 区块标题行（统一 44 高）。
@@ -74,7 +75,8 @@ class SectionHeader extends StatelessWidget {
               onAction == null
                   ? action!
                   : InkWell(
-                      borderRadius: BorderRadius.circular(R.control),
+                      borderRadius:
+                          BorderRadius.circular(StyleTokens.controlRadius(context)),
                       onTap: onAction,
                       child: Padding(
                         padding: const EdgeInsets.symmetric(

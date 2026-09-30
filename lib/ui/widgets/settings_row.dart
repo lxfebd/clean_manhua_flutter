@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../style_tokens.dart';
 import '../tokens.dart';
 
 /// 设置/功能列表行（合并"我的"页 `_Row` 与设置页 `_SettingTile`）。
@@ -47,6 +48,7 @@ class SettingsRow extends StatelessWidget {
     final labelColor = danger
         ? scheme.error
         : T.color(scheme.onSurface, TextTier.high, brightness: brightness);
+    final iconRadius = StyleTokens.controlRadius(context);
     return InkWell(
       onTap: onTap,
       child: ConstrainedBox(
@@ -71,7 +73,7 @@ class SettingsRow extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: T.color(scheme.onSurface, TextTier.fill,
                           brightness: brightness),
-                      borderRadius: BorderRadius.circular(R.control),
+                      borderRadius: BorderRadius.circular(iconRadius),
                     ),
                     child: Icon(
                       icon,

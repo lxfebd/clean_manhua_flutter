@@ -21,6 +21,9 @@ import 'tokens.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
+import 'widgets/squircle.dart';
+import 'style_scope.dart';
+import 'style_tokens.dart';
 
 /// 书架页：跨源聚合，按时间倒序。错峰入场。
 ///
@@ -1518,9 +1521,7 @@ class BookshelfPageState extends State<BookshelfPage>
   void _showCardAction(ComicDetail d) {
     showResponsiveBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      shape: _BookshelfStyleDecorations.topSheetShape(context),
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1580,9 +1581,7 @@ class BookshelfPageState extends State<BookshelfPage>
 
     await showResponsiveBottomSheet<void>(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      shape: _BookshelfStyleDecorations.topSheetShape(context),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheetState) => SafeArea(
           child: Padding(
@@ -1647,9 +1646,7 @@ class BookshelfPageState extends State<BookshelfPage>
 
     await showResponsiveBottomSheet<void>(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      shape: _BookshelfStyleDecorations.topSheetShape(context),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheetState) {
           // 弹窗内分类列表 + 页面筛选栏的同步刷新（增删改后两处一起更新）。
@@ -1823,9 +1820,7 @@ class BookshelfPageState extends State<BookshelfPage>
 
     await showResponsiveBottomSheet<void>(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      shape: _BookshelfStyleDecorations.topSheetShape(context),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheetState) => SafeArea(
           child: Padding(
@@ -2339,13 +2334,10 @@ class _TabEmpty extends StatelessWidget {
             padding: const EdgeInsets.all(5),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  scheme.primary.withValues(alpha: isDark ? 0.22 : 0.16),
-                  scheme.primary.withValues(alpha: 0.03),
-                ],
+              gradient: _BookshelfStyleDecorations.tabEmptyGradient(
+                context,
+                schemePrimary: scheme.primary,
+                isDark: isDark,
               ),
             ),
             child: Container(
@@ -2386,6 +2378,96 @@ class _TabEmpty extends StatelessWidget {
   }
 }
 
+/// 书架页各装饰位点的风格分支。极简分支严格保持既有观感，小米/苹果仅
+/// 切装饰；不动布局/尺寸/热区/字体。
+///
+/// 设计要点：
+/// - [cardRadius]/[coverRadius]/[sheetRadius]/[topSheetShape]/[cardDecoration]：
+///   四个卡片 + _ShelfCard 封面 + BottomSheet 上圆角统一走这里。
+/// - 极简分支直接返回既有字面量（R.card=12 / kCoverRadius=10 / 20），
+///   与改造前逐字节等同，回归面为零。
+/// - 小米：使用 StyleTokens 大圆角 + 品牌渐变 + 彩色浮起阴影，封面用超椭圆。
+/// - 苹果：使用 StyleTokens 圆角 + 细分割线（0.5px @ alpha 0.4）。
+abstract final class _BookshelfStyleDecorations {
+  /// 卡片圆角：极简锁 [R.card]=12（与既有实现一致），其余走 StyleTokens。
+  static double cardRadius(BuildContext context) =>
+      context.uiStyle == UIStyle.minimalist
+          ? R.card
+          : StyleTokens.cardRadius(context);
+
+  /// 卡片装饰：圆角 + 描边 + 阴影。极简分支严格保持既有观感。
+  /// - 极简：R.card 圆角 + Border.all(hairline = onSurface @ alpha 0.08) + 无阴影。
+  ///   与改造前逐字节等同（不通过 StyleTokens 中转，因为 StyleTokens 极简描边色
+  ///   是 outlineVariant 而非 onSurface.withAlpha(8)，虽然视觉差 <4/255，
+  ///   但为严守「回归面为零」，极简分支直接返回原值）。
+  /// - 小米：大圆角 + 无描边 + 彩色浮起阴影（StyleTokens）。
+  /// - 苹果：R.cardApple 圆角 + 0.5px outlineVariant @ alpha 0.4 细分割线。
+  static BoxDecoration cardDecoration(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final style = context.uiStyle;
+    final r = cardRadius(context);
+    final brightness = Theme.of(context).brightness;
+    BoxDecoration decoration;
+    if (style == UIStyle.minimalist) {
+      // 极简：严格等同既有实现
+      decoration = BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(r),
+        border: Border.all(
+          color: T.color(scheme.onSurface, TextTier.hairline,
+              brightness: brightness),
+        ),
+      );
+    } else {
+      final side = StyleTokens.cardBorder(context);
+      final shadows = StyleTokens.cardShadow(context);
+      decoration = BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(r),
+        border: side == null ? null : Border.fromBorderSide(side),
+        boxShadow: shadows,
+      );
+    }
+    return decoration;
+  }
+
+  /// _ShelfCard 网格封面圆角：极简保持 kCoverRadius=10；小米/苹果走 cardRadius。
+  static double coverRadius(BuildContext context) =>
+      context.uiStyle == UIStyle.minimalist
+          ? kCoverRadius
+          : StyleTokens.cardRadius(context);
+
+  /// BottomSheet 上圆角：极简锁 20（既有值），其余走 StyleTokens.sheetRadius。
+  static double sheetRadius(BuildContext context) =>
+      context.uiStyle == UIStyle.minimalist
+          ? 20.0
+          : StyleTokens.sheetRadius(context);
+
+  /// BottomSheet 上圆角形状（不可 const：内部依赖 context 走风格分支）。
+  static RoundedRectangleBorder topSheetShape(BuildContext context) =>
+      RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+            top: Radius.circular(sheetRadius(context))),
+      );
+
+  /// _TabEmpty 渐变：小米使用品牌渐变（StyleTokens.cardGradient），
+  /// 极简/苹果保持现状自研渐变。
+  static Gradient? tabEmptyGradient(BuildContext context,
+      {required Color schemePrimary, required bool isDark}) {
+    if (context.uiStyle == UIStyle.xiaomi) {
+      return StyleTokens.cardGradient(context);
+    }
+    return LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        schemePrimary.withValues(alpha: isDark ? 0.22 : 0.16),
+        schemePrimary.withValues(alpha: 0.03),
+      ],
+    );
+  }
+}
+
 class _ReadingCard extends StatelessWidget {
   final HistoryEntry history;
   final double progress;
@@ -2406,14 +2488,7 @@ class _ReadingCard extends StatelessWidget {
       focusable: true, // TV 遥控器 D-pad 焦点导航（书架卡片）
       child: Container(
         height: 80,
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: BorderRadius.circular(R.card),
-          border: Border.all(
-            color: T.color(scheme.onSurface, TextTier.hairline,
-                brightness: scheme.brightness),
-          ),
-        ),
+        decoration: _BookshelfStyleDecorations.cardDecoration(context),
         clipBehavior: Clip.antiAlias,
         child: Row(
           children: [
@@ -2523,6 +2598,71 @@ class _ShelfCard extends StatelessWidget {
       item.id,
       item.chapters.length,
     );
+    // 封面剪裁：极简保持既有 ClipRRect(kCoverRadius=10)；
+    // 小米用超椭圆（SquircleClipper）+ 大圆角；苹果用 cardRadius（12）。
+    final style = context.uiStyle;
+    final r = _BookshelfStyleDecorations.coverRadius(context);
+    final cover = Stack(
+      fit: StackFit.expand,
+      children: [
+        (item.pic?.isEmpty ?? true)
+            ? Container(
+                color: scheme.surfaceContainerHighest,
+                child: Icon(Icons.image,
+                    size: 32,
+                    color: scheme.onSurface.withValues(alpha: 0.15)),
+              )
+            : CachedImage(item.pic ?? '',
+                fit: BoxFit.cover,
+                radius: 0),
+        if (editing)
+          Positioned.fill(
+            child: Container(
+              color: Colors.black45,
+              child: Center(
+                child: Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: scheme.error,
+                  ),
+                  child: const Icon(Icons.close,
+                      size: 18, color: Colors.white),
+                ),
+              ),
+            ),
+          ),
+        if (hasUpdate && !editing)
+          Positioned(
+            top: 6,
+            right: 6,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: scheme.primary,
+                borderRadius: BorderRadius.circular(R.control),
+              ),
+              child: Text(
+                '更新',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+              ),
+            ),
+          ),
+      ],
+    );
+    final coverClipped = style == UIStyle.xiaomi
+        ? ClipPath(
+            clipper: SquircleClipper(radius: r),
+            child: cover,
+          )
+        : ClipRRect(
+            borderRadius: BorderRadius.circular(r),
+            child: cover,
+          );
     return PressableScale(
       onTap: onTap,
       scale: 0.96,
@@ -2530,64 +2670,7 @@ class _ShelfCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(kCoverRadius),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  (item.pic?.isEmpty ?? true)
-                      ? Container(
-                          color: scheme.surfaceContainerHighest,
-                          child: Icon(Icons.image,
-                              size: 32,
-                              color: scheme.onSurface.withValues(alpha: 0.15)),
-                        )
-                      : CachedImage(item.pic ?? '',
-                          fit: BoxFit.cover,
-                          radius: 0),
-                  if (editing)
-                    Positioned.fill(
-                      child: Container(
-                        color: Colors.black45,
-                        child: Center(
-                          child: Container(
-                            width: 32,
-                            height: 32,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: scheme.error,
-                            ),
-                            child: const Icon(Icons.close,
-                                size: 18, color: Colors.white),
-                          ),
-                        ),
-                      ),
-                    ),
-                  if (hasUpdate && !editing)
-                    Positioned(
-                      top: 6,
-                      right: 6,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 5, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: scheme.primary,
-                          borderRadius: BorderRadius.circular(R.control),
-                        ),
-                        child: Text(
-                          '更新',
-                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                              ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
+          Expanded(child: coverClipped),
           const SizedBox(height: 6),
           Text(
             item.name,
@@ -2638,14 +2721,7 @@ class _VideoRecordCard extends StatelessWidget {
       focusable: true, // TV 遥控器 D-pad 焦点导航（书架卡片）
       child: Container(
         height: 80,
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: BorderRadius.circular(R.card),
-          border: Border.all(
-            color: T.color(scheme.onSurface, TextTier.hairline,
-                brightness: scheme.brightness),
-          ),
-        ),
+        decoration: _BookshelfStyleDecorations.cardDecoration(context),
         clipBehavior: Clip.antiAlias,
         child: Row(
           children: [
@@ -2742,14 +2818,7 @@ class _BookmarkCard extends StatelessWidget {
       focusable: true, // TV 遥控器 D-pad 焦点导航（书架卡片）
       child: Container(
         height: 80,
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: BorderRadius.circular(R.card),
-          border: Border.all(
-            color: T.color(scheme.onSurface, TextTier.hairline,
-                brightness: scheme.brightness),
-          ),
-        ),
+        decoration: _BookshelfStyleDecorations.cardDecoration(context),
         clipBehavior: Clip.antiAlias,
         child: Row(
           children: [

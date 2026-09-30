@@ -8,11 +8,14 @@ import '../sources/source_manager.dart';
 import '../sources/video_source.dart';
 import 'episode_list_page.dart';
 import 'responsive.dart';
+import 'style_scope.dart';
+import 'style_tokens.dart';
 import 'tokens.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
 import 'widgets/skeleton.dart';
+import 'widgets/squircle.dart';
 import 'widgets/tap_target.dart';
 
 /// 动漫首页：搜索 + 分类胶囊 + 番剧网格。
@@ -565,7 +568,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
           // 参照点会让 logo 图标与文字纵向错位、换页即变位置）。
           Row(
             children: [
-              ClipRRect(
+                  ClipRRect(
                 borderRadius: BorderRadius.circular(isTablet ? 8 : 9),
                 child: Image.asset(
                   'ui_assets/icon-logo.png',
@@ -598,7 +601,11 @@ class AnimeHomePageState extends State<AnimeHomePage> {
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                     decoration: BoxDecoration(
                       color: scheme.primary.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(999),
+                      // 源切换胶囊：极简锁原 999（胶囊全圆），小米/苹果走风格档位。
+                      borderRadius: BorderRadius.circular(
+                          context.uiStyle == UIStyle.minimalist
+                              ? R.pill
+                              : StyleTokens.controlRadius(context)),
                       border: Border.all(
                         color: scheme.primary.withValues(alpha: 0.22),
                         width: 0.8,
@@ -772,7 +779,11 @@ class AnimeHomePageState extends State<AnimeHomePage> {
       height: 40,
       decoration: BoxDecoration(
         color: scheme.surface,
-        borderRadius: BorderRadius.circular(10),
+        // 搜索栏圆角：极简锁原 10（回归面为零）。
+        borderRadius: BorderRadius.circular(
+            context.uiStyle == UIStyle.minimalist
+                ? 10
+                : StyleTokens.controlRadius(context)),
         border: Border.all(
           color: scheme.onSurface.withValues(alpha: 0.06),
           width: 0.6,
@@ -811,6 +822,10 @@ class AnimeHomePageState extends State<AnimeHomePage> {
 
   Widget _buildChips(ThemeData theme) {
     final primary = theme.colorScheme.secondary;
+    // 分类 chip 圆角：极简锁原 10（回归面为零），小米/苹果走风格档位。
+    final chipRadius = context.uiStyle == UIStyle.minimalist
+        ? 10.0
+        : StyleTokens.controlRadius(context);
     return SizedBox(
       height: Responsive.isTablet(context) ? 48 : 44,
       child: ListView(
@@ -833,7 +848,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
                     color: _categoryId == c.id && _mode == 'category'
                         ? primary
                         : theme.colorScheme.surface,
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(chipRadius),
                     border: Border.all(
                       color: _categoryId == c.id && _mode == 'category'
                           ? primary
@@ -945,6 +960,214 @@ class _AnimeCardState extends State<_AnimeCard> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final style = context.uiStyle;
+    final cardR = StyleTokens.cardRadius(context);
+    final cardBorder = StyleTokens.cardBorder(context);
+    final cardShadows = StyleTokens.cardShadow(context);
+    Widget card = AnimatedContainer(
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
+      transform: Matrix4.identity()..translateByDouble(0.0, _hover ? -4 : 0, 0.0, 1.0),
+      decoration: BoxDecoration(
+        borderRadius: style == UIStyle.xiaomi ? null : BorderRadius.circular(cardR),
+        // Minimalist：卡片无投影，悬停仅微位移反馈。
+        border: cardBorder == null
+            ? null
+            : Border.all(color: cardBorder.color, width: cardBorder.width),
+        boxShadow: cardShadows ?? const [],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(cardR),
+        child: Container(
+          // 小米渐变底色由外层 ClipPath 包裹提供，此处透明以免盖住渐变。
+          color: style == UIStyle.xiaomi ? Colors.transparent : scheme.surface,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      // 无封面源（如 Anime1 纯文本站）用首字占位封面，避免千篇一律的空占位图
+                      child: widget.item.pic.isEmpty
+                          ? _LetterCover(
+                              title: widget.item.name,
+                              scheme: scheme,
+                              remark: widget.item.remarks)
+                          : CachedImage(widget.item.pic,
+                              fit: BoxFit.cover,
+                              radius: 0,
+                              fallbackUrls: [
+                                if (widget.item.picFallback?.isNotEmpty ?? false)
+                                  widget.item.picFallback!,
+                              ]),
+                    ),
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        height: 32,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.black.withValues(alpha: 0.55),
+                              Colors.transparent,
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 6,
+                      left: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: scheme.secondary,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          '动漫',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (widget.item.score != null &&
+                        widget.item.score!.isNotEmpty &&
+                        widget.item.score != '0')
+                      Positioned(
+                        top: 6,
+                        right: 6,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 5, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.6),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.star_rounded,
+                                  size: 10, color: Colors.amber),
+                              const SizedBox(width: 2),
+                              Text(
+                                widget.item.score!,
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.amber,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    if (widget.item.remarks != null &&
+                        widget.item.remarks!.isNotEmpty)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 3),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.bottomCenter,
+                              end: Alignment.topCenter,
+                              colors: [
+                                Colors.black.withValues(alpha: 0.78),
+                                Colors.transparent,
+                              ],
+                            ),
+                          ),
+                          child: Text(
+                            widget.item.remarks!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    Center(
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: _hover ? 48 : 36,
+                        height: _hover ? 48 : 36,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: scheme.secondary.withValues(alpha: _hover ? 0.9 : 0.7),
+                        ),
+                        child: const Icon(
+                          Icons.play_arrow_rounded,
+                          color: Colors.white,
+                          size: 24,
+                        ),
+                      ),
+                    ),
+                    if (widget.loading)
+                      Positioned.fill(
+                        child: Container(
+                          color: Colors.black.withValues(alpha: 0.45),
+                          child: const Center(
+                            child: SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2.5, color: Colors.white),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 8, 8, 7),
+                child: Text(
+                  widget.item.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style:TextStyle(
+                    fontSize: 12.5,
+                    height: 1.2,
+                    fontWeight: FontWeight.w600,
+                    color: scheme.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    // 小米：超椭圆剪裁 + 品牌渐变底色包（渐变铺在底色之下，内容照常叠放）。
+    if (style == UIStyle.xiaomi) {
+      final gradient = StyleTokens.cardGradient(context);
+      if (gradient != null) {
+        card = ClipPath(
+          clipper: SquircleClipper(radius: cardR),
+          child: DecoratedBox(
+            decoration: BoxDecoration(gradient: gradient),
+            child: card,
+          ),
+        );
+      }
+    }
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
@@ -952,200 +1175,12 @@ class _AnimeCardState extends State<_AnimeCard> {
         onTap: widget.onTap,
         scale: 0.97,
         focusable: true, // TV 遥控器 D-pad 焦点导航（动漫网格卡）
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 240),
-          curve: Curves.easeOutCubic,
-          transform: Matrix4.identity()..translateByDouble(0.0, _hover ? -4 : 0, 0.0, 1.0),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            // Minimalist：卡片无投影，悬停仅微位移反馈。
-            boxShadow: const [],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Container(
-              color: scheme.surface,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          // 无封面源（如 Anime1 纯文本站）用首字占位封面，避免千篇一律的空占位图
-                          child: widget.item.pic.isEmpty
-                              ? _LetterCover(
-                                  title: widget.item.name,
-                                  scheme: scheme,
-                                  remark: widget.item.remarks)
-                              : CachedImage(widget.item.pic,
-                                  fit: BoxFit.cover,
-                                  radius: 0,
-                                  fallbackUrls: [
-                                    if (widget.item.picFallback?.isNotEmpty ??
-                                        false)
-                                      widget.item.picFallback!,
-                                  ]),
-                        ),
-                        Positioned(
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          child: Container(
-                            height: 32,
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  Colors.black.withValues(alpha: 0.55),
-                                  Colors.transparent,
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        Positioned(
-                          top: 6,
-                          left: 6,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 5, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: scheme.secondary,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: const Text(
-                              '动漫',
-                              style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                        ),
-                        if (widget.item.score != null &&
-                            widget.item.score!.isNotEmpty &&
-                            widget.item.score != '0')
-                          Positioned(
-                            top: 6,
-                            right: 6,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 5, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.6),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.star_rounded,
-                                      size: 10, color: Colors.amber),
-                                  const SizedBox(width: 2),
-                                  Text(
-                                    widget.item.score!,
-                                    style: const TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.amber,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        if (widget.item.remarks != null &&
-                            widget.item.remarks!.isNotEmpty)
-                          Positioned(
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 3),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.bottomCenter,
-                                  end: Alignment.topCenter,
-                                  colors: [
-                                    Colors.black.withValues(alpha: 0.78),
-                                    Colors.transparent,
-                                  ],
-                                ),
-                              ),
-                              child: Text(
-                                widget.item.remarks!,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 9.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ),
-                        Center(
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            width: _hover ? 48 : 36,
-                            height: _hover ? 48 : 36,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: scheme.secondary.withValues(alpha: _hover ? 0.9 : 0.7),
-                            ),
-                            child: const Icon(
-                              Icons.play_arrow_rounded,
-                              color: Colors.white,
-                              size: 24,
-                            ),
-                          ),
-                        ),
-                        if (widget.loading)
-                          Positioned.fill(
-                            child: Container(
-                              color: Colors.black.withValues(alpha: 0.45),
-                              child: const Center(
-                                child: SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2.5, color: Colors.white),
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 7),
-                    child: Text(
-                      widget.item.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        height: 1.2,
-                        fontWeight: FontWeight.w600,
-                        color: scheme.onSurface,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
+        child: card,
       ),
     );
   }
 }
 
-/// 无封面条目的首字占位封面：按标题哈希取主题色，居中显示首个字符，
-/// 避免纯文本源（如 Anime1）全部卡片挤成同一张空占位图。
 class _LetterCover extends StatelessWidget {
   final String title;
   final ColorScheme scheme;

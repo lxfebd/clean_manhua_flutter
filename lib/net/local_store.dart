@@ -613,6 +613,13 @@ class LocalStore {
 
   static Future<void> setThemeId(int v) async => _updateSetting('themeId', v);
 
+  // ---- UI 风格（极简/小米/苹果；null=跟随平台） ----
+  /// 当前 UI 风格 id（'minimalist'/'xiaomi'/'apple'）；null = 跟随平台默认。
+  static Future<String?> uiStyle() async =>
+      ((await _read('settings')) as Map?)?['uiStyle'] as String?;
+
+  static Future<void> setUiStyle(String? v) async => _updateSetting('uiStyle', v);
+
   static Future<bool> horizontalReader() async =>
       ((await _read('settings')) as Map?)?['horizontal'] as bool? ?? false;
 

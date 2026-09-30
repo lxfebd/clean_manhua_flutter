@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'style_scope.dart';
+
 /// 设计 token —— 8-31 审计报告「阶段 1：设计系统层」的落地。
 ///
 /// 原则：有限档位。新代码一律从这四组取值，页面里不再出现
@@ -33,6 +35,43 @@ abstract final class R {
 
   /// 胶囊
   static const double pill = 999;
+
+  // ── 按风格取值 ─────────────────────────────────────────────────────
+  // 三套 UI 风格的圆角档位。风格化组件（S2/S3 迁移）用 `R.of(context)` 取，
+  // 保证同一语义槽位（control/card/hero/sheet）在各风格下都有定义，且
+  // 只新增档位、不动 [control]/[card] 等既有多处引用的静态值（回归面最小）。
+  //
+  // - minimalist：与静态档位一致（8/12/16/24）—— 极简不因风格轴改变。
+  // - xiaomi：超椭圆大圆角（HyperOS 特征）。
+  // - apple：iOS 标准 cornerRadius（10/12/16/28），弹层 28 略大贴近系统 sheet。
+  static const double controlXiaomi = 14;
+  static const double cardXiaomi = 20;
+  static const double heroXiaomi = 28;
+  static const double sheetXiaomi = 36;
+
+  static const double controlApple = 10;
+  static const double cardApple = 12;
+  static const double heroApple = 16;
+  static const double sheetApple = 28;
+
+  /// 由 [UIStyle] 解析各语义槽位的圆角——风格化组件（S2/S3）统一入口。
+  static double of(BuildContext context, double slot, {required UIStyle style}) {
+    final r = switch (style) {
+      UIStyle.minimalist => <double>[control, card, hero, sheet],
+      UIStyle.xiaomi => <double>[controlXiaomi, cardXiaomi, heroXiaomi, sheetXiaomi],
+      UIStyle.apple => <double>[controlApple, cardApple, heroApple, sheetApple],
+    };
+    final idx = slot == control
+        ? 0
+        : slot == card
+            ? 1
+            : slot == hero
+                ? 2
+                : slot == sheet
+                    ? 3
+                    : 1; // 未知槽位回退卡片档
+    return r[idx];
+  }
 }
 
 /// 文字透明档位：high 正文 / mid 次要 / low 弱化 / disabled 禁用 /

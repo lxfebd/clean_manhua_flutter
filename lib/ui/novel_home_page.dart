@@ -10,8 +10,11 @@ import '../sources/local_novel_source.dart';
 import '../sources/novel_source.dart';
 import '../sources/source_manager.dart';
 import '../net/novel_shelf_store.dart';
+import '../ui/style_scope.dart';
+import '../ui/style_tokens.dart';
 import '../ui/widgets/cached_image.dart';
 import '../ui/widgets/motion.dart';
+import '../ui/widgets/squircle.dart';
 
 /// 小说首页：与漫画/动漫并列的第三种内容模式（首页模式切换的 type==2）。
 class NovelHomePage extends StatefulWidget {
@@ -248,7 +251,7 @@ class NovelHomePageState extends State<NovelHomePage> {
       return const SliverToBoxAdapter(
           child: Center(
               child: Padding(
-                  padding: const EdgeInsets.all(32),
+                  padding: EdgeInsets.all(32),
                   child: CircularProgressIndicator(strokeWidth: 2))));
     }
     if (_error != null) {
@@ -333,6 +336,108 @@ class NovelHomePageState extends State<NovelHomePage> {
 
 // _TypeSegment 已移至 responsive.dart 作为共享组件 TypeSegment
 
+/// 封面卡三风格分支（推荐网格 / 书架 / 本地导入共用）：
+/// - 极简：沿用既有圆角 8（回归面为零，逐字节等同现状）；
+/// - 小米：[StyleTokens.cardRadius] + 超椭圆剪裁 + 品牌渐变底；
+/// - 苹果：[StyleTokens.cardRadius] + [StyleTokens.cardBorder] 细分隔线。
+/// 布局/热区/字体不动，只切装饰。
+abstract final class _CoverCardStyle {
+  /// 极简封面既有圆角（StyleTokens 极简档为 R.card=12，直接套用会改既有观感，
+  /// 故极简分支锁定原值以保证回归面为零）。
+  static const double radiusMinimalist = 8;
+
+  /// 封面圆角：按风格取档。
+  static double cardRadius(BuildContext context) {
+    switch (context.uiStyle) {
+      case UIStyle.minimalist:
+        return radiusMinimalist;
+      case UIStyle.xiaomi:
+      case UIStyle.apple:
+        return StyleTokens.cardRadius(context);
+    }
+  }
+
+  /// 仅苹果风格启用细分隔线。[StyleTokens.cardBorder] 在极简下也返回 hairline，
+  /// 直接套用会破坏「极简逐字节等同现状」，故按风格显式开关。
+  static BorderSide? boxBorder(BuildContext context) =>
+      context.uiStyle == UIStyle.apple ? StyleTokens.cardBorder(context) : null;
+
+  /// 封面卡外壳（图片封面）：三风格分支只改剪裁/底色/描边。
+  static Widget imageCover(BuildContext context, String url) {
+    final style = context.uiStyle;
+    final r = cardRadius(context);
+    if (style == UIStyle.xiaomi) {
+      // 超椭圆剪裁 + 品牌渐变底；内层图片不再单独裁剪（避免双层软边）。
+      return ClipPath(
+        clipper: SquircleClipper(radius: r),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: StyleTokens.cardGradient(context),
+            borderRadius: BorderRadius.circular(r),
+          ),
+          child: CachedImage(url, fit: BoxFit.cover),
+        ),
+      );
+    }
+    final border = boxBorder(context);
+    if (border != null) {
+      // 苹果：细描边内衬（inset grouped 观感）。
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(r),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(r),
+            border: Border.all(color: border.color, width: border.width),
+          ),
+          child: CachedImage(url, fit: BoxFit.cover),
+        ),
+      );
+    }
+    // 极简：与既有 ClipRRect(8) + CachedImage(radius: 8) 逐字节等同。
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(r),
+      child: CachedImage(url, fit: BoxFit.cover, radius: r),
+    );
+  }
+
+  /// 纯色占位封面（本地导入书无封面）：三风格分支只改圆角/底色/描边。
+  /// 不加品牌渐变 —— 卡内是主色图标 + 半透明文字，渐变底会直接吃掉对比度。
+  static Widget placeholderCover(BuildContext context, {required Widget child}) {
+    final style = context.uiStyle;
+    final r = cardRadius(context);
+    final fill = Theme.of(context).colorScheme.primary.withValues(alpha: 0.1);
+    if (style == UIStyle.xiaomi) {
+      return ClipPath(
+        clipper: SquircleClipper(radius: r),
+        child: DecoratedBox(
+          decoration: BoxDecoration(color: fill, borderRadius: BorderRadius.circular(r)),
+          child: child,
+        ),
+      );
+    }
+    final border = boxBorder(context);
+    if (border != null) {
+      // 苹果：细描边内衬。
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(r),
+        child: Container(
+          decoration: BoxDecoration(
+            color: fill,
+            borderRadius: BorderRadius.circular(r),
+            border: Border.all(color: border.color, width: border.width),
+          ),
+          child: child,
+        ),
+      );
+    }
+    // 极简：与既有 Container(color + circular(8)) 逐字节等同。
+    return Container(
+      decoration: BoxDecoration(color: fill, borderRadius: BorderRadius.circular(r)),
+      child: child,
+    );
+  }
+}
+
 class _NovelCard extends StatelessWidget {
   final ComicItem item;
   final ColorScheme scheme;
@@ -347,10 +452,7 @@ class _NovelCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: CachedImage(item.pic, fit: BoxFit.cover, radius: 8),
-            ),
+            child: _CoverCardStyle.imageCover(context, item.pic),
           ),
           const SizedBox(height: 6),
           Text(item.name,
@@ -395,10 +497,7 @@ class _ShelfCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: CachedImage(d.pic ?? '', fit: BoxFit.cover, radius: 8),
-            ),
+            child: _CoverCardStyle.imageCover(context, d.pic ?? ''),
           ),
           const SizedBox(height: 6),
           Text(d.name,
@@ -450,11 +549,8 @@ class _LocalShelfCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: Container(
-              decoration: BoxDecoration(
-                color: scheme.primary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
+            child: _CoverCardStyle.placeholderCover(
+              context,
               child: Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,

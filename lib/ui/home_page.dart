@@ -10,12 +10,15 @@ import '../sources/source_manager.dart';
 import '../utils/local_recommender.dart';
 import 'detail_page.dart';
 import 'responsive.dart';
+import 'style_scope.dart';
+import 'style_tokens.dart';
 import 'tokens.dart';
 import 'unified_search_page.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/motion.dart';
 import 'widgets/skeleton.dart';
+import 'widgets/squircle.dart';
 import 'widgets/state_view.dart';
 import 'widgets/tap_target.dart';
 
@@ -1000,12 +1003,16 @@ class _SearchBarState extends State<_SearchBar> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // 风格化：搜索框圆角走 controlRadius 语义槽；极简锁原 R.card=12（回归面为零）。
+    final searchRadius = context.uiStyle == UIStyle.minimalist
+        ? R.card
+        : StyleTokens.controlRadius(context);
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
       decoration: BoxDecoration(
         color: scheme.surface,
-        borderRadius: BorderRadius.circular(R.card),
+        borderRadius: BorderRadius.circular(searchRadius),
         border: Border.all(
           color: _focused
               ? T.color(scheme.onSurface, TextTier.low,
@@ -1112,8 +1119,13 @@ class _Chip extends StatelessWidget {
             decoration: BoxDecoration(
               // 选中态用 primary 底 + onPrimary 字：明暗两套主题都自动满足对比度。
               // （旧实现 onSurface 底 + 写死 Colors.white 字，暗色下对比度仅 1.20）
+              // 分类胶囊圆角：极简锁原 R.pill（胶囊全圆），小米/苹果走风格档位。
+              // 尺寸/padding 44dp 热区完全不动。
               color: active ? scheme.primary : scheme.surface,
-              borderRadius: BorderRadius.circular(R.pill),
+              borderRadius: BorderRadius.circular(
+                  context.uiStyle == UIStyle.minimalist
+                      ? R.pill
+                      : StyleTokens.controlRadius(context)),
               border: Border.all(
                 color: active
                     ? Colors.transparent
@@ -1313,7 +1325,8 @@ class _FeaturedCard extends StatelessWidget {
         scale: 0.98,
         focusable: true, // TV 遥控器 D-pad 焦点导航（轮播大卡）
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(R.card),
+          // 全宽大图只改圆角（视觉风险小），渐变/Squircle 改造成本高不动。
+          borderRadius: BorderRadius.circular(StyleTokens.cardRadius(context)),
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -1477,6 +1490,48 @@ class _ComicCardState extends State<_ComicCard> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final style = context.uiStyle;
+    final cardR = StyleTokens.cardRadius(context);
+    // 三套风格差异化（仅在装饰层按风格分支，尺寸/padding/热区一律不动）：
+    //   minimalist：与既有实现逐字节一致（surface 底 + 圆角 + 无阴影）。
+    //   xiaomi：内容底改品牌渐变 + SquircleClipper 剪裁（HyperOS 特征）。
+    //   apple：surface 底 + StyleTokens.cardBorder 细分隔线。
+    // hover 位移 -4 三风格通用保留（交互语义，非风格视觉）。
+    final Widget cardContent;
+    if (style == UIStyle.xiaomi) {
+      // 小米：内容底改品牌渐变 + SquircleClipper 剪裁（decoration.gradient
+      // 承接 Gradient 类型；不用 color 走 Color 通道，避免类型冲突）。
+      cardContent = ClipPath(
+        clipper: SquircleClipper(radius: cardR),
+        child: Container(
+          color: scheme.surface,
+          decoration: BoxDecoration(
+            gradient: StyleTokens.cardGradient(context),
+          ),
+          child: _body(context),
+        ),
+      );
+    } else if (style == UIStyle.apple) {
+      cardContent = ClipRRect(
+        borderRadius: BorderRadius.circular(cardR),
+        child: Container(
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            border: Border.fromBorderSide(StyleTokens.cardBorder(context)!),
+          ),
+          child: _body(context),
+        ),
+      );
+    } else {
+      // minimalist：保持原实现（外层装饰圆角 + 内层 ClipRRect + surface 底）。
+      cardContent = ClipRRect(
+        borderRadius: BorderRadius.circular(cardR),
+        child: Container(
+          color: scheme.surface,
+          child: _body(context),
+        ),
+      );
+    }
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
@@ -1489,98 +1544,98 @@ class _ComicCardState extends State<_ComicCard> {
           curve: Curves.easeOutCubic,
           transform: Matrix4.identity()..translateByDouble(0.0, _hover ? -4 : 0, 0.0, 1.0),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(R.card),
+            borderRadius: BorderRadius.circular(cardR),
             // Minimalist：卡片不使用投影，悬停仅以微位移反馈。
             boxShadow: const [],
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(R.card),
-            child: Container(
-              color: scheme.surface,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          // 网格卡不用 Hero：同一作品会出现在多个 tab 的同款列表中
-                          // （首页/漫画 tab 都是 HomePage 实例，IndexedStack 同时保活
-                          // 所有 tab），同 tag 会触发「multiple heroes share the same tag」。
-                          child: CachedImage(
-                            widget.item.pic,
-                            fit: BoxFit.cover,
-                            radius: 0,
-                          ),
-                        ),
-                        if ((widget.item.author ?? '').isNotEmpty)
-                          Positioned(
-                            top: 6,
-                            left: 6,
-                            right: 6,
-                            child: Container(
-                              constraints: const BoxConstraints(maxWidth: 100),
-                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.55),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                widget.item.author!,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 9,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ),
-                        // 更新/完结状态角标（如"更新至第19集"/"全12集"）
-                        if ((widget.item.remarks ?? '').isNotEmpty)
-                          Positioned(
-                            top: 6,
-                            right: 6,
-                            child: Container(
-                              constraints: const BoxConstraints(maxWidth: 84),
-                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: scheme.primary.withValues(alpha: 0.9),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                widget.item.remarks!,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 8.5,
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
-                    child: Text(
-                      widget.item.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: scheme.onSurface,
-                          ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          child: cardContent,
         ),
       ),
+    );
+  }
+
+  /// 卡片内容体（封面 + 作者/更新角标 + 标题）：三风格共用，仅装饰层分支。
+  Widget _body(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Stack(
+            children: [
+              Positioned.fill(
+                // 网格卡不用 Hero：同一作品会出现在多个 tab 的同款列表中
+                // （首页/漫画 tab 都是 HomePage 实例，IndexedStack 同时保活
+                // 所有 tab），同 tag 会触发「multiple heroes share the same tag」。
+                child: CachedImage(
+                  widget.item.pic,
+                  fit: BoxFit.cover,
+                  radius: 0,
+                ),
+              ),
+              if ((widget.item.author ?? '').isNotEmpty)
+                Positioned(
+                  top: 6,
+                  left: 6,
+                  right: 6,
+                  child: Container(
+                    constraints: const BoxConstraints(maxWidth: 100),
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      widget.item.author!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 9,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              // 更新/完结状态角标（如"更新至第19集"/"全12集"）
+              if ((widget.item.remarks ?? '').isNotEmpty)
+                Positioned(
+                  top: 6,
+                  right: 6,
+                  child: Container(
+                    constraints: const BoxConstraints(maxWidth: 84),
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: scheme.primary.withValues(alpha: 0.9),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      widget.item.remarks!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 8.5,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
+          child: Text(
+            widget.item.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: scheme.onSurface,
+                ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1873,6 +1928,13 @@ class _RecommendCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     if (items.isEmpty) return const SizedBox.shrink();
+    // 风格化（横向大卡内的小封面卡）：
+    //   minimalist：直接 StyleTokens.cardRadius，无渐变无描边。
+    //   xiaomi：SquircleClipper + 渐变底（超椭圆剪裁 + 品牌渐变）。
+    //   apple：surface 底 + cardBorder 细分隔线。
+    // 布局尺寸（96x128 封面、10 间距、156 行高）保持原值不变。
+    final style = context.uiStyle;
+    final cardR = StyleTokens.cardRadius(context);
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 14),
       child: Column(
@@ -1903,6 +1965,54 @@ class _RecommendCard extends StatelessWidget {
               separatorBuilder: (_, __) => const SizedBox(width: 10),
               itemBuilder: (context, i) {
                 final r = items[i];
+                final Widget coverImage;
+                if (style == UIStyle.xiaomi) {
+                  coverImage = ClipPath(
+                    clipper: SquircleClipper(radius: cardR),
+                    child: Container(
+                      color: scheme.surface,
+                      decoration: BoxDecoration(
+                        gradient: StyleTokens.cardGradient(context),
+                      ),
+                      child: CachedImage(
+                        r.item.pic,
+                        width: 96,
+                        height: 128,
+                        fit: BoxFit.cover,
+                        radius: 0,
+                      ),
+                    ),
+                  );
+                } else if (style == UIStyle.apple) {
+                  coverImage = ClipRRect(
+                    borderRadius: BorderRadius.circular(cardR),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: scheme.surface,
+                        border:
+                            Border.fromBorderSide(StyleTokens.cardBorder(context)!),
+                      ),
+                      child: CachedImage(
+                        r.item.pic,
+                        width: 96,
+                        height: 128,
+                        fit: BoxFit.cover,
+                        radius: 0,
+                      ),
+                    ),
+                  );
+                } else {
+                  coverImage = ClipRRect(
+                    borderRadius: BorderRadius.circular(cardR),
+                    child: CachedImage(
+                      r.item.pic,
+                      width: 96,
+                      height: 128,
+                      fit: BoxFit.cover,
+                      radius: 0,
+                    ),
+                  );
+                }
                 return SizedBox(
                   width: 96,
                   child: GestureDetector(
@@ -1910,16 +2020,7 @@ class _RecommendCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: CachedImage(
-                            r.item.pic,
-                            width: 96,
-                            height: 128,
-                            fit: BoxFit.cover,
-                            radius: 10,
-                          ),
-                        ),
+                        coverImage,
                         const SizedBox(height: 4),
                         Text(
                           r.item.name,

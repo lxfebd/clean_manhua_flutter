@@ -27,6 +27,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'capabilities/capability_plugin_manager.dart';
 import 'theme.dart';
 import 'ui/main_shell.dart';
+import 'ui/style_scope.dart';
 
 /// 桌面端窗口管理：限定最小尺寸、设置标题、记忆并恢复上次窗口尺寸/位置。
 /// 不隐藏系统标题栏（避免改动 Windows 原生 runner 导致构建失败），保持稳妥。
@@ -232,6 +233,8 @@ class YingManHeAppState extends State<YingManHeApp>
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   ThemeMode _themeMode = ThemeMode.light;
   int _themeId = 0;
+  /// 用户手动覆盖的 UI 风格；null = 跟随平台（UIStyle.forPlatform 自动映射）。
+  UIStyle? _uiStyleOverride;
   bool _loaded = false;
 
   @override
@@ -297,10 +300,12 @@ class YingManHeAppState extends State<YingManHeApp>
   Future<void> _loadTheme() async {
     final d = await LocalStore.darkMode();
     final tid = await LocalStore.themeId();
+    final styleId = await LocalStore.uiStyle();
     if (mounted) {
       setState(() {
         _themeMode = d ? ThemeMode.dark : ThemeMode.light;
         _themeId = tid;
+        _uiStyleOverride = styleId == null ? null : UIStyle.fromId(styleId);
         _loaded = true;
       });
     }
@@ -314,6 +319,15 @@ class YingManHeAppState extends State<YingManHeApp>
     setState(() => _themeId = id);
   }
 
+  /// 切换 UI 风格：null 表示「跟随平台」，否则固定到指定风格。
+  void setUiStyle(UIStyle? style) {
+    setState(() => _uiStyleOverride = style);
+  }
+
+  /// 当前生效风格（跟随平台时由 [UIStyle.forPlatform] 解析）。
+  UIStyle get effectiveStyle =>
+      _uiStyleOverride ?? UIStyle.forPlatform(defaultTargetPlatform);
+
   @override
   Widget build(BuildContext context) {
     // 主题在 MaterialApp 外构建，MediaQuery 尚不可用；用 View 直接读逻辑宽度，
@@ -321,16 +335,21 @@ class YingManHeAppState extends State<YingManHeApp>
     final view = View.of(context);
     final isTablet =
         (view.physicalSize.width / view.devicePixelRatio) >= 600.0;
-    final themeData = AppTheme.light(_themeId, isTablet);
-    final darkThemeData = AppTheme.dark(_themeId, isTablet);
+    final style = effectiveStyle;
+    final themeData = AppTheme.light(_themeId, isTablet, style);
+    final darkThemeData = AppTheme.dark(_themeId, isTablet, style);
     final effectiveMode = _loaded ? _themeMode : ThemeMode.light;
     // 用 AnimatedTheme 包住 MaterialApp：用户在设置/我的页切换深色或种子色时，
     // 220ms 内完成明暗/色相过渡，避免主题瞬间切换的闪烁感。
-    return AnimatedTheme(
-      data: effectiveMode == ThemeMode.dark ? darkThemeData : themeData,
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-      child: MaterialApp(
+    // StyleScope 挂在 AnimatedTheme 外层：风格切换同样平滑过渡，且整树可
+    // 通过 context.uiStyle 读到最终风格（含「跟随平台」解析结果）。
+    return StyleScope(
+      style: style,
+      child: AnimatedTheme(
+        data: effectiveMode == ThemeMode.dark ? darkThemeData : themeData,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        child: MaterialApp(
         title: '星漫匣',
         debugShowCheckedModeBanner: false,
         navigatorKey: _navigatorKey,
@@ -383,6 +402,7 @@ class YingManHeAppState extends State<YingManHeApp>
           ),
         ),
         home: const MainShell(),
+      ),
       ),
     );
   }

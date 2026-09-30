@@ -9,6 +9,8 @@ import '../net/local_store.dart';
 import 'reader_page.dart';
 import 'responsive.dart';
 import 'detail_batch_download_sheet.dart';
+import 'style_scope.dart';
+import 'style_tokens.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
@@ -164,6 +166,7 @@ class _DetailPageState extends State<DetailPage> {
         final mq = MediaQuery.of(context);
         final name = _detail?.name ?? widget.name ?? '加载中…';
         final pic = _detail?.pic ?? widget.pic;
+        final style = context.uiStyle;
 
         // 分栏布局：Expanded 及以上（≥840dp）才左右分栏。
         //
@@ -255,21 +258,38 @@ class _DetailPageState extends State<DetailPage> {
                       child: FadeSlideIn(
                         delay: const Duration(milliseconds: 300),
                         offset: 14,
-                        child: Container(
-                          margin: EdgeInsets.fromLTRB(
-                            Responsive.pagePadding(context),
-                            4,
-                            Responsive.pagePadding(context),
-                            4,
+                      child: Container(
+                        margin: EdgeInsets.fromLTRB(
+                          Responsive.pagePadding(context),
+                          4,
+                          Responsive.pagePadding(context),
+                          4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: scheme.surface,
+                          // 极简锁原值 14（StyleTokens.cardRadius 极简=12，与现状不匹配）；
+                          // 小米 20 / 苹果 12 走 token。
+                          borderRadius: BorderRadius.circular(
+                            style == UIStyle.minimalist
+                                ? 14
+                                : StyleTokens.cardRadius(context),
                           ),
-                          decoration: BoxDecoration(
-                            color: scheme.surface,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: scheme.onSurface.withValues(alpha: 0.06),
-                            ),
+                          // 极简保持现状 hairline（onSurface@0.06, 1px）；
+                          // 小米无描边（null，靠彩色阴影浮起）；苹果 0.5px alpha0.4 细描边。
+                          border: Border.all(
+                            color: style == UIStyle.minimalist
+                                ? scheme.onSurface.withValues(alpha: 0.06)
+                                : (StyleTokens.cardBorder(context) ?? BorderSide.none).color,
+                            width: style == UIStyle.minimalist
+                                ? 1
+                                : (StyleTokens.cardBorder(context) ?? BorderSide.none).width,
                           ),
-                          clipBehavior: Clip.antiAlias,
+                          // 极简保持无阴影（原值）；小米加彩色阴影；苹果无阴影。
+                          boxShadow: style == UIStyle.minimalist
+                              ? null
+                              : StyleTokens.cardShadow(context),
+                        ),
+                        clipBehavior: Clip.antiAlias,
                           child: Column(
                             children: [
                               for (
@@ -308,7 +328,10 @@ class _DetailPageState extends State<DetailPage> {
                                   Expanded(
                                     child: InkWell(
                                       onTap: _showAllChapters,
-                                      borderRadius: BorderRadius.circular(8),
+                                      // 极简 R.control=8 与 token 一致，走 token 三风格化。
+                                      borderRadius: BorderRadius.circular(
+                                        StyleTokens.controlRadius(context),
+                                      ),
                                       child: Padding(
                                         padding: const EdgeInsets.symmetric(
                                           vertical: 13,
@@ -347,7 +370,10 @@ class _DetailPageState extends State<DetailPage> {
                                   Expanded(
                                     child: InkWell(
                                       onTap: _showBatchDownload,
-                                      borderRadius: BorderRadius.circular(8),
+                                      // 极简 R.control=8 与 token 一致，走 token 三风格化。
+                                      borderRadius: BorderRadius.circular(
+                                        StyleTokens.controlRadius(context),
+                                      ),
                                       child: Padding(
                                         padding: const EdgeInsets.symmetric(
                                           vertical: 13,
@@ -510,6 +536,7 @@ class _DetailPageState extends State<DetailPage> {
   ) {
     final topPad = mq.padding.top;
     final d = _detail;
+    final style = context.uiStyle;
     final metaParts = <String>[
       if (d != null && (d.author ?? '').isNotEmpty) '${d.author} 著',
       if (d != null && (d.type ?? '').isNotEmpty) d.type!,
@@ -544,7 +571,13 @@ class _DetailPageState extends State<DetailPage> {
                   child: AspectRatio(
                     aspectRatio: 2 / 3,
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(18),
+                      // 极简锁原值 18（StyleTokens.controlRadius 极简=8，与现状不匹配）；
+                      // 小米 14 / 苹果 10 走 token。
+                      borderRadius: BorderRadius.circular(
+                        style == UIStyle.minimalist
+                            ? 18
+                            : StyleTokens.controlRadius(context),
+                      ),
                       child: Container(
                         width: double.infinity,
                         color: scheme.surfaceContainerHighest,
@@ -744,6 +777,7 @@ class _DetailPageState extends State<DetailPage> {
         isExpanded
             ? (chapters.length < 20 ? chapters.length : 20)
             : (chapters.length < 12 ? chapters.length : 12);
+    final style = context.uiStyle;
     return Container(
       margin: EdgeInsets.fromLTRB(
         Responsive.pagePadding(context),
@@ -753,8 +787,27 @@ class _DetailPageState extends State<DetailPage> {
       ),
       decoration: BoxDecoration(
         color: scheme.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: scheme.onSurface.withValues(alpha: 0.06)),
+        // 极简锁原值 14（StyleTokens.cardRadius 极简=12，与现状不匹配）；
+        // 小米 20 / 苹果 12 走 token。
+        borderRadius: BorderRadius.circular(
+          style == UIStyle.minimalist
+              ? 14
+              : StyleTokens.cardRadius(context),
+        ),
+        // 极简保持现状 hairline（onSurface@0.06, 1px）；
+        // 小米无描边；苹果 0.5px alpha0.4 细描边。
+        border: Border.all(
+          color: style == UIStyle.minimalist
+              ? scheme.onSurface.withValues(alpha: 0.06)
+              : (StyleTokens.cardBorder(context) ?? BorderSide.none).color,
+          width: style == UIStyle.minimalist
+              ? 1
+              : (StyleTokens.cardBorder(context) ?? BorderSide.none).width,
+        ),
+        // 极简保持无阴影；小米加彩色阴影；苹果无阴影。
+        boxShadow: style == UIStyle.minimalist
+            ? null
+            : StyleTokens.cardShadow(context),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -784,7 +837,10 @@ class _DetailPageState extends State<DetailPage> {
               Expanded(
                 child: InkWell(
                   onTap: _showAllChapters,
-                  borderRadius: BorderRadius.circular(8),
+                  // 极简 R.control=8 与 token 一致，走 token 三风格化。
+                  borderRadius: BorderRadius.circular(
+                    StyleTokens.controlRadius(context),
+                  ),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     child: Row(
@@ -815,7 +871,10 @@ class _DetailPageState extends State<DetailPage> {
               Expanded(
                 child: InkWell(
                   onTap: _showBatchDownload,
-                  borderRadius: BorderRadius.circular(8),
+                  // 极简 R.control=8 与 token 一致，走 token 三风格化。
+                  borderRadius: BorderRadius.circular(
+                    StyleTokens.controlRadius(context),
+                  ),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     child: Row(
@@ -937,8 +996,14 @@ class _DetailPageState extends State<DetailPage> {
     showResponsiveBottomSheet<void>(
       context: context,
       backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(
+            context.uiStyle == UIStyle.minimalist
+                ? 20
+                : StyleTokens.sheetRadius(context),
+          ),
+        ),
       ),
       builder:
           (ctx) => SafeArea(
@@ -1141,6 +1206,7 @@ class _Hero extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final style = context.uiStyle;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -1203,7 +1269,13 @@ class _Hero extends StatelessWidget {
                       ),
                       decoration: BoxDecoration(
                         color: scheme.secondary,
-                        borderRadius: BorderRadius.circular(5),
+                        // 极简锁原值 5（StyleTokens.controlRadius 极简=8，与现状不匹配）；
+                        // 小米 14 / 苹果 10 走 token。
+                        borderRadius: BorderRadius.circular(
+                          style == UIStyle.minimalist
+                              ? 5
+                              : StyleTokens.controlRadius(context),
+                        ),
                         // Minimalist：徽标扁平，不使用辉光。
                         boxShadow: const [],
                       ),
@@ -1225,7 +1297,13 @@ class _Hero extends StatelessWidget {
                       ),
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.16),
-                        borderRadius: BorderRadius.circular(6),
+                        // 极简锁原值 6（StyleTokens.controlRadius 极简=8，与现状不匹配）；
+                        // 小米 14 / 苹果 10 走 token。
+                        borderRadius: BorderRadius.circular(
+                          style == UIStyle.minimalist
+                              ? 6
+                              : StyleTokens.controlRadius(context),
+                        ),
                         border: Border.all(
                           color: Colors.white.withValues(alpha: 0.3),
                           width: 0.5,
@@ -1334,6 +1412,7 @@ class _MetaSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final d = detail;
+    final style = context.uiStyle;
     final metaParts = <String>[
       if ((d.author ?? '').isNotEmpty) '${d.author} 著',
       if ((d.type ?? '').isNotEmpty) d.type!,
@@ -1353,7 +1432,13 @@ class _MetaSection extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               ClipRRect(
-                borderRadius: BorderRadius.circular(10),
+                // 极简锁原值 10（StyleTokens.controlRadius 极简=8，与现状不匹配）；
+                // 小米 14 / 苹果 10 走 token。
+                borderRadius: BorderRadius.circular(
+                  style == UIStyle.minimalist
+                      ? 10
+                      : StyleTokens.controlRadius(context),
+                ),
                 child: Container(
                   width: 104,
                   height: 148,
@@ -1448,11 +1533,18 @@ class _StatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final style = context.uiStyle;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.primary,
-        borderRadius: BorderRadius.circular(5),
+        // 极简锁原值 5（StyleTokens.controlRadius 极简=8，与现状不匹配）；
+        // 小米 14 / 苹果 10 走 token。
+        borderRadius: BorderRadius.circular(
+          style == UIStyle.minimalist
+              ? 5
+              : StyleTokens.controlRadius(context),
+        ),
       ),
       child: Text(
         label,
@@ -1474,11 +1566,18 @@ class _CountPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final style = context.uiStyle;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: scheme.onSurface.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(5),
+        // 极简锁原值 5（StyleTokens.controlRadius 极简=8，与现状不匹配）；
+        // 小米 14 / 苹果 10 走 token。
+        borderRadius: BorderRadius.circular(
+          style == UIStyle.minimalist
+              ? 5
+              : StyleTokens.controlRadius(context),
+        ),
       ),
       child: Text(
         label,

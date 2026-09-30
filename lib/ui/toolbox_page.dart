@@ -7,6 +7,8 @@ import '../net/image_cache.dart';
 import 'capability_center_page.dart';
 import 'responsive.dart';
 import 'settings_page.dart';
+import 'style_scope.dart';
+import 'style_tokens.dart';
 import 'tokens.dart';
 import 'tools/device_tools_page.dart';
 import 'tools/image_tools_page.dart';
@@ -15,7 +17,96 @@ import 'tools/text_tools_page.dart';
 import 'webview_page.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/motion.dart';
+import 'widgets/squircle.dart';
 import 'widgets/tap_target.dart';
+
+/// 工具箱三风格 helper：为 _buildToolEntry / _buildCacheCleaner / _toolTile
+/// 及 BottomSheet 面板提供按风格分派的装饰属性。
+///
+/// 极简分支完全等价于历史实现：
+/// - 分组列表卡（_buildToolEntry / _buildCacheCleaner）= R.card 12 圆角 + hairline 0.08 描边 + 无阴影；
+/// - 手机网格卡（_toolTile）= R.card 12 圆角 + scheme.outline 1px 描边 + 无阴影。
+/// 小米/苹果只影响视觉属性（圆角档、描边/阴影、渐变底），不碰布局/热区。
+class _CardD {
+  const _CardD._();
+
+  /// [outline] 为 true 时极简下用 scheme.outline（网格卡现状）；
+  /// 为 false 时用 hairline 0.08（分组列表卡现状）。
+  static BoxDecoration deco(BuildContext c, ColorScheme s,
+      {required bool outline}) {
+    final r = c.uiStyle == UIStyle.minimalist
+        ? R.card
+        : StyleTokens.cardRadius(c);
+    final b = _border(c, s, outline);
+    return BoxDecoration(
+      gradient: StyleTokens.cardGradient(c),
+      color: s.surface,
+      borderRadius: BorderRadius.circular(r),
+      border: b,
+      boxShadow: StyleTokens.cardShadow(c),
+    );
+  }
+
+  /// 分组列表卡片（_buildToolEntry / _buildCacheCleaner）：极简 = hairline 0.08。
+  static BoxDecoration entryCardDeco(BuildContext c, ColorScheme s) =>
+      deco(c, s, outline: false);
+
+  /// 手机网格卡片（_toolTile）：极简 = scheme.outline。
+  static BoxDecoration tileCardDeco(BuildContext c, ColorScheme s) =>
+      deco(c, s, outline: true);
+
+  static Border? _border(BuildContext c, ColorScheme s, bool outline) {
+    if (c.uiStyle == UIStyle.minimalist) {
+      return Border.all(
+        color: outline
+            ? s.outline
+            : T.color(s.onSurface, TextTier.hairline,
+                brightness: s.brightness),
+        width: 1,
+      );
+    }
+    final side = StyleTokens.cardBorder(c);
+    return side == null ? null : Border.fromBorderSide(side);
+  }
+}
+
+/// 图标方块（56×56 / 38×38 / 48×48）：极简锁 R.control（现状）；
+/// 小米换超椭圆（SquircleClipper + R.controlXiaomi 14dp 半径）；
+/// 苹果用 StyleTokens.controlRadius（R.controlApple = 10dp）。
+class _IconBox extends StatelessWidget {
+  const _IconBox({
+    required this.c,
+    required this.scheme,
+    required this.icon,
+    required this.boxSize,
+    required this.iconSize,
+  });
+  final BuildContext c;
+  final ColorScheme scheme;
+  final IconData icon;
+  final double boxSize;
+  final double iconSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final ui = c.uiStyle;
+    final box = Container(
+      width: boxSize,
+      height: boxSize,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(
+            ui == UIStyle.minimalist ? R.control : StyleTokens.controlRadius(c)),
+        color: scheme.primary.withValues(alpha: 0.1),
+      ),
+      child: Icon(icon, size: iconSize, color: scheme.primary),
+    );
+    if (ui != UIStyle.xiaomi) return box;
+    return ClipPath(
+      clipper: const SquircleClipper(radius: R.controlXiaomi),
+      child: box,
+    );
+  }
+}
 
 /// 工具箱：本地实用工具集合。
 ///
@@ -485,24 +576,15 @@ class ToolboxPageState extends State<ToolboxPage> {
         opacity: enabled ? 1 : 0.5,
         child: Container(
         padding: const EdgeInsets.all(S.x16),
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: BorderRadius.circular(R.card),
-          border: Border.all(
-            color: T.color(scheme.onSurface, TextTier.hairline,
-                brightness: scheme.brightness),
-          ),
-        ),
+        decoration: _CardD.entryCardDeco(context, scheme),
         child: Row(
           children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: scheme.primary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(R.control),
-              ),
-              child: Icon(icon, size: 28, color: scheme.primary),
+            _IconBox(
+              c: context,
+              scheme: scheme,
+              icon: icon,
+              boxSize: 56,
+              iconSize: 28,
             ),
             const SizedBox(width: S.x16),
             Expanded(
@@ -544,28 +626,18 @@ class ToolboxPageState extends State<ToolboxPage> {
   Widget _buildCacheCleaner(ColorScheme scheme) {
     return Container(
       padding: const EdgeInsets.all(S.x16),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(R.card),
-        border: Border.all(
-          color: T.color(scheme.onSurface, TextTier.hairline,
-              brightness: scheme.brightness),
-        ),
-      ),
+      decoration: _CardD.entryCardDeco(context, scheme),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: scheme.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(R.control),
-                ),
-                child: Icon(Icons.cleaning_services_outlined,
-                    size: 24, color: scheme.primary),
+              _IconBox(
+                c: context,
+                scheme: scheme,
+                icon: Icons.cleaning_services_outlined,
+                boxSize: 48,
+                iconSize: 24,
               ),
               const SizedBox(width: S.x16),
               Expanded(
@@ -832,25 +904,17 @@ class ToolboxPageState extends State<ToolboxPage> {
         opacity: enabled ? 1 : 0.5,
         child: Container(
         padding: const EdgeInsets.all(S.x12),
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: BorderRadius.circular(R.card),
-          border: Border.all(color: scheme.outline),
-          // Minimalist：卡片靠 hairline 描边分层，无投影。
-          boxShadow: const [],
-        ),
+        decoration: _CardD.tileCardDeco(context, scheme),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: scheme.primary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(R.control),
-              ),
-              child: Icon(icon, size: 20, color: scheme.primary),
+            _IconBox(
+              c: context,
+              scheme: scheme,
+              icon: icon,
+              boxSize: 38,
+              iconSize: 20,
             ),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1012,8 +1076,10 @@ class ToolboxPageState extends State<ToolboxPage> {
       context: context,
       isScrollControlled: true,
       backgroundColor: scheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(StyleTokens.sheetRadius(context)),
+        ),
       ),
       builder: (_) => SafeArea(
         child: SingleChildScrollView(

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../style_scope.dart';
+import '../style_tokens.dart';
+
 /// 分区标题
 class SectionLabel extends StatelessWidget {
   final String label;
@@ -16,7 +19,8 @@ class SectionLabel extends StatelessWidget {
           height: 16,
           decoration: BoxDecoration(
             color: scheme.primary,
-            borderRadius: BorderRadius.circular(2),
+            // 小米风格指示条也随卡片走超椭圆（保持风格统一）。
+            borderRadius: BorderRadius.circular(context.uiStyle == UIStyle.xiaomi ? 6 : 2),
           ),
         ),
         const SizedBox(width: 8),
@@ -40,11 +44,15 @@ class SettingsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final r = StyleTokens.cardRadius(context);
+    final border = StyleTokens.cardBorder(context);
+    final shadows = StyleTokens.cardShadow(context);
     return Container(
       decoration: BoxDecoration(
         color: scheme.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: scheme.onSurface.withValues(alpha: 0.06)),
+        borderRadius: BorderRadius.circular(r),
+        border: border == null ? null : Border.all(color: border.color, width: border.width),
+        boxShadow: shadows,
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(children: children),
@@ -75,6 +83,7 @@ class SettingsTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final disabledColor = scheme.onSurface.withValues(alpha: 0.38);
+    final iconRadius = StyleTokens.controlRadius(context);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -90,7 +99,7 @@ class SettingsTile extends StatelessWidget {
                   height: 34,
                   decoration: BoxDecoration(
                     color: scheme.primary.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(iconRadius),
                   ),
                   child: Icon(
                     icon,

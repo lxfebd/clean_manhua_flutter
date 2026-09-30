@@ -16,6 +16,8 @@ import 'native_player_page.dart';
 import 'novel_home_page.dart';
 import 'profile_page.dart';
 import 'responsive.dart';
+import 'style_scope.dart';
+import 'style_tokens.dart';
 import 'tokens.dart';
 import 'toolbox_page.dart';
 import 'unified_search_page.dart';
@@ -628,6 +630,10 @@ class _NavigationRailItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // 侧栏胶囊圆角：极简锁既有 10（回归面为零），小米/苹果走风格档位。
+    final railRadius = context.uiStyle == UIStyle.minimalist
+        ? 10.0
+        : StyleTokens.controlRadius(context);
 
     if (horizontal) {
       return HoverEffect(
@@ -640,7 +646,7 @@ class _NavigationRailItem extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 14),
           decoration: BoxDecoration(
             color: isSelected ? scheme.primary : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(railRadius),
           ),
           child: Row(
             children: [
@@ -684,7 +690,7 @@ class _NavigationRailItem extends StatelessWidget {
         height: showLabel ? 62 : 52,
         decoration: BoxDecoration(
           color: isSelected ? scheme.primary : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(railRadius),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -723,6 +729,11 @@ class _NavigationRailItem extends StatelessWidget {
 }
 
 /// 极简底部导航：白底 + 顶部 hairline 分割线，选中态用墨色 + 顶部短指示条。
+///
+/// 三套风格差异：
+/// - [UIStyle.minimalist]：顶部墨色短指示条 + 无底块（现有实现）。
+/// - [UIStyle.xiaomi]：选中项浮起**胶囊色块高亮**（品牌色渐变），HyperOS 观感。
+/// - [UIStyle.apple]：系统蓝选中 + 顶部指示条收敛（iOS 简化）。
 class _MinimalBottomBar extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
@@ -736,9 +747,14 @@ class _MinimalBottomBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final style = context.uiStyle;
+    // 小米/苹果风格的底栏背景：苹果用毛玻璃半透明浮起，小米用纯表面。
+    final bg = style == UIStyle.apple
+        ? scheme.surface.withValues(alpha: 0.85)
+        : scheme.surface;
     return Container(
       decoration: BoxDecoration(
-        color: scheme.surface,
+        color: bg,
         border: Border(
           top: BorderSide(color: scheme.outline, width: 1),
         ),
@@ -814,8 +830,16 @@ class _Item extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isOn = index == current;
-    final fg = Theme.of(context).colorScheme.onSurface;
+    final scheme = Theme.of(context).colorScheme;
+    final fg = scheme.onSurface;
+    final style = context.uiStyle;
+    // 选中色：极简/小米用主题前景（墨），苹果用系统蓝。
+    final activeColor = style == UIStyle.apple
+        ? Theme.of(context).colorScheme.primary
+        : fg;
     final softColor = fg.withValues(alpha: isDark ? 0.45 : 0.4);
+    // 小米选中胶囊高亮（品牌色 12% 底 + 主题色图标/文字）。
+    final xiaomiHighlight = style == UIStyle.xiaomi && isOn;
     return Expanded(
       child: PressableScale(
         onTap: () => onTap(index),
@@ -826,23 +850,47 @@ class _Item extends StatelessWidget {
         child: TapTargetMin(
           child: Stack(
             children: [
-              // 选中指示条：顶部居中的墨色短线（Minimalist 标志性细节）
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 240),
-                curve: Curves.easeOutCubic,
-                top: 0,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 240),
-                    curve: Curves.easeOutCubic,
-                    width: isOn ? 20 : 0,
-                    height: 2,
-                    color: fg,
+              // 极简/苹果：顶部选中指示条（苹果收敛为系统蓝短线）
+              if (!xiaomiHighlight)
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 240),
+                  curve: Curves.easeOutCubic,
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 240),
+                      curve: Curves.easeOutCubic,
+                      width: isOn ? 20 : 0,
+                      height: 2,
+                      color: activeColor,
+                    ),
                   ),
                 ),
-              ),
+              // 小米：选中项胶囊色块（44 高、渐变品牌底）
+              if (xiaomiHighlight)
+                Positioned(
+                  left: 8,
+                  right: 8,
+                  top: 4,
+                  bottom: 4,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    curve: Curves.easeOutCubic,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          scheme.primary.withValues(alpha: 0.16),
+                          scheme.primary.withValues(alpha: 0.1),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                ),
               Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -851,7 +899,7 @@ class _Item extends StatelessWidget {
                     Icon(
                       isOn ? active : icon,
                       size: 20,
-                      color: isOn ? fg : softColor,
+                      color: isOn ? activeColor : softColor,
                     ),
                     const SizedBox(height: 2),
                     AnimatedDefaultTextStyle(
@@ -861,7 +909,7 @@ class _Item extends StatelessWidget {
                         height: 1.1,
                         letterSpacing: 0.2,
                         fontWeight: isOn ? FontWeight.w600 : FontWeight.w500,
-                        color: isOn ? fg : softColor,
+                        color: isOn ? activeColor : softColor,
                       ),
                       child: Text(label),
                     ),

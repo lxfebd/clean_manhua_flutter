@@ -19,6 +19,7 @@ import '../net/webdav_sync.dart';
 import '../theme.dart';
 import '../utils/danmaku.dart';
 import 'responsive.dart';
+import 'style_scope.dart';
 import 'source_manage_page.dart';
 import 'keyboard_shortcuts.dart';
 import 'widgets/app_toast.dart';
@@ -42,6 +43,8 @@ class _SettingsPageState extends State<SettingsPage> {
   int _readerMode = 1; // 0=纵向滚动，1=单页横向（默认），2=双页并排
   bool _rtl = false;
   int _themeId = 0;
+  /// null = 跟随平台；否则为手动固定风格。
+  UIStyle? _uiStyleOverride;
   bool _loaded = false;
   bool _loadError = false; // 本地设置读取失败（错误态可重试）
   bool _checking = false;
@@ -72,6 +75,7 @@ class _SettingsPageState extends State<SettingsPage> {
       final mode = await LocalStore.readerMode();
       final rtl = await LocalStore.rtlReader();
       final tid = await LocalStore.themeId();
+      final styleId = await LocalStore.uiStyle();
       final dm = await LocalStore.danmakuSettings();
       final freq = await ShelfUpdater.frequency();
       final notify = await UpdateNotifier.enabled();
@@ -82,6 +86,7 @@ class _SettingsPageState extends State<SettingsPage> {
           _readerMode = mode;
           _rtl = rtl;
           _themeId = tid;
+          _uiStyleOverride = styleId == null ? null : UIStyle.fromId(styleId);
           _danmaku = dm;
           _updateFreq = freq;
           _notifyEnabled = notify;
@@ -239,6 +244,23 @@ class _SettingsPageState extends State<SettingsPage> {
                             YingManHeApp.of(context)?.setThemeId(v);
                             await LocalStore.setThemeId(v);
                             if (mounted) setState(() => _themeId = v);
+                          },
+                        ),
+                        Container(
+                          height: 0.5,
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.06,
+                          ),
+                        ),
+                        _UiStyleSelector(
+                          current: _uiStyleOverride,
+                          autoLabel: UIStyle.forPlatform(
+                            Theme.of(context).platform,
+                          ).label,
+                          onChanged: (v) async {
+                            YingManHeApp.of(context)?.setUiStyle(v);
+                            await LocalStore.setUiStyle(v?.id);
+                            if (mounted) setState(() => _uiStyleOverride = v);
                           },
                         ),
                       ],
@@ -1439,6 +1461,130 @@ class _ThemeSelector extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// UI 风格选择器：跟随平台 / 极简 / 小米 / 苹果。
+///
+/// `current == null` 表示「跟随平台」，副标题显示当前平台实际映射到的风格；
+/// 点击选项立即生效（经 [YingManHeApp.setUiStyle] 全树切换并持久化）。
+class _UiStyleSelector extends StatelessWidget {
+  final UIStyle? current;
+  final String autoLabel;
+  final ValueChanged<UIStyle?> onChanged;
+
+  const _UiStyleSelector({
+    required this.current,
+    required this.autoLabel,
+    required this.onChanged,
+  });
+
+  static const _options = <UIStyle?>[
+    null,
+    UIStyle.minimalist,
+    UIStyle.xiaomi,
+    UIStyle.apple,
+  ];
+
+  String _label(UIStyle? s) => s == null ? '跟随平台' : s.label;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.style_outlined,
+                size: 20,
+                color: scheme.onSurface.withValues(alpha: 0.85),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'UI 风格',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: scheme.onSurface,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.only(left: 32),
+            child: Text(
+              current == null ? '当前：$autoLabel（按平台自适应）' : '当前：${current!.label}',
+              style: TextStyle(
+                fontSize: 12,
+                color: scheme.onSurface.withValues(alpha: 0.5),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              for (final s in _options) ...[
+                Expanded(
+                  child: _StyleOption(
+                    label: _label(s),
+                    selected: current == s,
+                    onTap: () => onChanged(s),
+                  ),
+                ),
+                if (s != _options.last) const SizedBox(width: 6),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StyleOption extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _StyleOption({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: selected
+              ? scheme.primary.withValues(alpha: 0.1)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selected ? scheme.primary : scheme.outlineVariant,
+            width: selected ? 1.4 : 1,
+          ),
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+            color: selected ? scheme.primary : scheme.onSurface.withValues(alpha: 0.65),
+          ),
+        ),
       ),
     );
   }
