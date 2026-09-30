@@ -16,6 +16,7 @@ import 'tokens.dart';
 import 'unified_search_page.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/app_toast.dart';
+import 'widgets/frosted_glass.dart';
 import 'widgets/motion.dart';
 import 'widgets/skeleton.dart';
 import 'widgets/squircle.dart';
@@ -554,7 +555,8 @@ class HomePageState extends State<HomePage> {
   }
 
   /// 展开态完整头与收起态精简栏的过渡：完整头随收缩淡出并上移，
-  /// 精简栏从底部淡入（带不透明底，遮住下层重叠的展开态内容）。
+  /// 精简栏从底部淡入（极简/小米带不透明底，遮住下层重叠的展开态内容；
+  /// 苹果是半透明毛玻璃，靠 pinned 头部画在滚过它的内容之上）。
   Widget _buildShrinkableHeader(
       ThemeData theme, double expanded, double current, double t) {
     return ClipRect(
@@ -705,9 +707,8 @@ class HomePageState extends State<HomePage> {
   /// 收起态头部：手机端为搜索 + 类型切换（保核心操作），桌面为完整工具栏。
   Widget _buildCollapsedHeader(ThemeData theme) {
     final isDesktop = DesktopUi.isDesktopPlatform;
-    return Container(
+    final bar = Container(
       height: kToolbarHeight,
-      color: theme.scaffoldBackgroundColor,
       padding: EdgeInsets.fromLTRB(
         isDesktop ? 32 : Responsive.pagePadding(context),
         4,
@@ -734,6 +735,11 @@ class HomePageState extends State<HomePage> {
               ],
             ),
     );
+    // 苹果：固定悬浮头部用真毛玻璃（pinned 头部画在滚过它的内容之上，
+    // BackdropFilter 模糊的是下层，不是本层）；极简/小米保持原纯色底。
+    return context.uiStyle == UIStyle.apple
+        ? FrostedGlass(child: bar)
+        : Container(color: theme.scaffoldBackgroundColor, child: bar);
   }
 
   /// 桌面工具栏行（展开/收起两态共用）：搜索 + 源切换 + 刷新 + 类型分段。

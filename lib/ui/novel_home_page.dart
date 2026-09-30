@@ -13,6 +13,7 @@ import '../net/novel_shelf_store.dart';
 import '../ui/style_scope.dart';
 import '../ui/style_tokens.dart';
 import '../ui/widgets/cached_image.dart';
+import '../ui/widgets/frosted_glass.dart';
 import '../ui/widgets/motion.dart';
 import '../ui/widgets/squircle.dart';
 
@@ -107,7 +108,17 @@ class NovelHomePageState extends State<NovelHomePage> {
         slivers: [
           SliverAppBar(
             pinned: true,
-            backgroundColor: scheme.surface,
+            // 苹果：pinned 顶栏是固定悬浮层，用真毛玻璃（内容从它下方滚过
+            // 时被模糊）；极简/小米保持该调用点原纯色底（scheme.surface）。
+            backgroundColor: context.uiStyle == UIStyle.apple
+                ? Colors.transparent
+                : scheme.surface,
+            flexibleSpace: FlexibleSpaceBar(
+              background: FrostedGlass(
+                fallbackColor: scheme.surface,
+                child: const SizedBox.expand(),
+              ),
+            ),
             // 桌面端侧栏已区分漫画/动漫/小说，顶栏不再重复 TypeSegment，
             // 改为显示当前栏目标题（桌面应用标准顶栏）。
             title: DesktopUi.isDesktopPlatform

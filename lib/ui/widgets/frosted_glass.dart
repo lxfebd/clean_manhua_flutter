@@ -24,6 +24,7 @@ class FrostedGlass extends StatelessWidget {
     this.blurRadius = 28,
     this.alpha,
     this.border,
+    this.fallbackColor,
     this.saturation = 1.0,
   });
 
@@ -41,6 +42,11 @@ class FrostedGlass extends StatelessWidget {
   /// 边框（可传 hairline 细分隔线）。
   final Border? border;
 
+  /// 非苹果风格用的纯色底。传该调用点改造前的原值（极简锁原值原则：
+  /// 头部各处原本用的颜色并不相同 —— 首页头用 scaffoldBackgroundColor、
+  /// 小说页 SliverAppBar 用 scheme.surface），不能由组件统一。
+  final Color? fallbackColor;
+
   /// 饱和度增强（iOS vibrancy 近似，1.0 = 不增强）。
   final double saturation;
 
@@ -51,7 +57,7 @@ class FrostedGlass extends StatelessWidget {
       // 非苹果风格：直接纯色底（不启动滤镜，性能零开销）。
       return DecoratedBox(
         decoration: BoxDecoration(
-          color: StyleTokens.frostedBackground(context),
+          color: fallbackColor ?? StyleTokens.frostedBackground(context),
           borderRadius: BorderRadius.circular(borderRadius),
           border: border,
         ),

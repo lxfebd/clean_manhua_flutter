@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xingmanxia/ui/style_scope.dart';
 import 'package:xingmanxia/ui/style_tokens.dart';
 import 'package:xingmanxia/ui/tokens.dart';
+import 'package:xingmanxia/ui/widgets/frosted_glass.dart';
 import 'package:xingmanxia/ui/widgets/motion.dart';
 import 'package:xingmanxia/ui/widgets/row_separator.dart';
 
@@ -349,6 +350,44 @@ void main() {
             entry.value,
             reason: '${style.name} 槽位 ${entry.key} 应为 ${entry.value}',
           );
+        }
+      }
+    });
+
+    testWidgets('毛玻璃头：只有苹果启动滤镜，其余风格用调用点原色', (tester) async {
+      // 头部各调用点的原色不同（首页收起头 = scaffoldBackgroundColor，小说页
+      // SliverAppBar = scheme.surface），所以 fallbackColor 必须由调用点传入。
+      const original = Color(0xFF101010);
+      for (final (style, glass) in [
+        (UIStyle.apple, true),
+        (UIStyle.xiaomi, false),
+        (UIStyle.minimalist, false),
+      ]) {
+        await tester.pumpWidget(
+          StyleScope.demo(
+            style: style,
+            child: MaterialApp(
+              home: FrostedGlass(
+                fallbackColor: original,
+                child: const SizedBox(height: 44, width: 44),
+              ),
+            ),
+          ),
+        );
+        final glassScope = find.byType(FrostedGlass);
+        final hasFilter = find
+            .descendant(of: glassScope, matching: find.byType(BackdropFilter))
+            .evaluate()
+            .isNotEmpty;
+        expect(hasFilter, glass, reason: '${style.name} 滤镜开关');
+        final dec = tester
+            .widget<DecoratedBox>(
+                find.descendant(of: glassScope, matching: find.byType(DecoratedBox)))
+            .decoration as BoxDecoration;
+        if (glass) {
+          expect(dec.color!.a, closeTo(0.78, 1e-9), reason: '苹果亮色档 0.78');
+        } else {
+          expect(dec.color, original, reason: '${style.name} 用调用点原色');
         }
       }
     });

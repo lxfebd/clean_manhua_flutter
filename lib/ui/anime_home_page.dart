@@ -13,6 +13,7 @@ import 'style_tokens.dart';
 import 'tokens.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/cached_image.dart';
+import 'widgets/frosted_glass.dart';
 import 'widgets/motion.dart';
 import 'widgets/skeleton.dart';
 import 'widgets/squircle.dart';
@@ -667,9 +668,8 @@ class AnimeHomePageState extends State<AnimeHomePage> {
   /// 收起态头部：手机端为搜索 + 类型切换（保核心操作），桌面为完整工具栏。
   Widget _buildCollapsedHeader(ThemeData theme) {
     final isDesktop = DesktopUi.isDesktopPlatform;
-    return Container(
+    final bar = Container(
       height: kToolbarHeight,
-      color: theme.scaffoldBackgroundColor,
       padding: EdgeInsets.fromLTRB(
         isDesktop ? 32 : Responsive.pagePadding(context),
         2,
@@ -696,6 +696,11 @@ class AnimeHomePageState extends State<AnimeHomePage> {
               ],
             ),
     );
+    // 苹果：固定悬浮头部用真毛玻璃；极简/小米保持原纯色底（原值 =
+    // scaffoldBackgroundColor）。
+    return context.uiStyle == UIStyle.apple
+        ? FrostedGlass(child: bar)
+        : Container(color: theme.scaffoldBackgroundColor, child: bar);
   }
 
   /// 桌面工具栏行（展开/收起两态共用）：搜索 + 番剧源切换 + 刷新 + 类型分段。
