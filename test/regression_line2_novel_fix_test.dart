@@ -10,7 +10,6 @@ import 'package:xingmanxia/net/error_logger.dart';
 import 'package:xingmanxia/net/shelf_updater.dart';
 import 'package:xingmanxia/sources/comic_source.dart';
 import 'package:xingmanxia/sources/local_novel_source.dart';
-import 'package:xingmanxia/sources/source_manager.dart';
 import 'package:xingmanxia/ui/novel_reader_page.dart';
 
 /// 小说线 P1 缺陷回归（line2）：
