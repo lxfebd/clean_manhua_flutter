@@ -21,6 +21,7 @@ import 'style_tokens.dart';
 import 'tokens.dart';
 import 'toolbox_page.dart';
 import 'unified_search_page.dart';
+import 'widgets/frosted_glass.dart';
 import 'widgets/mini_player.dart';
 import 'widgets/motion.dart';
 import 'widgets/tap_target.dart';
@@ -748,18 +749,29 @@ class _MinimalBottomBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final style = context.uiStyle;
-    // 小米/苹果风格的底栏背景：苹果用毛玻璃半透明浮起，小米用纯表面。
+    // 苹果底栏走 FrostedGlass 真毛玻璃（固定悬浮层，不随内容滚动，性能安全）；
+    // 极简/小米走纯表面。
+    final border = Border(
+      top: BorderSide(color: scheme.outline, width: 1),
+    );
     final bg = style == UIStyle.apple
-        ? scheme.surface.withValues(alpha: 0.85)
-        : scheme.surface;
-    return Container(
-      decoration: BoxDecoration(
-        color: bg,
-        border: Border(
-          top: BorderSide(color: scheme.outline, width: 1),
-        ),
-      ),
-      child: SafeArea(
+        ? FrostedGlass(border: border, child: _bar(context, scheme, style))
+        : Container(
+            decoration: BoxDecoration(
+              color: scheme.surface,
+              border: border,
+            ),
+            child: _bar(context, scheme, style),
+          );
+    return bg;
+  }
+
+  Widget _bar(
+    BuildContext context,
+    ColorScheme scheme,
+    UIStyle style,
+  ) {
+    return SafeArea(
         top: false,
         child: SizedBox(
           height: 62,
@@ -804,8 +816,7 @@ class _MinimalBottomBar extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 }
 
