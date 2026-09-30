@@ -48,63 +48,50 @@ class SquircleBorder extends ShapeBorder {
 
   /// 生成超椭圆外轮廓路径（n=4）。
   ///
-  /// 结构：上直边 → 右上角(参数扫 π/2) → 右直边 → 右下角 → 下直边 →
-  /// 左下角 → 左直边 → 左上角 → 闭合。四角用统一的超椭圆参数方程
-  /// `x = r·cos(t)^(2/n), y = r·sin(t)^(2/n)`（n=4 → 各取 0.5 次幂），
-  /// 每角从直边端点出发扫到相邻直边端点，保证 C1 连续。
+  /// 四角各是角方块内一段 1/4 超椭圆，满足 `|dx/rw|^(n/2)+|dy/rh|^(n/2)=1`
+  /// （n=4 → 坐标取 sin/cos 的 0.5 次幂）。每段弧的起终点必须**严格落在
+  /// 相邻直边端点上**（直边端点 → 弧 → 下一直边端点）；任何符号或象限
+  /// 错误都会让 lineTo 在角上拉出斜弦，把内容斜切掉。
   static Path _squirclePath(Rect rect, double r) {
     const n = 4.0;
-    final w = rect.width;
-    final h = rect.height;
-    final rw = math.min(r, w / 2);
-    final rh = math.min(r, h / 2);
-    final left = rect.left;
-    final top = rect.top;
-    final right = rect.right;
-    final bottom = rect.bottom;
-    // 直边坐标
-    final x0 = left + rw;
-    final x1 = right - rw;
-    final y1 = bottom - rh;
+    final rw = math.min(r, rect.width / 2);
+    final rh = math.min(r, rect.height / 2);
+    // 直边端点：上/下边在 x0..x1 之间，左/右边在 y0..y1 之间。
+    final x0 = rect.left + rw;
+    final x1 = rect.right - rw;
+    final y0 = rect.top + rh;
+    final y1 = rect.bottom - rh;
+
+    // 单位超椭圆第一象限坐标：t=0 → (0,1)，t=π/2 → (1,0)。
+    double s(double t) => math.pow(math.sin(t), 2 / n).toDouble();
+    double c(double t) => math.pow(math.cos(t), 2 / n).toDouble();
 
     const steps = 20;
-    // 角采样：t∈[0,1] → 角度 π/2·t，返回角内相对角心的偏移。
-    // 归一化坐标 (u,v) ∈ [0,1]：u 沿 x、v 沿 y，方向由象限决定。
-    // 对 n=4：u = cos^(2/n), v = sin^(2/n) → 0.5 次幂。
-    Offset corner(double t, {required bool mirrorX, required bool mirrorY}) {
-      final ang = t * (math.pi / 2);
-      final u = math.pow(math.cos(ang), 2 / n).toDouble();
-      final v = math.pow(math.sin(ang), 2 / n).toDouble();
-      return Offset(
-        (mirrorX ? -u : u) * rw,
-        (mirrorY ? -v : v) * rh,
-      );
-    }
-
-    Path path = Path()..moveTo(x0, top);
-    // 上直边 → 右上角
-    path.lineTo(x1, top);
+    const halfPi = math.pi / 2;
+    final path = Path()..moveTo(x0, rect.top);
+    // 上直边 → 右上角：(x1, top) → (right, y0)
+    path.lineTo(x1, rect.top);
     for (var i = 1; i <= steps; i++) {
-      final o = corner(i / steps, mirrorX: false, mirrorY: false);
-      path.lineTo(right - rw + o.dx, top + rh + o.dy);
+      final t = i / steps * halfPi;
+      path.lineTo(x1 + rw * s(t), y0 - rh * c(t));
     }
-    // 右直边 → 右下角
-    path.lineTo(right, y1);
+    // 右直边 → 右下角：(right, y1) → (x1, bottom)
+    path.lineTo(rect.right, y1);
     for (var i = 1; i <= steps; i++) {
-      final o = corner(i / steps, mirrorX: false, mirrorY: true);
-      path.lineTo(right - rw + o.dx, bottom - rh + o.dy);
+      final t = i / steps * halfPi;
+      path.lineTo(x1 + rw * c(t), y1 + rh * s(t));
     }
-    // 下直边 → 左下角
-    path.lineTo(x1, bottom);
+    // 下直边 → 左下角：(x0, bottom) → (left, y1)
+    path.lineTo(x0, rect.bottom);
     for (var i = 1; i <= steps; i++) {
-      final o = corner(i / steps, mirrorX: true, mirrorY: true);
-      path.lineTo(left + rw + o.dx, bottom - rh + o.dy);
+      final t = i / steps * halfPi;
+      path.lineTo(x0 - rw * s(t), y1 + rh * c(t));
     }
-    // 左直边 → 左上角
-    path.lineTo(left, y1);
+    // 左直边 → 左上角：(left, y0) → (x0, top)
+    path.lineTo(rect.left, y0);
     for (var i = 1; i <= steps; i++) {
-      final o = corner(i / steps, mirrorX: true, mirrorY: false);
-      path.lineTo(left + rw + o.dx, top + rh + o.dy);
+      final t = i / steps * halfPi;
+      path.lineTo(x0 - rw * c(t), y0 - rh * s(t));
     }
     path.close();
     return path;
