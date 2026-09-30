@@ -368,8 +368,10 @@ class AppTheme {
     );
     // 6 档字号并入主题派生的 TextTheme：未覆盖的槽位保留平台默认，
     // 已覆盖的 6 档成为全应用字号的唯一来源（阶段 2 迁移调用点的基础）。
+    // 字号/字重/行高三套阶梯按风格解析（极简 = 既有档位，逐字节不变）。
     return theme.copyWith(
-      textTheme: theme.textTheme.merge(TypeScale.textTheme(text, isTablet: isTablet)),
+      textTheme: theme.textTheme
+          .merge(TypeScale.textTheme(text, isTablet: isTablet, style: style)),
     );
   }
 }

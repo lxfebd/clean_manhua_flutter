@@ -110,6 +110,23 @@ class StyleTokens {
   }
 
   // ── 分组列表（苹果 inset grouped）────────────────────────────────────
+  /// 列表行图标底块：极简 = 调用点原值（SettingsRow 34）；苹果 = iOS Settings 行的
+  /// 29pt 圆角方块容器；小米 = HyperOS 40dp 容器。
+  static double iconTileSize(BuildContext c, double minimalistOriginal) =>
+      switch (c.uiStyle) {
+        UIStyle.minimalist => minimalistOriginal,
+        UIStyle.apple => 29,
+        UIStyle.xiaomi => 40,
+      };
+
+  /// 底块内图标本体：极简锁 18；苹果 17（iOS 字形）；小米 20。
+  static double iconGlyphSize(BuildContext c, double minimalistOriginal) =>
+      switch (c.uiStyle) {
+        UIStyle.minimalist => minimalistOriginal,
+        UIStyle.apple => 17,
+        UIStyle.xiaomi => 20,
+      };
+
   /// 分组卡底色：极简 = 改造前原值 [ColorScheme.surface]；苹果 = iOS 二级分组
   /// 背景（surfaceContainer，卡与屏幕底色拉开层次）；小米 = surface（走渐变卡）。
   static Color groupCardBackground(BuildContext c) {

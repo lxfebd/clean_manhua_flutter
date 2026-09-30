@@ -50,6 +50,9 @@ class SettingsRow extends StatelessWidget {
         ? scheme.error
         : T.color(scheme.onSurface, TextTier.high, brightness: brightness);
     final iconRadius = StyleTokens.controlRadius(context);
+    // 图标底块与字形按风格：极简锁本组件改造前原值（34 / 18）。
+    final tile = StyleTokens.iconTileSize(context, 34);
+    final glyph = StyleTokens.iconGlyphSize(context, 18);
     return InkWell(
       onTap: onTap,
       child: ConstrainedBox(
@@ -65,8 +68,8 @@ class SettingsRow extends StatelessWidget {
               child: Row(
                 children: [
                   Container(
-                    width: 34,
-                    height: 34,
+                    width: tile,
+                    height: tile,
                     decoration: BoxDecoration(
                       color: T.color(scheme.onSurface, TextTier.fill,
                           brightness: brightness),
@@ -74,7 +77,7 @@ class SettingsRow extends StatelessWidget {
                     ),
                     child: Icon(
                       icon,
-                      size: 18,
+                      size: glyph,
                       color: accent ??
                           T.color(scheme.onSurface, TextTier.mid,
                               brightness: brightness),

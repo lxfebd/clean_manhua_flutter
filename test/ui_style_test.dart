@@ -335,6 +335,63 @@ void main() {
       }
     });
 
+    testWidgets('列表行图标底块：极简锁 34/18，苹果 iOS 29pt，小米 HyperOS 40dp',
+        (tester) async {
+      for (final s in UIStyle.values) {
+        await tester.pumpWidget(
+          StyleScope.demo(
+            style: s,
+            child: const MaterialApp(home: Scaffold(body: _TokenProbe())),
+          ),
+        );
+        final context = tester.element(find.byType(_TokenProbe));
+        expect(
+            StyleTokens.iconTileSize(context, 34),
+            s == UIStyle.minimalist ? 34 : (s == UIStyle.apple ? 29 : 40),
+            reason: '${s.name} 图标底块');
+        expect(
+            StyleTokens.iconGlyphSize(context, 18),
+            s == UIStyle.minimalist ? 18 : (s == UIStyle.apple ? 17 : 20),
+            reason: '${s.name} 图标字形');
+      }
+    });
+
+    test('字号阶梯：极简逐字节锁既有档位，苹果走 iOS Dynamic Type，小米走 HyperOS', () {
+      const ink = Color(0xFF101010);
+
+      // 极简 = 改造前逐字节原值（字号 + 字重 + 行高）。
+      final minimal = TypeScale.textTheme(ink);
+      expect(minimal.bodyMedium!.fontSize, 14);
+      expect(minimal.bodySmall!.fontSize, 12);
+      expect(minimal.labelSmall!.fontSize, 11);
+      expect(minimal.displaySmall!.fontWeight, FontWeight.w700);
+      expect(minimal.labelSmall!.fontWeight, FontWeight.w500);
+      expect(minimal.bodyMedium!.height, 1.45);
+
+      // 苹果 = iOS 阶梯：正文比极简大一号，标题 semibold（iOS 不用 w700），行高更紧。
+      final apple = TypeScale.textTheme(ink, style: UIStyle.apple);
+      expect(apple.bodyMedium!.fontSize, TypeScale.bodyApple);
+      expect(apple.bodySmall!.fontSize, TypeScale.metaApple);
+      expect(apple.labelSmall!.fontSize, TypeScale.microApple);
+      expect(apple.displaySmall!.fontWeight, FontWeight.w600);
+      expect(apple.labelSmall!.fontWeight, FontWeight.w400);
+      expect(apple.bodyMedium!.height, 1.35);
+
+      // 小米 = HyperOS 阶梯：大标题/卡片标题偏粗。
+      final xiaomi = TypeScale.textTheme(ink, style: UIStyle.xiaomi);
+      expect(xiaomi.displaySmall!.fontSize, TypeScale.displayXiaomi);
+      expect(xiaomi.titleLarge!.fontSize, TypeScale.titleXiaomi);
+      expect(xiaomi.titleLarge!.fontWeight, FontWeight.w700);
+
+      // 手机档不被桌面档连带放大（既有门禁语义在三风格下都成立）。
+      expect(
+          TypeScale.textTheme(ink, isTablet: false, style: UIStyle.xiaomi)
+              .displaySmall!
+              .fontSize,
+          TypeScale.displayXiaomiPhone);
+      expect(TypeScale.textTheme(ink, isTablet: false).displaySmall!.fontSize, 19);
+    });
+
     testWidgets('R.of 按风格解析四槽位（minimalist 与静态档位一致）', (tester) async {
       // R.of 只读 style 参数，用固定 BuildContext 即可。
       final ctx = _FakeContext();

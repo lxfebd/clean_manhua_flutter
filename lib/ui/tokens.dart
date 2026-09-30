@@ -142,43 +142,121 @@ abstract final class TypeScale {
 
   /// 由 6 档字号构造一套 [TextTheme]，供 ThemeData.textTheme 合并使用。
   /// 颜色跟随主题 onSurface；层级（弱化/禁用）在调用处用 [T] 控制。
-  /// [isTablet] 为 false（手机，宽度 < 600dp）时走手机档，避免手机端被桌面档字号连带放大。
-  static TextTheme textTheme(Color color, {bool isTablet = true}) => TextTheme(
-        displaySmall: TextStyle(
-          fontSize: isTablet ? display : displayPhone,
-          fontWeight: FontWeight.w700,
-          height: 1.25,
-          color: color,
-        ),
-        titleLarge: TextStyle(
-          fontSize: isTablet ? title : titlePhone,
-          fontWeight: FontWeight.w600,
-          height: 1.3,
-          color: color,
-        ),
-        titleMedium: TextStyle(
-          fontSize: isTablet ? section : sectionPhone,
-          fontWeight: FontWeight.w600,
-          height: 1.3,
-          color: color,
-        ),
-        bodyMedium: TextStyle(
-          fontSize: isTablet ? body : bodyPhone,
-          fontWeight: FontWeight.w400,
-          height: 1.45,
-          color: color,
-        ),
-        bodySmall: TextStyle(
-          fontSize: isTablet ? meta : metaPhone,
-          fontWeight: FontWeight.w400,
-          height: 1.4,
-          color: color,
-        ),
-        labelSmall: TextStyle(
-          fontSize: isTablet ? micro : microPhone,
-          fontWeight: FontWeight.w500,
-          height: 1.4,
-          color: color,
-        ),
-      );
+  /// [isTablet] 为 false（手机，宽度 < 600dp）时走手机档，避免手机端被桌面档连带放大。
+  /// [style] 决定整套阶梯（字号 + 字重 + 行高），见 [_ramp]。
+  static TextTheme textTheme(Color color,
+      {bool isTablet = true, UIStyle style = UIStyle.minimalist}) {
+    final ramp = _ramp(style, isTablet);
+    TextStyle slot(double fontSize, FontWeight weight, double height) => TextStyle(
+        fontSize: fontSize, fontWeight: weight, height: height, color: color);
+    return TextTheme(
+      displaySmall: slot(ramp.display, ramp.wDisplay, ramp.hDisplay),
+      titleLarge: slot(ramp.title, ramp.wTitle, ramp.hTitle),
+      titleMedium: slot(ramp.section, ramp.wSection, ramp.hSection),
+      bodyMedium: slot(ramp.body, ramp.wBody, ramp.hBody),
+      bodySmall: slot(ramp.meta, ramp.wMeta, ramp.hMeta),
+      labelSmall: slot(ramp.micro, ramp.wMicro, ramp.hMicro),
+    );
+  }
+
+  // ── 按风格的字号阶梯（极简用上面的既有档位）─────────────────────────
+  /// 苹果 = iOS Dynamic Type（Large 默认档）：Subheadline 15 / Footnote 13 /
+  /// Caption1 12。iOS 不按屏幕宽度分两套档，苹果手机与平板同阶梯。
+  static const double bodyApple = 15;
+  static const double metaApple = 13;
+  static const double microApple = 12;
+
+  /// 小米 = HyperOS：大标题 24（手机 22）/ 卡片标题 18，正文沿用 Android 14/12/11。
+  static const double displayXiaomi = 24;
+  static const double displayXiaomiPhone = 22;
+  static const double titleXiaomi = 18;
+
+  /// 三套阶梯 = 六档字号 + 字重 + 行高。
+  ///
+  /// - **极简**：逐字节锁既有档位与既有字重/行高（回归面为零）。
+  /// - **苹果**：iOS 阶梯 Title1 22 / Title2 17 / Headline 15 / Subheadline 15 /
+  ///   Footnote 13 / Caption1 12；标题 semibold、正文 regular（iOS 不用 w700 大标题），
+  ///   行高 1.2-1.35 比 Android 紧。
+  /// - **小米**：HyperOS 阶梯，大标题与卡片标题偏粗（w700），行高沿用 Android。
+  static _TypeRamp _ramp(UIStyle style, bool isTablet) => switch (style) {
+      UIStyle.minimalist => (
+          display: isTablet ? display : displayPhone,
+          title: isTablet ? title : titlePhone,
+          section: isTablet ? section : sectionPhone,
+          body: isTablet ? body : bodyPhone,
+          meta: isTablet ? meta : metaPhone,
+          micro: isTablet ? micro : microPhone,
+          wDisplay: FontWeight.w700,
+          wTitle: FontWeight.w600,
+          wSection: FontWeight.w600,
+          wBody: FontWeight.w400,
+          wMeta: FontWeight.w400,
+          wMicro: FontWeight.w500,
+          hDisplay: 1.25,
+          hTitle: 1.3,
+          hSection: 1.3,
+          hBody: 1.45,
+          hMeta: 1.4,
+          hMicro: 1.4),
+      UIStyle.apple => (
+          display: display,
+          title: title,
+          section: section,
+          body: bodyApple,
+          meta: metaApple,
+          micro: microApple,
+          wDisplay: FontWeight.w600,
+          wTitle: FontWeight.w600,
+          wSection: FontWeight.w600,
+          wBody: FontWeight.w400,
+          wMeta: FontWeight.w400,
+          wMicro: FontWeight.w400,
+          hDisplay: 1.2,
+          hTitle: 1.25,
+          hSection: 1.25,
+          hBody: 1.35,
+          hMeta: 1.3,
+          hMicro: 1.3),
+      UIStyle.xiaomi => (
+          display: isTablet ? displayXiaomi : displayXiaomiPhone,
+          title: titleXiaomi,
+          section: section,
+          body: body,
+          meta: meta,
+          micro: micro,
+          wDisplay: FontWeight.w700,
+          wTitle: FontWeight.w700,
+          wSection: FontWeight.w600,
+          wBody: FontWeight.w400,
+          wMeta: FontWeight.w400,
+          wMicro: FontWeight.w500,
+          hDisplay: 1.25,
+          hTitle: 1.3,
+          hSection: 1.3,
+          hBody: 1.45,
+          hMeta: 1.4,
+          hMicro: 1.4),
+    };
 }
+
+/// 六档字号 + 字重 + 行高的阶梯快照（[TypeScale._ramp] 按风格构造）。
+typedef _TypeRamp = ({
+  double display,
+  double title,
+  double section,
+  double body,
+  double meta,
+  double micro,
+  FontWeight wDisplay,
+  FontWeight wTitle,
+  FontWeight wSection,
+  FontWeight wBody,
+  FontWeight wMeta,
+  FontWeight wMicro,
+  double hDisplay,
+  double hTitle,
+  double hSection,
+  double hBody,
+  double hMeta,
+  double hMicro,
+});
