@@ -312,6 +312,29 @@ void main() {
       }
     });
 
+    testWidgets('hero 槽位：极简锁各调用点原值，小米 28 / 苹果 16', (tester) async {
+      // 大卡/头图的极简原值各页不同（详情页头图 14、首页轮播 12、我的页主卡 16），
+      // 所以原值由调用点传入，不能由组件统一。
+      for (final s in UIStyle.values) {
+        await tester.pumpWidget(
+          StyleScope.demo(
+            style: s,
+            child: const MaterialApp(home: Scaffold(body: _TokenProbe())),
+          ),
+        );
+        final context = tester.element(find.byType(_TokenProbe));
+        for (final original in [14.0, 12.0, R.hero]) {
+          expect(
+            StyleTokens.heroRadius(context, original),
+            s == UIStyle.minimalist
+                ? original
+                : (s == UIStyle.xiaomi ? R.heroXiaomi : R.heroApple),
+            reason: '${s.name} hero 槽位（原值 $original）',
+          );
+        }
+      }
+    });
+
     testWidgets('R.of 按风格解析四槽位（minimalist 与静态档位一致）', (tester) async {
       // R.of 只读 style 参数，用固定 BuildContext 即可。
       final ctx = _FakeContext();

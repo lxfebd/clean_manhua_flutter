@@ -267,13 +267,9 @@ class _DetailPageState extends State<DetailPage> {
                         ),
                         decoration: BoxDecoration(
                           color: scheme.surface,
-                          // 极简锁原值 14（StyleTokens.cardRadius 极简=12，与现状不匹配）；
-                          // 小米 20 / 苹果 12 走 token。
-                          borderRadius: BorderRadius.circular(
-                            style == UIStyle.minimalist
-                                ? 14
-                                : StyleTokens.cardRadius(context),
-                          ),
+                          // 头图是大卡 → hero 槽位：极简锁原值 14，小米 28 / 苹果 16。
+                          borderRadius:
+                              BorderRadius.circular(StyleTokens.heroRadius(context, 14)),
                           // 极简保持现状 hairline（onSurface@0.06, 1px）；
                           // 小米无描边（null，靠彩色阴影浮起）；苹果 0.5px alpha0.4 细描边。
                           border: Border.all(

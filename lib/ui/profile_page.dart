@@ -40,12 +40,10 @@ class _CardD {
   const _CardD._();
 
   /// 四张主卡片统一装饰：圆角 + 描边 + 小米彩色阴影 + 小米渐变底。
-  /// 极简锁 R.hero=16 圆角 + hairline 0.08 描边（现状）；
-  /// 小米/苹果走 StyleTokens.cardRadius / cardBorder / cardShadow / cardGradient。
+  /// 主卡是大卡 → hero 槽位：极简锁 R.hero=16（现状），小米 28 / 苹果 16；
+  /// 描边极简 hairline 0.08，小米无描边靠彩色阴影，苹果 0.5px 细线。
   static BoxDecoration cardDeco(BuildContext c, ColorScheme s) {
-    final r = c.uiStyle == UIStyle.minimalist
-        ? R.hero
-        : StyleTokens.cardRadius(c);
+    final r = StyleTokens.heroRadius(c, R.hero);
     Border? b;
     if (c.uiStyle == UIStyle.minimalist) {
       b = Border.all(

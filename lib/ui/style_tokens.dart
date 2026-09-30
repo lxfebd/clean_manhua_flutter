@@ -44,6 +44,16 @@ class StyleTokens {
     };
   }
 
+  /// hero 槽位（头图 / 大卡）。极简 = 调用点原值（各页历史值不同：详情页头图 14、
+  /// 书架封面 10、首页轮播 12），所以原值由调用点传入；小米 = HyperOS 大圆角；
+  /// 苹果 = iOS 标准 cornerRadius。
+  static double heroRadius(BuildContext c, double minimalistOriginal) =>
+      switch (c.uiStyle) {
+        UIStyle.minimalist => minimalistOriginal,
+        UIStyle.xiaomi => R.heroXiaomi,
+        UIStyle.apple => R.heroApple,
+      };
+
   // ── 卡片描边/阴影 ───────────────────────────────────────────────────
   /// 卡片描边：极简 = hairline 全描边；苹果 = 更淡的分割线；
   /// 小米 = 无描边（靠彩色阴影浮起）。返回 null = 不画描边。

@@ -1345,7 +1345,8 @@ class _FeaturedCard extends StatelessWidget {
         focusable: true, // TV 遥控器 D-pad 焦点导航（轮播大卡）
         child: ClipRRect(
           // 全宽大图只改圆角（视觉风险小），渐变/Squircle 改造成本高不动。
-          borderRadius: BorderRadius.circular(StyleTokens.cardRadius(context)),
+          // 轮播是全宽大卡 → hero 槽位：极简锁原值 12，小米 28 / 苹果 16。
+          borderRadius: BorderRadius.circular(StyleTokens.heroRadius(context, 12)),
           child: Stack(
             fit: StackFit.expand,
             children: [
