@@ -313,9 +313,9 @@ class _DetailPageState extends State<DetailPage> {
                               ],
                               Divider(
                                 height: 0.5,
-                                indent: 16,
-                                endIndent: 16,
-                                color: scheme.onSurface.withValues(alpha: 0.06),
+                                indent: StyleTokens.separatorIndent(context, 16),
+                                endIndent: StyleTokens.separatorEndIndent(context, 16),
+                                color: StyleTokens.rowSeparatorColor(context),
                               ),
                               Row(
                                 children: [
@@ -810,9 +810,9 @@ class _DetailPageState extends State<DetailPage> {
             if (i > 0)
               Divider(
                 height: 0.5,
-                indent: 16,
-                endIndent: 16,
-                color: scheme.onSurface.withValues(alpha: 0.06),
+                indent: StyleTokens.separatorIndent(context, 16),
+                endIndent: StyleTokens.separatorEndIndent(context, 16),
+                color: StyleTokens.rowSeparatorColor(context),
               ),
             _ChapterTile(
               index: i,
@@ -822,9 +822,9 @@ class _DetailPageState extends State<DetailPage> {
           ],
           Divider(
             height: 0.5,
-            indent: 16,
-            endIndent: 16,
-            color: scheme.onSurface.withValues(alpha: 0.06),
+            indent: StyleTokens.separatorIndent(context, 16),
+            endIndent: StyleTokens.separatorEndIndent(context, 16),
+            color: StyleTokens.rowSeparatorColor(context),
           ),
           Row(
             children: [

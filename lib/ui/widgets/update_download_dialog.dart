@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../net/update_download_manager.dart';
+import '../style_tokens.dart';
 
 /// 弹出更新下载进度对话框，带进度条 + 字节数 + 百分比 + 取消按钮。
 ///
@@ -101,7 +102,9 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
         }
       },
       child: AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(
+                StyleTokens.sheetRadiusOr(context, 14))),
         title: Text(
           done
               ? '下载完成'

@@ -239,7 +239,12 @@ class AppTheme {
             ? SystemUiOverlayStyle.light.copyWith(statusBarColor: Colors.transparent)
             : SystemUiOverlayStyle.dark.copyWith(statusBarColor: Colors.transparent),
         titleTextStyle: TextStyle(
-          fontSize: 19,
+          // 标题字号按风格：极简锁原值 19；小米 HyperOS 工具条大标题偏大；苹果走 iOS。
+          fontSize: switch (style) {
+            UIStyle.minimalist => 19,
+            UIStyle.xiaomi => 20,
+            UIStyle.apple => 17,
+          },
           fontWeight: FontWeight.w600,
           color: text,
           letterSpacing: 0.1,
@@ -360,6 +365,39 @@ class AppTheme {
             fontSize: 12, fontWeight: FontWeight.w500, color: text),
         shape: const StadiumBorder(),
       ),
+      // TabBar 主题（工具页三处 TabBar 走默认样式，主题层统一接线）：
+      // 极简 = 改造前原值（M3 默认 labelLarge：14/w500，指示条 text 色），锁死防
+      // Material 版本漂移；小米 = HyperOS（种子色指示条 + w600 选中标签）；
+      // 苹果 = iOS（系统蓝指示条 + 更大标签）。
+      tabBarTheme: TabBarThemeData(
+        labelColor: text,
+        unselectedLabelColor: text.withValues(alpha: 0.42),
+        indicatorColor: switch (style) {
+          UIStyle.minimalist => text,
+          UIStyle.xiaomi => seed,
+          UIStyle.apple => appleBlue,
+        },
+        labelStyle: TextStyle(
+          fontSize: switch (style) {
+            UIStyle.minimalist => TypeScale.body,
+            UIStyle.xiaomi => TypeScale.body,
+            UIStyle.apple => TypeScale.bodyApple,
+          },
+          fontWeight: switch (style) {
+            UIStyle.minimalist => FontWeight.w500,
+            UIStyle.xiaomi => FontWeight.w600,
+            UIStyle.apple => FontWeight.w600,
+          },
+        ),
+        unselectedLabelStyle: TextStyle(
+          fontSize: switch (style) {
+            UIStyle.minimalist => TypeScale.body,
+            UIStyle.xiaomi => TypeScale.body,
+            UIStyle.apple => TypeScale.bodyApple,
+          },
+          fontWeight: FontWeight.w500,
+        ),
+      ),
       dialogTheme: DialogThemeData(
         backgroundColor: scheme.surface,
         surfaceTintColor: Colors.transparent,
@@ -375,6 +413,13 @@ class AppTheme {
         backgroundColor: scheme.surface,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
+        // 底部弹层圆角按风格。极简 = 改造前原值（null，走 M3 默认 16 圆角、
+        // 无描边），不能替它定 24；小米超大圆角、苹果 iOS sheet 28。
+        shape: style == UIStyle.minimalist
+            ? null
+            : RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(rSheet),
+              ),
       ),
       progressIndicatorTheme: ProgressIndicatorThemeData(
         color: seed,

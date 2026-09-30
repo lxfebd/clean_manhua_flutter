@@ -44,6 +44,34 @@ class StyleTokens {
     };
   }
 
+  // 带极简原值的圆角槽：与 [heroRadius] 同形——极简分支逐字节锁「该调用点改造
+  // 前的原值」（各页历史值不同：键盘弹层 16、更新下载弹层 14、源选择卡 12、
+  // 能力市场搜索框 10），不能由组件统一取 R 静态档。小米/苹果走风格档位。
+
+  /// control 槽（输入框/小控件）。极简 = 调用点原值。
+  static double controlRadiusOr(BuildContext c, double minimalistOriginal) =>
+      switch (c.uiStyle) {
+        UIStyle.minimalist => minimalistOriginal,
+        UIStyle.xiaomi => R.controlXiaomi,
+        UIStyle.apple => R.controlApple,
+      };
+
+  /// card 槽（卡片/条目）。极简 = 调用点原值。
+  static double cardRadiusOr(BuildContext c, double minimalistOriginal) =>
+      switch (c.uiStyle) {
+        UIStyle.minimalist => minimalistOriginal,
+        UIStyle.xiaomi => R.cardXiaomi,
+        UIStyle.apple => R.cardApple,
+      };
+
+  /// sheet 槽（弹层/浮层卡）。极简 = 调用点原值。
+  static double sheetRadiusOr(BuildContext c, double minimalistOriginal) =>
+      switch (c.uiStyle) {
+        UIStyle.minimalist => minimalistOriginal,
+        UIStyle.xiaomi => R.sheetXiaomi,
+        UIStyle.apple => R.sheetApple,
+      };
+
   /// hero 槽位（头图 / 大卡）。极简 = 调用点原值（各页历史值不同：详情页头图 14、
   /// 书架封面 10、首页轮播 12），所以原值由调用点传入；小米 = HyperOS 大圆角；
   /// 苹果 = iOS 标准 cornerRadius。

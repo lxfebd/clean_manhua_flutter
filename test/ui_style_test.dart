@@ -546,6 +546,57 @@ void main() {
         }
       }
     });
+
+    testWidgets('带极简原值的圆角槽：极简锁调用点原值，小米/苹果走风格档位',
+        (tester) async {
+      for (final (style, ctrl, card, sheet) in [
+        (UIStyle.minimalist, 8.0, 12.0, 16.0),
+        (UIStyle.xiaomi, R.controlXiaomi, R.cardXiaomi, R.sheetXiaomi),
+        (UIStyle.apple, R.controlApple, R.cardApple, R.sheetApple),
+      ]) {
+        await tester.pumpWidget(StyleScope.demo(
+          style: style,
+          child: const MaterialApp(home: Scaffold(body: _TokenProbe())),
+        ));
+        final ctx = tester.element(find.byType(_TokenProbe));
+        expect(StyleTokens.controlRadiusOr(ctx, 8), ctrl,
+            reason: '${style.name} control 槽');
+        expect(StyleTokens.cardRadiusOr(ctx, 12), card,
+            reason: '${style.name} card 槽');
+        expect(StyleTokens.sheetRadiusOr(ctx, 16), sheet,
+            reason: '${style.name} sheet 槽');
+      }
+    });
+
+    test('主题层：AppBar 标题字号 / TabBar 指示条 / 底部弹层形状按风格', () {
+      // AppBar 标题字号：极简锁 19（改造前原值），小米 HyperOS 偏大，苹果 iOS 偏小。
+      final minimal = AppTheme.light(0, true, UIStyle.minimalist);
+      final xiaomi = AppTheme.light(0, true, UIStyle.xiaomi);
+      final apple = AppTheme.light(0, true, UIStyle.apple);
+      expect(minimal.appBarTheme.titleTextStyle!.fontSize, 19);
+      expect(xiaomi.appBarTheme.titleTextStyle!.fontSize, 20);
+      expect(apple.appBarTheme.titleTextStyle!.fontSize, 17);
+
+      // TabBar：极简锁 M3 默认 labelLarge（14/w500，指示条 text 色）；小米种子色；
+      // 苹果系统蓝。
+      expect(minimal.tabBarTheme.labelStyle!.fontSize, TypeScale.body);
+      expect(minimal.tabBarTheme.labelStyle!.fontWeight, FontWeight.w500);
+      expect(minimal.tabBarTheme.indicatorColor, minimal.colorScheme.onSurface);
+      expect(xiaomi.tabBarTheme.indicatorColor, xiaomi.colorScheme.primary);
+      expect(apple.tabBarTheme.indicatorColor, AppTheme.appleBlue);
+
+      // 底部弹层：极简 = 改造前原值（null，走 M3 默认 16 圆角）；小米/苹果给形状。
+      expect(minimal.bottomSheetTheme.shape, isNull,
+          reason: '极简底部弹层保持改造前原值（无 shape）');
+      final mShape =
+          xiaomi.bottomSheetTheme.shape as RoundedRectangleBorder;
+      expect(mShape.borderRadius,
+          BorderRadius.circular(R.sheetXiaomi),
+          reason: '小米底部弹层走 sheet 槽');
+      final aShape = apple.bottomSheetTheme.shape as RoundedRectangleBorder;
+      expect(aShape.borderRadius, BorderRadius.circular(R.sheetApple),
+          reason: '苹果底部弹层走 iOS sheet 槽');
+    });
   });
 }
 

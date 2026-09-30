@@ -5,6 +5,7 @@ import '../capabilities/capability_plugin.dart' show CapabilityWeight;
 import '../capabilities/capability_plugin_manager.dart';
 import '../net/error_logger.dart';
 import 'responsive.dart';
+import 'style_tokens.dart';
 import 'widgets/app_toast.dart';
 import 'keyboard_shortcuts.dart';
 
@@ -253,7 +254,8 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
                           decoration: BoxDecoration(
                             color: theme.colorScheme.surfaceContainerHighest
                                 .withValues(alpha: 0.35),
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(
+                                StyleTokens.controlRadiusOr(context, 8)),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -394,14 +396,16 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
                                   vertical: 8,
                                 ),
                                 border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(10),
+                                  borderRadius: BorderRadius.circular(
+                                      StyleTokens.controlRadiusOr(context, 10)),
                                   borderSide: BorderSide(
                                     color: theme.colorScheme.onSurface
                                         .withValues(alpha: 0.15),
                                   ),
                                 ),
                                 enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(10),
+                                  borderRadius: BorderRadius.circular(
+                                      StyleTokens.controlRadiusOr(context, 10)),
                                   borderSide: BorderSide(
                                     color: theme.colorScheme.onSurface
                                         .withValues(alpha: 0.15),
@@ -636,7 +640,8 @@ class _CapabilityMarketTileState extends State<_CapabilityMarketTile> {
             height: 40,
             decoration: BoxDecoration(
               color: theme.colorScheme.primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(
+                  StyleTokens.controlRadiusOr(context, 10)),
             ),
             child: Icon(
               entry.category == 'ai'

@@ -10,6 +10,7 @@ import '../sources/novel_source.dart';
 import '../sources/source_manager.dart';
 import '../utils/novel_summarizer.dart';
 import 'responsive.dart';
+import 'style_tokens.dart';
 import 'widgets/app_toast.dart';
 
 /// 快照构造器：把「章号 + 滚动偏移 + 书目」打包成 HistoryEntry。
@@ -974,14 +975,16 @@ class _NovelReaderSettingsSheetState
   Widget _opt(String label, bool active, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(
+          StyleTokens.controlRadiusOr(context, 8)),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(
           color: active
               ? Theme.of(context).colorScheme.primary
               : Colors.white.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(
+              StyleTokens.controlRadiusOr(context, 8)),
           border: Border.all(
             color: active
                 ? Theme.of(context).colorScheme.primary

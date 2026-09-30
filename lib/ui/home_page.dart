@@ -1718,7 +1718,8 @@ class _SourceSwitchSheet extends StatelessWidget {
                   delay: Duration(milliseconds: 40 * i),
                   offset: 8,
                   child: InkWell(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(
+                        StyleTokens.cardRadiusOr(context, 12)),
                     onTap: () => onSelected(i),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
@@ -1729,7 +1730,8 @@ class _SourceSwitchSheet extends StatelessWidget {
                             ? scheme.primary.withValues(alpha: 0.10)
                             : scheme.surfaceContainerHighest
                                 .withValues(alpha: 0.4),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(
+                            StyleTokens.cardRadiusOr(context, 12)),
                         border: Border.all(
                           color: i == currentIndex
                               ? scheme.primary.withValues(alpha: 0.5)

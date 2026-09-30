@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'style_tokens.dart';
+
 /// 推入页通用「Esc / Alt+← 返回」：包裹页面根节点即可。
 ///
 /// 主壳全局键在子页推入后主动让位（防抢阅读器/播放器按键），导致普通
@@ -85,7 +87,8 @@ class _ShortcutHelpOverlayState extends State<ShortcutHelpOverlay> {
         body: Center(
           child: Material(
             color: scheme.surface,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(
+                StyleTokens.sheetRadiusOr(context, 16)),
             clipBehavior: Clip.antiAlias,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 760, maxHeight: 560),
