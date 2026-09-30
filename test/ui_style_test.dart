@@ -4,6 +4,7 @@ import 'package:xingmanxia/ui/style_scope.dart';
 import 'package:xingmanxia/ui/style_tokens.dart';
 import 'package:xingmanxia/ui/tokens.dart';
 import 'package:xingmanxia/ui/widgets/motion.dart';
+import 'package:xingmanxia/ui/widgets/row_separator.dart';
 
 /// UI 风格轴门禁（2026-09-30 三风格改造 S4）。
 ///
@@ -245,6 +246,69 @@ void main() {
       final scale = tester.widget<AnimatedScale>(find.byType(AnimatedScale));
       expect(scale.curve, Curves.linear);
       expect(scale.duration, const Duration(milliseconds: 90));
+    });
+
+    testWidgets('RowSeparator：极简锁调用点原值（各页不同），苹果 inset，小米通栏',
+        (tester) async {
+      // 同一组件、同一调用点参数，三种风格下分别得到：极简=原值、苹果=inset、小米=通栏。
+      for (final (style, wantLeft, wantAlpha) in [
+        (UIStyle.minimalist, 64.0, 0.08), // 调用点原值：SettingsRow 的 inset 64 + hairline
+        (UIStyle.apple, 46.0, 0.08),
+        (UIStyle.xiaomi, 0.0, 0.08),
+      ]) {
+        await tester.pumpWidget(
+          StyleScope.demo(
+            style: style,
+            child: MaterialApp(
+              home: RowSeparator(tier: TextTier.hairline, indent: 64),
+            ),
+          ),
+        );
+        // 直接读 build 返回值：MaterialApp 内部也有 Container/Padding，
+        // find.byType 会先命中它，所以不能靠 finder 区分。
+        final el = tester.element(find.byType(RowSeparator));
+        final built = (el.widget as RowSeparator).build(el);
+        final dec = (built is Padding ? (built as Padding).child
+            : built) as Container;
+        final box = dec.decoration as BoxDecoration;
+        expect(box.color!.a, closeTo(wantAlpha, 1e-9),
+            reason: '${style.name} 分隔线档位');
+        final left = built is Padding
+            ? (built as Padding).padding as EdgeInsets
+            : EdgeInsets.zero;
+        expect(left.left, wantLeft, reason: '${style.name} 分隔线缩进');
+      }
+
+      // 另一调用点原值（设置页：通栏 + T.fill 0.06）——极简必须仍是 0/0.06，
+      // 不能被组件统一成 SettingsRow 的 64/0.08。
+      await tester.pumpWidget(
+        StyleScope.demo(
+          style: UIStyle.minimalist,
+          child: MaterialApp(home: RowSeparator(tier: TextTier.fill, indent: 0)),
+        ),
+      );
+      final el = tester.element(find.byType(RowSeparator));
+      final built = (el.widget as RowSeparator).build(el);
+      expect(built, isA<Container>(), reason: '极简通栏 → 不包 Padding');
+      final box = (built as Container).decoration as BoxDecoration;
+      expect(box.color!.a, closeTo(0.06, 1e-9));
+    });
+
+    testWidgets('分组卡底色：极简 = 原值 surface，苹果 = iOS 二级分组背景',
+        (tester) async {
+      for (final s in UIStyle.values) {
+        await tester.pumpWidget(
+          StyleScope.demo(
+            style: s,
+            child: const MaterialApp(home: Scaffold(body: _TokenProbe())),
+          ),
+        );
+        final context = tester.element(find.byType(_TokenProbe));
+        final scheme = Theme.of(context).colorScheme;
+        expect(StyleTokens.groupCardBackground(context),
+            s == UIStyle.apple ? scheme.surfaceContainer : scheme.surface,
+            reason: '${s.name} 分组卡底色');
+      }
     });
 
     testWidgets('R.of 按风格解析四槽位（minimalist 与静态档位一致）', (tester) async {

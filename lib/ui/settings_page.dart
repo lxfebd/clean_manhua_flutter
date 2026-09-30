@@ -25,6 +25,7 @@ import 'keyboard_shortcuts.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/update_download_dialog.dart';
 import 'widgets/motion.dart';
+import 'widgets/row_separator.dart';
 import 'settings/colorizer_section.dart';
 import 'settings/gesture_settings_sheet.dart';
 import 'settings/settings_widgets.dart';
@@ -232,12 +233,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             },
                           ),
                         ),
-                        Container(
-                          height: 0.5,
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.06,
-                          ),
-                        ),
+                        RowSeparator(),
                         _ThemeSelector(
                           current: _themeId,
                           onChanged: (v) async {
@@ -246,12 +242,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             if (mounted) setState(() => _themeId = v);
                           },
                         ),
-                        Container(
-                          height: 0.5,
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.06,
-                          ),
-                        ),
+                        RowSeparator(),
                         _UiStyleSelector(
                           current: _uiStyleOverride,
                           autoLabel: UIStyle.forPlatform(
@@ -329,12 +320,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                 ],
                           ),
                         ),
-                        Container(
-                          height: 0.5,
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.06,
-                          ),
-                        ),
+                        RowSeparator(),
                         SettingsTile(
                           icon: Icons.arrow_back_ios_new_rounded,
                           title: 'RTL 反向翻页（日漫）',
@@ -347,12 +333,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             },
                           ),
                         ),
-                        Container(
-                          height: 0.5,
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.06,
-                          ),
-                        ),
+                        RowSeparator(),
                         SettingsTile(
                           icon: Icons.touch_app_rounded,
                           title: '手势配置',
@@ -387,12 +368,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           ),
                         ),
                         if (_danmaku.on) ...[
-                          Container(
-                            height: 0.5,
-                            color: theme.colorScheme.onSurface.withValues(
-                              alpha: 0.06,
-                            ),
-                          ),
+                          RowSeparator(),
                           _SliderTile(
                             icon: Icons.format_size_rounded,
                             title: '弹幕字号',
@@ -407,12 +383,7 @@ class _SettingsPageState extends State<SettingsPage> {
                               LocalStore.setDanmaku(next);
                             },
                           ),
-                          Container(
-                            height: 0.5,
-                            color: theme.colorScheme.onSurface.withValues(
-                              alpha: 0.06,
-                            ),
-                          ),
+                          RowSeparator(),
                           _SliderTile(
                             icon: Icons.speed_rounded,
                             title: '弹幕速度',
@@ -427,12 +398,7 @@ class _SettingsPageState extends State<SettingsPage> {
                               LocalStore.setDanmaku(next);
                             },
                           ),
-                          Container(
-                            height: 0.5,
-                            color: theme.colorScheme.onSurface.withValues(
-                              alpha: 0.06,
-                            ),
-                          ),
+                          RowSeparator(),
                           _SliderTile(
                             icon: Icons.opacity_rounded,
                             title: '弹幕透明度',
@@ -477,12 +443,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                   : null,
                           onTap: _checkUpdate,
                         ),
-                        Container(
-                          height: 0.5,
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.06,
-                          ),
-                        ),
+                        RowSeparator(),
                         SettingsTile(
                           icon: Icons.notifications_active_outlined,
                           title: '收藏更新提醒',
@@ -496,12 +457,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         // 系统通知走原生 MethodChannel（Android 通知栏），Web 端无实现
                         // 且系统通知语义不存在，直接隐藏该项（收藏更新提醒的应用内横幅仍可用）。
                         if (!kIsWeb) ...[
-                          Container(
-                            height: 0.5,
-                            color: theme.colorScheme.onSurface.withValues(
-                              alpha: 0.06,
-                            ),
-                          ),
+                          RowSeparator(),
                           SettingsTile(
                             icon: Icons.notifications_outlined,
                             title: '系统通知',
@@ -564,12 +520,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           enabled: !kIsWeb,
                           onTap: _exportBackup,
                         ),
-                        Container(
-                          height: 0.5,
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.06,
-                          ),
-                        ),
+                        RowSeparator(),
                         SettingsTile(
                           icon: Icons.restore_rounded,
                           title: '导入备份',
@@ -577,12 +528,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           enabled: !kIsWeb,
                           onTap: _importBackup,
                         ),
-                        Container(
-                          height: 0.5,
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.06,
-                          ),
-                        ),
+                        RowSeparator(),
                         SettingsTile(
                           icon: Icons.cloud_sync_rounded,
                           title: 'WebDAV 同步',
@@ -595,12 +541,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           enabled: !kIsWeb,
                           onTap: _openWebDav,
                         ),
-                        Container(
-                          height: 0.5,
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.06,
-                          ),
-                        ),
+                        RowSeparator(),
                         SettingsTile(
                           icon: Icons.download_outlined,
                           title: '清空全部下载',
@@ -615,12 +556,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                 successMsg: '已清空下载',
                               ),
                         ),
-                        Container(
-                          height: 0.5,
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.06,
-                          ),
-                        ),
+                        RowSeparator(),
                         SettingsTile(
                           icon: Icons.history_rounded,
                           title: '清空阅读历史',
@@ -668,36 +604,21 @@ class _SettingsPageState extends State<SettingsPage> {
                                 ),
                               ),
                         ),
-                        Container(
-                          height: 0.5,
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.06,
-                          ),
-                        ),
+                        RowSeparator(),
                         SettingsTile(
                           icon: Icons.article_outlined,
                           title: '免责声明',
                           subtitle: '内容来源与版权说明',
                           onTap: _showDisclaimer,
                         ),
-                        Container(
-                          height: 0.5,
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.06,
-                          ),
-                        ),
+                        RowSeparator(),
                         SettingsTile(
                           icon: Icons.privacy_tip_outlined,
                           title: '隐私说明',
                           subtitle: '本地存储与网络请求',
                           onTap: _showPrivacy,
                         ),
-                        Container(
-                          height: 0.5,
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.06,
-                          ),
-                        ),
+                        RowSeparator(),
                         SettingsTile(
                           icon: Icons.bug_report_outlined,
                           title: '导出错误日志',

@@ -6,6 +6,7 @@ import '../../net/error_logger.dart';
 import '../../utils/colorizer_manager.dart';
 import '../widgets/app_toast.dart';
 import '../widgets/motion.dart';
+import '../widgets/row_separator.dart';
 import 'settings_widgets.dart';
 
 /// 漫画上色设置区（本地 AI）：开关 + 模型导入/卸载。
@@ -116,7 +117,6 @@ class ColorizerSectionState extends State<ColorizerSection> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     // 开关需模型就绪；导入入口仅需平台可用（web 无 FFI、低端机禁用）。
     final canUse = _m.isAvailable && !kIsWeb && !_lowEnd;
     final canManage = !kIsWeb && !_lowEnd;
@@ -139,10 +139,7 @@ class ColorizerSectionState extends State<ColorizerSection> {
                 ),
               ),
               if (canManage) ...[
-                Container(
-                  height: 0.5,
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
-                ),
+                RowSeparator(),
                 SettingsTile(
                   icon: Icons.file_download_rounded,
                   title: '导入上色模型',
@@ -154,10 +151,7 @@ class ColorizerSectionState extends State<ColorizerSection> {
                   onTap: _pickModel,
                 ),
                 if (_m.modelPath != null) ...[
-                  Container(
-                    height: 0.5,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
-                  ),
+                  RowSeparator(),
                   SettingsTile(
                     icon: Icons.delete_forever_rounded,
                     title: '卸载模型',

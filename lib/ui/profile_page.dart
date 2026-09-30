@@ -26,6 +26,7 @@ import 'widgets/cached_image.dart';
 import 'widgets/squircle.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/motion.dart';
+import 'widgets/row_separator.dart';
 import 'widgets/settings_row.dart';
 import 'widgets/state_view.dart';
 import 'widgets/tap_target.dart';
@@ -1064,11 +1065,8 @@ class _HistorySheet extends StatelessWidget {
                     child: ListView.separated(
                       shrinkWrap: true,
                       itemCount: entries.length,
-                      separatorBuilder: (_, __) => Container(
-                        height: 0.5,
-                        color: T.color(scheme.onSurface, TextTier.hairline,
-                            brightness: scheme.brightness),
-                      ),
+                      separatorBuilder: (_, __) =>
+                          RowSeparator(tier: TextTier.hairline),
                       itemBuilder: (_, i) {
                         final e = entries[i];
                         return ListTile(

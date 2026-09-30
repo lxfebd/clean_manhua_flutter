@@ -99,6 +99,43 @@ class StyleTokens {
     );
   }
 
+  // ── 分组列表（苹果 inset grouped）────────────────────────────────────
+  /// 分组卡底色：极简 = 改造前原值 [ColorScheme.surface]；苹果 = iOS 二级分组
+  /// 背景（surfaceContainer，卡与屏幕底色拉开层次）；小米 = surface（走渐变卡）。
+  static Color groupCardBackground(BuildContext c) {
+    final scheme = Theme.of(c).colorScheme;
+    return c.uiStyle == UIStyle.apple ? scheme.surfaceContainer : scheme.surface;
+  }
+
+  /// 行分隔线颜色：极简 = 改造前原值 `onSurface @ T.fill(0.06)`；苹果/小米 =
+  /// hairline(0.08)。
+  static Color rowSeparatorColor(BuildContext c) {
+    final scheme = Theme.of(c).colorScheme;
+    final tier = c.uiStyle == UIStyle.minimalist
+        ? TextTier.fill
+        : TextTier.hairline;
+    return scheme.onSurface.withValues(
+      alpha: T.alphaFor(tier, Theme.of(c).brightness),
+    );
+  }
+
+  /// 分隔线左右缩进。极简 = 调用点原值（各页历史上写的值不同：设置页 0/0、
+  /// 详情页 16/16、SettingsRow 64/0），所以原值由调用点传入；苹果 = iOS inset
+  /// grouped（从文本列起，右侧留 16）；小米 = HyperOS 通栏。
+  static double separatorIndent(BuildContext c, double minimalistOriginal) =>
+      switch (c.uiStyle) {
+        UIStyle.minimalist => minimalistOriginal,
+        UIStyle.apple => 46,
+        UIStyle.xiaomi => 0,
+      };
+
+  static double separatorEndIndent(BuildContext c, double minimalistOriginal) =>
+      switch (c.uiStyle) {
+        UIStyle.minimalist => minimalistOriginal,
+        UIStyle.apple => 16,
+        UIStyle.xiaomi => 0,
+      };
+
   // ── 动效 ────────────────────────────────────────────────────────────
   // 极简分支逐字节锁定改造前原值（与圆角同样的回归面原则）：
   // PressableScale 原为 120ms/easeOut，FadeSlideIn 原为 480ms/Cubic(0.16,1,0.3,1)。

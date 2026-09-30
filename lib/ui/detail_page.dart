@@ -299,13 +299,11 @@ class _DetailPageState extends State<DetailPage> {
                               ) ...[
                                 if (i > 0)
                                   Divider(
-                                    height: 0.5,
-                                    indent: 16,
-                                    endIndent: 16,
-                                    color: scheme.onSurface.withValues(
-                                      alpha: 0.06,
-                                    ),
-                                  ),
+                                                                      height: 0.5,
+                                                                      indent: StyleTokens.separatorIndent(context, 16),
+                                                                      endIndent: StyleTokens.separatorEndIndent(context, 16),
+                                                                      color: StyleTokens.rowSeparatorColor(context),
+                                                                    ),
                                 Builder(
                                   builder: (ctx) {
                                     final ch = _sortedChapters()[i];
@@ -1054,7 +1052,14 @@ class _DetailPageState extends State<DetailPage> {
                       ],
                     ),
                   ),
-                  Divider(height: 0.5),
+                  Divider(
+                                      height: 0.5,
+                                      indent: StyleTokens.separatorIndent(context, 0),
+                                      endIndent: StyleTokens.separatorEndIndent(context, 0),
+                                      color: context.uiStyle == UIStyle.minimalist
+                                          ? null
+                                          : StyleTokens.rowSeparatorColor(context),
+                                    ),
                   Expanded(
                     child: ListView.builder(
                       itemCount: _sortedChapters().length,

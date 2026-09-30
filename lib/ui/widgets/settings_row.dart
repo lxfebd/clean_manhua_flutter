@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../style_tokens.dart';
 import '../tokens.dart';
+import 'row_separator.dart';
 
 /// 设置/功能列表行（合并"我的"页 `_Row` 与设置页 `_SettingTile`）。
 ///
@@ -56,12 +57,8 @@ class SettingsRow extends StatelessWidget {
         child: Column(
           children: [
             if (showDivider)
-              Container(
-                height: 0.5,
-                margin: const EdgeInsets.only(left: 64),
-                color: T.color(scheme.onSurface, TextTier.hairline,
-                    brightness: brightness),
-              ),
+                          // 极简 = 本组件改造前原值（inset 64 + hairline）；非极简走风格轴。
+                          RowSeparator(tier: TextTier.hairline, indent: 64),
             Padding(
               padding: const EdgeInsets.symmetric(
                   horizontal: S.x16, vertical: S.x12),
