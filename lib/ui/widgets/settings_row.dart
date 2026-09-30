@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../style_scope.dart';
 import '../style_tokens.dart';
 import '../tokens.dart';
 import 'row_separator.dart';
+import 'squircle.dart';
 
 /// 设置/功能列表行（合并"我的"页 `_Row` 与设置页 `_SettingTile`）。
 ///
@@ -53,6 +55,13 @@ class SettingsRow extends StatelessWidget {
     // 图标底块与字形按风格：极简锁本组件改造前原值（34 / 18）。
     final tile = StyleTokens.iconTileSize(context, 34);
     final glyph = StyleTokens.iconGlyphSize(context, 18);
+    final tileColor =
+        T.color(scheme.onSurface, TextTier.fill, brightness: brightness);
+    // 小米 = HyperOS 超椭圆容器（SquircleBorder 是 ShapeBorder，只能走
+    // ShapeDecoration，不能塞进 BoxDecoration.shape）；极简/苹果 = 圆角方块。
+    final tileDeco = context.uiStyle == UIStyle.xiaomi
+        ? ShapeDecoration(color: tileColor, shape: SquircleBorder(radius: iconRadius))
+        : BoxDecoration(color: tileColor, borderRadius: BorderRadius.circular(iconRadius));
     return InkWell(
       onTap: onTap,
       child: ConstrainedBox(
@@ -63,18 +72,13 @@ class SettingsRow extends StatelessWidget {
                           // 极简 = 本组件改造前原值（inset 64 + hairline）；非极简走风格轴。
                           RowSeparator(tier: TextTier.hairline, indent: 64),
             Padding(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: S.x16, vertical: S.x12),
+              padding: StyleTokens.rowPadding(context, S.x16, S.x12),
               child: Row(
                 children: [
                   Container(
                     width: tile,
                     height: tile,
-                    decoration: BoxDecoration(
-                      color: T.color(scheme.onSurface, TextTier.fill,
-                          brightness: brightness),
-                      borderRadius: BorderRadius.circular(iconRadius),
-                    ),
+                    decoration: tileDeco,
                     child: Icon(
                       icon,
                       size: glyph,

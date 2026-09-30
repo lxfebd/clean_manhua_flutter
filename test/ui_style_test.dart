@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xingmanxia/theme.dart';
 import 'package:xingmanxia/ui/style_scope.dart';
 import 'package:xingmanxia/ui/style_tokens.dart';
 import 'package:xingmanxia/ui/tokens.dart';
 import 'package:xingmanxia/ui/widgets/frosted_glass.dart';
 import 'package:xingmanxia/ui/widgets/motion.dart';
 import 'package:xingmanxia/ui/widgets/row_separator.dart';
+import 'package:xingmanxia/ui/widgets/settings_row.dart';
+import 'package:xingmanxia/ui/widgets/squircle.dart';
 
 /// UI 风格轴门禁（2026-09-30 三风格改造 S4）。
 ///
@@ -353,6 +356,78 @@ void main() {
             StyleTokens.iconGlyphSize(context, 18),
             s == UIStyle.minimalist ? 18 : (s == UIStyle.apple ? 17 : 20),
             reason: '${s.name} 图标字形');
+      }
+    });
+
+    testWidgets('按钮三风格：极简逐字节锁原值，苹果 iOS（无字距/medium），小米 HyperOS 胶囊',
+        (tester) async {
+      for (final (style, radius, weight, spacing, fontSize, padH, padV) in [
+        (UIStyle.minimalist, R.control, FontWeight.w600, 0.2, 14.0, 18.0, 13.0),
+        (
+          UIStyle.apple,
+          R.controlApple,
+          FontWeight.w500,
+          0.0,
+          TypeScale.bodyApple,
+          16.0,
+          12.0
+        ),
+        (UIStyle.xiaomi, R.pill, FontWeight.w500, 0.2, TypeScale.body, 20.0, 12.0),
+      ]) {
+        final theme = AppTheme.light(0, true, style);
+        await tester.pumpWidget(MaterialApp(
+          theme: theme,
+          home: Scaffold(
+            body: FilledButton(onPressed: () {}, child: const Text('OK')),
+          ),
+        ));
+        // MaterialApp 内 AnimatedTheme 是从上一帧主题插值，需要一轮动画收敛。
+        await tester.pumpAndSettle();
+        final button = find.byType(FilledButton);
+        final styleData = theme.filledButtonTheme.style!;
+        expect(styleData.padding!.resolve(const <WidgetState>{}),
+            EdgeInsets.symmetric(horizontal: padH, vertical: padV),
+            reason: '${style.name} 按钮内边距');
+        final label = styleData.textStyle!.resolve(const <WidgetState>{})!;
+        expect(label.fontWeight, weight, reason: '${style.name} 标签字重');
+        expect(label.letterSpacing, spacing, reason: '${style.name} 字距');
+        expect(label.fontSize, fontSize, reason: '${style.name} 标签字号');
+        final material = tester.widget<Material>(
+            find.descendant(of: button, matching: find.byType(Material)));
+        expect(material.shape, RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius)),
+            reason: '${style.name} 按钮形状');
+        // 44dp 热区门禁不许被形状/内边距改动破坏。
+        expect(tester.getSize(button).height, greaterThanOrEqualTo(44),
+            reason: '${style.name} 按钮热区');
+      }
+    });
+
+    testWidgets('列表行内边距与图标底块形状：极简锁原值（16/12 + 圆角方块），苹果 iOS，小米超椭圆',
+        (tester) async {
+      for (final s in UIStyle.values) {
+        await tester.pumpWidget(StyleScope.demo(
+          style: s,
+          child: MaterialApp(
+            home: Scaffold(body: SettingsRow(icon: Icons.star, title: '行')),
+          ),
+        ));
+        final row = find.byType(SettingsRow);
+        final padding = tester
+            .widget<Padding>(
+                find.descendant(of: row, matching: find.byType(Padding)).first)
+            .padding as EdgeInsets;
+        expect(padding.top, s == UIStyle.minimalist ? 12 : (s == UIStyle.apple ? 14 : 16),
+            reason: '${s.name} 行内边距');
+        final deco = tester
+            .widget<Container>(
+                find.descendant(of: row, matching: find.byType(Container)).first)
+            .decoration;
+        if (s == UIStyle.xiaomi) {
+          expect(deco, isA<ShapeDecoration>(), reason: '${s.name} 图标底块用超椭圆');
+          expect((deco as ShapeDecoration).shape, isA<SquircleBorder>());
+        } else {
+          expect(deco, isA<BoxDecoration>(), reason: '${s.name} 图标底块保持圆角方块');
+        }
       }
     });
 

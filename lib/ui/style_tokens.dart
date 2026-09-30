@@ -110,6 +110,18 @@ class StyleTokens {
   }
 
   // ── 分组列表（苹果 inset grouped）────────────────────────────────────
+  /// 列表行内边距。极简 = 调用点原值（SettingsRow 16/12），所以原值由调用点传入；
+  /// 苹果 = iOS grouped 行（16/14，44 行高由上下 padding 撑）；
+  /// 小米 = HyperOS 行（16/16，行高 48）。
+  static EdgeInsets rowPadding(
+          BuildContext c, double minimalistH, double minimalistV) =>
+      switch (c.uiStyle) {
+        UIStyle.minimalist =>
+          EdgeInsets.symmetric(horizontal: minimalistH, vertical: minimalistV),
+        UIStyle.apple => const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        UIStyle.xiaomi => const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      };
+
   /// 列表行图标底块：极简 = 调用点原值（SettingsRow 34）；苹果 = iOS Settings 行的
   /// 29pt 圆角方块容器；小米 = HyperOS 40dp 容器。
   static double iconTileSize(BuildContext c, double minimalistOriginal) =>

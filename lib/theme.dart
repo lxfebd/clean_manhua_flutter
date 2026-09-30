@@ -197,6 +197,33 @@ class AppTheme {
         ],
     };
 
+    // 按钮形状与标签：极简逐字节锁原值（14/w600/字距 0.2/padding 18/13 + rControl）；
+    // 苹果 = iOS（无字距、medium 标签、10 圆角、16/12 内边距，标签用 body 字号）；
+    // 小米 = HyperOS 胶囊（pill 圆角、medium 标签、20/12 内边距）。
+    final btnRadius = switch (style) {
+      UIStyle.minimalist || UIStyle.apple => rControl,
+      UIStyle.xiaomi => R.pill,
+    };
+    final btnWeight = switch (style) {
+      UIStyle.minimalist => FontWeight.w600,
+      UIStyle.apple || UIStyle.xiaomi => FontWeight.w500,
+    };
+    final btnSpacing = switch (style) {
+      UIStyle.minimalist => 0.2,
+      UIStyle.apple => 0.0,
+      UIStyle.xiaomi => 0.2,
+    };
+    final btnFontSize = switch (style) {
+      UIStyle.minimalist || UIStyle.xiaomi => TypeScale.body,
+      UIStyle.apple => TypeScale.bodyApple,
+    };
+    final btnPadding = switch (style) {
+      UIStyle.minimalist =>
+        const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+      UIStyle.apple => const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      UIStyle.xiaomi => const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+    };
+
     final theme = ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
@@ -263,10 +290,12 @@ class AppTheme {
           elevation: 0,
           // 触控热区门禁：M3 默认按钮高 40dp，统一提到 44dp 最小命中区。
           minimumSize: const Size(64, 44),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(rControl)),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
-          textStyle: const TextStyle(
-              fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.2),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(btnRadius)),
+          padding: btnPadding,
+          textStyle: TextStyle(
+              fontSize: btnFontSize,
+              fontWeight: btnWeight,
+              letterSpacing: btnSpacing),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
@@ -275,10 +304,12 @@ class AppTheme {
           side: BorderSide(color: border, width: 1),
           // 触控热区门禁：M3 默认按钮高 40dp，统一提到 44dp 最小命中区。
           minimumSize: const Size(64, 44),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(rControl)),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
-          textStyle: const TextStyle(
-              fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.2),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(btnRadius)),
+          padding: btnPadding,
+          textStyle: TextStyle(
+              fontSize: btnFontSize,
+              fontWeight: btnWeight,
+              letterSpacing: btnSpacing),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
@@ -286,9 +317,11 @@ class AppTheme {
           foregroundColor: text,
           // 触控热区门禁：M3 默认按钮高 40dp，统一提到 44dp 最小命中区。
           minimumSize: const Size(64, 44),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(rControl)),
-          textStyle: const TextStyle(
-              fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.2),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(btnRadius)),
+          textStyle: TextStyle(
+              fontSize: btnFontSize,
+              fontWeight: btnWeight,
+              letterSpacing: btnSpacing),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
