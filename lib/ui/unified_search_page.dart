@@ -7,8 +7,10 @@ import '../models/comic_item.dart';
 import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import '../sources/comic_source.dart';
+import '../sources/novel_source.dart';
 import '../sources/source_manager.dart';
 import 'detail_page.dart';
+import 'novel_detail_page.dart';
 import 'reader_page.dart';
 import 'responsive.dart';
 import 'widgets/cached_image.dart';
@@ -94,8 +96,10 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
     });
     try {
       final enabled = await SourceManager.enabledSources();
+      final novelEnabled = await SourceManager.enabledNovelSources();
       final futures = <Future<(List<ComicItem>, bool)>>[
         for (final s in enabled) _safeSearch(s, kw, 1),
+        for (final s in novelEnabled) _safeSearchNovel(s, kw, 1),
       ];
       final all = await Future.wait(futures, eagerError: false);
       if (!mounted || gen != _searchGen) return;
@@ -103,6 +107,7 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
       final list = <_SourceResult>[];
       var anyMore = false;
       var matched = false;
+      // 漫画源结果（futures 前段）
       for (var i = 0; i < enabled.length; i++) {
         final (items, isFailed) = all[i];
         if (isFailed) {
@@ -111,8 +116,25 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
         }
         if (items.isNotEmpty) {
           matched = true;
-          list.add(_SourceResult(source: enabled[i], items: items, page: 1));
+          list.add(
+            _SourceResult(source: enabled[i], items: items, page: 1),
+          );
           // 一页就能拉满的源（数量少于页容量）视为没有更多
+          anyMore = anyMore || items.length >= _pageSize;
+        }
+      }
+      // 小说源结果（futures 后段，偏移 = 漫画源数量）
+      for (var i = 0; i < novelEnabled.length; i++) {
+        final (items, isFailed) = all[enabled.length + i];
+        if (isFailed) {
+          failed++;
+          continue;
+        }
+        if (items.isNotEmpty) {
+          matched = true;
+          list.add(
+            _SourceResult(novelSource: novelEnabled[i], items: items, page: 1),
+          );
           anyMore = anyMore || items.length >= _pageSize;
         }
       }
@@ -180,7 +202,10 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
     });
     try {
       final futures = <Future<(List<ComicItem>, bool)>>[
-        for (final r in snapshot) _safeSearch(r.source, kw, r.page + 1),
+        for (final r in snapshot)
+          r.isNovel
+              ? _safeSearchNovel(r.novelSource!, kw, r.page + 1)
+              : _safeSearch(r.source!, kw, r.page + 1),
       ];
       final all = await Future.wait(futures, eagerError: false);
       // 期间发起了新搜索（代际已变）：本页结果作废，防止旧页数据
@@ -211,7 +236,12 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
         }
         anyMore = anyMore || newItems.length >= _pageSize;
         updated.add(
-          _SourceResult(source: r.source, items: merged, page: r.page + 1),
+          _SourceResult(
+            source: r.source,
+            novelSource: r.novelSource,
+            items: merged,
+            page: r.page + 1,
+          ),
         );
       }
       setState(() {
@@ -236,6 +266,23 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
   /// 返回 `(items, failed)`：failed 标记该源请求是否真正失败（区别于无结果）。
   Future<(List<ComicItem>, bool)> _safeSearch(
     ComicSource src,
+    String keyword,
+    int page,
+  ) async {
+    try {
+      final items = await src
+          .search(keyword, page)
+          .timeout(const Duration(seconds: 15));
+      return (items, false);
+    } catch (_) {
+      return (const <ComicItem>[], true);
+    }
+  }
+
+  /// 小说源的同款容错搜索包装：小说条目复用 [ComicItem] 模型（id/name/pic
+  /// 同构），失败静默（与漫画一致，单源失败只丢该源结果）。
+  Future<(List<ComicItem>, bool)> _safeSearchNovel(
+    NovelSource src,
     String keyword,
     int page,
   ) async {
@@ -555,14 +602,27 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
           selected: _selected,
           selectedSourceId: _selectedSource?.id,
           compact: compactCards,
-          // 双栏模式：点卡片 = 选中并在右侧预览（master-detail）；
-          // 单栏模式：点卡片 = 直接进详情页。
-          onTap:
-              (item) =>
-                  compactCards
-                      ? _openDetail(_results[resultIdx].source, item)
-                      : _select(_results[resultIdx].source, item),
-          onHover: (item) => _scheduleSelect(_results[resultIdx].source, item),
+          // 双栏模式：点漫画卡片 = 选中并在右侧预览（master-detail）；
+          // 单栏模式：点漫画卡片 = 直接进详情页。
+          // 小说结果不进漫画预览面板（预览面板绑 ComicDetail 章节），
+          // 两种模式都直达小说详情页。
+          onTap: (item) {
+            final r = _results[resultIdx];
+            if (r.isNovel) {
+              _openNovelDetail(r.sourceId, item);
+              return;
+            }
+            if (compactCards) {
+              _openDetail(r.source!, item);
+            } else {
+              _select(r.source!, item);
+            }
+          },
+          onHover: (item) {
+            final r = _results[resultIdx];
+            if (r.isNovel) return; // 小说无预览面板，悬停不选中
+            _scheduleSelect(r.source!, item);
+          },
         );
       },
     );
@@ -862,17 +922,47 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
       ),
     );
   }
+
+  /// 打开小说详情（结果卡片点击；返回书架变更后由详情页自行处理，
+  /// 这里无需回刷——统一搜索页不展示书架状态）。
+  void _openNovelDetail(String sourceId, ComicItem item) {
+    HapticFeedback.selectionClick();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder:
+            (_) => NovelDetailPage(
+              sourceId: sourceId,
+              novelId: item.id,
+              name: item.name,
+              pic: item.pic,
+            ),
+      ),
+    );
+  }
 }
 
 class _SourceResult {
-  final ComicSource source;
+  /// 漫画源（isNovel=false 时非空）。
+  final ComicSource? source;
+
+  /// 小说源（isNovel=true 时非空）。
+  final NovelSource? novelSource;
+
   final List<ComicItem> items;
   final int page; // 已加载到的页码（从 1 开始）
-  const _SourceResult({
-    required this.source,
+
+  _SourceResult({
+    this.source,
+    this.novelSource,
     required this.items,
     this.page = 1,
-  });
+  }) : assert(source != null || novelSource != null,
+            '_SourceResult 必须携带漫画源或小说源之一');
+
+  bool get isNovel => novelSource != null;
+  String get sourceId => novelSource?.id ?? source!.id;
+  String get sourceName => novelSource?.name ?? source!.name;
 }
 
 class _SourceResultGroup extends StatelessWidget {
@@ -899,8 +989,10 @@ class _SourceResultGroup extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(4, 14, 4, 8),
           child: SectionHeader(
-            icon: Icons.public_rounded,
-            title: result.source.name,
+            icon: result.isNovel
+                ? Icons.menu_book_rounded
+                : Icons.public_rounded,
+            title: result.sourceName,
             count: result.items.length,
           ),
         ),
@@ -912,11 +1004,11 @@ class _SourceResultGroup extends StatelessWidget {
                   .map(
                     (item) => _UnifiedCard(
                       item: item,
-                      sourceId: result.source.id,
+                      sourceId: result.sourceId,
                       compact: compact,
                       selected:
                           selected?.id == item.id &&
-                          selectedSourceId == result.source.id,
+                          selectedSourceId == result.sourceId,
                       onTap: () => onTap(item),
                       onHover: () => onHover(item),
                     ),

@@ -272,13 +272,12 @@ void main() {
         // find.byType 会先命中它，所以不能靠 finder 区分。
         final el = tester.element(find.byType(RowSeparator));
         final built = (el.widget as RowSeparator).build(el);
-        final dec = (built is Padding ? (built as Padding).child
-            : built) as Container;
+        final dec = (built is Padding ? built.child : built) as Container;
         final box = dec.decoration as BoxDecoration;
         expect(box.color!.a, closeTo(wantAlpha, 1e-9),
             reason: '${style.name} 分隔线档位');
         final left = built is Padding
-            ? (built as Padding).padding as EdgeInsets
+            ? built.padding as EdgeInsets
             : EdgeInsets.zero;
         expect(left.left, wantLeft, reason: '${style.name} 分隔线缩进');
       }

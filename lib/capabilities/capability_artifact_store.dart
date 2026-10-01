@@ -310,12 +310,16 @@ class CapabilityArtifactStore {
       } catch (_) {}
     }
 
-    // 下载（Net.getBytesAuto：优先 Cronet；proxy 覆盖时走 dart:io）。
-    // 权重可达数百 MB，必须给足超时（Net 默认 15s 会必超时失败）。
+    // 下载。权重可达数百 MB，必须给足超时（Net 默认 15s 会必超时失败）。
+    // 显式走 getBytes（dart:io）：getBytesAuto 在 Android 上先试 Cronet，
+    // 而 Cronet 探针级超时（probe=6s）会在大文件读完前掐断整个请求，
+    // 每次都假失败后再回退 dart:io，白耗 6s；dart:io 路径按块超时（单块
+    // 15s）无整体限制，大文件反而更稳。上限放宽到 512MB：权重是可信的
+    // 远端索引文件，不属于"异常超大响应"防御范围（通用下载仍是 256MB）。
     final List<int> bytes;
     try {
-      bytes = await Net.getBytesAuto(weight.url,
-          proxy: proxy, timeout: const Duration(minutes: 10));
+      bytes = await Net.getBytes(weight.url,
+          proxy: proxy, timeout: const Duration(minutes: 10), maxBytes: 512 * 1024 * 1024);
     } catch (e) {
       _lastError = '权重下载失败，请检查网络后重试';
       ErrorLogger.instance.warn('[capability] weight download failed ($id): $e');

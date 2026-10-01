@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http/browser_client.dart';
 
-import 'http_client.dart' show HttpStatusException;
+import 'http_client.dart' show Net, HttpStatusException;
 
 /// web 端线上实现：浏览器 fetch（BrowserClient）自动处理 CORS / gzip /
 /// 同源 cookie。无代理概念（代理只在 io 端有意义），优选 IP 不适用。
@@ -16,18 +16,20 @@ class PlatformHttp {
   }
 
   /// 单次 GET：返回字节。非 2xx 抛 [HttpStatusException]。
+  /// [maxBytes] 为响应体字节上限。
   static Future<List<int>> get(
     String urlStr,
     Map<String, String>? headers,
     Duration timeout,
     String? proxy,
+    int maxBytes,
   ) async {
     final client = _newClient();
     try {
       final req = http.Request('GET', Uri.parse(urlStr));
       _applyHeaders(req, headers);
       final res = await _sendWithTimeout(client, req, timeout);
-      return await _readBytes(res, timeout);
+      return await _readBytes(res, timeout, maxBytes);
     } finally {
       client.close();
     }
@@ -40,6 +42,7 @@ class PlatformHttp {
     String? body,
     Duration timeout,
     String? proxy,
+    int maxBytes,
   ) async {
     final client = _newClient();
     try {
@@ -47,7 +50,7 @@ class PlatformHttp {
       _applyHeaders(req, headers);
       if (body != null) req.bodyBytes = utf8.encode(body);
       final res = await _sendWithTimeout(client, req, timeout);
-      return await _readBytes(res, timeout);
+      return await _readBytes(res, timeout, maxBytes);
     } finally {
       client.close();
     }
@@ -75,13 +78,14 @@ class PlatformHttp {
   }
 
   /// 读取响应字节。fetch 已自动解压，无需手动 gzip。
+  /// 分块累计，超过 [maxBytes] 抛 [ResponseTooLargeException] 并停止。
   static Future<List<int>> _readBytes(
-      http.StreamedResponse res, Duration t) async {
+      http.StreamedResponse res, Duration t, int maxBytes) async {
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      final errBytes = await res.stream.toBytes().timeout(t);
+      final errBytes = await Net.readLimited(res.stream, maxBytes, t);
       throw HttpStatusException(
           res.statusCode, utf8.decode(errBytes, allowMalformed: true));
     }
-    return res.stream.toBytes().timeout(t);
+    return Net.readLimited(res.stream, maxBytes, t);
   }
 }

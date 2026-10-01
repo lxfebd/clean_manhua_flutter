@@ -19,6 +19,15 @@ class HttpStatusException implements Exception {
   String toString() => 'HTTP $statusCode: $body';
 }
 
+/// 响应体超过字节上限（[Net.maxTextBytes]/[Net.maxDownloadBytes] 或调用方覆盖值）。
+/// 属确定性失败，不再重试：源头是超大/异常响应，重拉只会再次超限。
+class ResponseTooLargeException implements Exception {
+  final int limitBytes;
+  ResponseTooLargeException(this.limitBytes);
+  @override
+  String toString() => '响应体超过上限（$limitBytes 字节），已拒绝读取';
+}
+
 /// 每域名令牌桶限流：控制对源站的请求频率与并发，避免对源站造成过大压力，
 /// 降低 IP 被封风险（爬虫礼仪）。默认每域名 3 req/s、并发 ≤5。
 class RateLimiter {
@@ -155,6 +164,16 @@ class _Bucket {
 /// 注意：类名用 Net，避免与 dart:io 的 HttpClient 冲突。
 class Net {
   static const Duration _timeout = Duration(seconds: 15);
+
+  /// 文本类请求（[get]/[getCronet]/[post]）响应体字节上限。
+  /// 与 [html_parser.kDefaultMaxHtmlBytes]（8MB）对齐：parse 前的网络层就收口，
+  /// 恶意/异常超大的页面在拉满内存前被拦截。
+  static const int maxTextBytes = 8 * 1024 * 1024;
+
+  /// 字节类下载（[getBytes]/[getBytesCronet]/[getBytesAuto]/[getBytesMirrors]）
+  /// 的响应体上限。图片/超分单张远小于此；最大场景——能力权重(225MB)——也放行。
+  /// 需要更大体量或更紧约束的调用点用 [maxBytes] 显式覆盖。
+  static const int maxDownloadBytes = 256 * 1024 * 1024;
 
   /// 单个候选 IP 的连接超时（用于优选 IP 轮询/自愈）。
   /// 比总超时更短，避免全部 IP 不可达时长时间挂起。
@@ -305,30 +324,32 @@ class Net {
   /// 带代理失败回退的 GET：先用代理（若有），连接层异常/超时后自动换直连重试一次。
   /// 避免代理节点故障导致整源不可用。
   static Future<String> _getWithFallback(String urlStr,
-      Map<String, String>? headers, Duration? timeout, String? proxy) async {
+      Map<String, String>? headers, Duration? timeout, String? proxy,
+      [int? maxBytes]) async {
     if (proxy == null && _effectiveProxy == null) {
-      return _getOnce(urlStr, headers, timeout, proxy: null);
+      return _getOnce(urlStr, headers, timeout, proxy: null, maxBytes: maxBytes);
     }
     try {
-      return await _getOnce(urlStr, headers, timeout, proxy: proxy);
+      return await _getOnce(urlStr, headers, timeout, proxy: proxy, maxBytes: maxBytes);
     } catch (e) {
       // 只有网络层失败才回退直连；HTTP 4xx/5xx 是源站响应，不是代理问题
       if (!_retryable(e)) rethrow;
-      return _getOnce(urlStr, headers, timeout, proxy: '');
+      return _getOnce(urlStr, headers, timeout, proxy: '', maxBytes: maxBytes);
     }
   }
 
   /// 带代理失败回退的字节 GET。
   static Future<List<int>> _getBytesWithFallback(String urlStr,
-      Map<String, String>? headers, Duration? timeout, String? proxy) async {
+      Map<String, String>? headers, Duration? timeout, String? proxy,
+      [int? maxBytes]) async {
     if (proxy == null && _effectiveProxy == null) {
-      return _getBytesOnce(urlStr, headers, proxy: null, timeout: timeout);
+      return _getBytesOnce(urlStr, headers, proxy: null, timeout: timeout, maxBytes: maxBytes);
     }
     try {
-      return await _getBytesOnce(urlStr, headers, proxy: proxy, timeout: timeout);
+      return await _getBytesOnce(urlStr, headers, proxy: proxy, timeout: timeout, maxBytes: maxBytes);
     } catch (e) {
       if (!_retryable(e)) rethrow;
-      return _getBytesOnce(urlStr, headers, proxy: '', timeout: timeout);
+      return _getBytesOnce(urlStr, headers, proxy: '', timeout: timeout, maxBytes: maxBytes);
     }
   }
 
@@ -407,24 +428,24 @@ class Net {
     return next;
   }
 
-  /// GET 请求，返回响应体字符串（UTF-8）。
-  /// 瞬态失败（超时/连接重置/5xx/429）自动重试 1 次（指数退避 600ms），
-  /// 解决部分源站（如 xbiquge）间歇性超时/连接被重置导致的假性失败。
-  /// 4xx 与确定性失败不重试，避免拖长错误反馈。
   /// [proxy] 为单源代理覆盖：null=走全局代理/直连；''=强制直连；其余=强制走该代理。
+  /// [maxBytes] 覆盖响应体上限（默认 [maxTextBytes]）。
   static Future<String> get(String urlStr,
-      {Map<String, String>? headers, Duration? timeout, String? proxy}) async {
+      {Map<String, String>? headers,
+      Duration? timeout,
+      String? proxy,
+      int? maxBytes}) async {
     if (proxy == null) {
       try {
-        return await _getOnce(urlStr, headers, timeout, proxy: null);
+        return await _getOnce(urlStr, headers, timeout, proxy: null, maxBytes: maxBytes);
       } catch (e) {
         if (!_retryable(e)) rethrow;
         await Future<void>.delayed(const Duration(milliseconds: 600));
-        return _getOnce(urlStr, headers, timeout, proxy: null);
+        return _getOnce(urlStr, headers, timeout, proxy: null, maxBytes: maxBytes);
       }
     }
     // 单源代理：先走代理，网络层失败自动回退直连（代理节点故障不拖死整源）
-    return _getWithFallback(urlStr, headers, timeout, proxy);
+    return _getWithFallback(urlStr, headers, timeout, proxy, maxBytes);
   }
 
   /// 判断异常是否值得重试：网络层瞬态错误或服务器端错误。
@@ -438,13 +459,14 @@ class Net {
   }
 
   static Future<String> _getOnce(String urlStr, Map<String, String>? headers,
-      Duration? timeout, {String? proxy}) async {
+      Duration? timeout, {String? proxy, int? maxBytes}) async {
     final t = timeout ?? _timeout;
+    final limit = maxBytes ?? maxTextBytes;
     // 限流：等待令牌与并发槽位（降低对源站压力，避免被封）
     final host = Uri.parse(urlStr).host;
     await RateLimiter.acquire(host);
     try {
-      final bytes = await PlatformHttp.get(urlStr, headers, t, proxy);
+      final bytes = await PlatformHttp.get(urlStr, headers, t, proxy, limit);
       // 与 Cronet 路径（allowMalformed: true）保持一致：部分站点返回的
       // 页面含非 UTF-8 字节序列（GBK 残留/编码声明与实际不符），严格解码
       // 会抛 FormatException → 同一次请求在「Cronet 可用/不可用」两条路径
@@ -463,22 +485,23 @@ class Net {
   /// 探测策略：只在第一次请求时真正走 Cronet（[probeTimeout] 限时），一旦失败/超时
   /// 就把 [_cronetUsable] 置为 false，后续请求直接走 dart:io，不再反复消耗超时预算。
   static Future<String> getCronet(String urlStr,
-      {Map<String, String>? headers, Duration? timeout}) async {
+      {Map<String, String>? headers, Duration? timeout, int? maxBytes}) async {
     if (_cronetUsable == false || _proxyEnabled) {
-      return get(urlStr, headers: headers, timeout: timeout);
+      return get(urlStr, headers: headers, timeout: timeout, maxBytes: maxBytes);
     }
     final t = timeout ?? _timeout;
+    final limit = maxBytes ?? maxTextBytes;
     final probe = t < const Duration(seconds: 8)
         ? t
         : const Duration(seconds: 6);
     try {
       final s = await _attemptCronet(
-          urlStr, headers, t, probe,
+          urlStr, headers, t, probe, limit,
           accept: '*/*', asBytes: false);
       return s as String;
     } catch (_) {
       _cronetUsable = false;
-      return get(urlStr, headers: headers, timeout: timeout);
+      return get(urlStr, headers: headers, timeout: timeout, maxBytes: maxBytes);
     }
   }
 
@@ -488,23 +511,24 @@ class Net {
   /// [proxy] 为单源代理覆盖：非 null（含空串强制直连）时跳过 Cronet 走 dart:io——
   /// Cronet 默认引擎不读代理配置，走它等于绕过代理，故代理场景必须走 [getBytes]。
   static Future<List<int>> getBytesCronet(String urlStr,
-      {Map<String, String>? headers, Duration? timeout, String? proxy}) async {
+      {Map<String, String>? headers, Duration? timeout, String? proxy, int? maxBytes}) async {
     if (proxy != null || _cronetUsable == false || _proxyEnabled) {
-      return getBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout);
+      return getBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout, maxBytes: maxBytes);
     }
     final t = timeout ?? _timeout;
+    final limit = maxBytes ?? maxDownloadBytes;
     final probe = t < const Duration(seconds: 8)
         ? t
         : const Duration(seconds: 6);
     try {
       final b = await _attemptCronet(
-          urlStr, headers, t, probe,
+          urlStr, headers, t, probe, limit,
           accept: 'image/webp,image/*,*/*', asBytes: true);
       if (b is List<int>) return b;
-      return getBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout);
+      return getBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout, maxBytes: maxBytes);
     } catch (_) {
       _cronetUsable = false;
-      return getBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout);
+      return getBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout, maxBytes: maxBytes);
     }
   }
 
@@ -519,6 +543,7 @@ class Net {
   /// 释放，不会因超时路径泄漏连接。
   static Future<Object> _attemptCronet(
       String urlStr, Map<String, String>? headers, Duration t, Duration probe,
+      int limit,
       {required String accept, required bool asBytes}) {
     return Future<Object>(() async {
       final client = CronetHttp.defaultCronetEngine();
@@ -531,11 +556,11 @@ class Net {
         headers?.forEach((k, v) => req.headers[k] = v);
         final streamed = await client.send(req).timeout(t);
         if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
-          final body = await streamed.stream.toBytes().timeout(t);
+          final body = await readLimited(streamed.stream, limit, t);
           throw Exception(
               'HTTP ${streamed.statusCode}: ${utf8.decode(body, allowMalformed: true)}');
         }
-        final bytes = await streamed.stream.toBytes().timeout(t);
+        final bytes = await readLimited(streamed.stream, limit, t);
         if (asBytes) return bytes;
         return utf8.decode(bytes, allowMalformed: true);
       } finally {
@@ -544,27 +569,52 @@ class Net {
     }).timeout(probe);
   }
 
+  /// 分块读取响应流，达到 [limit] 立即抛 [ResponseTooLargeException] 并
+  /// 停止消费（不拉满内存）；[t] 为**整体读取超时**（与旧
+  /// `stream.toBytes().timeout(t)` 语义一致——不用 `stream.timeout`：
+  /// Stream 级间隙超时在 FakeAsync 测试环境里不触发，会让请求悬挂、
+  /// 骨架屏动画永动导致 pumpAndSettle 超时）。供 platform_http_io/web
+  /// 复用的同一份实现，保证三条线上路径的上限语义一致。
+  static Future<List<int>> readLimited(
+      Stream<List<int>> stream, int limit, Duration t) {
+    Future<List<int>> read() async {
+      final chunks = <int>[];
+      var total = 0;
+      await for (final chunk in stream) {
+        total += chunk.length;
+        if (total > limit) {
+          throw ResponseTooLargeException(limit);
+        }
+        chunks.addAll(chunk);
+      }
+      return chunks;
+    }
+
+    return read().timeout(t);
+  }
+
   /// 智能字节请求：优先 Cronet（类浏览器 TLS/HTTP2 指纹，规避 Cloudflare 质询）；
   /// 仅对配置了优选 IP 直连的 host（如 TvTFun）保留 dart:io 的 connectionFactory 优化。
   /// 供图片缓存等通用图片加载使用。
   /// [proxy] 为单源代理覆盖：非 null 时强制走 dart:io（Cronet 不读代理配置）。
   static Future<List<int>> getBytesAuto(String urlStr,
-      {Map<String, String>? headers, Duration? timeout, String? proxy}) async {
+      {Map<String, String>? headers, Duration? timeout, String? proxy, int? maxBytes}) async {
     final host = Uri.parse(urlStr).host;
     if (proxy != null || preferredHostIps.containsKey(host)) {
-      return getBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout);
+      return getBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout, maxBytes: maxBytes);
     }
-    return getBytesCronet(urlStr, headers: headers, timeout: timeout, proxy: proxy);
+    return getBytesCronet(urlStr, headers: headers, timeout: timeout, proxy: proxy, maxBytes: maxBytes);
   }
 
   /// GET 请求，返回原始响应字节。
   /// [proxy] 为单源代理覆盖：null=走全局代理/直连；''=强制直连；其余=强制走该代理。
+  /// [maxBytes] 覆盖响应体上限（默认 [maxDownloadBytes]）。
   static Future<List<int>> getBytes(String urlStr,
-      {Map<String, String>? headers, String? proxy, Duration? timeout}) async {
+      {Map<String, String>? headers, String? proxy, Duration? timeout, int? maxBytes}) async {
     if (proxy == null) {
-      return _getBytesOnce(urlStr, headers, proxy: null, timeout: timeout);
+      return _getBytesOnce(urlStr, headers, proxy: null, timeout: timeout, maxBytes: maxBytes);
     }
-    return _getBytesWithFallback(urlStr, headers, timeout, proxy);
+    return _getBytesWithFallback(urlStr, headers, timeout, proxy, maxBytes);
   }
 
   /// 带镜像回退的 GET：按 [urls] 顺序逐个尝试，任一成功即返回其字节；
@@ -575,14 +625,14 @@ class Net {
   /// （各自 timeout），互不影响；首 URL 成功即短路，不浪费流量。
   /// 与 [_getBytesOnce] 一致，每个候选都受所在域名令牌桶限流。
   static Future<List<int>> getBytesMirrors(List<String> urls,
-      {Map<String, String>? headers, Duration? timeout}) async {
+      {Map<String, String>? headers, Duration? timeout, int? maxBytes}) async {
     if (urls.isEmpty) throw ArgumentError('urls 不能为空');
     Object? lastErr;
     for (final u in urls) {
       final host = Uri.parse(u).host;
       await RateLimiter.acquire(host);
       try {
-        return await _getBytesOnce(u, headers, proxy: null, timeout: timeout);
+        return await _getBytesOnce(u, headers, proxy: null, timeout: timeout, maxBytes: maxBytes);
       } catch (e) {
         lastErr = e;
       } finally {
@@ -594,36 +644,38 @@ class Net {
   }
 
   static Future<List<int>> _getBytesOnce(String urlStr,
-      Map<String, String>? headers, {String? proxy, Duration? timeout}) async {
+      Map<String, String>? headers, {String? proxy, Duration? timeout, int? maxBytes}) async {
     final t = timeout ?? _timeout;
-    return PlatformHttp.get(urlStr, headers, t, proxy);
+    final limit = maxBytes ?? maxDownloadBytes;
+    return PlatformHttp.get(urlStr, headers, t, proxy, limit);
   }
 
   /// POST 请求，body 为表单/JSON 字符串，返回响应体字符串（UTF-8）。
   /// [proxy] 为单源代理覆盖：null=走全局代理/直连；''=强制直连；其余=强制走该代理。
   static Future<String> post(String urlStr,
-      {Map<String, String>? headers, String? body, String? proxy}) async {
+      {Map<String, String>? headers, String? body, String? proxy, int? maxBytes}) async {
     if (proxy == null) {
-      return _postOnce(urlStr, headers, body, proxy: null);
+      return _postOnce(urlStr, headers, body, proxy: null, maxBytes: maxBytes);
     }
     try {
-      return await _postOnce(urlStr, headers, body, proxy: proxy);
+      return await _postOnce(urlStr, headers, body, proxy: proxy, maxBytes: maxBytes);
     } catch (e) {
       // 单源代理连接失败自动回退直连；强制直连（proxy=''）无需再回退
       if (proxy.isEmpty || !_retryable(e)) rethrow;
-      return _postOnce(urlStr, headers, body, proxy: '');
+      return _postOnce(urlStr, headers, body, proxy: '', maxBytes: maxBytes);
     }
   }
 
   static Future<String> _postOnce(String urlStr,
       Map<String, String>? headers, String? body,
-      {String? proxy, Duration? timeout}) async {
+      {String? proxy, Duration? timeout, int? maxBytes}) async {
     final t = timeout ?? _timeout;
+    final limit = maxBytes ?? maxTextBytes;
     // 限流：POST 同样受每域名令牌桶约束
     final host = Uri.parse(urlStr).host;
     await RateLimiter.acquire(host);
     try {
-      final bytes = await PlatformHttp.post(urlStr, headers, body, t, proxy);
+      final bytes = await PlatformHttp.post(urlStr, headers, body, t, proxy, limit);
       return utf8.decode(bytes);
     } finally {
       RateLimiter.release(host, jitter: true);

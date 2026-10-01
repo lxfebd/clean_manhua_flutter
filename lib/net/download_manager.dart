@@ -276,8 +276,13 @@ class DownloadManager {
   }
 
   /// 重试单个失败的下载任务。返回失败原因（null = 成功）。
-  static Future<String?> retry(String bookKey, String chapterId,
-      String chapterTitle, List<String> urls) async {
+  static Future<String?> retry(
+    String bookKey,
+    String chapterId,
+    String chapterTitle,
+    List<String> urls, {
+    void Function(int done, int total)? onProgress,
+  }) async {
     final parts = bookKey.split('::');
     if (parts.length != 2) return '无效的下载任务';
     // 复用已存记录里的书名/封面，避免重试后元信息被清空（下载列表显示空标题）。
@@ -294,6 +299,7 @@ class DownloadManager {
       chapterId: chapterId,
       chapterTitle: chapterTitle,
       urls: urls,
+      onProgress: onProgress,
     );
     return r.ok ? null : r.error;
   }

@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../sources/comic_source.dart';
+import '../sources/novel_source.dart';
 import '../sources/source_manager.dart';
 import 'bookshelf_store.dart';
 import 'error_logger.dart';
 import 'local_store.dart';
+import 'novel_shelf_store.dart';
 import 'update_notifier.dart';
 
 /// 更新检查频率。
@@ -111,6 +113,8 @@ class ShelfUpdater {
     bool Function()? shouldCancel,
   }) async {
     final items = BookshelfStore.listAll();
+    final novels = NovelShelfStore.listAll();
+    final total = items.length + novels.length; // 进度总长（漫画+小说）
     final updated = <String>[];
     var done = 0;
     var index = 0;
@@ -147,7 +151,48 @@ class ShelfUpdater {
       }));
       if (shouldCancel?.call() ?? false) return null;
       done += batch.length;
-      onProgress?.call(done, items.length);
+      onProgress?.call(done, total);
+      index += _concurrency;
+    }
+
+    // 阶段二：小说书架（NovelShelfStore）。基线是「上次检查记录的章节数」
+    // lastChapters，而不是加入书架时的章节快照——加入时的 chapters 只是
+    // 当时的目录，之后用户阅读过程中本地记录不会自动刷新。首次加入
+    // （last=-1）先置基线不报更新，避免"第一次检查必报更新"的噪声。
+    index = 0;
+    Future<void> checkNovel(NovelDetail d) async {
+      final sid = d.sourceId ?? '';
+      if (sid.isEmpty) return;
+      // novelById 找不到时兜底返回 currentNovel，必须校验 id 匹配
+      // （与漫画阶段同构：错配视为未找到，跳过以免误报/误写别人的基线）。
+      final src = SourceManager.novelById(sid);
+      if (src == null || src.id != sid) {
+        ErrorLogger.instance.warn(
+            'shelf_updater: 小说 sid=$sid 未找到匹配源，跳过更新检查');
+        return;
+      }
+      try {
+        final detail = await src.detail(d.id).timeout(_perBookTimeout);
+        if (_isCancelled) return;
+        final cur = detail.chapters.length;
+        final last = NovelShelfStore.lastSeenChapters(sid, d.id);
+        if (last < 0) {
+          NovelShelfStore.setLastSeenChapters(sid, d.id, cur);
+        } else if (cur > last) {
+          updated.add(d.name);
+          NovelShelfStore.setLastSeenChapters(sid, d.id, cur);
+        }
+      } catch (_) {
+        // 单本失败不阻塞整体检查（源抖动/反爬），下一轮再试
+      }
+    }
+
+    while (index < novels.length) {
+      final batch = novels.skip(index).take(_concurrency).toList();
+      await Future.wait(batch.map(checkNovel));
+      if (shouldCancel?.call() ?? false) return null;
+      done += batch.length;
+      onProgress?.call(done, total);
       index += _concurrency;
     }
     return updated;

@@ -173,4 +173,37 @@ class NovelShelfStore {
       sourceId: (m['sourceId'] as String?) ?? '',
     );
   }
+
+  /// 上次检查更新时记录的章节数（用于判断是否有新章节）。与
+  /// [BookshelfStore.lastSeenChapters] 对齐：-1 表示尚未检查过（不报更新）。
+  static int lastSeenChapters(String sourceId, String novelId) {
+    _ensureLoaded();
+    return (_cache[_key(sourceId, novelId)]?['lastChapters'] as int?) ?? -1;
+  }
+
+  /// 写入上次检查到的章节数（ShelfUpdater.checkNow 每轮更新）。
+  static void setLastSeenChapters(String sourceId, String novelId, int count) {
+    _ensureLoaded();
+    final k = _key(sourceId, novelId);
+    final m = _cache[k];
+    if (m == null) return;
+    m['lastChapters'] = count;
+    _save();
+  }
+
+  /// 判断该小说是否有更新：当前章节数 > 上次记录。
+  static bool hasUpdate(String sourceId, String novelId, int currentChapters) {
+    final last = lastSeenChapters(sourceId, novelId);
+    if (last < 0) return false;
+    return currentChapters > last;
+  }
+
+  /// 新增章节数（current - last）。
+  static int newChapterCount(
+      String sourceId, String novelId, int currentChapters) {
+    final last = lastSeenChapters(sourceId, novelId);
+    if (last < 0) return 0;
+    final diff = currentChapters - last;
+    return diff > 0 ? diff : 0;
+  }
 }

@@ -14,6 +14,7 @@ import '../net/download_manager.dart';
 import '../net/error_logger.dart';
 import '../net/http_client.dart';
 import '../net/image_cache.dart';
+import '../net/image_deg.dart';
 import '../net/jm_scramble.dart';
 import '../net/local_store.dart';
 import '../net/smart_prefetch.dart';
@@ -786,12 +787,17 @@ class _ReaderPageState extends State<ReaderPage>
             : DownloadQuality.original,
         onProgress: (d, t) {
           if (!mounted) return;
-          // onProgress 是高频回调：直接 setState 驱动底部下载指示器
-          // （否则 _downloadDone/Total 只改不改 UI，全程固定 0/0）。
-          setState(() {
-            _downloadDone = d;
-            _downloadTotal = t;
-          });
+          // onProgress 是每张图回调，批量下载下可能是高频：仅当整十分位
+          // 变化或到达末尾时才 setState（否则回调驱动的 `_downloadDone/Total`
+          // 每秒重建整个阅读器树）。维护一个本地惰值比对，避免无谓重建。
+          if (d == t ||
+              (_downloadDone ~/ 10) != (d ~/ 10) ||
+              _downloadTotal != t) {
+            setState(() {
+              _downloadDone = d;
+              _downloadTotal = t;
+            });
+          }
         },
       );
       if (mounted) {
@@ -2485,7 +2491,13 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
     return null;
   }
 
-  String _srKey() => '${widget.url}|${ImageSuperRes.algoVersion}';
+  /// 超分缓存主 key：基于归一化主 URL 构造（先剥 @jm: 解扰标记再拼变换标识）。
+  /// 不能把 `|{algoVersion}` 直接拼在 widget.url 原文后——当 url 含 `@jm:`
+  /// 中缀时，[ImageDeg.normalizeUrl] 会从 `@jm:` 截断，把尾部的 `|algoVersion`
+  /// 一并剥掉，坍缩成与普通图完全相同的 md5 槽，超分/原图互相污染缓存。
+  /// 这里先取主 URL 再拼尾，保证变换槽 = `主图|算法版本`，与普通图恒隔离。
+  String _srKey() =>
+      '${ImageDeg.normalizeUrl(widget.url)}|sr|${ImageSuperRes.algoVersion}';
 
   /// 自动上色：解码 → 剥 alpha → 灰度推理 → 重编码。
   /// 任何一步失败返回 null，调用方保留原图（不打断阅读）。
@@ -2547,7 +2559,9 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
       // 只计算一次，二次打开直接命中磁盘缓存（与原图缓存同机制）。
       Uint8List display = raw;
       if (widget.trimBorder) {
-        final trimKey = '${widget.url}|trim|${ImageTrim.algoVersion}';
+        // 裁边 key 同样基于主 URL（见 _srKey 注释：不做就与普通图槽污染）
+        final trimKey =
+            '${ImageDeg.normalizeUrl(widget.url)}|trim|${ImageTrim.algoVersion}';
         display = await ImageCacheManager.load(trimKey,
             headers: _headers(),
             fetch: () async => trimAndCrop(raw),

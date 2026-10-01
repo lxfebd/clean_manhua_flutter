@@ -4,18 +4,20 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
-import 'http_client.dart' show Net, HttpStatusException;
+import 'http_client.dart' show Net, HttpStatusException, ResponseTooLargeException;
 
 /// io 端线上实现：真实 dart:io HttpClient（含代理 / 优选 IP connectionFactory /
 /// gzip 解压），构造逻辑复用 [Net._client]（不重复实现代理与优选 IP）。
 /// 语义与旧 `Net._getOnce/_postOnce` 完全一致，编排层（重试/回退）仍在 [Net]。
 class PlatformHttp {
   /// 单次 GET：返回字节。非 2xx 抛 [HttpStatusException]。
+  /// [maxBytes] 为响应体字节上限（默认由调用方 Net 层确定）。
   static Future<List<int>> get(
     String urlStr,
     Map<String, String>? headers,
     Duration timeout,
     String? proxy,
+    int maxBytes,
   ) async {
     final client =
         IOClient(Net.clientForRequest(Uri.parse(urlStr).host, proxy: proxy));
@@ -23,7 +25,7 @@ class PlatformHttp {
       final req = http.Request('GET', Uri.parse(urlStr));
       _applyHeaders(req, headers);
       final res = await client.send(req).timeout(timeout);
-      return await _readBytes(res, timeout, urlStr);
+      return await _readBytes(res, timeout, urlStr, maxBytes);
     } finally {
       client.close();
     }
@@ -36,6 +38,7 @@ class PlatformHttp {
     String? body,
     Duration timeout,
     String? proxy,
+    int maxBytes,
   ) async {
     final client =
         IOClient(Net.clientForRequest(Uri.parse(urlStr).host, proxy: proxy));
@@ -44,7 +47,7 @@ class PlatformHttp {
       _applyHeaders(req, headers);
       if (body != null) req.bodyBytes = utf8.encode(body);
       final res = await client.send(req).timeout(timeout);
-      return await _readBytes(res, timeout, urlStr);
+      return await _readBytes(res, timeout, urlStr, maxBytes);
     } finally {
       client.close();
     }
@@ -67,19 +70,21 @@ class PlatformHttp {
 
   /// 读取响应字节，自动处理 gzip/deflate 压缩（与旧 [Net._readBytes] 一致）；
   /// 非 2xx 时顺带做优选 IP 轮换（与旧 [Net._onDone] 一致）。
+  /// [maxBytes] 为响应体字节上限：分块累计，超过即抛 [ResponseTooLargeException]，
+  /// 防止异常超大响应（如超长骗页）在内存中无限增长。
   static Future<List<int>> _readBytes(
-      http.StreamedResponse res, Duration t, String urlStr) async {
+      http.StreamedResponse res, Duration t, String urlStr, int maxBytes) async {
     if (res.statusCode < 200 || res.statusCode >= 300) {
       // 服务器错误/限流 → 切换下一个候选 IP（避免反复打到故障节点）
       if (res.statusCode >= 500 || res.statusCode == 429) {
         Net.rotateIpIndex(Uri.parse(urlStr).host);
       }
-      final errBytes = await res.stream.toBytes().timeout(t);
+      final errBytes = await Net.readLimited(res.stream, maxBytes, t);
       throw HttpStatusException(
           res.statusCode, utf8.decode(errBytes, allowMalformed: true));
     }
     final enc = res.headers['content-encoding'] ?? '';
-    final bytes = await res.stream.toBytes().timeout(t);
+    final bytes = await Net.readLimited(res.stream, maxBytes, t);
     if (enc.contains('gzip')) {
       return gzip.decode(bytes);
     }
