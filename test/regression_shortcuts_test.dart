@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:xingmanxia/ui/keyboard_shortcuts.dart';
@@ -12,7 +13,8 @@ void main() {
     tester.view.physicalSize = const Size(1440, 900);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(const MaterialApp(home: MainShell()));
+    await tester.pumpWidget(
+        const ProviderScope(child: MaterialApp(home: MainShell())));
     await tester.pump(const Duration(milliseconds: 100));
   }
 

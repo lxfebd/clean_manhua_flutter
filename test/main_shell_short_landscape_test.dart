@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:xingmanxia/ui/main_shell.dart';
@@ -10,7 +11,8 @@ void main() {
     tester.view.physicalSize = Size(w * dpr, h * dpr);
     tester.view.devicePixelRatio = dpr;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(MaterialApp(home: MainShell()));
+    await tester
+        .pumpWidget(ProviderScope(child: MaterialApp(home: MainShell())));
     await tester.pump(Duration(milliseconds: 200));
   }
 

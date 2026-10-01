@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'bookshelf_providers.dart';
 import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import '../net/update_checker.dart';
@@ -33,14 +35,15 @@ import 'widgets/tap_target.dart';
 /// - medium（小平板）：NavigationRail（图标模式）
 /// - expanded（平板）：NavigationRail（图标+标签模式）
 /// - large（桌面）：NavigationRail（图标+标签模式）+ 更宽内容区
-class MainShell extends StatefulWidget {
+class MainShell extends ConsumerStatefulWidget {
   const MainShell({super.key});
 
   @override
-  State<MainShell> createState() => _MainShellState();
+  ConsumerState<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
+class _MainShellState extends ConsumerState<MainShell>
+    with TickerProviderStateMixin {
   int _index = 0;
 
   /// 首页 hub 内当前类型（0=漫画 1=动漫 2=小说）。
@@ -48,8 +51,6 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
   /// 移动端仅 hub 可见（_index 只取 0/4/5/6），由 hub 内 TypeSegment 驱动。
   int _hubType = 0;
 
-  final GlobalKey<BookshelfPageState> _shelfKey =
-      GlobalKey<BookshelfPageState>();
   final GlobalKey<ProfilePageState> _profileKey =
       GlobalKey<ProfilePageState>();
   final GlobalKey<ToolboxPageState> _toolboxKey =
@@ -173,7 +174,8 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
         _hubKey.currentState?.refreshCurrent();
         break;
       case 4:
-        _shelfKey.currentState?.reload();
+        // 书架数据源为 Riverpod provider：失效即重读（等同原 reload）。
+        ref.invalidate(bookshelfDataProvider);
         break;
       case 5:
         _toolboxKey.currentState?.refresh();
@@ -289,7 +291,8 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
     }
     setState(() => _index = i);
     if (i == 4) {
-      _shelfKey.currentState?.reload();
+      // 书架 provider 失效即重读（原 _shelfKey.currentState?.reload()）。
+      ref.invalidate(bookshelfDataProvider);
     }
     if (i == 5) {
       // 切到工具页时刷新下载列表/缓存占用，避免下载完成后列表停留在旧进度
@@ -313,8 +316,7 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
         type: _hubType,
         onTypeChanged: (v) => setState(() => _hubType = v),
       ),
-      BookshelfPage(
-          key: _shelfKey, onGotoHome: () => _onTab(0)),
+      BookshelfPage(onGotoHome: () => _onTab(0)),
       ToolboxPage(key: _toolboxKey),
       ProfilePage(key: _profileKey, onSwitchTab: _onTab),
     ];

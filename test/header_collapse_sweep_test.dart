@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:xingmanxia/theme.dart';
@@ -15,10 +16,11 @@ void main() {
     tester.view.physicalSize = Size(width, 900);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(ProviderScope(
+      child: MaterialApp(
       theme: AppTheme.light(0, false),
       home: home,
-    ));
+    )));
     await tester.pump(const Duration(milliseconds: 100));
   }
 

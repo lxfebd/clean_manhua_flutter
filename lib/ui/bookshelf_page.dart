@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:io';
 
+import 'bookshelf_providers.dart';
 import '../net/bookshelf_store.dart';
 import '../net/error_logger.dart';
 import '../net/shelf_updater.dart';
@@ -34,16 +36,16 @@ import 'style_tokens.dart';
 /// 手机布局：
 /// - 顶部：标签切换（横向滚动）
 /// - 下方：内容列表/网格
-class BookshelfPage extends StatefulWidget {
+class BookshelfPage extends ConsumerStatefulWidget {
   /// 空书架引导按钮回调（跳转首页/发现页）。为 null 时不显示按钮。
   final VoidCallback? onGotoHome;
   const BookshelfPage({super.key, this.onGotoHome});
 
   @override
-  State<BookshelfPage> createState() => BookshelfPageState();
+  ConsumerState<BookshelfPage> createState() => BookshelfPageState();
 }
 
-class BookshelfPageState extends State<BookshelfPage>
+class BookshelfPageState extends ConsumerState<BookshelfPage>
     with AutomaticKeepAliveClientMixin {
   List<ComicDetail> _items = [];
   /// comicId → 章节 id 列表（由 [_items] 派生），供最近阅读进度 O(1) 反查。
@@ -110,73 +112,82 @@ class BookshelfPageState extends State<BookshelfPage>
         ),
       );
     };
-    reload();
+    // 数据源由 bookshelfDataProvider 承载（六组本地读取 + foldersVersion 自动失效），
+    // 数据到达或版本变化时经 ref.listenManual 灌入本地字段。页面触发刷新用
+    // ref.invalidate(bookshelfDataProvider)；外部（main_shell/测试）仍走 reload()。
+    ref.listenManual<AsyncValue<BookshelfData>>(
+      bookshelfDataProvider,
+      (prev, next) {
+        if (!mounted) return;
+        next.when(
+          data: (data) => setState(() => _applyData(data)),
+          error: (e, _) {
+            ErrorLogger.instance.warn('书架数据源错误: $e');
+            setState(() {
+              _loading = false;
+              _loadError = '书架本地数据读取异常，请重试';
+            });
+          },
+          loading: () {
+            // 首次加载或主动刷新（invalidate 后）进入 loading：
+            // 仅当没有任何可渲染内容时才显示转圈，其余情况保持旧内容。
+            if (prev?.value == null && mounted) {
+              setState(() =>
+                  _loading = _items.isEmpty && _recent.isEmpty && _videos.isEmpty);
+            }
+          },
+        );
+      },
+    );
+    // 首次加载由订阅触发（listenManual 激活 provider 即开始读取）：
+    // 不在 initState 里直接调 reload()——后者经 ref.invalidate/ref.read 访问
+    // ProviderScope 容器，initState 阶段依赖树尚未建立（框架断言）。
   }
 
+  /// 把 provider 聚合快照灌入本地渲染字段（setState 已在调用方包好）。
+  /// 保持既有派生逻辑：章节索引、全部标签、文件夹校验、状态集合、动画下载。
+  void _applyData(BookshelfData data) {
+    final list = data.items;
+    _items = list;
+    _chapterIndex = {
+      for (final d in list)
+        if (d.chapters.isNotEmpty) d.id: [
+              for (final c in d.chapters) c.id
+            ],
+    };
+    _allTags = BookshelfStore.allTags();
+    _folders = data.folders;
+    if (_folderFilter != null &&
+        _folderFilter != BookshelfStore.allFolderId &&
+        !data.folders.any((f) => f['id'] == _folderFilter)) {
+      _folderFilter = null;
+    }
+    _allStatuses = _collectStatuses(list);
+    _recent = data.recent;
+    _videos = data.videos;
+    _bookmarks = data.bookmarks;
+    _mangaDownloads = data.mangaDownloads;
+    _animeDownloads = data.animeDownloads;
+    _loading = false;
+    _loadError = data.totalError;
+    _applyFilters();
+  }
+
+  /// 页面重载：使 bookshelfDataProvider 失效并等待新数据灌入。
+  /// 供下拉刷新、main_shell 与测试复用。
   Future<void> reload() async {
     if (mounted) {
       setState(() =>
           _loading = _items.isEmpty && _recent.isEmpty && _videos.isEmpty);
     }
+    // invalidate 使 provider 重跑（六组并行读取）；await future 等数据灌入，
+    // 避免调用方（下拉刷新等）在数据落地前就收尾。
+    ref.invalidate(bookshelfDataProvider);
     try {
-      // 六组本地数据相互独立：并行读取，总耗时 ≈ 最慢一组，
-      // 避免切 Tab 时串行等待造成卡顿/白屏。
-      // 每组独立容错：失败组用空列表替代，其余照常渲染（尽力恢复）。
-      final results = await Future.wait([
-        _readGroup(() => Future.value(BookshelfStore.listAll())),
-        _readGroup(() => LocalStore.history()),
-        _readGroup(() => LocalStore.videoRecords()),
-        _readGroup(() => LocalStore.downloads()),
-        _readGroup(() => Future.value(BookshelfStore.folders())),
-        _readGroup(() => LocalStore.bookmarks()),
-      ]);
-      final list = results[0].data as List<ComicDetail>;
-      final hist = results[1].data as List<HistoryEntry>;
-      final videos = results[2].data as List<VideoRecord>;
-      final dl = results[3].data as List<DownloadRecord>;
-      final folders = results[4].data as List<Map<String, dynamic>>;
-      final marks = results[5].data as List<ComicBookmark>;
-      final errors =
-          results.map((r) => r.error).whereType<String>().toList();
-      final ani = VideoDownloadManager.instance.tasks
-          .where((t) => t.state == 'done')
-          .toList();
-      if (mounted) {
-        setState(() {
-          _items = list;
-          _chapterIndex = {
-            for (final d in list)
-              if (d.chapters.isNotEmpty)
-                d.id: [
-                  for (final c in d.chapters) c.id
-                ],
-          };
-          _allTags = BookshelfStore.allTags();
-          _folders = folders;
-          if (_folderFilter != null && _folderFilter != BookshelfStore.allFolderId &&
-              !folders.any((f) => f['id'] == _folderFilter)) {
-            _folderFilter = null;
-          }
-          _allStatuses = _collectStatuses(list);
-          _recent = hist;
-          _videos = videos;
-          _bookmarks = marks;
-          _mangaDownloads = dl;
-          _animeDownloads = ani;
-          _loading = false;
-          // 六组全部失败（进度/历史文件损坏等极端情况）才进整页错误态；
-          // 单组失败只是用空列表兜底，不打扰用户。
-          if (errors.length == 6) {
-            _loadError = errors.take(3).join('；');
-          } else {
-            _loadError = null;
-          }
-          _applyFilters();
-        });
-      }
+      await ref.read(bookshelfDataProvider.future).then((_) {});
     } catch (e) {
-      // Future.wait 层面的兜底（理论不可达，_readGroup 已吞掉组内异常）：
-      // 不再静默白屏，展示错误视图 + 重试入口。
+      // provider 兜底错误（理论不可达，_readGroup 已吞掉组内异常）：
+      // ref.listen 的 error 分支已置错误态，这里确保 loading 不会残留。
       ErrorLogger.instance.warn('书架加载兜底失败: $e');
       if (mounted) {
         setState(() {
@@ -187,17 +198,8 @@ class BookshelfPageState extends State<BookshelfPage>
     }
   }
 
-  /// 尽力恢复：单组本地数据读取失败时返回空列表 + 错误原因（供全败判定），
-  /// 不让一组损坏拖垮整页（其余数据照常渲染）。
-  Future<_GroupRead<E>> _readGroup<E>(Future<List<E>> Function() read) async {
-    try {
-      return _GroupRead(await read());
-    } catch (e) {
-      // 原始异常进日志；UI 只显示固定中文，不把 FileSystemException 原文上屏。
-      ErrorLogger.instance.warn('书架本地数据读取失败，已用空列表兜底: $e');
-      return _GroupRead(<E>[], error: '书架本地数据读取异常');
-    }
-  }
+  /// 尽力恢复的容错读取已迁至 bookshelfDataProvider（bookshelf_providers.dart），
+  /// 页面不再持有 _readGroup/_GroupRead。
 
   Future<void> _onRefresh() async {
     setState(() => _refreshing = true);
@@ -2311,14 +2313,6 @@ class BookshelfPageState extends State<BookshelfPage>
 }
 
 // ─── 子组件 ──────────────────────────────────────────────────────────────
-
-/// 单组本地数据读取结果：成功返回 [data] 列表；失败时 [data] 为空列表、
-/// [error] 携带原因（用于「全部六组失败才进整页错误态」的判定与展示）。
-class _GroupRead<E> {
-  final List<E> data;
-  final String? error;
-  const _GroupRead(this.data, {this.error});
-}
 
 class _TabEmpty extends StatelessWidget {
   final IconData icon;

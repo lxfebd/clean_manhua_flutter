@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xingmanxia/net/bookshelf_store.dart';
 import 'package:xingmanxia/net/local_store.dart';
@@ -108,7 +109,8 @@ void main() {
           finished: false, error: '下载未完成：0 页失败'));
     });
 
-    await tester.pumpWidget(MaterialApp(home: BookshelfPage()));
+    await tester
+        .pumpWidget(ProviderScope(child: MaterialApp(home: BookshelfPage())));
     // initState 触发 reload：真实事件循环里等文件 IO + Future.wait 完成。
     await settleUntilTabs(tester);
 
