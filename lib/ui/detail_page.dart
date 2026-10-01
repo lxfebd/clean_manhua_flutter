@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
@@ -11,6 +12,8 @@ import '../net/download_manager.dart';
 import '../net/error_logger.dart';
 import '../net/http_client.dart';
 import '../net/local_store.dart';
+import 'detail_providers.dart';
+import 'detail_providers.dart' as detailp;
 import 'reader_page.dart';
 import 'responsive.dart';
 import 'detail_batch_download_sheet.dart';
@@ -22,7 +25,7 @@ import 'widgets/motion.dart';
 import 'keyboard_shortcuts.dart';
 
 /// 漫画详情页：沉浸式 Hero 头 + 信息卡 + 章节网格。
-class DetailPage extends StatefulWidget {
+class DetailPage extends ConsumerStatefulWidget {
   final String sourceId;
   final String comicId;
   final String? name;
@@ -36,37 +39,26 @@ class DetailPage extends StatefulWidget {
   });
 
   /// 解析「开始阅读」目标：查历史里该作品最近读到的章节；无则返回 null（= 第 1 话）。
-  /// 纯函数便于单元测试，行为与历史/章节数据契约解耦。
+  /// 转发到 detail_providers 层（provider 依赖此逻辑，提级避免循环导入）；
+  /// 行为与历史/章节数据契约解耦，纯函数便于单元测试。
   static Chapter? resolveResumeChapter({
     required List<HistoryEntry> history,
     required List<Chapter> chapters,
     required String sourceId,
     required String comicId,
-  }) {
-    final key =
-        Bookmark(sourceId: sourceId, comicId: comicId, name: '', pic: '').key;
-    for (final h in history.reversed) {
-      if (h.book.key != key) continue;
-      // 章节列表里找该 chapterId；找不到则用历史条目直接构造
-      // （章节可能已从源移除，仍以用户上次读到的位置为准）。
-      for (final c in chapters) {
-        if (c.id == h.chapterId) return c;
-      }
-      return Chapter(h.chapterId, h.chapterTitle);
-    }
-    return null;
-  }
+  }) => detailp.resolveResumeChapter(
+    history: history,
+    chapters: chapters,
+    sourceId: sourceId,
+    comicId: comicId,
+  );
 
   @override
-  State<DetailPage> createState() => _DetailPageState();
+  ConsumerState<DetailPage> createState() => _DetailPageState();
 }
 
-class _DetailPageState extends State<DetailPage> {
-  ComicDetail? _detail;
-  bool _loading = true;
-  String? _error;
+class _DetailPageState extends ConsumerState<DetailPage> {
   final _scrollCtrl = ScrollController();
-  bool _saved = false;
   double _scrollOffset = 0;
   bool _descending = false; // 章节倒序（最新在顶部）
   List<Chapter>? _sortedCache; // 按 _descending 缓存的章节列表
@@ -74,18 +66,66 @@ class _DetailPageState extends State<DetailPage> {
   /// 正在打开章节（防止 await 历史记录期间连点并发 push 多个阅读器页）。
   bool _openingChapter = false;
 
-  /// 「开始阅读」的目标章节：有历史记录时为上次读到的章节（续读），
-  /// 无历史时为第 1 话。加载详情后按历史异步解析。
-  Chapter? _resumeChapter;
-  bool _resumeReady = false;
-
   static const double _heroHeight = 260;
+
+  /// 详情数据（provider 承载加载/超时/错误日志；页面只读展示）。
+  ComicDetail? get _detail {
+    final v = ref.read(comicDetailProvider((widget.sourceId, widget.comicId)));
+    return v.when(data: (d) => d, loading: () => null, error: (_, __) => null);
+  }
+
+  /// 加载中：详情 provider 未就绪。
+  bool get _loading =>
+      ref
+          .watch(comicDetailProvider((widget.sourceId, widget.comicId)))
+          .isLoading;
+
+  /// 错误文案（provider 抛错时按异常类型映射）。
+  String? get _error {
+    final v = ref.watch(comicDetailProvider((widget.sourceId, widget.comicId)));
+    final e = v.error;
+    if (v.hasError && e != null) return _detailErrorMessage(e);
+    return null;
+  }
+
+  /// 是否在书架（本地状态，读取即缓存——书架页增删后本页不自动刷新，
+  /// 与原「进入页面查一次」的行为一致）。
+  bool get _saved {
+    final v = ref.watch(
+      comicInShelfProvider((widget.sourceId, widget.comicId)),
+    );
+    return v.when(
+      data: (d) => d,
+      loading: () => false,
+      error: (_, __) => false,
+    );
+  }
+
+  /// 续读目标：详情加载后经历史解析（provider 内编排时序）。
+  Chapter? get _resumeChapter {
+    final v = ref.watch(
+      comicResumeProvider((widget.sourceId, widget.comicId)),
+    );
+    return v.when(
+      data: (r) => r.chapter,
+      loading: () => null,
+      error: (_, __) => null,
+    );
+  }
+
+  /// 续读就绪标记：provider 解析完成（失败也 ready——回退第 1 话）。
+  bool get _resumeReady {
+    final v = ref.watch(comicResumeProvider((widget.sourceId, widget.comicId)));
+    return v.when(
+      data: (r) => r.ready,
+      loading: () => false,
+      error: (_, __) => false,
+    );
+  }
 
   @override
   void initState() {
     super.initState();
-    _checkSaved();
-    _load();
     _scrollCtrl.addListener(_onScroll);
   }
 
@@ -100,38 +140,6 @@ class _DetailPageState extends State<DetailPage> {
     if (_scrollCtrl.hasClients) {
       final v = _scrollCtrl.offset.clamp(0.0, _heroHeight);
       if (v != _scrollOffset) setState(() => _scrollOffset = v);
-    }
-  }
-
-  Future<void> _checkSaved() async {
-    final v = await SourceManager.byId(
-      widget.sourceId,
-    ).isInBookshelf(widget.comicId);
-    if (mounted) setState(() => _saved = v);
-  }
-
-  Future<void> _load() async {
-    setState(() => _loading = true);
-    try {
-      final d = await SourceManager.byId(
-        widget.sourceId,
-      ).detail(widget.comicId).timeout(const Duration(seconds: 30));
-      if (mounted) {
-        setState(() {
-          _detail = d;
-          _loading = false;
-          _sortedCache = null;
-        });
-        _resolveResumeChapter();
-      }
-    } catch (e) {
-      ErrorLogger.instance.warn('comic detail load failed: $e');
-      if (mounted) {
-        setState(() {
-          _error = _detailErrorMessage(e);
-          _loading = false;
-        });
-      }
     }
   }
 
@@ -152,31 +160,6 @@ class _DetailPageState extends State<DetailPage> {
           : '页面数据异常，请稍后重试';
     }
     return '加载失败，请检查网络后重试';
-  }
-
-  Future<void> _resolveResumeChapter() async {
-    try {
-      final hist = await LocalStore.history();
-      if (!mounted || _detail == null) return;
-      final resume = DetailPage.resolveResumeChapter(
-        history: hist,
-        chapters: _detail!.chapters,
-        sourceId: widget.sourceId,
-        comicId: widget.comicId,
-      );
-      if (mounted) {
-        setState(() {
-          _resumeChapter = resume;
-          _resumeReady = true;
-        });
-      }
-    } catch (e) {
-      // 历史读取失败不影响阅读：回退第 1 话（_resumeChapter 保持 null）。
-      ErrorLogger.instance.warn('comic detail resolve resume failed: $e');
-      if (mounted) {
-        setState(() => _resumeReady = true);
-      }
-    }
   }
 
   @override
@@ -231,7 +214,12 @@ class _DetailPageState extends State<DetailPage> {
                     )
                   else if (_error != null)
                     SliverToBoxAdapter(
-                      child: _ErrorView(error: _error!, onRetry: _load),
+                      child: _ErrorView(
+                        error: _error!,
+                        onRetry: () => ref.invalidate(
+                          comicDetailProvider((widget.sourceId, widget.comicId)),
+                        ),
+                      ),
                     )
                   else if (_detail != null) ...[
                     // 信息区（封面 + 标题 + 徽章 + 操作按钮）
@@ -645,7 +633,14 @@ class _DetailPageState extends State<DetailPage> {
                       )
                     else if (_error != null)
                       SliverToBoxAdapter(
-                        child: _ErrorView(error: _error!, onRetry: _load),
+                        child: _ErrorView(
+                          error: _error!,
+                          onRetry: () => ref.invalidate(
+                            comicDetailProvider(
+                              (widget.sourceId, widget.comicId),
+                            ),
+                          ),
+                        ),
                       )
                     else if (d != null) ...[
                       SliverToBoxAdapter(
@@ -927,6 +922,7 @@ class _DetailPageState extends State<DetailPage> {
   Future<void> _toggleSave() async {
     if (_detail == null) return;
     HapticFeedback.lightImpact();
+    final wasSaved = _saved;
     try {
       final source = SourceManager.byId(widget.sourceId);
       await source.toggleBookshelf(_detail!);
@@ -938,9 +934,11 @@ class _DetailPageState extends State<DetailPage> {
       }
       return;
     }
-    if (mounted) setState(() => _saved = !_saved);
     if (!mounted) return;
-    AppToast.info(context, _saved ? '已加入书架' : '已移出书架');
+    // 翻转书架状态：失效 provider 让下次读取重跑 isInBookshelf（异步，
+    // UI 随 watch 重建自动反映新值）；toast 用本地捕获的旧值取反。
+    ref.invalidate(comicInShelfProvider((widget.sourceId, widget.comicId)));
+    AppToast.info(context, wasSaved ? '已移出书架' : '已加入书架');
   }
 
   /// 按当前排序返回章节列表（带缓存）。

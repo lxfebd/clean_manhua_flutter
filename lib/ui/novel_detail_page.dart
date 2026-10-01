@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../net/error_logger.dart';
 import '../net/local_store.dart';
@@ -10,6 +11,7 @@ import '../ui/responsive.dart';
 import '../ui/widgets/app_toast.dart';
 import '../ui/widgets/cached_image.dart';
 import '../ui/widgets/motion.dart';
+import 'detail_providers.dart';
 import 'keyboard_shortcuts.dart';
 import 'style_scope.dart';
 import 'style_tokens.dart';
@@ -83,7 +85,7 @@ class _NovelCover extends StatelessWidget {
 }
 
 /// 小说详情页：封面/元信息 + 章节目录。章节点击进入阅读器。
-class NovelDetailPage extends StatefulWidget {
+class NovelDetailPage extends ConsumerStatefulWidget {
   final String sourceId;
   final String novelId;
   final String? name;
@@ -97,64 +99,50 @@ class NovelDetailPage extends StatefulWidget {
   });
 
   @override
-  State<NovelDetailPage> createState() => _NovelDetailPageState();
+  ConsumerState<NovelDetailPage> createState() => _NovelDetailPageState();
 }
 
-class _NovelDetailPageState extends State<NovelDetailPage> {
-  NovelDetail? _detail;
-  bool _loading = true;
-  String? _error;
-  bool _saved = false;
+class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
   bool _descExpanded = false; // 平板左侧窄面板长简介折叠
   bool _openingChapter = false; // 防连点：进入阅读器期间忽略重复点击
 
-  @override
-  void initState() {
-    super.initState();
-    _checkSaved();
-    _load();
+  /// 详情数据（provider 承载加载/超时/错误日志；页面只读展示）。
+  NovelDetail? get _detail {
+    final v = ref.read(
+      novelDetailProvider((widget.sourceId, widget.novelId)),
+    );
+    return v.when(data: (d) => d, loading: () => null, error: (_, __) => null);
   }
 
-  Future<void> _checkSaved() async {
-    final s = SourceManager.novelById(widget.sourceId);
-    if (s == null) return;
-    final inShelf = await s.isInBookshelf(widget.novelId);
-    if (mounted) {
-      setState(() => _saved = inShelf);
+  /// 加载中：详情 provider 未就绪。
+  bool get _loading =>
+      ref
+          .watch(novelDetailProvider((widget.sourceId, widget.novelId)))
+          .isLoading;
+
+  /// 错误文案：源缺失 → 「未找到小说源」；其余统一网络文案。
+  String? get _error {
+    final v = ref.watch(novelDetailProvider((widget.sourceId, widget.novelId)));
+    if (v.hasError) {
+      if (v.error is NovelSourceMissing) return '未找到小说源';
+      return '加载失败，请检查网络后重试';
     }
+    return null;
   }
 
-  Future<void> _load() async {
-    final s = SourceManager.novelById(widget.sourceId);
-    if (s == null) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _error = '未找到小说源';
-        });
-      }
-      return;
-    }
-    try {
-      final d = await s
-          .detail(widget.novelId)
-          .timeout(const Duration(seconds: 15));
-      if (mounted) {
-        _detail = d;
-        _error = null;
-      }
-    } catch (e) {
-      ErrorLogger.instance.warn('novel detail load failed: $e');
-      if (mounted) _error = '加载失败，请检查网络后重试';
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
+  /// 是否在书架（本地状态，读取即缓存；增删经 invalidate 刷新）。
+  bool get _saved {
+    final v = ref.watch(
+      novelInShelfProvider((widget.sourceId, widget.novelId)),
+    );
+    return v.when(data: (d) => d, loading: () => false, error: (_, __) => false);
   }
 
   Future<void> _toggleSave() async {
     final s = SourceManager.novelById(widget.sourceId);
     if (s == null || _detail == null) return;
     HapticFeedback.lightImpact();
+    final wasSaved = _saved;
     try {
       await s.toggleBookshelf(_detail!);
     } catch (e) {
@@ -165,14 +153,15 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
       }
       return;
     }
-    if (mounted) {
-      setState(() => _saved = !_saved);
-      AppToast.info(
-        context,
-        _saved ? '已加入书架' : '已移出书架',
-        duration: const Duration(seconds: 1),
-      );
-    }
+    if (!mounted) return;
+    // 翻转书架状态：失效 provider 让下次读取重跑 isInBookshelf（异步，
+    // UI 随 watch 重建自动反映新值）；toast 用本地捕获的旧值取反。
+    ref.invalidate(novelInShelfProvider((widget.sourceId, widget.novelId)));
+    AppToast.info(
+      context,
+      wasSaved ? '已移出书架' : '已加入书架',
+      duration: const Duration(seconds: 1),
+    );
   }
 
   void _openChapter(NovelChapter ch) async {
@@ -258,10 +247,11 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
                     ),
                     const SizedBox(height: 12),
                     FilledButton(
-                      onPressed: () {
-                        setState(() => _loading = true);
-                        _load();
-                      },
+                      onPressed: () => ref.invalidate(
+                        novelDetailProvider(
+                          (widget.sourceId, widget.novelId),
+                        ),
+                      ),
                       child: const Text('重试'),
                     ),
                   ],
