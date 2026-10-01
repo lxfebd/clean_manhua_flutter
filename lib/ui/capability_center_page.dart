@@ -45,6 +45,11 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
 
   final Set<String> _busyIds = {};
 
+  /// 模型下载进度（0..1）；null = 未在下载。模型 200MB，UI 展示实时进度。
+  double? _modelProgress;
+  /// 响应无 content-length 时进度不确定（显示不定进度条）。
+  bool _modelProgressUnknown = false;
+
   Future<void> _toggle(CapabilityPlugin p, bool enabled) async {
     if (_busyIds.contains(p.id)) return; // 防连点：切换期间忽略再次拨动
     _busyIds.add(p.id);
@@ -84,12 +89,28 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
   }
 
   /// AI 上色模型权重：下载 + SHA256 校验 + 载入 colorizer（M4 契约 §5 过渡期）。
+  /// 下载阶段经 onProgress 实时更新进度条（数百 MB 权重，无进度只能转圈）。
   Future<void> _handleModelAction() async {
     if (_busyIds.contains('model')) return;
     _busyIds.add('model');
+    _modelProgress = 0.0;
+    _modelProgressUnknown = false;
+    setState(() {});
     try {
-      AppToast.show(context, '模型权重下载/载入中…');
-      final err = await AiColorizePlugin.ensureModel();
+      final err = await AiColorizePlugin.ensureModel(
+        onProgress: (received, total) {
+          if (!mounted) return;
+          setState(() {
+            if (total != null && total > 0) {
+              _modelProgress = (received / total).clamp(0.0, 1.0);
+              _modelProgressUnknown = false;
+            } else {
+              // 无 content-length：进度不确定（不定条）。
+              _modelProgressUnknown = true;
+            }
+          });
+        },
+      );
       if (!mounted) return;
       if (err == null) {
         AppToast.info(context, '模型已就绪');
@@ -98,6 +119,9 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
       }
     } finally {
       _busyIds.remove('model');
+      _modelProgress = null;
+      _modelProgressUnknown = false;
+      if (mounted) setState(() {});
     }
   }
 
@@ -191,6 +215,11 @@ class _CapabilityCenterPageState extends State<CapabilityCenterPage> {
                     enabled: enabled,
                     busy: _busyIds.contains(p.id),
                     categoryLabel: _categoryLabel(p.category),
+                    modelProgress:
+                        p.id == 'ai.colorize.ddcolor'
+                            ? _modelProgress
+                            : null,
+                    modelProgressUnknown: _modelProgressUnknown,
                     onToggle: (v) => _toggle(p, v),
                     onSelfTest:
                         p.id == 'utility.native' ? _selfTestNative : null,
@@ -216,6 +245,11 @@ class _CapabilityCard extends StatelessWidget {
   final VoidCallback? onSelfTest;
   final VoidCallback? onModelAction;
 
+  /// 模型下载进度（0..1），非 null 即正在下载（显示进度条）。
+  final double? modelProgress;
+  /// 下载中但无总长度（content-length 缺失）：不定进度条。
+  final bool modelProgressUnknown;
+
   const _CapabilityCard({
     required this.plugin,
     required this.enabled,
@@ -224,6 +258,8 @@ class _CapabilityCard extends StatelessWidget {
     required this.onToggle,
     this.onSelfTest,
     this.onModelAction,
+    this.modelProgress,
+    this.modelProgressUnknown = false,
     // （onEngineAction 随 AI 插帧能力一并移除，2026-09-16）
   });
 
@@ -307,6 +343,31 @@ class _CapabilityCard extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (modelProgress != null) ...[
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(2),
+                    child: LinearProgressIndicator(
+                      value: modelProgressUnknown ? null : modelProgress,
+                      minHeight: 4,
+                      backgroundColor: T.color(
+                        scheme.onSurface,
+                        TextTier.hairline,
+                        brightness: scheme.brightness,
+                      ),
+                      valueColor: AlwaysStoppedAnimation(scheme.primary),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    modelProgressUnknown
+                        ? '模型下载中…'
+                        : '模型下载中 ${(modelProgress! * 100).round()}%',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: scheme.primary,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

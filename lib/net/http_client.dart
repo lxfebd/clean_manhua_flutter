@@ -617,6 +617,69 @@ class Net {
     return _getBytesWithFallback(urlStr, headers, timeout, proxy, maxBytes);
   }
 
+  /// 带进度回调的 GET：分块读取响应体，边收边报 `(received, total)`。
+  ///
+  /// 用途：数百 MB 的模型权重下载（能力中心 200MB 模型）。通用 [getBytes]
+  /// 一次性拉全量进内存，无进度可看——UI 只能转圈。此方法按块累计，
+  /// [onProgress] 每次收到数据块即回调；[total] 来自响应头 content-length
+  /// （二进制直链通常给出；缺失时为 null，UI 退化为不定进度）。
+  ///
+  /// 仅 io 端可用（模型权重仅桌面）；web 端无字节流进度（fetch 不暴露
+  /// 传输中进度），直接回落 [getBytes]（无进度回调，语义不变）。
+  ///
+  /// 与 [getBytes] 同契约：非 2xx 抛 [HttpStatusException]，超上限抛
+  /// [ResponseTooLargeException]，限流（令牌桶）、代理/直连均沿用。
+  static Future<List<int>> getBytesWithProgress(
+    String urlStr, {
+    Map<String, String>? headers,
+    String? proxy,
+    Duration? timeout,
+    int? maxBytes,
+    void Function(int received, int? total)? onProgress,
+  }) async {
+    final t = timeout ?? _timeout;
+    final limit = maxBytes ?? maxDownloadBytes;
+    if (kIsWeb) {
+      return getBytes(urlStr, headers: headers, proxy: proxy, timeout: t, maxBytes: limit);
+    }
+    final host = Uri.parse(urlStr).host;
+    await RateLimiter.acquire(host);
+    try {
+      final client = clientForRequest(host, proxy: proxy);
+      try {
+        final req = await client
+            .getUrl(Uri.parse(urlStr))
+            .timeout(t);
+        req.headers.set(HttpHeaders.userAgentHeader, defaultUA);
+        req.headers.set(HttpHeaders.acceptHeader, '*/*');
+        headers?.forEach((k, v) => req.headers.set(k, v));
+        final res = await req.close().timeout(t);
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          if (res.statusCode >= 500 || res.statusCode == 429) {
+            rotateIpIndex(host);
+          }
+          final errBytes = await readLimited(res, limit, t);
+          throw HttpStatusException(
+              res.statusCode, utf8.decode(errBytes, allowMalformed: true));
+        }
+        final total = res.contentLength > 0 ? res.contentLength : null;
+        final chunks = <int>[];
+        var received = 0;
+        await for (final chunk in res.timeout(t)) {
+          received += chunk.length;
+          if (received > limit) throw ResponseTooLargeException(limit);
+          chunks.addAll(chunk);
+          onProgress?.call(received, total);
+        }
+        return chunks;
+      } finally {
+        client.close(force: true);
+      }
+    } finally {
+      RateLimiter.release(host);
+    }
+  }
+
   /// 带镜像回退的 GET：按 [urls] 顺序逐个尝试，任一成功即返回其字节；
   /// 全部失败抛最后一个错误。
   ///

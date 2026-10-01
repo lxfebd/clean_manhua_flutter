@@ -275,10 +275,15 @@ class CapabilityArtifactStore {
   /// - 已存在且 SHA256 匹配 → 直接复用（幂等，避免重复下载 225MB）。
   /// - 缺失/损坏 → 下载 + SHA256 校验，不匹配即删除并返回 null（明确失败）。
   /// 失败返回 null（原因由调用方通过 [lastError] 读取）。
+  ///
+  /// [onProgress]：`(received, total)` 进度回调，供 UI 展示下载进度
+  /// （数百 MB 权重，无进度只能转圈）。仅 io 端生效（web 回落无进度）；
+  /// total 为响应头 content-length（缺失时 null → UI 不定进度）。
   Future<File?> downloadWeight(
     String id,
     CapabilityWeight weight, {
     String? proxy,
+    void Function(int received, int? total)? onProgress,
   }) async {
     final dir = await weightDir(id);
     if (dir == null || weight.url.isEmpty) return null;
@@ -311,15 +316,21 @@ class CapabilityArtifactStore {
     }
 
     // 下载。权重可达数百 MB，必须给足超时（Net 默认 15s 会必超时失败）。
-    // 显式走 getBytes（dart:io）：getBytesAuto 在 Android 上先试 Cronet，
-    // 而 Cronet 探针级超时（probe=6s）会在大文件读完前掐断整个请求，
-    // 每次都假失败后再回退 dart:io，白耗 6s；dart:io 路径按块超时（单块
-    // 15s）无整体限制，大文件反而更稳。上限放宽到 512MB：权重是可信的
-    // 远端索引文件，不属于"异常超大响应"防御范围（通用下载仍是 256MB）。
+    // 走带进度回调的分块下载（io 端）：边收边报进度；SHA256 在落盘前对
+    // 全量字节校验（与旧路径语义一致）。web 端回落 getBytes 无进度——
+    // 模型权重仅桌面（isSupportedOnCurrentPlatform 门闸），web 不可达。
+    // 显式走 dart:io：getBytesAuto 在 Android 上先试 Cronet，而 Cronet
+    // 探针级超时（probe=6s）会在大文件读完前掐断整个请求，每次都假失败后
+    // 再回退 dart:io，白耗 6s；dart:io 路径按块超时（单块 15s）无整体限制，
+    // 大文件反而更稳。上限放宽到 512MB：权重是可信的远端索引文件，不属于
+    // "异常超大响应"防御范围（通用下载仍是 256MB）。
     final List<int> bytes;
     try {
-      bytes = await Net.getBytes(weight.url,
-          proxy: proxy, timeout: const Duration(minutes: 10), maxBytes: 512 * 1024 * 1024);
+      bytes = await Net.getBytesWithProgress(weight.url,
+          proxy: proxy,
+          timeout: const Duration(minutes: 10),
+          maxBytes: 512 * 1024 * 1024,
+          onProgress: onProgress);
     } catch (e) {
       _lastError = '权重下载失败，请检查网络后重试';
       ErrorLogger.instance.warn('[capability] weight download failed ($id): $e');

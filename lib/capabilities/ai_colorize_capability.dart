@@ -69,8 +69,12 @@ class AiColorizePlugin extends CapabilityPlugin {
   /// 后经现有 `importModel(sourcePath)` 载入（复制到 colorizer 私有模型目录，
   /// 代价双份 225MB，仅作过渡；正式版走路径注入）。
   ///
+  /// [onProgress]：下载进度回调 `(received, total)`，能力中心 UI 展示用
+  /// （仅下载阶段生效；total 为 content-length，缺失时 null）。
   /// 返回 null 表示成功（模型已就绪）；失败返回用户可读原因。
-  static Future<String?> ensureModel() async {
+  static Future<String?> ensureModel({
+    void Function(int received, int? total)? onProgress,
+  }) async {
     const id = 'ai.colorize.ddcolor';
     final m = ColorizerManager.instance;
     if (m.isAvailable) return null; // 已就绪
@@ -89,7 +93,7 @@ class AiColorizePlugin extends CapabilityPlugin {
 
     // 下载 + SHA256 校验（幂等：已就绪复用）。
     final store = CapabilityArtifactStore.instance;
-    final file = await store.downloadWeight(id, weight);
+    final file = await store.downloadWeight(id, weight, onProgress: onProgress);
     if (file == null) {
       return store.lastError ?? '权重下载失败';
     }
