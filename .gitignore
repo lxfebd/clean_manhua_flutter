@@ -133,3 +133,5 @@ tmpprobe/
 /.pub_cache/
 /.mmtest/
 /analysis_out.txt
+# 内部路线图/交接文档（不入库，与 README 公开介绍区分）
+/docs/
