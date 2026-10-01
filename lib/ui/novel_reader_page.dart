@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../net/error_logger.dart';
 import '../net/local_store.dart';
@@ -9,6 +10,7 @@ import '../services/novel_tts_service.dart';
 import '../sources/novel_source.dart';
 import '../sources/source_manager.dart';
 import '../utils/novel_summarizer.dart';
+import 'reader_prefs_providers.dart';
 import 'responsive.dart';
 import 'style_tokens.dart';
 import 'widgets/app_toast.dart';
@@ -42,7 +44,7 @@ HistoryEntry snapshotHistoryEntry({
 }
 
 /// 小说阅读器：渲染章节正文（段落列表），支持上下章导航与阅读进度记录。
-class NovelReaderPage extends StatefulWidget {
+class NovelReaderPage extends ConsumerStatefulWidget {
   final String sourceId;
   final String novelId;
   final String chapterId;
@@ -67,22 +69,23 @@ class NovelReaderPage extends StatefulWidget {
   });
 
   @override
-  State<NovelReaderPage> createState() => _NovelReaderPageState();
+  ConsumerState<NovelReaderPage> createState() => _NovelReaderPageState();
 }
 
-class _NovelReaderPageState extends State<NovelReaderPage> {
+class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
   NovelContent? _content;
   bool _loading = true;
   String? _error;
   String _curChapterId;
 
-  // 阅读自定义
-  int _fontSize = 17;
-  int _lineHeight = 180;
-  int _theme = 0;
-  int _paragraphGap = 18; // 段间距（px）
-  bool _firstIndent = true; // 首行缩进 2 字符
-  int _colorTemp = 0; // 色温 0~100（0 = 无色温滤镜）
+  // 阅读自定义（经 novelReaderPrefsProvider 读写；下方 getter 供渲染取当前值）
+  NovelReaderPrefs get _prefs => ref.read(novelReaderPrefsProvider);
+  int get _fontSize => _prefs.fontSize;
+  int get _lineHeight => _prefs.lineHeight;
+  int get _theme => _prefs.theme;
+  int get _paragraphGap => _prefs.paragraphGap;
+  bool get _firstIndent => _prefs.firstIndent;
+  int get _colorTemp => _prefs.colorTemp;
 
   final Stopwatch _readWatch = Stopwatch();
   Timer? _statsTimer;
@@ -111,7 +114,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     _curChapterId = widget.chapterId;
     _readWatch.start();
     _statsTimer = Timer.periodic(const Duration(seconds: 5), (_) => _flushStats());
-    _loadSettings();
+    _resumePrefs();
     _initTts();
     _load(widget.chapterId);
     _initBookmark();
@@ -119,6 +122,12 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     if (DesktopUi.isDesktopPlatform) {
       HardwareKeyboard.instance.addHandler(_keyHandler);
     }
+  }
+
+  /// 首次进入懒载阅读偏好（幂等；provider 内部保证只读盘一次）。
+  Future<void> _resumePrefs() async {
+    await ref.read(novelReaderPrefsProvider.notifier).resume();
+    if (mounted) setState(() {});
   }
 
   /// 读取当前章书签状态（B 键/目录高亮用）。
@@ -240,25 +249,6 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     _readWatch.reset();
     _readWatch.start();
     await LocalStore.addReadingSeconds(elapsed);
-  }
-
-  Future<void> _loadSettings() async {
-    final fs = await LocalStore.novelFontSize();
-    final lh = await LocalStore.novelLineHeight();
-    final th = await LocalStore.novelTheme();
-    final gap = await LocalStore.novelParagraphGap();
-    final indent = await LocalStore.novelFirstIndent();
-    final ct = await LocalStore.novelColorTemp();
-    if (mounted) {
-      setState(() {
-        _fontSize = fs;
-        _lineHeight = lh;
-        _theme = th;
-        _paragraphGap = gap;
-        _firstIndent = indent;
-        _colorTemp = ct;
-      });
-    }
   }
 
   Future<void> _load(String chapterId) async {
@@ -419,8 +409,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   void _adjustFontSize(int dir) {
     final v = (_fontSize + dir).clamp(13, 28);
     if (v == _fontSize) return;
-    setState(() => _fontSize = v);
-    LocalStore.setNovelReadSettings(fontSize: v);
+    ref.read(novelReaderPrefsProvider.notifier).update(fontSize: v);
   }
 
   /// 本章摘要：当前章正文本地纯规则生成（无网络、无模型依赖）。
@@ -460,28 +449,22 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         firstIndent: _firstIndent,
         colorTemp: _colorTemp,
         onFontSize: (v) async {
-          setState(() => _fontSize = v);
-          await LocalStore.setNovelReadSettings(fontSize: v);
+          await ref.read(novelReaderPrefsProvider.notifier).update(fontSize: v);
         },
         onLineHeight: (v) async {
-          setState(() => _lineHeight = v);
-          await LocalStore.setNovelReadSettings(lineHeight: v);
+          await ref.read(novelReaderPrefsProvider.notifier).update(lineHeight: v);
         },
         onTheme: (v) async {
-          setState(() => _theme = v);
-          await LocalStore.setNovelReadSettings(theme: v);
+          await ref.read(novelReaderPrefsProvider.notifier).update(theme: v);
         },
         onParagraphGap: (v) async {
-          setState(() => _paragraphGap = v);
-          await LocalStore.setNovelReadSettings(paragraphGap: v);
+          await ref.read(novelReaderPrefsProvider.notifier).update(paragraphGap: v);
         },
         onFirstIndent: (v) async {
-          setState(() => _firstIndent = v);
-          await LocalStore.setNovelReadSettings(firstIndent: v);
+          await ref.read(novelReaderPrefsProvider.notifier).update(firstIndent: v);
         },
         onColorTemp: (v) async {
-          setState(() => _colorTemp = v);
-          await LocalStore.setNovelReadSettings(colorTemp: v);
+          await ref.read(novelReaderPrefsProvider.notifier).update(colorTemp: v);
         },
       ),
     );
@@ -526,6 +509,8 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
 
   @override
   Widget build(BuildContext context) {
+    // watch 偏好：update 写回后本页即时重建（getter 用 ref.read 读当前值）。
+    ref.watch(novelReaderPrefsProvider);
     final scheme = Theme.of(context).colorScheme;
     final useCustomBg = _theme > 0;
     final bgColor = useCustomBg

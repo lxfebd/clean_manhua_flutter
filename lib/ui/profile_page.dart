@@ -16,6 +16,7 @@ import '../sources/source_manager.dart';
 import '../utils/booklist_text.dart';
 import '../net/local_store.dart';
 import '../net/update_checker.dart';
+import 'profile_providers.dart';
 import 'responsive.dart';
 import 'settings_page.dart';
 import 'style_scope.dart';
@@ -78,65 +79,17 @@ class ProfilePage extends ConsumerStatefulWidget {
 }
 
 class ProfilePageState extends ConsumerState<ProfilePage> {
-  List<HistoryEntry> _history = [];
-  List<DownloadRecord> _downloads = [];
-  int _favorites = 0;
-  bool _loaded = false;
-  bool _loadError = false;
-  int _todaySec = 0;
-  int _weekSec = 0;
-  int _totalSec = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    try {
-      final h = await LocalStore.history();
-      final d = await LocalStore.downloads();
-      final fav = BookshelfStore.listAll().length;
-      final today = await LocalStore.todayReadingSeconds();
-      final week = await LocalStore.weekReadingSeconds();
-      final total = await LocalStore.totalReadingSeconds();
-      if (mounted) {
-        setState(() {
-          _history = h;
-          _downloads = d;
-          _favorites = fav;
-          _todaySec = today;
-          _weekSec = week;
-          _totalSec = total;
-          _loaded = true;
-          _loadError = false;
-        });
-      }
-    } catch (_) {
-      // 本地读取异常（损坏/IO）：不永久转圈，显示错误态可重试。
-      if (mounted) {
-        setState(() {
-          _loaded = true;
-          _loadError = true;
-        });
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    if (!_loaded) {
-      return Scaffold(
+    final stats = ref.watch(profileProvider);
+    return stats.when(
+      loading: () => Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
         body: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-      );
-    }
-    if (_loadError) {
-      // 本地数据读取失败：错误态 + 重试，不再永久转圈。
-      return Scaffold(
+      ),
+      error: (_, __) => Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
         body: Center(
           child: Column(
@@ -151,37 +104,37 @@ class ProfilePageState extends ConsumerState<ProfilePage> {
                       color: scheme.onSurface.withValues(alpha: 0.6))),
               const SizedBox(height: 14),
               FilledButton.icon(
-                onPressed: _load,
+                onPressed: refresh,
                 icon: const Icon(Icons.refresh_rounded, size: 18),
                 label: const Text('重试'),
               ),
             ],
           ),
         ),
-      );
-    }
-    return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
-      body: SafeArea(
-        bottom: false,
-        child: Responsive.isExpanded(context)
-            ? _buildTablet(theme, scheme)
-            : RefreshIndicator(
-                onRefresh: _load,
-                color: scheme.primary,
-                child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: EdgeInsets.fromLTRB(
-                    Responsive.pagePadding(context), 10,
-                    Responsive.pagePadding(context), 110),
-                children: _buildContent(theme, scheme),
-              ),
-              ),
+      ),
+      data: (data) => Scaffold(
+        backgroundColor: theme.scaffoldBackgroundColor,
+        body: SafeArea(
+          bottom: false,
+          child: Responsive.isExpanded(context)
+              ? _buildTablet(theme, scheme, data)
+              : RefreshIndicator(
+                  onRefresh: refresh,
+                  color: scheme.primary,
+                  child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: EdgeInsets.fromLTRB(
+                      Responsive.pagePadding(context), 10,
+                      Responsive.pagePadding(context), 110),
+                  children: _buildContent(theme, scheme, data),
+                ),
+                ),
+        ),
       ),
     );
   }
 
-  Widget _buildTablet(ThemeData theme, ColorScheme scheme) {
+  Widget _buildTablet(ThemeData theme, ColorScheme scheme, ProfileStats data) {
     final isDesktop = DesktopUi.isDesktopPlatform;
     final bottomPad = isDesktop ? 24.0 : (Responsive.isTablet(context) ? 24.0 : 110.0);
 
@@ -228,17 +181,17 @@ class ProfilePageState extends ConsumerState<ProfilePage> {
         FadeSlideIn(
             delay: const Duration(milliseconds: 120),
             child: _ReadingStatsCard(
-                today: _todaySec,
-                week: _weekSec,
-                total: _totalSec,
+                today: data.todaySeconds,
+                week: data.weekSeconds,
+                total: data.totalSeconds,
                 onTap: _showReadingReport)),
         const SizedBox(height: 14),
         FadeSlideIn(
             delay: const Duration(milliseconds: 160),
             child: _StatsCard(
-                favorites: _favorites,
-                history: _history.length,
-                downloads: _downloads.length,
+                favorites: data.favorites,
+                history: data.history.length,
+                downloads: data.downloads.length,
                 onFavorites: () => widget.onSwitchTab?.call(4),
                 onHistory: _showHistory,
                 onDownloads: () => widget.onSwitchTab?.call(4))),
@@ -256,7 +209,7 @@ class ProfilePageState extends ConsumerState<ProfilePage> {
               child: isDesktop
                   ? leftList
                   : RefreshIndicator(
-                      onRefresh: _load,
+                      onRefresh: refresh,
                       color: scheme.primary,
                       child: leftList,
                     ),
@@ -311,7 +264,8 @@ class ProfilePageState extends ConsumerState<ProfilePage> {
     );
   }
 
-  List<Widget> _buildContent(ThemeData theme, ColorScheme scheme) {
+  List<Widget> _buildContent(ThemeData theme, ColorScheme scheme,
+      ProfileStats data) {
     return [
             // ── 顶栏：我的 + 设置 ─────────────────────────────
             FadeSlideIn(
@@ -346,9 +300,9 @@ class ProfilePageState extends ConsumerState<ProfilePage> {
             FadeSlideIn(
               delay: const Duration(milliseconds: 120),
               child: _ReadingStatsCard(
-                today: _todaySec,
-                week: _weekSec,
-                total: _totalSec,
+                today: data.todaySeconds,
+                week: data.weekSeconds,
+                total: data.totalSeconds,
                 onTap: _showReadingReport,
               ),
             ),
@@ -357,9 +311,9 @@ class ProfilePageState extends ConsumerState<ProfilePage> {
             FadeSlideIn(
               delay: const Duration(milliseconds: 160),
               child: _StatsCard(
-                favorites: _favorites,
-                history: _history.length,
-                downloads: _downloads.length,
+                favorites: data.favorites,
+                history: data.history.length,
+                downloads: data.downloads.length,
                 onFavorites: () => widget.onSwitchTab?.call(4),
                 onHistory: _showHistory,
                 onDownloads: () => widget.onSwitchTab?.call(4),
@@ -390,17 +344,18 @@ class ProfilePageState extends ConsumerState<ProfilePage> {
   }
 
   /// 下拉刷新统计（切 Tab 回来时由外部调用）。
-  Future<void> refresh() => _load();
+  Future<void> refresh() => _refresh();
 
   void _showHistory() {
-    final entries = _history.take(30).toList();
+    final data = ref.read(profileProvider).value;
+    final entries = (data?.history ?? const <HistoryEntry>[]).take(30).toList();
     showResponsiveBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (_) => _HistorySheet(entries: entries),
     ).then((_) {
-      if (mounted) _load();
+      if (mounted) _refresh();
     });
   }
 
@@ -425,7 +380,7 @@ class ProfilePageState extends ConsumerState<ProfilePage> {
         onYearTap: _showYearReport,
       ),
     ).then((_) {
-      if (mounted) _load();
+      if (mounted) _refresh();
     });
   }
 
@@ -435,7 +390,18 @@ class ProfilePageState extends ConsumerState<ProfilePage> {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => const YearReportPage()),
     );
-    if (mounted) _load();
+    if (mounted) _refresh();
+  }
+
+  /// 刷新统计：使 profileProvider 失效并等待新数据灌入。
+  /// 供下拉刷新、main_shell 与测试复用。
+  Future<void> _refresh() async {
+    ref.invalidate(profileProvider);
+    try {
+      await ref.read(profileProvider.future).then((_) {});
+    } catch (_) {
+      // 聚合失败：错误态已由 build 的 when(error) 呈现，这里无需额外处理。
+    }
   }
 
   /// 书单文本导出：书架全部条目转纯文本，写入剪贴板并提示。

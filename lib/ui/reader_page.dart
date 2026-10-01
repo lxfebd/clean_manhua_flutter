@@ -20,6 +20,7 @@ import '../net/jm_scramble.dart';
 import '../net/local_store.dart';
 import '../net/smart_prefetch.dart';
 import 'reader_providers.dart';
+import 'reader_prefs_providers.dart';
 import 'responsive.dart';
 import 'reader_mode_geometry.dart';
 import 'widgets/reader_settings_sheet.dart';
@@ -311,7 +312,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
     // 横向：无缩放状态，快捷键降级为画质档位（0=无,1=性能,2=质量）。
     final v = (_resLevel + (dir > 0 ? 1 : (dir < 0 ? -1 : 0))).clamp(0, 2);
     setState(() => _resLevel = v);
-    LocalStore.setResLevel(v);
+    ref.read(comicReaderPrefsProvider.notifier).update(resLevel: v);
   }
 
   /// 键盘 Home/End：跳到本章第一页 / 最后一页。
@@ -417,10 +418,12 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
       _readerMode = ReaderMode.double;
       _doublePage = true;
     }
-    _rtl = await LocalStore.rtlReader();
-    _resLevel = await LocalStore.resLevel();
-    _autoPage = await LocalStore.autoPageTurn();
-    _trimBorder = await LocalStore.trimBorder();
+    // 漫画阅读偏好经 comicReaderPrefsProvider 懒载（阅读器与设置页共享同一偏好源）。
+    final prefs = await ref.read(comicReaderPrefsProvider.notifier).resume();
+    _rtl = prefs.rtl;
+    _resLevel = prefs.resLevel;
+    _autoPage = prefs.autoPage;
+    _trimBorder = prefs.trimBorder;
     _downloaded = await DownloadManager.isDownloaded(_book.key, widget.chapterId);
     // 书签状态：横向看当前视图，纵向看整章（页 0 代表章节级标记）。
     _bookmarked = await LocalStore.isBookmarked(
@@ -1449,16 +1452,16 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
         },
         onResLevelChanged: (v) {
           setState(() => _resLevel = v);
-          LocalStore.setResLevel(v);
+          ref.read(comicReaderPrefsProvider.notifier).update(resLevel: v);
         },
         onAutoPageChanged: (v) {
           setState(() => _autoPage = v);
-          LocalStore.setAutoPageTurn(v);
+          ref.read(comicReaderPrefsProvider.notifier).update(autoPage: v);
           _startAutoPage();
         },
         onTrimBorderChanged: (v) {
           setState(() => _trimBorder = v);
-          LocalStore.setTrimBorder(v);
+          ref.read(comicReaderPrefsProvider.notifier).update(trimBorder: v);
           // 裁边影响图片渲染：setState 后 _CachedReaderImage.didUpdateWidget
           // 检测到 trimBorder 变化会重新加载（缓存命中秒级生效）。
         },

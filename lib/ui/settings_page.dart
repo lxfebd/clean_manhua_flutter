@@ -19,6 +19,7 @@ import '../net/webdav_sync.dart';
 import '../theme.dart';
 import '../utils/danmaku.dart';
 import 'reader_mode_geometry.dart';
+import 'reader_prefs_providers.dart';
 import 'reader_providers.dart';
 import 'responsive.dart';
 import 'style_scope.dart';
@@ -76,7 +77,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   Future<void> _load() async {
     try {
       final mode = await LocalStore.readerMode();
-      final rtl = await LocalStore.rtlReader();
+      final rtlPrefs =
+          await ref.read(comicReaderPrefsProvider.notifier).resume();
       final dm = await LocalStore.danmakuSettings();
       final freq = await ShelfUpdater.frequency();
       final notify = await UpdateNotifier.enabled();
@@ -84,7 +86,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       if (mounted) {
         setState(() {
           _readerMode = mode;
-          _rtl = rtl;
+          _rtl = rtlPrefs.rtl;
           _danmaku = dm;
           _updateFreq = freq;
           _notifyEnabled = notify;
@@ -331,7 +333,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           trailing: Switch(
                             value: _rtl,
                             onChanged: (v) async {
-                              await LocalStore.setRtlReader(v);
+                              await ref
+                                  .read(comicReaderPrefsProvider.notifier)
+                                  .update(rtl: v);
                               if (mounted) setState(() => _rtl = v);
                             },
                           ),
