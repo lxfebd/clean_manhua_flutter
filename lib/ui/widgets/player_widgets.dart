@@ -358,6 +358,35 @@ class SrBadge extends StatelessWidget {
   }
 }
 
+/// 同步降级角标：墙钟检测到显示时钟漂移、已强制切音频同步时展示。
+class SyncGuardBadge extends StatelessWidget {
+  final String label;
+  const SyncGuardBadge({super.key, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    const amber = Color(0xFFFFB300);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: amber.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: amber.withValues(alpha: 0.65)),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        const Icon(Icons.speed, size: 12, color: amber),
+        const SizedBox(width: 4),
+        Text(label,
+            style: const TextStyle(
+                color: amber,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.4)),
+      ]),
+    );
+  }
+}
+
 /// GPU 开销星级小方块。
 class CostBar extends StatelessWidget {
   final int cost;

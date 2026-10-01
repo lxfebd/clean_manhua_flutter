@@ -21,6 +21,7 @@ import '../sources/video_source.dart';
 import '../utils/anime4k.dart';
 import '../utils/danmaku.dart';
 import '../utils/desktop_fullscreen.dart';
+import '../utils/player_sync_guard.dart';
 import '../utils/pip_channel.dart';
 import '../utils/tv_platform.dart';
 import 'episode_grouping.dart';
@@ -267,6 +268,17 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 真实播放速率 = time-pos 推进 / 墙钟流逝。mpv 的 `speed` 属性在显示时钟
   /// 估算错误时恒读回 1.0（自认 1x），只有这个比值能看出实际是否被倍速。
   double _wallClockRate = 1.0;
+
+  // ── 墙钟闭环降级（2026-10-02 加）────────────────────────────
+  /// 连续几拍 wallClockRate 稳定偏出 1.0 → 判定显示时钟漂移，主动切 audio
+  /// 同步（恒 1 倍速），不再只是观测日志。null = 未降级。
+  bool _syncDegraded = false;
+
+  /// 连续偏出拍数（达标即降级；用户主动重开/切集清零）。
+  int _syncDriftHits = 0;
+
+  /// 降级持续到到无滑窗观测（本次 file 打开期间）只 toast 一次。
+  bool _syncDegradeNotified = false;
 
   // ── 播放参数 ────────────────────────────────
 
@@ -887,6 +899,11 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         // 目录创建/属性设置失败不影响播放，静默跳过。
       }
       _srFault = null;
+      // 新文件/切集：重置墙钟降级态，重新评估显示时钟（屏幕/刷新率可能已
+      // 恢复正常；若仍漂移，诊断循环约 6 秒后再次触发降级）。
+      _syncDegraded = false;
+      _syncDriftHits = 0;
+      _syncDegradeNotified = false;
       await _applyEnhance();
       await _applySr(silent: true);
       await _applySync();
@@ -1264,6 +1281,44 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           _posWatch
             ..reset()
             ..start();
+        }
+        // ── 墙钟闭环降级：wrate 连续偏出 1.0 → 强制切 audio 同步 ──
+        // 这是 edisp 区间探测（_applySync）之外的兜底防线：edisp 即便落在
+        // 30~250Hz 区间内也可能错（用户机器实测 419~525Hz 垃圾值仍被显示
+        // 时钟采纳），只有墙钟比值能看出真实播放速率。连续 3 拍（约 6 秒）
+        // 偏出 >1.15 且 speed 属性恒 1.0（排除用户主动调速）→ 判定显示时钟
+        // 漂移 → 主动切 audio 同步（恒 1 倍速，绝不倍速）+ 归因日志 + toast。
+        // 本次文件内降级后不自动切回（时钟错误不会自愈，自动恢复会来回震荡
+        // 被用户感知为「反复跳」），切集/重开/新文件自然重置——那时有机会
+        // 重新评估时钟（可能已恢复正常屏幕/刷新率）。
+        if (DesktopUi.isDesktopPlatform && !_syncDegraded) {
+          _syncDriftHits = accumulateDrift(
+            _syncDriftHits,
+            wrateIsDrifted(
+              _wallClockRate,
+              speed: double.tryParse(spd) ?? 1.0,
+              paused: !_playing,
+              buffering: _buffering,
+            ),
+            required: 3,
+          );
+          if (_syncDriftHits >= 3) {
+            _syncDriftHits = 0;
+            _syncDegraded = true;
+            _syncDegradeNotified = false;
+            // 归因日志必须先于 toast（UI 反馈），记录本次降级的触发证据。
+            ErrorLogger.instance.warn(
+              'player sync degraded: wrate=${_wallClockRate.toStringAsFixed(3)} '
+              'spd=$spd vsync=$vsync edisp=${_fmtFps(edfps)} → video-sync=audio '
+              '(closed-loop guard)');
+            debugPrint('MPV[sync-degraded wrate=${_wallClockRate.toStringAsFixed(3)} '
+                'spd=$spd vsync=$vsync edisp=${_fmtFps(edfps)} → video-sync=audio]');
+            await _applySync();
+            if (mounted && !_syncDegradeNotified) {
+              _syncDegradeNotified = true;
+              _toast('检测到倍速异常，已切换为音频同步播放（恒 1 倍速）');
+            }
+          }
         }
         // 超分是否**真的进了渲染管线**：只认 vo-passes 里的 user shader pass。
         // glsl-shaders 读回非空不算数——真机实测过"属性读回两个路径、
@@ -1689,7 +1744,13 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       //   → 结论：edisp 不可靠（? 或 30~250 之外）时**绝不进任何
       //     display-resample 系**。墙钟观测（time-pos vs 墙钟，日志 `wrate=`）
       //     在诊断循环兜底，防探测不到的时钟错误。
-      final effectiveSync = (dispOk && hasAudio) ? targetSync : 'audio';
+      //   ⚠️ 闭环覆盖（2026-10-02）：即便 edisp 落在 30~250 区间内也可能错
+      //     （用户机器实测 419~525Hz 垃圾值仍被采纳）——诊断循环的墙钟 wrate
+      //     连续偏出会触发 _syncDegraded，此处在决策时**直接无视 edisp 结果**
+      //     强制 audio 同步。降级态在本文件内不自动恢复（防震荡），切集/重开
+      //     自然重置后重新评估。
+      final effectiveSync =
+          (_syncDegraded || !(dispOk && hasAudio)) ? 'audio' : targetSync;
 
       // 1) 同步模式**最先设、独立容错**——这是治卡顿的前提。旧写法把
       //    video-sync 紧跟在插帧属性之后且不单独容错，一旦某构建不支持
@@ -2663,6 +2724,18 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                   ),
                 ],
               ),
+            ),
+          // 同步降级角标：墙钟检测到显示时钟漂移已强制切音频同步。
+          // 放在超分角标之下（right 12 / top 偏移 +34），持续可见提醒用户
+          // 「正在音频同步模式」，切集/重开才解除。
+          if (_syncDegraded && !_locked)
+            Positioned(
+              right: 12 +
+                  (_fullscreen ? MediaQuery.of(context).viewPadding.right : 0),
+              top: _showControls
+                  ? (_fullscreen ? 90 : 78)
+                  : (_sr.enabled ? 44 : 10),
+              child: const SyncGuardBadge(label: '音频同步'),
             ),
           // 超分角标
           if (_sr.enabled && !_locked)
