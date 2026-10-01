@@ -28,7 +28,9 @@ import 'capabilities/capability_plugin_manager.dart';
 import 'theme.dart';
 import 'ui/main_shell.dart';
 import 'ui/style_scope.dart';
+import 'ui/theme_controller.dart';
 import 'ui/widgets/app_toast.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// 桌面端窗口管理：限定最小尺寸、设置标题、记忆并恢复上次窗口尺寸/位置。
 /// 不隐藏系统标题栏（避免改动 Windows 原生 runner 导致构建失败），保持稳妥。
@@ -123,7 +125,9 @@ void main() async {
     }
     // 立即渲染首帧，避免用户看到灰色空窗；外层 Zone 捕获未处理的异步异常
     // 写入本地日志（不改变既有行为，仅记录）。
-    runApp(const YingManHeApp());
+    // ProviderScope：Riverpod 渐进批次 C——主题/风格全局状态已迁入
+    // ThemeController（lib/ui/theme_controller.dart），其余页面维持 setState。
+    runApp(const ProviderScope(child: YingManHeApp()));
   }, (error, stack) {
     try {
       ErrorLogger.instance.logError('Uncaught: $error', stack: stack.toString());
@@ -227,25 +231,16 @@ Future<void> _safeInit(String name, Future<void> Function() task) async {
   }
 }
 
-class YingManHeApp extends StatefulWidget {
+class YingManHeApp extends ConsumerStatefulWidget {
   const YingManHeApp({super.key});
 
-  /// 供设置页调用以立即生效主题。
-  static YingManHeAppState? of(BuildContext context) =>
-      context.findAncestorStateOfType<YingManHeAppState>();
-
   @override
-  State<YingManHeApp> createState() => YingManHeAppState();
+  ConsumerState<YingManHeApp> createState() => _YingManHeAppState();
 }
 
-class YingManHeAppState extends State<YingManHeApp>
+class _YingManHeAppState extends ConsumerState<YingManHeApp>
     with WidgetsBindingObserver {
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
-  ThemeMode _themeMode = ThemeMode.light;
-  int _themeId = 0;
-  /// 用户手动覆盖的 UI 风格；null = 跟随平台（UIStyle.forPlatform 自动映射）。
-  UIStyle? _uiStyleOverride;
-  bool _loaded = false;
 
   @override
   void initState() {
@@ -254,7 +249,9 @@ class YingManHeAppState extends State<YingManHeApp>
     // 首帧后校正方向策略，避免启动就处于"竖屏锁+横屏 letterbox"状态
     WidgetsBinding.instance
         .addPostFrameCallback((_) => _allowTabletRotations());
-    _loadTheme();
+    // 主题/风格持久化装载（ThemeController 内部自带 try/catch，
+    // 失败保持默认值不闪错；loaded 置 true 后首帧统一浅色渲染）。
+    ref.read(themeControllerProvider.notifier).load();
   }
 
   @override
@@ -307,48 +304,16 @@ class YingManHeAppState extends State<YingManHeApp>
     }
   }
 
-  Future<void> _loadTheme() async {
-    final d = await LocalStore.darkMode();
-    final tid = await LocalStore.themeId();
-    final styleId = await LocalStore.uiStyle();
-    if (mounted) {
-      setState(() {
-        _themeMode = d ? ThemeMode.dark : ThemeMode.light;
-        _themeId = tid;
-        _uiStyleOverride = styleId == null ? null : UIStyle.fromId(styleId);
-        _loaded = true;
-      });
-    }
-  }
-
-  void setDark(bool v) {
-    setState(() => _themeMode = v ? ThemeMode.dark : ThemeMode.light);
-  }
-
-  void setThemeId(int id) {
-    setState(() => _themeId = id);
-  }
-
-  /// 切换 UI 风格：null 表示「跟随平台」，否则固定到指定风格。
-  void setUiStyle(UIStyle? style) {
-    setState(() => _uiStyleOverride = style);
-  }
-
-  /// 当前生效风格（跟随平台时由 [UIStyle.forPlatform] 解析）。
-  UIStyle get effectiveStyle =>
-      _uiStyleOverride ?? UIStyle.forPlatform(defaultTargetPlatform);
-
   @override
   Widget build(BuildContext context) {
-    // 主题在 MaterialApp 外构建，MediaQuery 尚不可用；用 View 直接读逻辑宽度，
-    // 与 Responsive.isTablet 的 600dp 断点对齐：手机走手机档字号，平板/桌面走桌面档。
     final view = View.of(context);
     final isTablet =
         (view.physicalSize.width / view.devicePixelRatio) >= 600.0;
-    final style = effectiveStyle;
-    final themeData = AppTheme.light(_themeId, isTablet, style);
-    final darkThemeData = AppTheme.dark(_themeId, isTablet, style);
-    final effectiveMode = _loaded ? _themeMode : ThemeMode.light;
+    final theme = ref.watch(themeControllerProvider);
+    final style = theme.effectiveStyle;
+    final themeData = AppTheme.light(theme.themeId, isTablet, style);
+    final darkThemeData = AppTheme.dark(theme.themeId, isTablet, style);
+    final effectiveMode = theme.loaded ? theme.themeMode : ThemeMode.light;
     // 用 AnimatedTheme 包住 MaterialApp：用户在设置/我的页切换深色或种子色时，
     // 220ms 内完成明暗/色相过渡，避免主题瞬间切换的闪烁感。
     // StyleScope 挂在 AnimatedTheme 外层：风格切换同样平滑过渡，且整树可

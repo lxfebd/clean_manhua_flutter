@@ -4,11 +4,11 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../main.dart';
 import '../net/bookshelf_store.dart';
 import '../net/image_cache.dart';
 import '../sources/comic_source.dart';
@@ -20,6 +20,7 @@ import 'responsive.dart';
 import 'settings_page.dart';
 import 'style_scope.dart';
 import 'style_tokens.dart';
+import 'theme_controller.dart';
 import 'tokens.dart';
 import 'year_report_page.dart';
 import 'widgets/cached_image.dart';
@@ -66,23 +67,22 @@ class _CardD {
 }
 
 /// 我的页面（对齐 UI_v2 S8）：设置入口 + 用户卡 + 三格统计 + 功能列表。
-class ProfilePage extends StatefulWidget {
+class ProfilePage extends ConsumerStatefulWidget {
   const ProfilePage({super.key, this.onSwitchTab});
 
   /// 跳到主导航某个 Tab（0=首页 1=书架 2=工具/下载）。
   final ValueChanged<int>? onSwitchTab;
 
   @override
-  State<ProfilePage> createState() => ProfilePageState();
+  ConsumerState<ProfilePage> createState() => ProfilePageState();
 }
 
-class ProfilePageState extends State<ProfilePage> {
+class ProfilePageState extends ConsumerState<ProfilePage> {
   List<HistoryEntry> _history = [];
   List<DownloadRecord> _downloads = [];
   int _favorites = 0;
   bool _loaded = false;
   bool _loadError = false;
-  bool _dark = false;
   int _todaySec = 0;
   int _weekSec = 0;
   int _totalSec = 0;
@@ -98,7 +98,6 @@ class ProfilePageState extends State<ProfilePage> {
       final h = await LocalStore.history();
       final d = await LocalStore.downloads();
       final fav = BookshelfStore.listAll().length;
-      final dark = await LocalStore.darkMode();
       final today = await LocalStore.todayReadingSeconds();
       final week = await LocalStore.weekReadingSeconds();
       final total = await LocalStore.totalReadingSeconds();
@@ -107,7 +106,6 @@ class ProfilePageState extends State<ProfilePage> {
           _history = h;
           _downloads = d;
           _favorites = fav;
-          _dark = dark;
           _todaySec = today;
           _weekSec = week;
           _totalSec = total;
@@ -276,11 +274,14 @@ class ProfilePageState extends State<ProfilePage> {
                   FadeSlideIn(
                       delay: const Duration(milliseconds: 240),
                       child: _MenuCard(
-                          dark: _dark,
-                          onDarkChanged: (v) async {
-                            YingManHeApp.of(context)?.setDark(v);
-                            await LocalStore.setDarkMode(v);
-                            if (mounted) setState(() => _dark = v);
+                          dark:
+                              ref.watch(themeControllerProvider).themeMode ==
+                                  ThemeMode.dark,
+                          onDarkChanged: (v) {
+                            ref
+                                .read(themeControllerProvider.notifier)
+                                .setDark(v);
+                            LocalStore.setDarkMode(v);
                           },
                           onFavorites: () => widget.onSwitchTab?.call(4),
                           onHistory: _showHistory,
@@ -369,11 +370,12 @@ class ProfilePageState extends State<ProfilePage> {
             FadeSlideIn(
               delay: const Duration(milliseconds: 240),
               child: _MenuCard(
-                dark: _dark,
-                onDarkChanged: (v) async {
-                  YingManHeApp.of(context)?.setDark(v);
-                  await LocalStore.setDarkMode(v);
-                  if (mounted) setState(() => _dark = v);
+                dark:
+                    ref.watch(themeControllerProvider).themeMode ==
+                        ThemeMode.dark,
+                onDarkChanged: (v) {
+                  ref.read(themeControllerProvider.notifier).setDark(v);
+                  LocalStore.setDarkMode(v);
                 },
                 onFavorites: () => widget.onSwitchTab?.call(4),
                 onHistory: _showHistory,

@@ -59,6 +59,7 @@ dependencies:
   web: ^1.1.1
   tflite_flutter: ^0.12.1
   share_plus: ^12.0.2
+  flutter_riverpod: ^2.6.1
 
 dev_dependencies:
   flutter_test:

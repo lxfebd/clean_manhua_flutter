@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:convert';
 import 'dart:io';
 
-import '../main.dart';
 import '../net/backup_cipher.dart';
 import '../net/bookshelf_store.dart';
 import '../net/error_logger.dart';
@@ -20,6 +20,7 @@ import '../theme.dart';
 import '../utils/danmaku.dart';
 import 'responsive.dart';
 import 'style_scope.dart';
+import 'theme_controller.dart';
 import 'source_manage_page.dart';
 import 'keyboard_shortcuts.dart';
 import 'widgets/app_toast.dart';
@@ -32,20 +33,16 @@ import 'settings/settings_widgets.dart';
 import 'settings/webdav_sheet.dart';
 
 /// 设置页：深色模式、阅读器翻页模式、清空下载/历史。
-class SettingsPage extends StatefulWidget {
+class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
 
   @override
-  State<SettingsPage> createState() => _SettingsPageState();
+  ConsumerState<SettingsPage> createState() => _SettingsPageState();
 }
 
-class _SettingsPageState extends State<SettingsPage> {
-  bool _dark = false;
+class _SettingsPageState extends ConsumerState<SettingsPage> {
   int _readerMode = 1; // 0=纵向滚动，1=单页横向（默认），2=双页并排
   bool _rtl = false;
-  int _themeId = 0;
-  /// null = 跟随平台；否则为手动固定风格。
-  UIStyle? _uiStyleOverride;
   bool _loaded = false;
   bool _loadError = false; // 本地设置读取失败（错误态可重试）
   bool _checking = false;
@@ -53,6 +50,10 @@ class _SettingsPageState extends State<SettingsPage> {
   UpdateFreq _updateFreq = UpdateFreq.off;
   bool _notifyEnabled = false;
   bool _trustSelfSigned = false;
+
+  /// 主题/风格全局状态（Riverpod）：深色/种子色/风格三块 UI 直接 watch，
+  /// 不再在页面维护本地镜像副本（旧 `_dark/_themeId/_uiStyleOverride` 已删）。
+  ThemeState get _theme => ref.watch(themeControllerProvider);
 
   String get _updateFreqLabel => switch (_updateFreq) {
     UpdateFreq.off => '关闭',
@@ -72,22 +73,16 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _load() async {
     try {
-      final d = await LocalStore.darkMode();
       final mode = await LocalStore.readerMode();
       final rtl = await LocalStore.rtlReader();
-      final tid = await LocalStore.themeId();
-      final styleId = await LocalStore.uiStyle();
       final dm = await LocalStore.danmakuSettings();
       final freq = await ShelfUpdater.frequency();
       final notify = await UpdateNotifier.enabled();
       _webdavSyncText = await _syncText();
       if (mounted) {
         setState(() {
-          _dark = d;
           _readerMode = mode;
           _rtl = rtl;
-          _themeId = tid;
-          _uiStyleOverride = styleId == null ? null : UIStyle.fromId(styleId);
           _danmaku = dm;
           _updateFreq = freq;
           _notifyEnabled = notify;
@@ -225,33 +220,36 @@ class _SettingsPageState extends State<SettingsPage> {
                           title: '深色模式',
                           subtitle: '夜间阅读更护眼',
                           trailing: Switch(
-                            value: _dark,
-                            onChanged: (v) async {
-                              YingManHeApp.of(context)?.setDark(v);
-                              await LocalStore.setDarkMode(v);
-                              if (mounted) setState(() => _dark = v);
+                            value: _theme.themeMode == ThemeMode.dark,
+                            onChanged: (v) {
+                              ref
+                                  .read(themeControllerProvider.notifier)
+                                  .setDark(v);
+                              LocalStore.setDarkMode(v);
                             },
                           ),
                         ),
                         RowSeparator(),
                         _ThemeSelector(
-                          current: _themeId,
-                          onChanged: (v) async {
-                            YingManHeApp.of(context)?.setThemeId(v);
-                            await LocalStore.setThemeId(v);
-                            if (mounted) setState(() => _themeId = v);
+                          current: _theme.themeId,
+                          onChanged: (v) {
+                            ref
+                                .read(themeControllerProvider.notifier)
+                                .setThemeId(v);
+                            LocalStore.setThemeId(v);
                           },
                         ),
                         RowSeparator(),
                         _UiStyleSelector(
-                          current: _uiStyleOverride,
+                          current: _theme.uiStyleOverride,
                           autoLabel: UIStyle.forPlatform(
                             Theme.of(context).platform,
                           ).label,
-                          onChanged: (v) async {
-                            YingManHeApp.of(context)?.setUiStyle(v);
-                            await LocalStore.setUiStyle(v?.id);
-                            if (mounted) setState(() => _uiStyleOverride = v);
+                          onChanged: (v) {
+                            ref
+                                .read(themeControllerProvider.notifier)
+                                .setUiStyle(v);
+                            LocalStore.setUiStyle(v?.id);
                           },
                         ),
                       ],
@@ -1390,7 +1388,7 @@ class _ThemeSelector extends StatelessWidget {
 /// UI 风格选择器：跟随平台 / 极简 / 小米 / 苹果。
 ///
 /// `current == null` 表示「跟随平台」，副标题显示当前平台实际映射到的风格；
-/// 点击选项立即生效（经 [YingManHeApp.setUiStyle] 全树切换并持久化）。
+/// 点击选项立即生效（经 themeControllerProvider.setUiStyle 全树切换并持久化）。
 class _UiStyleSelector extends StatelessWidget {
   final UIStyle? current;
   final String autoLabel;
