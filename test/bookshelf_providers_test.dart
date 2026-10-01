@@ -209,5 +209,47 @@ void main() {
       final liveTask = updated.animeDownloads.single;
       expect(liveTask.segmentsDone, 5, reason: '进度变化后列表应反映最新进度');
     });
+
+    test('BookshelfData 值相等：进度推进 → 不相等；无实质变化重读 → 相等', () {
+      final mk = ({
+        int done = 0,
+        int total = 10,
+        String state = 'downloading',
+      }) =>
+          VideoDownloadTask(
+              sourceId: 's', videoId: 'v', title: 'T', season: 1,
+              episode: 1, url: 'http://x/a.mp4')
+            ..segmentsDone = done
+            ..segmentsTotal = total
+            ..state = state;
+      final base = BookshelfData(
+        items: const [], recent: const [], videos: const [],
+        mangaDownloads: const [], animeDownloads: [mk()],
+        folders: const [], bookmarks: const [],
+      );
+      // 同一内容重新构造（列表/容器新实例）→ 相等（短路重灌）。
+      final same = BookshelfData(
+        items: const [], recent: const [], videos: const [],
+        mangaDownloads: const [], animeDownloads: [mk()],
+        folders: const [], bookmarks: const [],
+      );
+      expect(same, equals(base), reason: '无实质变化的重读应相等短路');
+      // 进度推进（done 变）→ 不相等（驱动实时进度）。
+      final progressed = BookshelfData(
+        items: const [], recent: const [], videos: const [],
+        mangaDownloads: const [], animeDownloads: [mk(done: 5)],
+        folders: const [], bookmarks: const [],
+      );
+      expect(progressed, isNot(equals(base)), reason: '进度变化必须触发重灌');
+      // 状态变化（done→failed）→ 不相等。
+      final failed = BookshelfData(
+        items: const [], recent: const [], videos: const [],
+        mangaDownloads: const [], animeDownloads: [mk(state: 'failed')],
+        folders: const [], bookmarks: const [],
+      );
+      expect(failed, isNot(equals(base)));
+      // hashCode 契约：相等对象 hashCode 必相等。
+      expect(same.hashCode, base.hashCode);
+    });
   });
 }

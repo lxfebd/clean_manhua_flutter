@@ -56,6 +56,60 @@ class BookshelfData {
     required this.bookmarks,
     this.totalError,
   });
+
+  /// 值相等：让 FutureProvider 对「无实质变化」的重读短路（Riverpod 相等
+  /// 短路后 listenManual 不再回调、页面不整组重灌）。
+  ///
+  /// 背景：动漫下载进度经 animeDownloadVersionProvider 驱动本 provider
+  /// 高频重读（下载期间每 300ms 一次）。六组本地读虽快，但每次重读都
+  /// 产生新实例 → 页面 _applyData 整组重建列表，用户滚动会被抖。值相等
+  /// 后仅当任意一组**实际内容变化**（含任务进度推进）才回调页面。
+  ///
+  /// 相等范围：animeDownloads 用「key+state+进度」快照（进度推进视为变化
+  /// ——这正是驱动实时进度所需的）；其余列表按 identity（内部成员本就不变，
+  /// 仅重读产生新容器）。folders/bookmarks 等 Map/对象无稳定 identity，用
+  /// toString 兜底近似（内容变化时通常 toString 也变，够用）。
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! BookshelfData) return false;
+    if (!identical(items, other.items) ||
+        !identical(recent, other.recent) ||
+        !identical(videos, other.videos) ||
+        !identical(mangaDownloads, other.mangaDownloads) ||
+        !identical(bookmarks, other.bookmarks) ||
+        totalError != other.totalError) {
+      return false;
+    }
+    // 动漫下载：内容快照比较（列表元素是可变对象，identity 恒不同）。
+    final a = animeDownloads;
+    final b = other.animeDownloads;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      final ta = a[i];
+      final tb = b[i];
+      if (ta.key != tb.key ||
+          ta.state != tb.state ||
+          ta.doneBytes != tb.doneBytes ||
+          ta.totalBytes != tb.totalBytes ||
+          ta.segmentsDone != tb.segmentsDone ||
+          ta.segmentsTotal != tb.segmentsTotal ||
+          ta.localPath != tb.localPath) {
+        return false;
+      }
+    }
+    // 分类列表：无稳定 identity，用 toString 近似（内容变化通常文本也变）。
+    return folders.toString() == other.folders.toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+      items, recent, videos, mangaDownloads, bookmarks,
+      folders.toString(), totalError,
+      // 与 == 的 animeDownloads 快照口径一致（内容 hash，非 identity）。
+      Object.hashAllUnordered(animeDownloads.map(
+          (t) => Object.hash(t.key, t.state, t.doneBytes, t.totalBytes,
+              t.segmentsDone, t.segmentsTotal, t.localPath))));
 }
 
 /// 单组读取结果：成功返回 [data]；失败返回空列表 + [error]。

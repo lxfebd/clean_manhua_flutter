@@ -42,7 +42,7 @@ void main() {
   }
 
   tearDown(() async {
-    await server?.close(force: true);
+    await server.close(force: true);
   });
 
   test('分块下载：进度回调单调递增到 100%，返回字节一致', () async {
