@@ -50,13 +50,26 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
   /// 搜索代际：_search/_loadMore 共用，旧请求返回时若代际已变则直接作废，
   /// 防止快速搜「A」→「B」时慢的旧响应覆盖新结果或索引越界。
   int _searchGen = 0;
+  /// 流式搜索订阅（listenManual）：每次 _search 前取消旧订阅，防监听器累积。
+  ProviderSubscription<AsyncValue<SearchStreamEvent>>? _searchSub;
 
   @override
   void initState() {
     super.initState();
     _searchCtrl.text = widget.keyword;
     _loadHistory();
-    _search();
+    if (widget.keyword.trim().isEmpty) {
+      // 空关键词分支不触达 provider（无 ref 依赖），帧内同步安全；
+      // 首帧即可弹 toast（保持既有行为/测试契约）。
+      _search();
+    } else {
+      // 首帧后再搜索：流式搜索的 ref.invalidate/listenManual 会依赖
+      // ProviderScope（InheritedWidget），initState 内同步调用会触发
+      // "dependOnInheritedWidget... before initState completed" 断言。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _search();
+      });
+    }
   }
 
   Future<void> _loadHistory() async {
@@ -67,6 +80,7 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
   @override
   void dispose() {
     _selectDebounce?.cancel();
+    _searchSub?.close();
     _listCtrl.dispose();
     _searchCtrl.dispose();
     super.dispose();
@@ -94,66 +108,78 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
     setState(() {
       _loading = true;
       _error = null; // 开始新搜索时清除上一次的错误态
+      _results = []; // 流式搜索：清空旧结果，逐源增量追加
+      _failedCount = 0;
+      _hasMore = false;
+      _selected = null;
+      _selectedSource = null;
+      _selectedDetail = null;
+      _detailLoading = false;
     });
-    try {
-      // 多源并发搜索/聚合/失败统计由 searchSweepProvider 承载（search_providers.dart）。
-      // invalidate 使该关键词的 provider 重跑；await future 等数据，随后灌入页面字段。
-      ref.invalidate(searchSweepProvider(kw));
-      final outcome = await ref.read(searchSweepProvider(kw).future);
+    // 多源搜索走流式 provider：每源完成即回调，快源结果立即上屏，
+    // 不再被最慢源（15s 超时）的整包等待拖住转圈（search_providers.dart）。
+    // listenManual + 每次先取消旧订阅：防同一关键词的 provider 监听器累积。
+    _searchSub?.close();
+    ref.invalidate(searchSweepStreamProvider(kw));
+    _searchSub = ref.listenManual(searchSweepStreamProvider(kw), (prev, next) {
       if (!mounted || gen != _searchGen) return;
-      // provider 的公开 SourceResult → 页面私有 _SourceResult（源对象引用透传，零拷贝）。
-      final list = <_SourceResult>[
-        for (final r in outcome.groups)
-          _SourceResult(
-            source: r.source,
-            novelSource: r.novelSource,
-            items: r.items,
-            page: r.page,
-          ),
-      ];
-      _fetchKey = ''; // 新搜索作废旧预览请求
-      () async {
-        try {
-          await LocalStore.addSearchHistory(kw); // 记录搜索历史（失败也记录，便于重试）
-        } catch (e) {
-          ErrorLogger.instance.warn('add search history failed: $e');
-        }
-      }();
-      if (outcome.noMatch) {
-        // 全部源都失败（断网/被墙）：进错误态而不是误导为"没有结果"。
-        setState(() {
-          _loading = false;
-          _results = [];
-          _hasMore = false;
-          _error = outcome.failedCount > 0
-              ? '搜索失败：全部 ${outcome.failedCount} 个源请求失败（可能是网络或源站问题）'
-              : '没有找到「$kw」相关的结果';
-        });
-        return;
+      next.when(
+        data: (ev) {
+          if (ev.group != null) {
+            setState(() {
+              _results = [..._results, _SourceResult(
+                source: ev.group!.source,
+                novelSource: ev.group!.novelSource,
+                items: ev.group!.items,
+                page: ev.group!.page,
+              )];
+              _hasMore = _hasMore || ev.group!.items.length >= _pageSize;
+            });
+          } else {
+            // 无命中/失败的源：只更新失败计数（loading 判定依赖所有源落定）。
+            if (ev.failedCount > 0) {
+              setState(() => _failedCount = ev.failedCount);
+            }
+          }
+          if (ev.done) {
+            // 终态：全部源落定，关闭 loading 并判定 noMatch/错误态。
+            final outcomeFailed = ev.failedCount;
+            if (_results.isEmpty) {
+              setState(() {
+                _loading = false;
+                _error = outcomeFailed > 0
+                    ? '搜索失败：全部 $outcomeFailed 个源请求失败（可能是网络或源站问题）'
+                    : '没有找到「$kw」相关的结果';
+              });
+            } else {
+              setState(() {
+                _loading = false;
+                _loadingMore = false;
+                _loadMoreError = false;
+                _failedCount = outcomeFailed;
+              });
+            }
+            _loadHistory(); // 刷新历史列表（若在展示）
+          }
+        },
+        error: (e, st) {
+          if (mounted && gen == _searchGen) {
+            setState(() {
+              _loading = false;
+              _error = '搜索失败，请检查网络后重试';
+            });
+          }
+        },
+        loading: () {},
+      );
+    });
+    () async {
+      try {
+        await LocalStore.addSearchHistory(kw); // 记录搜索历史（失败也记录，便于重试）
+      } catch (e) {
+        ErrorLogger.instance.warn('add search history failed: $e');
       }
-      setState(() {
-        _results = list;
-        _loading = false;
-        _loadingMore = false;
-        _loadMoreError = false;
-        _hasMore = outcome.hasMore;
-        _failedCount = outcome.failedCount;
-        _selected = null;
-        _selectedSource = null;
-        _selectedDetail = null;
-        _detailLoading = false;
-      });
-      _loadHistory(); // 刷新历史列表（若在展示）
-    } catch (e) {
-      ErrorLogger.instance.warn('unified search failed: $e');
-      if (mounted && gen == _searchGen) {
-        setState(() {
-          _loading = false;
-          // 明确进入错误态：展示失败原因 + 重试按钮，不再静默回到空页。
-          _error = '搜索失败，请检查网络后重试';
-        });
-      }
-    }
+    }();
   }
 
   /// 搜索单页结果的大致容量（各源实际页容量可能不同，仅用于判断"还有没有更多"）。

@@ -8,6 +8,28 @@ import '../net/local_store.dart';
 import '../net/video_download_manager.dart';
 import '../sources/comic_source.dart';
 
+/// 动漫下载任务版本桥接：ValueNotifier → NotifierProvider（Riverpod 2.6.1
+/// 无 ValueNotifierProvider，须 NotifierProvider 桥接；批次 C 约定）。
+/// 任务进度变化（notifier.value 更新）时递增版本号，`bookshelfDataProvider`
+/// watch 它 → 下载页进度条实时走动，不再只读一次快照。
+final animeDownloadVersionProvider =
+    NotifierProvider<AnimeDownloadVersionNotifier, int>(
+  AnimeDownloadVersionNotifier.new,
+);
+
+class AnimeDownloadVersionNotifier extends Notifier<int> {
+  @override
+  int build() {
+    final notifier = VideoDownloadManager.instance.notifier;
+    // ValueNotifier 无内置 provider 桥接：用 listen 同步版本号。
+    notifier.addListener(_bump);
+    ref.onDispose(() => notifier.removeListener(_bump));
+    return 0;
+  }
+
+  void _bump() => state++;
+}
+
 /// 书架页六组本地数据的不可变快照。
 ///
 /// 聚合读取结果供书架页渲染：漫画列表、最近阅读、视频记录、下载记录、
@@ -80,6 +102,9 @@ class FoldersVersionNotifier extends Notifier<int> {
 /// - 页面主动刷新（下拉、切 Tab）用 `ref.invalidate(bookshelfDataProvider)`。
 final bookshelfDataProvider = FutureProvider<BookshelfData>((ref) async {
   ref.watch(foldersVersionProvider);
+  // 动漫下载进度订阅：任务进度变化 → 版本号递增 → 本 provider 重读，
+  // 下载页进度条实时走动。
+  ref.watch(animeDownloadVersionProvider);
   final results = await Future.wait([
     _readGroup(() => Future.value(BookshelfStore.listAll())),
     _readGroup(() => LocalStore.history()),
@@ -99,7 +124,10 @@ final bookshelfDataProvider = FutureProvider<BookshelfData>((ref) async {
     videos: results[2].data.cast<VideoRecord>(),
     mangaDownloads: results[3].data.cast<DownloadRecord>(),
     animeDownloads: VideoDownloadManager.instance.tasks
-        .where((t) => t.state == 'done')
+        // 展示进行中 + 已完成（此前只取 done → 动漫下载进行中在书架「下载」页
+        // 完全不可见，用户以为任务丢了）。failed/canceled 是已终止的历史残留，
+        // 不占列表。
+        .where((t) => t.state == 'downloading' || t.state == 'done')
         .toList(),
     folders: results[4].data.cast<Map<String, dynamic>>(),
     bookmarks: results[5].data.cast<ComicBookmark>(),

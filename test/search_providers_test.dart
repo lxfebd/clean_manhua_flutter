@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xingmanxia/models/comic_item.dart';
@@ -172,6 +174,81 @@ void main() {
       expect(outcome.allFailed, isFalse);
       // 关键语义：零命中 ≠ 失败——页面据此进「没有找到」错误态而非空态。
       expect(outcome.noMatch, isTrue);
+    });
+  });
+
+  group('searchSweepStreamProvider', () {
+    /// 收集 [searchSweepStreamProvider] 的完整事件序列直到收到终态。
+    ///
+    /// 必须用 [ProviderContainer.listen] 而非 `await for (… .stream)`：对流式
+    /// provider 用 `container.read(p.stream)` 的 await-for 会永远等不到流的
+    /// done（StreamProvider 冷流经 read 获取后不投递完成信号），listen 可正常
+    /// 收完并 close。collector 用 [Completer] 收终态后立即归还，避免依赖
+    /// 固定等待时长。
+    Future<List<SearchStreamEvent>> collectStreamEvents(
+      ProviderContainer container,
+      String keyword,
+    ) async {
+      final events = <SearchStreamEvent>[];
+      final done = Completer<void>();
+      final sub = container.listen<AsyncValue<SearchStreamEvent>>(
+        searchSweepStreamProvider(keyword),
+        (prev, next) {
+          next.when(
+            data: (ev) {
+              events.add(ev);
+              if (ev.done && !done.isCompleted) done.complete();
+            },
+            error: (e, st) {
+              if (!done.isCompleted) done.complete();
+            },
+            loading: () {},
+          );
+        },
+      );
+      await done.future.timeout(const Duration(seconds: 10));
+      sub.close();
+      return events;
+    }
+
+    test('逐源 emit：成功源产出 group、失败源计 failedCount、终态带 done', () async {
+      final before = await disableBuiltinSources();
+      addTearDown(() async {
+        for (final c in before.values) {
+          await SourceConfigStore.save(c);
+        }
+      });
+      okSource.onSearch = (kw, page) =>
+          [ComicItem('$kw-1', '结果1', ''), ComicItem('$kw-2', '结果2', '')];
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      final events = await collectStreamEvents(container, '测试');
+
+      // 两个 fake 源（1 成功 + 1 失败）：应有两条非终态 + 一条终态。
+      final groups = events.where((e) => e.group != null).toList();
+      expect(groups, hasLength(1));
+      expect(groups.single.group!.sourceId, 'testok');
+      expect(groups.single.group!.items, hasLength(2));
+
+      final failedEvents = events.where((e) => e.failed).toList();
+      expect(failedEvents, hasLength(1));
+      expect(failedEvents.single.failedCount, 1);
+
+      final doneEvents = events.where((e) => e.done).toList();
+      expect(doneEvents, hasLength(1));
+      expect(doneEvents.single.failedCount, 1);
+      // 终态必为最后一条：页面据此关 loading/判 noMatch。
+      expect(events.last.done, isTrue);
+    });
+
+    test('空关键词：只发一条 done，不发起任何源请求', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final events = await collectStreamEvents(container, '   ');
+      expect(events, hasLength(1));
+      expect(events.single.done, isTrue);
+      expect(events.single.failedCount, 0);
     });
   });
 }

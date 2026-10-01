@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xingmanxia/net/local_store.dart';
 import 'package:xingmanxia/sources/source_config.dart';
@@ -74,14 +75,17 @@ void main() {
     });
   }
 
+  /// 包 ProviderScope：页面流式搜索用 ref.invalidate/listenManual 依赖
+  /// scope（UncontrolledProviderScope），裸 MaterialApp 下会抛 StateError。
+  Widget wrap(Widget child) =>
+      ProviderScope(child: MaterialApp(home: child));
+
   testWidgets('空关键词搜索：弹出「请输入搜索关键词」', (tester) async {
     await initStore(tester);
     // initState 里 keyword='' → _search 空分支 → AppToast.info（不触网络）。
     // toast 在首帧后弹（initState 内同步弹会触发 InheritedWidget 断言），
     // 用 settleUntil 等它出现。
-    await tester.pumpWidget(const MaterialApp(
-      home: UnifiedSearchPage(keyword: ''),
-    ));
+    await tester.pumpWidget(wrap(const UnifiedSearchPage(keyword: '')));
     await tester.pump();
     expect(find.text('请输入搜索关键词'), findsOneWidget);
   });
@@ -93,9 +97,7 @@ void main() {
     // 很快复位，故不直接断言首次 pump 的禁用态（无法在测试里复现真实
     // 网络延迟）；改为验证"加载结束后按钮恢复可用"这一可稳定观察的行为，
     // 禁用分支（onPressed: _loading ? null : _search）由代码审查覆盖。
-    await tester.pumpWidget(const MaterialApp(
-      home: UnifiedSearchPage(keyword: '测试'),
-    ));
+    await tester.pumpWidget(wrap(const UnifiedSearchPage(keyword: '测试')));
     await tester.pump();
     // 等全部源失败落定（错误态出现）→ _loading=false → 按钮恢复可用。
     await settleUntil(tester, find.textContaining('搜索失败'));
@@ -108,9 +110,7 @@ void main() {
     await initStore(tester);
     await tester.runAsync(
         () => LocalStore.addSearchHistory('海贼王'));
-    await tester.pumpWidget(const MaterialApp(
-      home: UnifiedSearchPage(keyword: ''),
-    ));
+    await tester.pumpWidget(wrap(const UnifiedSearchPage(keyword: '')));
     // _loadHistory 的 searchHistory() 文件 IO 在 fake zone 挂起，真实事件
     // 循环里延迟若干拍才落定——轮询等待历史区块出现。
     await settleUntil(tester, find.text('搜索历史'));

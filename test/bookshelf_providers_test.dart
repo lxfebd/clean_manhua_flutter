@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xingmanxia/models/comic_item.dart';
 import 'package:xingmanxia/net/bookshelf_store.dart';
 import 'package:xingmanxia/net/local_store.dart';
+import 'package:xingmanxia/net/video_download_manager.dart';
 import 'package:xingmanxia/sources/comic_source.dart';
 import 'package:xingmanxia/ui/bookshelf_providers.dart';
 
@@ -147,6 +148,66 @@ void main() {
       final after = await container.read(bookshelfDataProvider.future);
       expect(after.folders, hasLength(3));
       expect(after.folders.map((f) => f['name']), contains('新分类'));
+    });
+
+    test('动漫下载过滤：仅展示进行中 + 已完成，终止的历史残留不占列表', () async {
+      final m = VideoDownloadManager.instance;
+      await m.resetForTest();
+      addTearDown(m.resetForTest);
+      m.seedForTest(VideoDownloadTask(
+          sourceId: 's', videoId: 'v', title: '进行中', season: 1,
+          episode: 1, url: 'http://x/a.mp4'));
+      m.seedForTest(VideoDownloadTask(
+          sourceId: 's', videoId: 'v', title: '已完成', season: 1,
+          episode: 2, url: 'http://x/b.mp4')
+        ..state = 'done'
+        ..localPath = '/tmp/b.mp4');
+      m.seedForTest(VideoDownloadTask(
+          sourceId: 's', videoId: 'v', title: '失败', season: 1,
+          episode: 3, url: 'http://x/c.mp4')
+        ..state = 'failed');
+      m.seedForTest(VideoDownloadTask(
+          sourceId: 's', videoId: 'v', title: '已取消', season: 1,
+          episode: 4, url: 'http://x/d.mp4')
+        ..state = 'canceled');
+
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final data = await container.read(bookshelfDataProvider.future);
+
+      expect(data.animeDownloads.map((t) => t.title),
+          containsAll(['进行中', '已完成']));
+      expect(data.animeDownloads.map((t) => t.title), isNot(contains('失败')));
+      expect(data.animeDownloads.map((t) => t.title),
+          isNot(contains('已取消')));
+      expect(data.totalError, isNull);
+    });
+
+    test('任务进度变化 → 版本号递增 → 列表实时更新（进度可见）', () async {
+      final m = VideoDownloadManager.instance;
+      await m.resetForTest();
+      addTearDown(m.resetForTest);
+      m.seedForTest(VideoDownloadTask(
+          sourceId: 's', videoId: 'v', title: '下载中', season: 1,
+          episode: 1, url: 'http://x/a.mp4')
+        ..segmentsTotal = 10);
+
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final first = await container.read(bookshelfDataProvider.future);
+      final key = first.animeDownloads.single.key;
+
+      // 推进进度：直接改任务字段 + 触发 notifier → 版本号递增 → provider 重读。
+      final live = m.taskOf(key);
+      expect(live, isNotNull);
+      live!.segmentsDone = 5;
+      m.notifier.value = Map.of(m.tasks.fold(<String, VideoDownloadTask>{},
+          (map, t) => map..[t.key] = t));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      final updated = await container.read(bookshelfDataProvider.future);
+      final liveTask = updated.animeDownloads.single;
+      expect(liveTask.segmentsDone, 5, reason: '进度变化后列表应反映最新进度');
     });
   });
 }

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:pointycastle/export.dart';
 
 import 'error_logger.dart';
@@ -74,19 +75,27 @@ class VideoDownloadTask {
         'headers': headers,
         'state': state,
         'localPath': localPath,
+        'error': error,
       };
 
-  factory VideoDownloadTask.fromJson(Map<String, dynamic> m) =>
-      VideoDownloadTask(
-        sourceId: (m['sourceId'] as String?) ?? '',
-        videoId: (m['videoId'] as String?) ?? '',
-        title: (m['title'] as String?) ?? '',
-        season: (m['season'] as num?)?.toInt() ?? 1,
-        episode: (m['episode'] as num?)?.toInt() ?? 1,
-        url: (m['url'] as String?) ?? '',
-        headers: Map<String, String>.from(
-            (m['headers'] as Map?)?.cast<String, dynamic>() ?? const {}),
-      );
+  factory VideoDownloadTask.fromJson(Map<String, dynamic> m) {
+    final t = VideoDownloadTask(
+      sourceId: (m['sourceId'] as String?) ?? '',
+      videoId: (m['videoId'] as String?) ?? '',
+      title: (m['title'] as String?) ?? '',
+      season: (m['season'] as num?)?.toInt() ?? 1,
+      episode: (m['episode'] as num?)?.toInt() ?? 1,
+      url: (m['url'] as String?) ?? '',
+      headers: Map<String, String>.from(
+          (m['headers'] as Map?)?.cast<String, dynamic>() ?? const {}),
+    );
+    // 恢复持久化状态：否则重启后已完成任务（done + localPath）退化为默认
+    // downloading → init() 误标 failed，已下载内容既不可见也打不开。
+    t.state = (m['state'] as String?) ?? 'downloading';
+    t.localPath = m['localPath'] as String?;
+    t.error = m['error'] as String?;
+    return t;
+  }
 }
 
 /// 解析后的 m3u8 媒体播放列表：分片、加密信息、初始化段（均为绝对 URL）。
@@ -636,6 +645,27 @@ class VideoDownloadManager {
 
   void _notify() {
     notifier.value = Map.of(_tasks);
+  }
+
+  /// 测试注入口：直接向任务表播种任务并通知，避免真实网络下载。
+  /// 仅测试使用；生产代码路径一律走 start()/init()。
+  @visibleForTesting
+  void seedForTest(VideoDownloadTask task) {
+    _tasks[task.key] = task;
+    _notify();
+  }
+
+  /// 测试注入口：清空任务表（含持久化索引），避免跨测试污染。
+  @visibleForTesting
+  Future<void> resetForTest() async {
+    _tasks.clear();
+    _canceled.clear();
+    _notify();
+    try {
+      if (_indexFile.path.isNotEmpty && _indexFile.existsSync()) {
+        await _indexFile.writeAsString('[]', flush: true);
+      }
+    } catch (_) {}
   }
 
   void _cleanupPartFile(VideoDownloadTask t) async {

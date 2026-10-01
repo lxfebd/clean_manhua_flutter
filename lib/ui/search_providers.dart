@@ -97,6 +97,10 @@ class SearchOutcome {
 /// - 单源失败静默丢该源；全部失败置 [SearchOutcome.allFailed]。
 /// - 页面触发搜索用 `ref.invalidate(searchSweepProvider(keyword))`；
 ///   「加载更多」由页面自行并发拉第 N 页去重追加（交互态留页面）。
+///
+/// ⚠️ 慢源拖垮问题：本 provider 是 `Future.wait` 聚合，最慢源 15s 超时
+/// 才落定，期间页面整页转圈无任何结果。逐源先到先显示请用
+/// [searchSweepStreamProvider]（Stream 增量，每源完成即 emit）。
 final searchSweepProvider =
     FutureProvider.family<SearchOutcome, String>((ref, keyword) async {
   final kw = keyword.trim();
@@ -154,4 +158,78 @@ final searchSweepProvider =
     allFailed: list.isEmpty && failed > 0,
     pageSize: pageSize,
   );
+});
+
+/// 一源完成即上报的增量集合消息。
+class SearchStreamEvent {
+  /// 完成了一个源：命中结果（可为空）或失败（[failed] = true）。
+  final SourceResult? group;
+  final bool failed;
+  final int failedCount;
+  /// 是否所有源都已落定（含失败；此时页面可判定整体 noMatch/错误态）。
+  final bool done;
+
+  const SearchStreamEvent({
+    this.group,
+    this.failed = false,
+    this.failedCount = 0,
+    this.done = false,
+  });
+}
+
+/// 跨源搜索的流式版本：每源完成即 emit 一条 [SearchStreamEvent]，页面
+/// `ref.listen` 增量追加——快源结果 1 秒内就能上屏，不再被最慢源（15s
+/// 超时）的 `Future.wait` 拖住整页转圈。终态事件（[done]）携带全部失败
+/// 统计，供页面判定 noMatch/全失败错误态。
+final searchSweepStreamProvider =
+    StreamProvider.family<SearchStreamEvent, String>((ref, keyword) async* {
+  final kw = keyword.trim();
+  if (kw.isEmpty) {
+    yield const SearchStreamEvent(done: true);
+    return;
+  }
+  final enabled = await SourceManager.enabledSources();
+  final novelEnabled = await SourceManager.enabledNovelSources();
+  // 并发发起所有源；`Stream.fromFutures` 按**真实完成顺序** emit（先完成的
+  // 源先到先显示）——逐个 await 数组下标会按源顺序等待（慢源挡快源）。
+  final tagged = <Future<(int, List<ComicItem>, bool)>>[
+    for (var i = 0; i < enabled.length; i++)
+      safeSearch(enabled[i], kw, 1).then((r) => (i, r.$1, r.$2)),
+    for (var i = 0; i < novelEnabled.length; i++)
+      safeSearchNovel(novelEnabled[i], kw, 1)
+          .then((r) => (enabled.length + i, r.$1, r.$2)),
+  ];
+  var failed = 0;
+  var emitted = 0;
+  final total = tagged.length;
+  if (total == 0) {
+    // 无任何启用源（测试禁用全部内置源但 fake 源未被 enabledSources 返回，
+    // 或用户关了所有源）：直接发终态，避免 stream 空转永不 done。
+    yield const SearchStreamEvent(done: true);
+    return;
+  }
+  await for (final (i, items, isFailed) in Stream.fromFutures(tagged)) {
+    emitted++;
+    if (isFailed) {
+      failed++;
+      yield SearchStreamEvent(failed: true, failedCount: failed);
+    } else if (items.isNotEmpty) {
+      if (i < enabled.length) {
+        yield SearchStreamEvent(
+            group: SourceResult(source: enabled[i], items: items, page: 1));
+      } else {
+        yield SearchStreamEvent(
+            group: SourceResult(
+                novelSource: novelEnabled[i - enabled.length],
+                items: items,
+                page: 1));
+      }
+    } else {
+      // 命中为空也记为完成（无 group），页面据此推进 loading 判定。
+      yield SearchStreamEvent(failedCount: failed);
+    }
+    if (emitted == total) {
+      yield SearchStreamEvent(done: true, failedCount: failed);
+    }
+  }
 });
