@@ -10,6 +10,7 @@
 
 ## 技术栈
 - Dart（Flutter 3.x），全平台：Android / iOS / Windows / macOS / Linux
+- 状态：`flutter_riverpod`（2.6.1，渐进式：全局状态/书架/搜索/详情/阅读模式 provider 化）
 - 网络：零三方依赖，自写 `Net`（`lib/net/http_client.dart`）——多级镜像降级、Cloudflare 优选 IP、请求限流、HTTP/Socks5 代理
 - 加密：`crypto` + `pointycastle`；图片：`image`；播放：`media_kit`；WebView：`webview_flutter` / `webview_windows`
 - 其他：`window_manager`（桌面窗口）、`flutter_tts`（小说朗读）、`file_picker`（本地导入）、`screen_brightness`/`volume_controller`（阅读播放手势）
@@ -42,6 +43,17 @@ flutter build web --release     # Web 端（alpha）：静态产物 build/web（
 ---
 
 ## 更新日志
+
+### v1.5.3（2026-10-02，未发布）
+- 🎨 **UI 风格轴（三风格平台自适应）**：极简（桌面默认）/ 小米 HyperOS / 苹果 iOS 三套视觉语言按平台自动映射，设置页可手动覆盖——
+  - **小米**：Squircle 超椭圆大圆角 + 品牌渐变卡片 + 柔和彩色阴影 + 超椭圆按钮/图标底块 + 回弹动效（HyperOS 特征）
+  - **苹果**：系统蓝 + 毛玻璃头（FrostedGlass 真毛玻璃，仅头部/浮层）+ inset grouped 分组列表 + 细分隔线 + iOS 平滑动效
+  - **极简**：逐字节锁原值（改造前实现，零回归）；全部新颜色/圆角/间距进 S/R/T/TypeScale token 体系（design_tokens_test 棘轮守护）
+- 🏗️ **Riverpod 渐进重构（批次C）**：主题/风格全局状态、书架数据源、搜索、详情页（漫画/小说）、阅读模式全局状态迁移至 flutter_riverpod——`themeModeProvider`/`styleModeProvider`/书架六组 FutureProvider 聚合/`searchSweepProvider`/`comicDetailProvider`/`novelDetailProvider`/`readerModeProvider`；页面改 Consumer 组件，交互状态（滚动/排序/缓存）保留页内；新增 provider 单测 30+
+- 🛡️ **模块化审计修复（两批次）**：P1 八项（含 readLimited 超时语义——stream.timeout 不触发须整体 Future.timeout）+ P2/P3 全项（WebDAV probe 契约改自动 MKCOL、onWriteError 接线 UI、loadSuperRes 独立目录配额等），新增回归测试
+- 🔍 **8 线全项修复**：跨阅读器/播放器/DSL/同步/能力/源/网络/UI 八条线 37 改 + 8 测试
+- 🐛 **首页修复**：SliverPersistentHeader 展开头高度补 8dp 安全余量——桌面真实字体（微软雅黑/Segoe UI）行高略高 2px 致头部 Column 底部溢出黄条（RenderFlex overflowed by 2.0 pixels），补余量后消除
+- 🧪 **测试**：全量 651 通过 / 15 跳过；analyze 零新增问题
 
 ### v1.5.2（2026-09-21）
 - 🎬 **「广告一出跳回 0:00」根治**：站点把广告流先于正片传入时，广告会被三层 JS 过滤 + Dart 兜底拦截，不再接管原生播放器；断流重连回到断点附近而非从头重播；HLS 分片失败 / seek 失败把进度无事件卷回 0 的两种路径，都有单调位置守卫自动拉回
