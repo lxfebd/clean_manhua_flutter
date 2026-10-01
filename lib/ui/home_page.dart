@@ -534,10 +534,14 @@ class HomePageState extends State<HomePage> {
     // 平板 6+44+10+52+8+48+4 = 172 → 176；桌面 10+48工具栏+10+48胶囊+10 = 126 → 128。
     // 44 热区行不随文字长，但搜索行/标题行会随系统文字缩放长高
     // （1.5× 实测溢 2dp、2.0× 溢 28dp），故按缩放补余量。
+    // 默认 1.0 缩放并非零风险：真实字体（微软雅黑/Segoe UI）行高比 Ahem
+    // 略高，桌面工具栏/胶囊在实测中 126 → 128 仍溢 2px（runlog 组件链
+    // OverflowBox→SizedBox(128)→Padding(20)→Column h=108 溢 2），
+    // 故各档再补 8dp 安全余量。
     final textScale = MediaQuery.textScalerOf(context).scale(1.0);
     final textSlack = (textScale - 1.0).clamp(0.0, 1.0) * 60;
     final expanded =
-        (isDesktop ? 128.0 : (isTablet ? 176.0 : 168.0)) + textSlack + topPad;
+        (isDesktop ? 136.0 : (isTablet ? 184.0 : 176.0)) + textSlack + topPad;
     final collapsed = kToolbarHeight + topPad;
     return SliverPersistentHeader(
       pinned: true,
@@ -1977,9 +1981,10 @@ class _RecommendCard extends StatelessWidget {
                 ),
           ),
           const SizedBox(height: 10),
-          // 128 封面 + 4 间距 + 1 行标题：148 会差 1px 溢出黄条，留足行高。
+          // 128 封面 + 4 间距 + 1 行标题：156 在桌面真实字体（微软雅黑/Segoe UI）
+          // 行高 ~24px 时恰好顶满，个别字号/缩放会溢出 2px 黄条；留足到 160。
           SizedBox(
-            height: 156,
+            height: 160,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 2),
