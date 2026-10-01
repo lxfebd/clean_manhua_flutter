@@ -23,6 +23,11 @@ class BookshelfStore {
   static final DebouncedSerialWriter _writer =
       DebouncedSerialWriter(debugName: 'bookshelf');
 
+  /// 注入写盘失败 UI 钩子（main 启动时接线，勿在构造期依赖 UI 层）。
+  static void setWriteErrorHandler(
+          void Function(Object error, StackTrace stack) cb) =>
+      _writer.onWriteError = cb;
+
   // ---- 书架分类（文件夹） ----
   /// 分类存储文件名（独立于 bookshelf.json：书籍是条目级数据，
   /// 分类是集合级定义，混在一起会让导出备份把分类定义也按条目拷一份）。

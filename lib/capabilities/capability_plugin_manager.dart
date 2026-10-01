@@ -136,7 +136,14 @@ class CapabilityPluginManager {
     try {
       await p.unbind();
       await p.onUninstall();
-      // 卸载即清理本地构件（artifact / 权重），避免「卸载了还占几十~数百 MB」。
+    } catch (e) {
+      ErrorLogger.instance.warn(
+          'CapabilityPluginManager.uninstall($id) hooks failed: $e');
+    }
+    // 构件清理放在独立 try（不能与 unbind/onUninstall 同一个 try）：
+    // 钩子抛异常时仍要清 artifact/权重，否则「卸载了还占几十~数百 MB」，
+    // 且注册表已移除、下次 restore 不会重建，构件永久孤儿化。
+    try {
       await CapabilityArtifactStore.instance.purge(id);
       // AI 上色额外联动：能力卸载时同步清理 colorizer 私有模型目录
       // （`colorizer/model.tflite`）并释放后端，避免「卸载了但功能仍可用」——
@@ -148,7 +155,7 @@ class CapabilityPluginManager {
       }
     } catch (e) {
       ErrorLogger.instance.warn(
-          'CapabilityPluginManager.uninstall($id) failed: $e');
+          'CapabilityPluginManager.uninstall($id) purge failed: $e');
     }
     await persist();
     revision.value++;

@@ -16,6 +16,11 @@ import '../tokens.dart';
 class AppToast {
   const AppToast._();
 
+  /// 全局 messenger key：挂到 [MaterialApp.scaffoldMessengerKey] 后，
+  /// 可在拿不到 context 的静态回调里弹 toast（如书架写盘失败 hook）。
+  static GlobalKey<ScaffoldMessengerState> messengerKey =
+      GlobalKey<ScaffoldMessengerState>();
+
   /// 从 context 取当前 ScaffoldMessenger 显示一条 toast。
   /// [duration] 缺省 2s（短提示）；[error] 加错误图标，语义更醒目；
   /// [action] 可选操作（如「查看」）。
@@ -33,31 +38,65 @@ class AppToast {
         : R.control;
     messenger
       ..clearSnackBars()
-      ..showSnackBar(SnackBar(
-        content: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (error) ...[
-              const Icon(Icons.error_outline_rounded,
-                  size: 18, color: Colors.white),
-              const SizedBox(width: 8),
-            ],
-            Flexible(
-              child: Text(message,
-                  style: const TextStyle(color: Colors.white, fontSize: 13.5)),
-            ),
-          ],
-        ),
-        duration: duration,
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: Colors.black.withValues(alpha: 0.78),
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(toastRadius)),
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-        padding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        action: action,
+      ..showSnackBar(_build(message,
+          duration: duration,
+          error: error,
+          radius: toastRadius,
+          action: action));
+  }
+
+  /// 无 context 提示：经 [messengerKey] 弹全局 toast。
+  /// 供 store 静态写盘失败回调等拿不到 BuildContext 的链路使用；
+  /// messenger 未挂载（启动早期）时静默跳过，不抛错打断写盘队列。
+  static void showViaMessenger(
+    String message, {
+    Duration? duration,
+    bool error = false,
+  }) {
+    final messenger = messengerKey.currentState;
+    if (messenger == null) return;
+    messenger
+      ..clearSnackBars()
+      ..showSnackBar(_build(
+        message,
+        duration:
+            duration ?? (error ? const Duration(seconds: 3) : const Duration(seconds: 2)),
+        error: error,
+        radius: R.control,
       ));
+  }
+
+  static SnackBar _build(
+    String message, {
+    required Duration duration,
+    required bool error,
+    required double radius,
+    SnackBarAction? action,
+  }) {
+    return SnackBar(
+      content: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (error) ...[
+            const Icon(Icons.error_outline_rounded,
+                size: 18, color: Colors.white),
+            const SizedBox(width: 8),
+          ],
+          Flexible(
+            child: Text(message,
+                style: const TextStyle(color: Colors.white, fontSize: 13.5)),
+          ),
+        ],
+      ),
+      duration: duration,
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: Colors.black.withValues(alpha: 0.78),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(radius)),
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      action: action,
+    );
   }
 
   /// 普通提示（成功/信息）。

@@ -58,6 +58,8 @@ void main() {
     String serverUrl = '';
     final store = <String, String>{};
     final dirs = <String>{};
+    // 置 true 时 MKCOL 一律 403：模拟「目录不存在且无创建权限」场景。
+    var denyMkcol = false;
 
     setUp(() async {
       // TestWidgetsFlutterBinding 会把所有 HTTP 请求 mock 成 400，
@@ -65,6 +67,7 @@ void main() {
       HttpOverrides.global = null;
       store.clear();
       dirs.clear();
+      denyMkcol = false;
       server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       serverUrl = 'http://127.0.0.1:${server!.port}/dav/';
       server!.listen((req) async {
@@ -84,8 +87,12 @@ void main() {
             }
             req.response.close();
           case 'MKCOL':
-            dirs.add(p.endsWith('/') ? p : '${p}/');
-            req.response.statusCode = HttpStatus.created;
+            if (denyMkcol) {
+              req.response.statusCode = HttpStatus.forbidden;
+            } else {
+              dirs.add(p.endsWith('/') ? p : '${p}/');
+              req.response.statusCode = HttpStatus.created;
+            }
             req.response.close();
           case 'MOVE':
             final dest = req.headers.value('Destination');
@@ -141,19 +148,18 @@ void main() {
       // 不抛异常即视为成功
     });
 
-    test('目录也不存在 → probe 抛异常提示目录不可达', () async {
+    test('目录不存在 → probe 自动 MKCOL 创建后返回成功（首次接入新子目录）', () async {
       await LocalStore.init();
-      // 不预置任何目录
-      await expectLater(
-        WebDavSync.probe(
-          url: serverUrl,
-          username: '',
-          password: '',
-          dir: 'NoExist',
-        ),
-        throwsA(predicate((e) =>
-            e.toString().contains('远端保存目录不可达'))),
+      // 不预置任何目录：目录 404 → probe 应主动 MKCOL 建目录再验，
+      // 而不是一刀切报「目录不可达」（否则用户填的新子目录永远无法首次接入）。
+      await WebDavSync.probe(
+        url: serverUrl,
+        username: '',
+        password: '',
+        dir: 'NoExist',
       );
+      // 不抛异常即视为成功；且应真的创建了目录
+      expect(dirs, contains('/dav/NoExist/'));
     });
 
     test('目标文件已存在 + 目录可达 → probe 返回成功（多端已同步过）', () async {
@@ -168,8 +174,9 @@ void main() {
       );
     });
 
-    test('probe 失败后不修改 _config（保持未配置态）', () async {
+    test('目录不可建（MKCOL 403） → probe 抛「目录不可达」且不修改 _config', () async {
       await LocalStore.init();
+      denyMkcol = true; // 目录 404 + 无创建权限 → 复查 PROPFIND 仍不可达
       expect(WebDavSync.hasConfig, isFalse);
       await expectLater(
         WebDavSync.probe(
@@ -178,7 +185,8 @@ void main() {
           password: '',
           dir: 'NoExist',
         ),
-        throwsA(anything),
+        throwsA(predicate(
+            (e) => e.toString().contains('远端保存目录不可达'))),
       );
       // probe 内部临时覆写 _config 仅用于本次探测，finally 必须还原。
       expect(WebDavSync.hasConfig, isFalse);

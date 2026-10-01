@@ -18,7 +18,15 @@ const int kDefaultMaxHtmlBytes = 8 * 1024 * 1024;
 /// 安全构造 RegExp：pattern 非法（如 `[`）时抛 [SourceError.parse] 而非
 /// 逃逸的 FormatException。DSL 里的正则字段是远端可控的，任何一处
 /// `RegExp(xxx)` 都可能踩到用户粘贴的坏 pattern。
+/// 长度上限与 [RegExp] 惯用法对齐（DSL 在 validate 里已有 2000 上限，
+/// 这里是运行时深水区兜底——兼容非 DSL 调用方，不放行超长 pattern）。
+const int kMaxSourceRegexLen = 2000;
+
 RegExp safeRegExp(String pattern, {bool dotAll = false}) {
+  if (pattern.length > kMaxSourceRegexLen) {
+    throw SourceError.parse(
+        '正则过长（${pattern.length} > $kMaxSourceRegexLen 字符）');
+  }
   try {
     return dotAll ? RegExp(pattern, dotAll: true) : RegExp(pattern);
   } on FormatException catch (e) {

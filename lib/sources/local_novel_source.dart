@@ -534,16 +534,9 @@ String? _readZipContent(Archive archive, String path) {
 }
 
 String _readZipText(ArchiveFile f) {
-  final bytes = f.content;
-  try {
-    return utf8.decode(bytes, allowMalformed: false);
-  } catch (_) {
-    try {
-      return latin1.decode(bytes);
-    } catch (_) {
-      return '';
-    }
-  }
+  // 复用 TXT 的编码识别链（BOM 魔数 / UTF-8 严格 / latin1 兜底 + GBK 启发告警）：
+  // 原来裸 utf8→latin1 的双段兜底对 GBK 内容静默出乱码、也不识别 BOM。
+  return _decodeText(f.content);
 }
 
 String _normalizeEpubPath(String path) {

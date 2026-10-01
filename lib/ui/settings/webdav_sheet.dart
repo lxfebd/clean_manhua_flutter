@@ -66,7 +66,10 @@ class WebDavSheetState extends State<WebDavSheet> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _status = '$label失败，请检查网络后重试';
+          // 具体错误直接上屏（WebDavException 已含状态码+响应体摘要，
+          // 网络异常含主机信息）：原「请检查网络后重试」掩盖了
+          // 401/403/404 等可操作的真实原因，用户只能盲目重试。
+          _status = _humanError('$label失败', e);
           _statusOk = false;
         });
       }
@@ -74,6 +77,15 @@ class WebDavSheetState extends State<WebDavSheet> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// 把异常转成可上屏的一行提示：WebDavException 用其状态码+摘要，
+  /// 其余（SocketException/TimeoutException/自定义 Exception）取 toString
+  /// 主体并截断，避免超长堆栈信息进 UI。
+  static String _humanError(String prefix, Object e) {
+    final raw = e is WebDavException ? e.toString() : e.toString();
+    final msg = raw.length > 160 ? '${raw.substring(0, 160)}…' : raw;
+    return '$prefix：$msg';
   }
 
   /// 保存配置：先探测连通性（URL/账号/密码一次性校验），失败红字提示、

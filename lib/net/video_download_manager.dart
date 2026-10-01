@@ -113,6 +113,13 @@ class VideoDownloadManager {
 
   final Map<String, VideoDownloadTask> _tasks = {};
   final Set<String> _canceled = {};
+
+  /// 总进度看门狗触发集：[_run] 的周期检查发现任务在途 90 秒零字节
+  /// 增长时加入；下载循环在分片边界检查并中止（与 [_canceled] 并列）。
+  /// 分片级 stall 守卫只防「单块之间断流」，挡不住「一直在吐但几乎不涨」
+  /// 的涓流（每块间隔 <45s、每块几百字节可无限续命），这层是整体兜底。
+  final Set<String> _stalled = {};
+
   final ValueNotifier<Map<String, VideoDownloadTask>> notifier =
       ValueNotifier(const {});
 
@@ -295,6 +302,21 @@ class VideoDownloadManager {
   }
 
   Future<void> _run(VideoDownloadTask t) async {
+    // 总进度看门狗：每 15s 拍一次 doneBytes，连续 6 拍（90s）零增长 →
+    // 标记停滞，循环在下一个分片/数据块边界中止任务。慢速但持续增长的
+    // 合法下载不受影响（任一拍有增长即清零计数）。
+    var lastBytes = t.doneBytes;
+    var stallTicks = 0;
+    final watchdog = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (t.state != 'downloading') return;
+      if (t.doneBytes == lastBytes) {
+        stallTicks++;
+        if (stallTicks >= 6) _stalled.add(t.key);
+      } else {
+        stallTicks = 0;
+        lastBytes = t.doneBytes;
+      }
+    });
     try {
       if (t.isM3u8) {
         await _downloadM3u8(t);
@@ -303,6 +325,10 @@ class VideoDownloadManager {
       }
       if (_canceled.contains(t.key)) {
         t.state = 'canceled';
+        _cleanupPartFile(t);
+      } else if (_stalled.contains(t.key)) {
+        t.state = 'failed';
+        t.error = '下载停滞，请重试';
         _cleanupPartFile(t);
       } else {
         t.state = 'done';
@@ -313,6 +339,9 @@ class VideoDownloadManager {
       t.error = e is HttpException ? e.message : '下载失败，请重试';
       t.state = _canceled.contains(t.key) ? 'canceled' : 'failed';
       _cleanupPartFile(t);
+    } finally {
+      watchdog.cancel();
+      _stalled.remove(t.key);
     }
     _running.remove(t.key);
     _notify();
@@ -364,6 +393,10 @@ class VideoDownloadManager {
             resp.drain<void>();
             throw HttpException('已取消');
           }
+          if (_stalled.contains(t.key)) {
+            resp.drain<void>();
+            throw HttpException('下载停滞');
+          }
           sink.writeFromSync(chunk);
           t.doneBytes += chunk.length;
           _notifyThrottled();
@@ -411,6 +444,7 @@ class VideoDownloadManager {
       }
       for (var i = 0; i < pl.segments.length; i++) {
         if (_canceled.contains(t.key)) throw HttpException('已取消');
+        if (_stalled.contains(t.key)) throw HttpException('下载停滞');
         var data = await _fetchBytesWith(client, pl.segments[i], t.headers);
         if (keyBytes != null) {
           data = _aesDecrypt(data, keyBytes, _segIv(pl.keyIvHex, pl.mediaSeq + i));

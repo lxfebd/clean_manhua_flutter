@@ -120,7 +120,12 @@ class UpdateDownloadManager {
     }
   }
 
+  /// 本轮下载各镜像失败原因摘要（中文前缀 + 状态码），按尝试顺序追加；
+  /// 全部失败时取最后一条上屏，帮助用户判断是网络/镜像问题还是直连问题。
+  final List<String> _mirrorFailures = [];
+
   Future<void> _downloadWithMirrors(String originalUrl) async {
+    _mirrorFailures.clear();
     final candidates = <String>[];
     for (final m in _mirrors) {
       candidates.add(m.isEmpty ? originalUrl : m + originalUrl);
@@ -153,11 +158,17 @@ class UpdateDownloadManager {
         ErrorLogger.instance.warn(
           'update dl mirror $label failed: ${e is Exception ? e : e.toString()}',
         );
+        _mirrorFailures.add(_mirrorFailSummary(e));
       }
     }
     if (_cancelled) return;
-    // 原始异常进日志；弹窗只显示固定中文，避免 SocketException 原文上屏。
-    _state = UpdateDownloadState(error: '全部镜像下载失败，请稍后重试');
+    // 把最后一条镜像的具体失败原因带上屏：用户需要知道是「直连超时」
+    // 还是「镜像证书失败」才能决定是否换网络/换时间重试。原始异常本体
+    // （可能带 URL/长堆栈）不进 UI，只取中文前缀与关键状态码。
+    final lastErr = _mirrorFailures.isNotEmpty
+        ? _mirrorFailures.last
+        : '未知错误';
+    _state = UpdateDownloadState(error: '全部镜像下载失败（$lastErr），请稍后重试');
     _stateCtrl.add(_state);
     _notifyError();
     _running = false;
@@ -279,6 +290,15 @@ class UpdateDownloadManager {
 
   /// 解析 Content-Range 的完整总大小（斜杠后的值），解析失败返回 0。
   static int _contentRangeTotal(String cr) => contentRangeTotal(cr);
+
+  /// 单个镜像失败 → 可上屏的短摘要（≤80 字符）：截异常首行、剥掉
+  /// 长 URL（`https://...` 整段替换为省略号），保留 HTTP 状态码/超时等关键信息。
+  static String _mirrorFailSummary(Object e) {
+    var s = e.toString().split('\n').first.trim();
+    s = s.replaceAll(RegExp(r'https?://\S+'), '…');
+    if (s.length > 80) s = '${s.substring(0, 80)}…';
+    return s;
+  }
 
   /// 通过 MethodChannel 调用原生通知（进度条）。
   Future<void> _notify(

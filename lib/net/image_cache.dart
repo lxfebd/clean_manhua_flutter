@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'http_client.dart';
 import 'image_deg.dart';
+import '../utils/image_super_res.dart';
 
 class ImageCacheManager {
   static final LinkedHashMap<String, Uint8List> _mem = LinkedHashMap();
@@ -86,6 +87,7 @@ class ImageCacheManager {
 
   static const int _maxMemCount = 24;
   static Directory? _dir;
+  static Directory? _srDir;
 
   static Future<Directory> _imagesDir() async {
     if (kIsWeb) {
@@ -99,13 +101,36 @@ class ImageCacheManager {
     return d;
   }
 
+  /// 超分导数（2x 放大图）独立磁盘目录：与封面原图分开存放，
+  /// 配额独立（见 [_maxSrDiskBytes]），避免「开一次超分 = 磁盘用量翻倍」
+  /// 把封面/连读缓存挤没。文件 key 与正常缓存同 md5 空间（URL 指针相同），
+  /// 仅目录不同，同一张图两处各自一份。
+  static Future<Directory> _srImagesDir() async {
+    if (kIsWeb) {
+      throw UnsupportedError('web 端无磁盘图片缓存，仅走内存');
+    }
+    if (_srDir != null) return _srDir!;
+    final base = await getApplicationSupportDirectory();
+    final d = Directory('${base.path}/data/images_sr');
+    if (!d.existsSync()) d.createSync(recursive: true);
+    _srDir = d;
+    return d;
+  }
+
   static String _key(String url) =>
       md5.convert(utf8.encode(ImageDeg.normalizeUrl(url))).toString();
 
+  /// 超分导数磁盘 key：在 md5 后追加算法版本号——升级超分算法时旧的
+  /// 超分缓存自动失效（与旧 [ImageSuperRes.algoVersion] key 语义对齐）。
+  static String _srKey(String url) =>
+      '${_key(url)}-${ImageSuperRes.algoVersion}';
+
   /// web 端无磁盘：所有磁盘读写在此收口，web 直接返回 null / 跳过。
-  static Future<Uint8List?> _diskBytes(String url) async {
+  /// [sr] 为 true 时读写超分导数目录（key 带算法版本）。
+  static Future<Uint8List?> _diskBytes(String url, {bool sr = false}) async {
     if (kIsWeb) return null;
-    final f = File('${(await _imagesDir()).path}/${_key(url)}.img');
+    final f = File(
+        '${(await (sr ? _srImagesDir() : _imagesDir())).path}/${sr ? _srKey(url) : _key(url)}.img');
     try {
       if (!f.existsSync()) return null;
       return await f.readAsBytes();
@@ -114,12 +139,14 @@ class ImageCacheManager {
     }
   }
 
-  static Future<void> _diskWrite(String url, Uint8List bytes) async {
+  static Future<void> _diskWrite(String url, Uint8List bytes,
+      {bool sr = false}) async {
     if (kIsWeb) return;
-    final f = File('${(await _imagesDir()).path}/${_key(url)}.img');
+    final f = File(
+        '${(await (sr ? _srImagesDir() : _imagesDir())).path}/${sr ? _srKey(url) : _key(url)}.img');
     try {
       await f.writeAsBytes(bytes, flush: true);
-      unawaited(_maybeTrimDisk());
+      unawaited(_maybeTrimDisk(sr: sr));
     } catch (_) {}
   }
 
@@ -275,10 +302,42 @@ class ImageCacheManager {
     return bytes;
   }
 
-  static void _putMem(String url, Uint8List b) {
-    final old = _mem.remove(url);
+  /// 超分导数专用加载：独立磁盘目录（见 [_srImagesDir]），内存已另开 key
+  /// 空间（`sr:` 前缀）——同 URL 原图/超分图并存不互相覆盖，原图读吐也不
+  /// 会污染超分请求（[loadSuperRes] 与 [load] 的 `_mem` slot 互不串扰）。
+  /// [readThrough] 为 null 时等价只读缓存命中（未中即抛）。
+  static Future<Uint8List> loadSuperRes(
+    String url, {
+    Map<String, String>? headers,
+    Future<Uint8List> Function()? readThrough,
+  }) async {
+    final norm = primaryUrl(url);
+    final memKey = 'sr:$norm';
+    final mem = _mem[memKey];
+    if (mem != null) {
+      _mem.remove(memKey);
+      _mem[memKey] = mem;
+      return mem;
+    }
+    final disk = await _diskBytes(norm, sr: true);
+    if (disk != null) {
+      _putSlottedMem(memKey, disk);
+      return disk;
+    }
+    if (readThrough == null) {
+      throw Exception('超分缓存未命中且无回源：$url');
+    }
+    final bytes = await readThrough();
+    _putSlottedMem(memKey, bytes);
+    await _diskWrite(norm, bytes, sr: true);
+    return bytes;
+  }
+
+  /// 与 [_putMem] 同语义的带 slot key 版本（普通路径固定用 norm）。
+  static void _putSlottedMem(String key, Uint8List b) {
+    final old = _mem.remove(key);
     if (old != null) _memBytes -= old.length;
-    _mem[url] = b;
+    _mem[key] = b;
     _memBytes += b.length;
     while (_mem.isNotEmpty &&
         (_memBytes > _maxMemBytes || _mem.length > _maxMemCount)) {
@@ -286,6 +345,10 @@ class ImageCacheManager {
       final oldestVal = _mem.remove(oldestKey)!;
       _memBytes -= oldestVal.length;
     }
+  }
+
+  static void _putMem(String url, Uint8List b) {
+    _putSlottedMem(url, b);
   }
 
   static Future<void> preload(String url, {Map<String, String>? headers, String? proxy}) async {
@@ -335,11 +398,30 @@ class ImageCacheManager {
   /// 磁盘缓存文件数上限（防止海量小文件拖慢目录遍历）。
   static const int _maxDiskCount = 2000;
 
+  /// 超分导数磁盘配额（字节）：独立于封面/连读缓存（[_maxDiskBytes]）。
+  /// 超分图是「可选增强」，2x 放大后体积通常大于原图，若并入同一预算，
+  /// 「开超分 = 磁盘用量翻倍」会把封面缓存挤没（列表连读降级、离线图缺失）。
+  /// 固定取正常磁盘预算的下限档（256MB → 128MB），不随设备分档放大。
+  static int get _maxSrDiskBytes =>
+      _deviceMemBytes == null
+          ? 128 * 1024 * 1024
+          : debugSrDiskBudgetForTier(_deviceMemBytes!);
+
+  /// 按内存预算档位给出超分磁盘配额，供测试/诊断直接校验。
+  /// 档位边界与 [debugDiskBudgetForTier] 对齐，SR 取相邻低一档。
+  @visibleForTesting
+  static int debugSrDiskBudgetForTier(int memBudgetBytes) {
+    if (memBudgetBytes <= 24 * 1024 * 1024) return 64 * 1024 * 1024;
+    if (memBudgetBytes <= 40 * 1024 * 1024) return 128 * 1024 * 1024;
+    return 256 * 1024 * 1024;
+  }
+
   /// 在写盘后按需清理：磁盘缓存超出上限时删除最旧文件。
   /// 每次写入后才检查（异步执行，不阻塞写盘路径），避免启动时全量扫描拖慢首帧。
-  static Future<void> _maybeTrimDisk() async {
+  /// [sr] 为 true 时清理超分导数目录（配额取 [_maxSrDiskBytes]）。
+  static Future<void> _maybeTrimDisk({bool sr = false}) async {
     try {
-      final d = _dir;
+      final d = sr ? _srDir : _dir;
       if (d == null || !d.existsSync()) return;
       // 异步枚举 + 只读 stat（每文件一次），避免在 UI 线程做全同步扫描。
       final files = await d
@@ -347,8 +429,9 @@ class ImageCacheManager {
           .where((f) => f is File)
           .cast<File>()
           .toList();
+      final budget = sr ? _maxSrDiskBytes : _maxDiskBytes;
       if (files.length <= _maxDiskCount &&
-          files.fold<int>(0, (s, f) => s + f.lengthSync()) <= _maxDiskBytes) {
+          files.fold<int>(0, (s, f) => s + f.lengthSync()) <= budget) {
         return;
       }
       // 修改时间懒读取：仅在确实需要裁剪时才 stat，命中上限直接跳过。
@@ -359,7 +442,7 @@ class ImageCacheManager {
       var total = files.fold<int>(0, (s, f) => s + f.lengthSync());
       var i = 0;
       while (i < files.length &&
-          (total > _maxDiskBytes || files.length - i > _maxDiskCount)) {
+          (total > budget || files.length - i > _maxDiskCount)) {
         total -= files[i].lengthSync();
         try {
           files[i].deleteSync();
@@ -428,6 +511,11 @@ class ImageCacheManager {
         if (d.existsSync()) d.deleteSync(recursive: true);
       } catch (_) {}
       _dir = null;
+      try {
+        final sd = await _srImagesDir();
+        if (sd.existsSync()) sd.deleteSync(recursive: true);
+      } catch (_) {}
+      _srDir = null;
     }
   }
 }

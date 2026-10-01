@@ -21,6 +21,11 @@ class NovelShelfStore {
   static final DebouncedSerialWriter _writer =
       DebouncedSerialWriter(debugName: 'novel_shelf');
 
+  /// 注入写盘失败 UI 钩子（main 启动时接线，勿在构造期依赖 UI 层）。
+  static void setWriteErrorHandler(
+          void Function(Object error, StackTrace stack) cb) =>
+      _writer.onWriteError = cb;
+
   static void bindFile(File file) {
     _file = file;
     _load();

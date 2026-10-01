@@ -100,12 +100,15 @@ class _CachedImageState extends State<CachedImage> {
         try {
           final headers = _headersFor(u);
           if (widget.superRes) {
-            final sr = await ImageCacheManager.load(_superResKeyFor(u),
-                headers: headers,
-                fetch: () async {
-                  final raw = await ImageCacheManager.load(u, headers: headers);
-                  return await ImageSuperRes.upscale2x(raw);
-                }).timeout(const Duration(seconds: 8));
+            final sr = await ImageCacheManager.loadSuperRes(
+              u,
+              headers: headers,
+              readThrough: () async {
+                final raw =
+                    await ImageCacheManager.load(u, headers: headers);
+                return await ImageSuperRes.upscale2x(raw);
+              },
+            ).timeout(const Duration(seconds: 8));
             ok = sr;
           } else {
             ok = await ImageCacheManager.load(u, headers: headers)
@@ -126,9 +129,6 @@ class _CachedImageState extends State<CachedImage> {
       _loading = false;
     }
   }
-
-  String _superResKeyFor(String url) =>
-      '$url|${ImageSuperRes.algoVersion}';
 
   @override
   Widget build(BuildContext context) {

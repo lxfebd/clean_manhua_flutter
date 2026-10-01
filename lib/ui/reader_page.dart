@@ -2546,13 +2546,19 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
       // 第一步：先加载原图（快速显示）。走多级降级链：
       // 原画失败自动尝试省空间压缩图（mangadex data-saver）与备用镜像（jm CDN），
       // 任一档位成功即显示；全部失败由 catch 落失败态。
-      // 全部失败时 loadDegraded 已抛异常（由下方 catch 落失败态），此处 bytes 必非空
-      final raw = await ImageCacheManager.loadDegraded(widget.url,
+      // 全部失败时 loadDegraded 已抛异常（由下方 catch 落失败态）；
+      // 防御未来「直返 failed 不抛」的契约变化：bytes 为空显式抛出，
+      // 走同一条失败/重试分支，不让 `!` 在 .then 里抛 TypeError。
+      final r = await ImageCacheManager.loadDegraded(widget.url,
           headers: _headers(),
           proxy: proxy,
           engineId: widget.sourceId,
-          useSaver: widget.sourceId == 'mangadex')
-          .then((r) => r.bytes!);
+          useSaver: widget.sourceId == 'mangadex');
+      if (!mounted) return;
+      if (r.bytes == null) {
+        throw Exception('图片降级链全部失败');
+      }
+      final raw = r.bytes!;
       if (!mounted) return;
 
       // 自动裁边去白边：裁边结果按独立缓存 key 持久化，

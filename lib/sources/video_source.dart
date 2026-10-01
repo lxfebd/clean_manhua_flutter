@@ -71,8 +71,10 @@ bool isDirectMediaUrl(String url) {
       u.contains('.webm') || u.contains('.mkv') || u.contains('.flv')) {
     return true;
   }
-  // HLS / TS 流路径
-  if (u.contains('/hls/') || u.contains('.ts')) {
+  // HLS / TS 流路径。`.ts` 收窄到路径边界判定（去 query 后以 .ts 结尾，
+  // 或 /hls/ 上下文）：裸子串 `.ts` 会把 .tsx/.tsv/xxx.ts.txt 误判成直链。
+  final noQueryPath = u.split('?').first;
+  if (noQueryPath.contains('/hls/') || noQueryPath.endsWith('.ts')) {
     return true;
   }
   // 字节跳动 TOS 对象存储视频路径（AGE 等源换域名但路径固定）
@@ -116,12 +118,26 @@ bool isAdMediaUrl(String url) {
   for (final d in adDomains) {
     if (u.contains(d)) return true;
   }
+  // 已知正片直链豁免：AGE 等源换域名但 /video/tos/ 路径固定
+  // （[isDirectMediaUrl] 已按正片放行），在字节 CDN 黑名单之前豁免，
+  // 消除「isDirect 放行 vs isAd 拦截」的自相矛盾；豁免放在 ad 段检查之后，
+  // /video/tos/ad/… 仍会被上面的 ad 独立段拦住，无洞。
+  if (noQuery.contains('/video/tos/')) return false;
   // 字节系内容/广告 CDN：toutiao/topbuzz 等域名被 [isDirectMediaUrl] 判为
   // 「直链」（按域名白名单），广告流若走这些 CDN 会被当成正片接管原生播放器
   // （从 0:00 播广告）。本应用 6 个视频源的正片均不用字节 CDN，这里整体拦截。
+  // 按 host（authority 段）匹配而非全 URL 子串：path/文件名里嵌
+  // `pstatp.com.m3u8` 的形态不再误判为命中；无 scheme 的裸域名 URL 也
+  // 正确取到 host（首段即 authority）。
   const byteAdCdns = {'pstatp.com', 'topbuzzcdn.com', 'capcut.com'};
+  var authority = noQuery;
+  final schemeIdx = authority.indexOf('://');
+  if (schemeIdx >= 0) authority = authority.substring(schemeIdx + 3);
+  final slashIdx = authority.indexOf('/');
+  if (slashIdx >= 0) authority = authority.substring(0, slashIdx);
+  final host = authority.toLowerCase();
   for (final d in byteAdCdns) {
-    if (u.contains(d)) return true;
+    if (host == d || host.endsWith('.$d')) return true;
   }
   return false;
 }

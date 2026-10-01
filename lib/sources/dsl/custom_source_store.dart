@@ -24,6 +24,11 @@ class CustomSourceStore {
 
   static const String _file = 'custom_sources';
 
+  /// importJson 输入下限护栏：与源管理页粘贴框的 64KB 上限对齐。
+  /// 市场安装（entry.json）与深层调用（脚本/URI 启动）绕过 UI 粘贴框，
+  /// 只有入口收口才拦得住超长 JSON 的 jsonDecode/validate 挂起。
+  static const int _maxImportJsonChars = 64 * 1024;
+
   static List<CustomSourceDef>? _cache;
 
   static Future<List<CustomSourceDef>> all() async {
@@ -111,6 +116,11 @@ class CustomSourceStore {
 
   /// 导入 JSON 文本（单份或数组），逐份校验；全部成功返回导入数量。
   static Future<int> importJson(String json) async {
+    if (json.length > _maxImportJsonChars) {
+      ErrorLogger.instance.warn(
+          'CustomSourceStore.importJson rejected: ${json.length} chars > $_maxImportJsonChars');
+      return 0;
+    }
     final dynamic decoded;
     try {
       decoded = jsonDecode(json);

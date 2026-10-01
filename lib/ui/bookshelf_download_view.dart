@@ -173,9 +173,18 @@ class BookshelfDownloadView extends StatelessWidget {
   Widget _mangaDownloadCard(
       BuildContext context, ColorScheme scheme, DownloadRecord d) {
     final text = Theme.of(context).textTheme;
-    // 失败态判定：未 finished 且计数到齐（无法完成的重试之后中断），
-    // 显示失败样式而非"100% 但未完成"的歧义进度条。
-    final failed = !d.finished && d.total > 0 && d.done >= d.total;
+    // 状态机（三态区分，取消≠失败）：
+    // - finished        → 完成（绿）
+    // - error=='已取消' → 用户主动取消，中性灰（不是失败，不该红名吓用户）
+    // - 其余 error      → 真实失败（写盘/网络），红名 + 显示原因
+    // - 计数到齐未 finished → 旧记录失败态（重试之后中断），红名兜底
+    // - 其他            → 进行中（橙）
+    final cancelled = !d.finished && d.error == '已取消';
+    final failed =
+        !d.finished &&
+        !cancelled &&
+        ((d.error?.isNotEmpty ?? false) ||
+            (d.total > 0 && d.done >= d.total));
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -197,21 +206,28 @@ class BookshelfDownloadView extends StatelessWidget {
               decoration: BoxDecoration(
                 color: d.finished
                     ? Colors.green.withValues(alpha: 0.1)
-                    : (failed
-                        ? Colors.red.withValues(alpha: 0.1)
-                        : Colors.orange.withValues(alpha: 0.1)),
+                    : (cancelled
+                        ? scheme.onSurface.withValues(alpha: 0.08)
+                        : (failed
+                            ? Colors.red.withValues(alpha: 0.1)
+                            : Colors.orange.withValues(alpha: 0.1))),
                 borderRadius: BorderRadius.circular(R.control),
               ),
               child: Icon(
                 d.finished
                     ? Icons.check_circle_outline
-                    : (failed
-                        ? Icons.error_outline_rounded
-                        : Icons.downloading_rounded),
+                    : (cancelled
+                        ? Icons.stop_circle_outlined
+                        : (failed
+                            ? Icons.error_outline_rounded
+                            : Icons.downloading_rounded)),
                 size: 20,
                 color: d.finished
                     ? Colors.green
-                    : (failed ? Colors.red : Colors.orange),
+                    : (cancelled
+                        ? T.color(scheme.onSurface, TextTier.low,
+                            brightness: scheme.brightness)
+                        : (failed ? Colors.red : Colors.orange)),
               ),
             ),
             const SizedBox(width: 12),
@@ -240,7 +256,7 @@ class BookshelfDownloadView extends StatelessWidget {
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(2),
                             child: LinearProgressIndicator(
-                              value: failed
+                              value: (failed || cancelled)
                                   ? null
                                   : (d.total > 0 ? d.done / d.total : 0),
                               minHeight: 4,
@@ -250,12 +266,22 @@ class BookshelfDownloadView extends StatelessWidget {
                               valueColor: failed
                                   ? AlwaysStoppedAnimation(Colors.red
                                       .withValues(alpha: 0.6))
-                                  : AlwaysStoppedAnimation(scheme.primary),
+                                  : (cancelled
+                                      ? AlwaysStoppedAnimation(
+                                          T.color(scheme.onSurface,
+                                              TextTier.low,
+                                              brightness: scheme.brightness))
+                                      : AlwaysStoppedAnimation(scheme.primary)),
                             ),
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Text(failed ? (d.error ?? '下载失败') : '${d.done}/${d.total}',
+                        Text(
+                            cancelled
+                                ? '已取消'
+                                : failed
+                                ? (d.error ?? '下载失败')
+                                : '${d.done}/${d.total}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: text.labelSmall?.copyWith(

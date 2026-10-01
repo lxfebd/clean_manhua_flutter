@@ -48,7 +48,9 @@ void main() {
           isAdMediaUrl(
               'https://ad-creative.pstatp.com/origin/ad/1/a.m3u8?x=1'),
           isTrue);
-      expect(isAdMediaUrl('https://v.example.com/pstatp.com.m3u8'), isTrue);
+      // path/文件名里嵌 pstatp.com 的形态不误判：按 host 段匹配后
+      // v.example.com 不是字节系 CDN，不拦截。
+      expect(isAdMediaUrl('https://v.example.com/pstatp.com.m3u8'), isFalse);
       expect(
           isAdMediaUrl(
               'https://vod.pstatp.com/hls/1/index.m3u8?from=ad&x=1'),

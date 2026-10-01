@@ -28,6 +28,7 @@ import 'capabilities/capability_plugin_manager.dart';
 import 'theme.dart';
 import 'ui/main_shell.dart';
 import 'ui/style_scope.dart';
+import 'ui/widgets/app_toast.dart';
 
 /// 桌面端窗口管理：限定最小尺寸、设置标题、记忆并恢复上次窗口尺寸/位置。
 /// 不隐藏系统标题栏（避免改动 Windows 原生 runner 导致构建失败），保持稳妥。
@@ -140,6 +141,15 @@ Future<void> _postFirstFrameInit() async {
   } catch (e) {
     ErrorLogger.instance.warn('ErrorLogger init failed: $e');
   }
+  // 书架/小说书架写盘失败 → 全局 toast（数据丢失风险，用户应尽快感知）。
+  // Toast 走 scaffoldMessengerKey（见 AppToast），启动早期 messenger 未挂载
+  // 时静默跳过，不打断写盘队列。
+  BookshelfStore.setWriteErrorHandler((e, st) {
+    AppToast.showViaMessenger('书架保存失败，本次改动可能丢失，请重启应用重试');
+  });
+  NovelShelfStore.setWriteErrorHandler((e, st) {
+    AppToast.showViaMessenger('小说书架保存失败，本次改动可能丢失，请重启应用重试');
+  });
   try {
     // 设备内存分档提到启动链第一步：首帧后立刻探测，让首页/书架/阅读的首屏图片
     // 第一时间拿到正确的缓存预算（低端机收紧防 OOM，高端机放开提升连读流畅度）。
@@ -353,6 +363,7 @@ class YingManHeAppState extends State<YingManHeApp>
         title: '星漫匣',
         debugShowCheckedModeBanner: false,
         navigatorKey: _navigatorKey,
+        scaffoldMessengerKey: AppToast.messengerKey,
         theme: themeData,
         darkTheme: darkThemeData,
         themeMode: effectiveMode,

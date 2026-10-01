@@ -1,10 +1,15 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
+import '../sources/source_result.dart';
 import '../net/download_manager.dart';
 import '../net/error_logger.dart';
+import '../net/http_client.dart';
 import '../net/local_store.dart';
 import 'reader_page.dart';
 import 'responsive.dart';
@@ -123,11 +128,30 @@ class _DetailPageState extends State<DetailPage> {
       ErrorLogger.instance.warn('comic detail load failed: $e');
       if (mounted) {
         setState(() {
-          _error = '加载失败，请检查网络后重试';
+          _error = _detailErrorMessage(e);
           _loading = false;
         });
       }
     }
+  }
+
+  /// 按异常类型分档错误文案：网络类提示重试、解析类提示稍后、鉴权类提示登录，
+  /// 其余沿用通用文案（SourceHttp._unwrap 会把 SourceErr 重包装成 Exception，
+  /// 手写源只能走 toString 兜底，故兜底分支保留原措辞）。
+  static String _detailErrorMessage(Object e) {
+    if (e is TimeoutException) return '网络超时，请重试';
+    if (e is SocketException) return '网络连接失败，请检查网络后重试';
+    if (e is SourceUnauthorized) return '该源需要登录后才能查看详情';
+    if (e is SourceBlocked) return '访问受限（触发站点风控），请稍后再试';
+    if (e is SourceParse || e is FormatException) {
+      return '页面数据异常，请稍后重试';
+    }
+    if (e is HttpStatusException) {
+      return e.statusCode >= 500
+          ? '源站服务异常（HTTP ${e.statusCode}），请稍后重试'
+          : '页面数据异常，请稍后重试';
+    }
+    return '加载失败，请检查网络后重试';
   }
 
   Future<void> _resolveResumeChapter() async {

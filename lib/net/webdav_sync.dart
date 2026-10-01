@@ -256,11 +256,6 @@ class WebDavSync {
     }
   }
 
-  /// PROPFIND 远端文件信息。返回 (lastModified, size)；不存在（404）返回 null。
-  static Future<({DateTime mtime, int size})?> _propfind() async {
-    return _propfindUri(_fileUri);
-  }
-
   /// PROPFIND 指定路径（默认目标文件）。404 → null；其他 4xx/5xx → 抛
   /// [WebDavException]。probe 用来对目录再发一次 PROPFIND 判定「目录是否存在」。
   static Future<({DateTime mtime, int size})?> _propfindUri(Uri uri) async {
@@ -378,8 +373,20 @@ class WebDavSync {
       // _ensureDir 上传阶段会自动 MKCOL。
       final dirInfo = await _propfindUri(_dirUri);
       if (dirInfo == null) {
-        throw Exception(
-            '远端保存目录不可达（目录不存在或无权限），请检查服务器地址与保存目录');
+        // 目录 404：首次接入常见（用户填了新子目录但服务器还没有），
+        // 直接 MKCOL 创建后再验一次，避免「保存目录不可达」的假阴性。
+        // 创建失败（无权限/凭据只读）→ 再 PROPFIND 仍 null，落到下面的
+        // 真实不可达错误。空 dir（服务器根）在 _ensureDir 内部短路。
+        try {
+          await _ensureDir();
+        } catch (_) {
+          // 忽略：下面的复查 PROPFIND 才是最终判据
+        }
+        final retry = await _propfindUri(_dirUri);
+        if (retry == null) {
+          throw Exception(
+              '远端保存目录不可达（目录不存在且无法创建），请检查服务器地址、账号权限与保存目录');
+        }
       }
       // 目录可达 → 凭据 + URL + 目录均 OK，probe 成功。
       return;
@@ -485,19 +492,6 @@ class WebDavSync {
   /// 测试用：仅加解密（无网络）。
   @visibleForTesting
   static String testDecrypt(String body) => _decode(body);
-
-  /// 判断哪端更新：'remote'（远端比本地最后上传新，建议先拉取）/
-  /// 'same'（远端就是本地最后上传的内容）/ 'local'（远端还没有文件，建议上传）。
-  static Future<String> diff() async {
-    if (!hasConfig) throw Exception('未配置 WebDAV 服务器');
-    final remote = await _propfind();
-    if (remote == null) return 'local';
-    final lastPush = await _localUploadTime();
-    if (remote.mtime.millisecondsSinceEpoch > lastPush + 2000) {
-      return 'remote';
-    }
-    return 'same';
-  }
 
   static Future<int> _localUploadTime() async =>
       (await LocalStore.readJson('webdav_last_upload') as num?)?.toInt() ?? 0;

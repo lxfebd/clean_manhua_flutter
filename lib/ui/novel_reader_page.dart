@@ -830,17 +830,20 @@ class _NovelReaderSettingsSheetState
                 width: 36,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
             ),
             const SizedBox(height: 18),
-            const Text('阅读设置',
+            Text('阅读设置',
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
-                    color: Colors.white)),
+                    color: Theme.of(context).colorScheme.onSurface)),
             const SizedBox(height: 18),
             _row('字号',
                 children: [
@@ -923,7 +926,10 @@ class _NovelReaderSettingsSheetState
                   data: SliderThemeData(
                     activeTrackColor:
                         Theme.of(context).colorScheme.primary,
-                    inactiveTrackColor: Colors.white.withValues(alpha: 0.15),
+                    inactiveTrackColor: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.15),
                     thumbColor: Theme.of(context).colorScheme.primary,
                     trackHeight: 3,
                     overlayShape: const RoundSliderOverlayShape(
@@ -982,13 +988,19 @@ class _NovelReaderSettingsSheetState
         decoration: BoxDecoration(
           color: active
               ? Theme.of(context).colorScheme.primary
-              : Colors.white.withValues(alpha: 0.06),
+              : Theme.of(context)
+                  .colorScheme
+                  .onSurface
+                  .withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(
               StyleTokens.controlRadiusOr(context, 8)),
           border: Border.all(
             color: active
                 ? Theme.of(context).colorScheme.primary
-                : Colors.white.withValues(alpha: 0.1),
+                : Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.1),
           ),
         ),
         child: Text(
@@ -996,7 +1008,9 @@ class _NovelReaderSettingsSheetState
           style: TextStyle(
             fontSize: 12,
             fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-            color: active ? Colors.white : Colors.white70,
+            color: active
+                ? Theme.of(context).colorScheme.onPrimary
+                : Theme.of(context).colorScheme.onSurface,
           ),
         ),
       ),
@@ -1030,17 +1044,20 @@ class _NovelTtsSheet extends StatelessWidget {
                 width: 36,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
             ),
             const SizedBox(height: 18),
-            const Text('朗读设置',
+            Text('朗读设置',
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
-                    color: Colors.white)),
+                    color: Theme.of(context).colorScheme.onSurface)),
             const SizedBox(height: 18),
             Row(
               children: [
@@ -1096,12 +1113,18 @@ class _TtsRateChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: active
               ? Theme.of(context).colorScheme.primary
-              : Colors.white.withValues(alpha: 0.06),
+              : Theme.of(context)
+                  .colorScheme
+                  .onSurface
+                  .withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: active
                 ? Theme.of(context).colorScheme.primary
-                : Colors.white.withValues(alpha: 0.1),
+                : Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.1),
           ),
         ),
         child: Text(
@@ -1109,7 +1132,9 @@ class _TtsRateChip extends StatelessWidget {
           style: TextStyle(
             fontSize: 12,
             fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-            color: active ? Colors.white : Colors.white70,
+            color: active
+                ? Theme.of(context).colorScheme.onPrimary
+                : Theme.of(context).colorScheme.onSurface,
           ),
         ),
       ),

@@ -30,7 +30,11 @@ class DebouncedSerialWriter {
   /// - 参数 (Object e, StackTrace st) 与写盘异常一致；
   /// - 一次写失败 = 一次调用，多次防抖合并只调一次；
   /// - 不阻塞后续 schedule，队列继续排队。
-  final void Function(Object error, StackTrace stack)? onWriteError;
+  ///
+  /// 非 final：store 是静态单例，UI 钩子由 main 启动时注入
+  /// （见 [BookshelfStore.setWriteErrorHandler]），不在构造期就把 UI
+  /// 依赖写进网络层。
+  void Function(Object error, StackTrace stack)? onWriteError;
 
   /// 防抖窗口：窗口内多次 [schedule] 合并为一次写入。
   static const Duration _delay = Duration(milliseconds: 300);
