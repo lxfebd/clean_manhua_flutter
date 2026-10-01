@@ -376,6 +376,11 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   int _switchGen = 0;
   /// 播放中途流错误后的重连进行中标记（防并发重连）。
   bool _recovering = false;
+  /// `_open` 互斥（2026-10-02）：首开/切集/断流重连/画中画恢复共用同一入口，
+  /// 且 open 到 _ready 之间有异步收尾段；此标志把整段串行化，杜绝两个流程
+  /// 并发对同一 Player open（切集 finally 复位 _switching 后 stream error 到来
+  /// 会并发进入重连的竞态）。
+  bool _opening = false;
   bool _completedHandled = false;
   /// 竖屏面板里「当前集」方块的定位锚点：每次切集后作废重建，
   /// 面板打开时用它把当前集滚进视口（长番几百集时当前集可能在第 150 集）。
@@ -862,6 +867,16 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   Future<bool> _open(String url, {bool adopted = false, Duration? resumeAt}) async {
     final p = _player;
     if (p == null) return false;
+    // ⚠️ 互斥（2026-10-02）：_open 是多入口共用的（首开/切集/断流重连/画中画
+    // 恢复），且 open 到 _ready 之间有一段异步收尾（首帧等待/超分补挂/重设
+    // 同步）。切集流程的 _switching 在 finally 复位后，若 stream error 事件
+    // 恰好到来，_tryRecoverFromStreamError 会并发进入第二次 _open → 两个流程
+    // 同时对同一 Player open+seek，出现「切到新集又被拉回/重复提示」。这里
+    // 用 _opening 把整段串行化：后到者直接返回 false（各自调用方有自己的
+    // 标志位驱动 UI 等待，返回 false 只会让重连方进失败态——这正是它不该
+    // 在别人 open 时进来的正确结果）。
+    if (_opening) return false;
+    _opening = true;
     try {
       // 超分是桌面专属能力：移动端不拷 shader 资产（避免首次启动磁盘 IO），
       // 也跳过 mpv shader 编译缓存目录创建。
@@ -986,6 +1001,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         ErrorLogger.instance.warn('player open failed: $e');
       }
       return false;
+    } finally {
+      _opening = false;
     }
   }
 
@@ -2610,6 +2627,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
 
   /// 缓冲/加载中提示文案：已有进度数据时给百分比，否则给阶段说明。
   String _bufferText() {
+    if (_recovering) return '播放中断，正在重连…';
     if (_switching) return '正在解析直链…';
     if (_ready && _buffering) {
       final d = _dur.inMilliseconds;
@@ -2704,8 +2722,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
               onHorizontalDragEnd: _onHorizontalEnd,
             ),
           ),
-          // 缓冲
-          if (_buffering || !_ready || _switching)
+          // 缓冲（含断流重连：_recovering 期间画面定格但绝不能静默——重连
+          // 常需数秒到十几秒，无遮罩提示用户会以为死机）。
+          if (_buffering || !_ready || _switching || _recovering)
             Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
