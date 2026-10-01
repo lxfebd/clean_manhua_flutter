@@ -6,6 +6,7 @@ import 'dart:ui' show PointerDeviceKind;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:image/image.dart' as img;
@@ -18,6 +19,7 @@ import '../net/image_deg.dart';
 import '../net/jm_scramble.dart';
 import '../net/local_store.dart';
 import '../net/smart_prefetch.dart';
+import 'reader_providers.dart';
 import 'responsive.dart';
 import 'reader_mode_geometry.dart';
 import 'widgets/reader_settings_sheet.dart';
@@ -34,7 +36,7 @@ import 'widgets/jm_scramble_image.dart';
 
 /// 阅读器（对齐 UI_v2 S5/S6）：沉浸式黑底 + 顶部返回/标题/菜单 +
 /// 底部悬浮玻璃工具栏（亮度/目录/翻页模式/下载）+ 底部居中页码。
-class ReaderPage extends StatefulWidget {
+class ReaderPage extends ConsumerStatefulWidget {
   final String sourceId;
   final String comicId;
   final String chapterId;
@@ -67,13 +69,13 @@ class ReaderPage extends StatefulWidget {
   });
 
   @override
-  State<ReaderPage> createState() => _ReaderPageState();
+  ConsumerState<ReaderPage> createState() => _ReaderPageState();
 }
 
 /// 阅读器右键菜单动作。
 enum _ReaderMenuAction { catalog, chapters, settings, download, bookmark }
 
-class _ReaderPageState extends State<ReaderPage>
+class _ReaderPageState extends ConsumerState<ReaderPage>
     with WidgetsBindingObserver {
   List<String> _urls = [];
   bool _loading = true;
@@ -400,7 +402,9 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   Future<void> _init() async {
-    _readerMode = ReaderMode.fromValue(await LocalStore.readerMode());
+    // 阅读模式经 readerModeProvider 全局状态读取（懒载持久化偏好）；
+    // 设置页与阅读器共享同一偏好源。
+    _readerMode = await ref.read(readerModeProvider.notifier).resume();
     _doublePage = _readerMode == ReaderMode.double;
     if (!mounted) return;
     // 自适应双页：仅持久化模式为「单页」且宽屏（≥600dp）时自动切双页；
@@ -1416,7 +1420,7 @@ class _ReaderPageState extends State<ReaderPage>
     };
     _userModeLocked = true; // 用户手动切过模式，不再自动干涉
     _switchReaderMode(next);
-    LocalStore.setReaderMode(next.value);
+    ref.read(readerModeProvider.notifier).setMode(next);
   }
 
   /// 阅读设置底部抽屉：亮度、夜间模式、翻页模式（对齐 S6）。
@@ -1441,7 +1445,7 @@ class _ReaderPageState extends State<ReaderPage>
           _userModeLocked = true; // 设置里手动选模式，不再自动干涉
           // _switchReaderMode 内部按当前页锚点换算视图，保持阅读位置不跳变
           _switchReaderMode(m);
-          LocalStore.setReaderMode(m.value);
+          ref.read(readerModeProvider.notifier).setMode(m);
         },
         onResLevelChanged: (v) {
           setState(() => _resLevel = v);

@@ -18,6 +18,8 @@ import '../net/update_notifier.dart';
 import '../net/webdav_sync.dart';
 import '../theme.dart';
 import '../utils/danmaku.dart';
+import 'reader_mode_geometry.dart';
+import 'reader_providers.dart';
 import 'responsive.dart';
 import 'style_scope.dart';
 import 'theme_controller.dart';
@@ -307,7 +309,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                               color: Colors.white70,
                             ),
                             onSelected: (v) async {
-                              await LocalStore.setReaderMode(v);
+                              // 经全局 provider 写回：阅读器与设置页共享同一偏好源。
+                              await ref
+                                  .read(readerModeProvider.notifier)
+                                  .setMode(ReaderMode.fromValue(v));
                               if (mounted) setState(() => _readerMode = v);
                             },
                             itemBuilder:

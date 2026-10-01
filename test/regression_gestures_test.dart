@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:xingmanxia/ui/reader_page.dart';
@@ -17,16 +18,18 @@ void main() {
     addTearDown(tester.view.reset);
 
     // 需要真实源/章节数据，这里仅做编译期 smoke（页面构造不抛异常）。
-    await tester.pumpWidget(MaterialApp(
-      home: ReaderPage(
-        sourceId: 'dummy',
-        comicId: 'c',
-        comicName: 'n',
-        comicPic: '',
-        comicAuthor: '',
-        chapterId: 'ch1',
-        title: '第1话',
-        chapters: const [],
+    await tester.pumpWidget(const ProviderScope(
+      child: MaterialApp(
+        home: ReaderPage(
+          sourceId: 'dummy',
+          comicId: 'c',
+          comicName: 'n',
+          comicPic: '',
+          comicAuthor: '',
+          chapterId: 'ch1',
+          title: '第1话',
+          chapters: [],
+        ),
       ),
     ));
     await tester.pump(const Duration(milliseconds: 100));
