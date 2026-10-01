@@ -2,13 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/comic_item.dart';
 import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import '../sources/comic_source.dart';
 import '../sources/novel_source.dart';
-import '../sources/source_manager.dart';
+import 'search_providers.dart';
 import 'detail_page.dart';
 import 'novel_detail_page.dart';
 import 'reader_page.dart';
@@ -20,15 +21,15 @@ import 'widgets/state_view.dart';
 import 'keyboard_shortcuts.dart';
 
 /// 跨源统一搜索：输入关键词，并发搜索所有启用的漫画源，结果按源分组展示。
-class UnifiedSearchPage extends StatefulWidget {
+class UnifiedSearchPage extends ConsumerStatefulWidget {
   final String keyword;
   const UnifiedSearchPage({super.key, required this.keyword});
 
   @override
-  State<UnifiedSearchPage> createState() => _UnifiedSearchPageState();
+  ConsumerState<UnifiedSearchPage> createState() => _UnifiedSearchPageState();
 }
 
-class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
+class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
   List<_SourceResult> _results = [];
   bool _loading = true;
   String? _error; // 搜索失败原因（非空时展示错误态并提供重试）
@@ -95,49 +96,21 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
       _error = null; // 开始新搜索时清除上一次的错误态
     });
     try {
-      final enabled = await SourceManager.enabledSources();
-      final novelEnabled = await SourceManager.enabledNovelSources();
-      final futures = <Future<(List<ComicItem>, bool)>>[
-        for (final s in enabled) _safeSearch(s, kw, 1),
-        for (final s in novelEnabled) _safeSearchNovel(s, kw, 1),
-      ];
-      final all = await Future.wait(futures, eagerError: false);
+      // 多源并发搜索/聚合/失败统计由 searchSweepProvider 承载（search_providers.dart）。
+      // invalidate 使该关键词的 provider 重跑；await future 等数据，随后灌入页面字段。
+      ref.invalidate(searchSweepProvider(kw));
+      final outcome = await ref.read(searchSweepProvider(kw).future);
       if (!mounted || gen != _searchGen) return;
-      var failed = 0;
-      final list = <_SourceResult>[];
-      var anyMore = false;
-      var matched = false;
-      // 漫画源结果（futures 前段）
-      for (var i = 0; i < enabled.length; i++) {
-        final (items, isFailed) = all[i];
-        if (isFailed) {
-          failed++;
-          continue;
-        }
-        if (items.isNotEmpty) {
-          matched = true;
-          list.add(
-            _SourceResult(source: enabled[i], items: items, page: 1),
-          );
-          // 一页就能拉满的源（数量少于页容量）视为没有更多
-          anyMore = anyMore || items.length >= _pageSize;
-        }
-      }
-      // 小说源结果（futures 后段，偏移 = 漫画源数量）
-      for (var i = 0; i < novelEnabled.length; i++) {
-        final (items, isFailed) = all[enabled.length + i];
-        if (isFailed) {
-          failed++;
-          continue;
-        }
-        if (items.isNotEmpty) {
-          matched = true;
-          list.add(
-            _SourceResult(novelSource: novelEnabled[i], items: items, page: 1),
-          );
-          anyMore = anyMore || items.length >= _pageSize;
-        }
-      }
+      // provider 的公开 SourceResult → 页面私有 _SourceResult（源对象引用透传，零拷贝）。
+      final list = <_SourceResult>[
+        for (final r in outcome.groups)
+          _SourceResult(
+            source: r.source,
+            novelSource: r.novelSource,
+            items: r.items,
+            page: r.page,
+          ),
+      ];
       _fetchKey = ''; // 新搜索作废旧预览请求
       () async {
         try {
@@ -146,16 +119,15 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
           ErrorLogger.instance.warn('add search history failed: $e');
         }
       }();
-      if (!matched) {
+      if (outcome.noMatch) {
         // 全部源都失败（断网/被墙）：进错误态而不是误导为"没有结果"。
         setState(() {
           _loading = false;
           _results = [];
           _hasMore = false;
-          _error =
-              failed > 0
-                  ? '搜索失败：全部 $failed 个源请求失败（可能是网络或源站问题）'
-                  : '没有找到「$kw」相关的结果';
+          _error = outcome.failedCount > 0
+              ? '搜索失败：全部 ${outcome.failedCount} 个源请求失败（可能是网络或源站问题）'
+              : '没有找到「$kw」相关的结果';
         });
         return;
       }
@@ -164,8 +136,8 @@ class _UnifiedSearchPageState extends State<UnifiedSearchPage> {
         _loading = false;
         _loadingMore = false;
         _loadMoreError = false;
-        _hasMore = anyMore;
-        _failedCount = failed;
+        _hasMore = outcome.hasMore;
+        _failedCount = outcome.failedCount;
         _selected = null;
         _selectedSource = null;
         _selectedDetail = null;
