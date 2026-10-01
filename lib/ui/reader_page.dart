@@ -450,7 +450,12 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
       });
     }
     try {
-      final urls = await _chapterUrls(chapterId);
+      // 切章取图列表必须有时限兜底：源站无响应/网络半开时 `chapterPics` 的
+      // Future 可能挂起永不完成（底层超时不可靠），无 timeout 会让 _loading
+      // 永远 true（整屏转圈卡死）。15s 超时抛 TimeoutException → 进 catch 复位
+      // _loading + _loadError，用户可重试而非杀进程。
+      final urls = await _chapterUrls(chapterId)
+          .timeout(const Duration(seconds: 15));
       final downloaded = await DownloadManager.isDownloaded(_book.key, chapterId);
       if (downloaded) {
         final local = <String>[];
@@ -592,9 +597,13 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
   }
 
   Future<void> _load() async {
+    // 进入即置 loading（与 _openChapter 对齐）：重试/首载期间若 _urls 为空，
+    // 不置 loading 会落到「暂不支持该源阅读」的误导文案（审计 #8）。
     _loadError = false;
+    if (mounted) setState(() => _loading = true);
     try {
-      final urls = await _chapterUrls(widget.chapterId);
+      final urls = await _chapterUrls(widget.chapterId)
+          .timeout(const Duration(seconds: 15));
       if (_downloaded) {
         final local = <String>[];
         for (var i = 0; i < urls.length; i++) {
@@ -870,11 +879,16 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
         // 放大镜（长按激活，2.2x 放大触点区域；横向/纵向均支持）
         if (_loupeVisible) _buildLoupe(),
         // 亮度遮罩层（仅降级模式：桌面端/无权限时，用黑纱模拟亮度）
+        // ⚠️ IgnorePointer：遮罩只做视觉压暗，绝不能拦截命中测试——否则
+        // 调低亮度后整屏点按翻页/双击/手势全部被黑纱吃掉（历史 bug：
+        // 用户一调亮度阅读区就「死掉」，以为 App 卡死）。
         if (!_brightnessNative)
-          AnimatedOpacity(
-            duration: const Duration(milliseconds: 220),
-            opacity: (1.0 - _dim) * 0.75,
-            child: const ColoredBox(color: Colors.black),
+          IgnorePointer(
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 220),
+              opacity: (1.0 - _dim) * 0.75,
+              child: const ColoredBox(color: Colors.black),
+            ),
           ),
         // 顶部工具栏（返回/标题/菜单）
         _ReaderTopBar(
@@ -1864,8 +1878,33 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
 
   Widget _buildBody() {
     if (_loading) {
+      // 切章/首次加载中：若上一章的 _urls 还在，保留它作背景（用户可继续
+      // 回看上一页，不会瞬间被转圈顶掉），顶部叠一条细进度条表达「切章
+      // 进行中」；首次进入（无旧内容）才退化为整屏转圈。
+      if (_urls.isNotEmpty) {
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            _buildLoadedBody(),
+            const Align(
+              alignment: Alignment.topCenter,
+              child: SizedBox(
+                width: 160,
+                child: LinearProgressIndicator(
+                  minHeight: 2.5,
+                  backgroundColor: Colors.transparent,
+                ),
+              ),
+            ),
+          ],
+        );
+      }
       return const Center(child: CircularProgressIndicator(color: Colors.white));
     }
+    return _buildLoadedBody();
+  }
+
+  Widget _buildLoadedBody() {
     if (_loadError) {
       // 章节加载失败：明确错误 + 重试入口，不再静默黑屏。
       return Center(

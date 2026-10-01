@@ -14,6 +14,7 @@ import '../net/http_client.dart';
 import '../net/local_store.dart';
 import 'detail_providers.dart';
 import 'detail_providers.dart' as detailp;
+import 'bookshelf_providers.dart' show bookshelfDataProvider;
 import 'reader_page.dart';
 import 'responsive.dart';
 import 'detail_batch_download_sheet.dart';
@@ -937,7 +938,10 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     if (!mounted) return;
     // 翻转书架状态：失效 provider 让下次读取重跑 isInBookshelf（异步，
     // UI 随 watch 重建自动反映新值）；toast 用本地捕获的旧值取反。
+    // 同时失效 bookshelfDataProvider：书架列表常驻 keep-alive（不重建），
+    // 只失效详情侧会导致「详情页收藏了、书架里却不出现」的跨页不同步。
     ref.invalidate(comicInShelfProvider((widget.sourceId, widget.comicId)));
+    ref.invalidate(bookshelfDataProvider);
     AppToast.info(context, wasSaved ? '已移出书架' : '已加入书架');
   }
 

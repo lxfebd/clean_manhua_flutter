@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:io';
 
 import 'bookshelf_providers.dart';
+import 'detail_providers.dart' show comicInShelfProvider;
 import '../net/bookshelf_store.dart';
 import '../net/error_logger.dart';
 import '../net/shelf_updater.dart';
@@ -1346,7 +1347,12 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     );
     if (ok != true) return;
     final sid = d.sourceId ?? BookshelfStore.sourceIdOf(d.id);
-    if (sid != null) BookshelfStore.remove(sid, d.id);
+    if (sid != null) {
+      BookshelfStore.remove(sid, d.id);
+      // 失效详情侧的书架态缓存：否则再进详情页 comicInShelfProvider 还
+      // 缓存着「已在书架」，显示与实际相反（跨页不同步）。
+      ref.invalidate(comicInShelfProvider((sid, d.id)));
+    }
     reload();
   }
 
