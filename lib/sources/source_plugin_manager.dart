@@ -220,7 +220,7 @@ class SourcePluginManager {
     const novels = <String, String>{
       'biquge': '笔趣阁',
       'xbiquge': '新笔趣阁',
-      'local_novel': '本地小说',
+      'local': '本地小说',
     };
     var rank = 0;
     void addAll(Map<String, String> map, String type) {

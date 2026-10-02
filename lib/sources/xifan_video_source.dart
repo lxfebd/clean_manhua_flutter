@@ -4,6 +4,7 @@ import '../models/comic_item.dart';
 import '../net/http_client.dart';
 import 'comic_source.dart';
 import 'video_source.dart';
+import 'dsl/html_parser.dart';
 
 /// 稀饭动漫 (XIFAN / xifan.moe) 视频源 —— anime.xifanacg.com
 ///
@@ -16,7 +17,7 @@ import 'video_source.dart';
 /// - 剧集链接：/watch/{id}/{season}/{episode}.html
 /// - 播放：播放页内直接给出视频直链（moedot.net 的 mp4，302 跳转到 pan.wo.cn 签名直链，
 ///   无需 Referer），由 media_kit 直接播放（走 NativePlayerPage，接系统音量/亮度）。
-class XifanVideoSource implements VideoSource {
+class XifanVideoSource extends VideoSource {
   static const String _host = 'https://anime.xifanacg.com';
   static const String _api = '$_host/index.php/ajax/data.html';
 
@@ -132,7 +133,7 @@ class XifanVideoSource implements VideoSource {
 
     final title = _cleanTitle(_first(_titleRe, html));
     final cover = _first(_coverRe, html);
-    final description = _unescape(_first(_descRe, html));
+    final description = htmlUnescape(_first(_descRe, html));
 
     final episodes = _parseEpisodes(html);
     final rawNames = _parseSourceNames(html);
@@ -173,7 +174,7 @@ class XifanVideoSource implements VideoSource {
           .replaceAll('&nbsp;', ' ')
           .replaceAll(RegExp(r'\s+'), ' ')
           .trim();
-      if (t.isNotEmpty) names.add(_unescape(t));
+      if (t.isNotEmpty) names.add(htmlUnescape(t));
     }
     return names;
   }
@@ -249,7 +250,7 @@ class XifanVideoSource implements VideoSource {
       final key = '$s-$e';
       if (!seen.add(key)) continue;
       final raw = _stripTags(m.group(3) ?? '').trim();
-      final title = raw.isEmpty ? '第${_pad(e)}集' : _unescape(raw);
+      final title = raw.isEmpty ? '第${_pad(e)}集' : htmlUnescape(raw);
       episodes.add(VideoEpisode(s, e, title));
     }
     episodes.sort((a, b) => a.season == b.season
@@ -295,14 +296,6 @@ class XifanVideoSource implements VideoSource {
 
   static String _first(RegExp re, String html) =>
       re.firstMatch(html)?.group(1)?.trim() ?? '';
-
-  static String _unescape(String s) => s
-      .replaceAll('&amp;', '&')
-      .replaceAll('&#039;', "'")
-      .replaceAll('&quot;', '"')
-      .replaceAll('&lt;', '<')
-      .replaceAll('&gt;', '>')
-      .replaceAll('&nbsp;', ' ');
 
   static String _pad(int n) => n.toString().padLeft(2, '0');
 }

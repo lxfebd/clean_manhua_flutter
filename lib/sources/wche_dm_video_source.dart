@@ -1,6 +1,7 @@
 import '../models/comic_item.dart';
 import '../net/http_client.dart';
 import 'comic_source.dart';
+import 'dsl/html_parser.dart';
 import 'video_source.dart';
 
 /// 风车动漫视频源（www.16dns.com）。
@@ -25,7 +26,7 @@ import 'video_source.dart';
   ///   `var now="..."`；部分剧集该变量为空串，解析失败时返回播放页 URL
   ///   交内嵌 WebView 加载（站点可能下发 JS 质询）。
   /// - 剧集号是 **0 基**：`/co_e/{playId}-0-0.html` 即第 01 集。
-class WcheDmVideoSource implements VideoSource {
+class WcheDmVideoSource extends VideoSource {
   static const String _base = 'https://www.16dns.com';
 
   static const _ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -223,7 +224,7 @@ class WcheDmVideoSource implements VideoSource {
       if (idMatch == null) continue;
       final id = idMatch.group(2) ?? '';
       if (id.isEmpty || !seen.add(id)) continue;
-      final title = _unescape(_cardTitleRe.firstMatch(win)?.group(1) ?? '').trim();
+      final title = htmlUnescape(_cardTitleRe.firstMatch(win)?.group(1) ?? '').trim();
       if (title.isEmpty) continue;
       // 主列表区优先取 data-original，推荐区回退到内联 background url。
       final pic = _resolveCover(
@@ -238,7 +239,7 @@ class WcheDmVideoSource implements VideoSource {
 
   /// 封面路径可能是相对路径（列表页）或全图 URL（详情页），统一补全为绝对地址。
   String _resolveCover(String raw) {
-    var pic = _unescape(raw).trim();
+    var pic = htmlUnescape(raw).trim();
     if (pic.isEmpty) return '';
     if (pic.startsWith('http://') || pic.startsWith('https://')) return pic;
     if (pic.startsWith('//')) return 'https:$pic';
@@ -262,7 +263,7 @@ class WcheDmVideoSource implements VideoSource {
       re.firstMatch(s)?.group(1)?.trim() ?? '';
 
   static String _stripTags(String s) =>
-      _unescape(s).replaceAll(RegExp(r'<[^>]+>'), '').trim();
+      htmlUnescape(s).replaceAll(RegExp(r'<[^>]+>'), '').trim();
 
   static String? _afterLabel(String text, String label) {
     final i = text.indexOf('$label：');
@@ -273,21 +274,4 @@ class WcheDmVideoSource implements VideoSource {
 
   static String _pad(int n) => n.toString().padLeft(2, '0');
 
-  /// 站点主用数字实体转义（`&#22899;` 中文、`&#xNNNN;` 符号），
-  /// 故必须先解码数字实体再解码命名实体，否则标题会是乱码数字串。
-  static String _unescape(String s) {
-    s = s.replaceAllMapped(
-        _numHexRe, (m) => String.fromCharCode(int.parse(m.group(1)!, radix: 16)));
-    s = s.replaceAllMapped(_numDecRe, (m) => String.fromCharCode(int.parse(m.group(1)!)));
-    return s
-        .replaceAll('&amp;', '&')
-        .replaceAll('&quot;', '"')
-        .replaceAll('&#39;', "'")
-        .replaceAll('&lt;', '<')
-        .replaceAll('&gt;', '>')
-        .replaceAll('&nbsp;', ' ');
-  }
-
-  static final RegExp _numHexRe = RegExp(r'&#x([0-9a-fA-F]+);');
-  static final RegExp _numDecRe = RegExp(r'&#(\d+);');
 }

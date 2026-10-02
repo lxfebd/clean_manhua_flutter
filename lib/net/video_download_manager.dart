@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:pointycastle/export.dart';
 
 import 'error_logger.dart';
+import 'http_client.dart';
 import 'local_store.dart';
 
 /// 单集视频下载任务。
@@ -361,7 +362,7 @@ class VideoDownloadManager {
   // ---------------- mp4 直链 ----------------
 
   Future<int> _probeLength(VideoDownloadTask t) async {
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    final client = Net.clientForRequest(Uri.parse(t.url).host);
     try {
       final req = await client.openUrl('HEAD', Uri.parse(t.url));
       _applyHeaders(req, t.headers);
@@ -382,8 +383,7 @@ class VideoDownloadManager {
     final out = File('${dir.path}/S${t.season}E${t.episode}.mp4');
     final part = File('${out.path}.part');
     if (part.existsSync()) part.deleteSync();
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15)
+    final client = Net.clientForRequest(Uri.parse(t.url).host)
       ..idleTimeout = const Duration(seconds: 30);
     try {
       final req = await client.getUrl(Uri.parse(t.url)).timeout(
@@ -440,8 +440,7 @@ class VideoDownloadManager {
 
     t.segmentsTotal = pl.segments.length;
     t.doneBytes = 0;
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15)
+    final client = Net.clientForRequest(Uri.parse(pl.segments.first).host)
       ..idleTimeout = const Duration(seconds: 20);
     final sink = part.openSync(mode: FileMode.writeOnly);
     try {
@@ -594,8 +593,7 @@ class VideoDownloadManager {
   }
 
   Future<Uint8List> _fetchBytes(String url, Map<String, String> headers) async {
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15)
+    final client = Net.clientForRequest(Uri.parse(url).host)
       // 响应体停滞兜底：源站连上了、头也回了，但 body 一直不吐数据
       // （cdn 悬挂/被掐），没有 idleTimeout 会永久挂起这个分片下载。
       ..idleTimeout = const Duration(seconds: 20);

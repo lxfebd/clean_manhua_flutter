@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xingmanxia/sources/dsl/css_selector.dart';
 import 'package:xingmanxia/sources/dsl/custom_source_def.dart';
 import 'package:xingmanxia/sources/dsl/dsl_comic_source.dart';
+import 'package:xingmanxia/sources/dsl/dsl_engine_mixin.dart';
 import 'package:xingmanxia/sources/dsl/html_parser.dart';
 
 void main() {

@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'http_client.dart';
+
 /// Cloudflare 优选 IP 探测。
 ///
 /// 用途：部分源（如 TvTFun）走系统 DNS 可能解析到不可达/慢的 CF 节点，
@@ -32,7 +34,8 @@ class CfIpPicker {
   static Future<List<String>> candidateIps() async {
     final cidrs = <String>[];
     try {
-      final req = await HttpClient()
+      final req = await Net
+          .clientForRequest('www.cloudflare.com')
           .getUrl(Uri.parse('https://www.cloudflare.com/ips-v4'))
           .timeout(const Duration(seconds: 8));
       final res = await req.close();

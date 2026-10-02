@@ -205,20 +205,9 @@ class WebDavSync {
     return res;
   }
 
-  /// 使用与 [Net._client] 一致的连接策略：全局代理启用时走代理，
-  /// 否则直连（WebDAV 通常是自己的服务器，不套优选 IP 逻辑）。
+  /// 复用统一连接策略：全局代理 / 信任自签证书（家庭 NAS 常见自签）。
   static HttpClient _client() {
-    final c = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 20)
-      ..autoUncompress = false;
-    // 默认校验证书；仅用户开启「信任自签」才放行（家庭 NAS 常见自签）
-    if (Net.trustSelfSigned) {
-      c.badCertificateCallback = (cert, h, port) => true;
-    }
-    if (Net.proxyEnabled) {
-      c.findProxy = (url) => Net.proxyDirective!;
-    }
-    return c;
+    return Net.clientForRequest(Uri.parse(_config!.url).host);
   }
 
   static Future<String> _readBody(HttpClientResponse res) async {

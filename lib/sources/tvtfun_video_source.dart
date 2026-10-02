@@ -2,6 +2,7 @@ import 'dart:convert';
 import '../models/comic_item.dart';
 import '../net/http_client.dart';
 import 'comic_source.dart';
+import 'dsl/html_parser.dart';
 import 'video_source.dart';
 
 /// TvTFun 动漫视频源（www.tvtfun.net）。
@@ -17,7 +18,7 @@ import 'video_source.dart';
 /// - 详情：HTML 页面解析剧集与元信息（年份/地区/标签）
 /// - 播放：返回播放页 URL，由 WebView 加载并拦截 resolve-play-url API，
 ///   获取视频直链后交给 NativePlayer（media_kit）播放
-class TvTfunVideoSource implements VideoSource {
+class TvTfunVideoSource extends VideoSource {
   static const String base = 'https://www.tvtfun.net';
 
   /// Cloudflare 优选 IP，用于绕过 DNS 解析失败。
@@ -138,7 +139,7 @@ class TvTfunVideoSource implements VideoSource {
     String? lang;
     for (final m in _metaRowRe.allMatches(html)) {
       final label = m.group(1)?.trim() ?? '';
-      final value = _unescape(m.group(2)?.trim() ?? '');
+      final value = htmlUnescape(m.group(2)?.trim() ?? '');
       if (label == '年份') year = value;
       if (label == '地区') area = value;
       if (label == '类型') type = value;
@@ -214,10 +215,10 @@ class TvTfunVideoSource implements VideoSource {
     final hits = v['hitsMonth'] ?? v['hits'];
     return ComicItem(
       slug,
-      _unescape((v['name'] as String?) ?? ''),
+      htmlUnescape((v['name'] as String?) ?? ''),
       primary,
     )
-      ..yname = _unescape((v['sub'] as String?) ?? '')
+      ..yname = htmlUnescape((v['sub'] as String?) ?? '')
       ..score = score?.toString()
       ..hits = hits?.toString()
       ..content = (v['content'] as String?) ?? ''
@@ -239,7 +240,7 @@ class TvTfunVideoSource implements VideoSource {
       // 提取显示文本（去除 HTML 标签）
       var name = m.group(2) ?? '';
       name = name.replaceAll(RegExp(r'<[^>]+>'), '').trim();
-      name = _unescape(name);
+      name = htmlUnescape(name);
 
       // 提取集数
       final epMatch = RegExp(r'episode=(\d+)').firstMatch(href);
@@ -264,10 +265,4 @@ class TvTfunVideoSource implements VideoSource {
     return m?.group(1);
   }
 
-  String _unescape(String s) => s
-      .replaceAll('&amp;', '&')
-      .replaceAll('&#039;', "'")
-      .replaceAll('&quot;', '"')
-      .replaceAll('&lt;', '<')
-      .replaceAll('&gt;', '>');
 }

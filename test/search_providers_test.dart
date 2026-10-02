@@ -62,7 +62,7 @@ void main() {
     final map = {for (final c in before) c.engineId: c};
     for (final builtin in [
       'dm5', 'doubao', 'jm', 'mangadex', // 漫画
-      'biquge', 'xbiquge', 'local_novel', // 小说
+      'biquge', 'xbiquge', 'local', // 小说
     ]) {
       await SourceConfigStore.save(SourceConfig(
         engineId: builtin,

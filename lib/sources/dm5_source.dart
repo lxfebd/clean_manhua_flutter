@@ -1,4 +1,5 @@
 import '../models/comic_item.dart';
+import 'dsl/html_parser.dart';
 import 'comic_source.dart';
 import 'source_http.dart';
 
@@ -69,7 +70,7 @@ class Dm5Source extends ComicSource {
     final chapters = <Chapter>[];
     for (final m in _chapterRe.allMatches(body)) {
       final cid = m.group(1)!.split('/')[1].replaceFirst('m', '');
-      chapters.add(Chapter(cid, _unescape(m.group(2) ?? '')));
+      chapters.add(Chapter(cid, htmlUnescape(m.group(2) ?? '')));
     }
     // 状态：<span class="detail-list-title-1">连载中</span>
     var status = '';
@@ -112,7 +113,7 @@ class Dm5Source extends ComicSource {
     final items = <ComicItem>[];
     for (final m in _searchRe.allMatches(html)) {
       final slug = m.group(1)!.replaceAll(_trimSlashRe, '').replaceAll('manhua-', '');
-      items.add(ComicItem(slug, _unescape(m.group(3)!), m.group(2)!));
+      items.add(ComicItem(slug, htmlUnescape(m.group(3)!), m.group(2)!));
     }
     return items;
   }
@@ -129,7 +130,7 @@ class Dm5Source extends ComicSource {
     final items = <ComicItem>[];
     for (final m in _rankRe.allMatches(html)) {
       final slug = m.group(1)!.replaceAll(_trimSlashRe, '').replaceAll('manhua-', '');
-      items.add(ComicItem(slug, _unescape(m.group(3)!), m.group(2)!));
+      items.add(ComicItem(slug, htmlUnescape(m.group(3)!), m.group(2)!));
     }
     return items;
   }
@@ -256,9 +257,6 @@ class Dm5Source extends ComicSource {
     if (n <= 35) return String.fromCharCode(97 + n - 10);
     return String.fromCharCode(n + 29);
   }
-
-  static String _unescape(String s) =>
-      s.replaceAll('&amp;', '&').replaceAll('&quot;', '"').replaceAll('&#39;', "'");
 
   static String? _first(RegExp re, String s) {
     final m = re.firstMatch(s);

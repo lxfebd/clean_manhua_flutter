@@ -59,6 +59,24 @@ class SourceManager {
     return null;
   }
 
+  /// 启用中的视频源列表（配置优先），按 tier（primary→fallback）排序后按注册顺序稳定。
+  static Future<List<VideoSource>> enabledVideoSources() async {
+    final cfgs = await SourceConfigStore.all();
+    final byId = <String, SourceConfig>{for (final c in cfgs) c.engineId: c};
+    final list = videoSources.where((s) {
+      final cfg = byId[s.id];
+      final enabled = cfg?.isEnabled ?? s.isEnabled;
+      final tier = cfg?.tier ?? s.tier;
+      return enabled && tier != SourceTier.disabled;
+    }).toList();
+    list.sort((a, b) {
+      final ta = byId[a.id]?.tier ?? a.tier;
+      final tb = byId[b.id]?.tier ?? b.tier;
+      return (_tierWeight[ta] ?? 1).compareTo(_tierWeight[tb] ?? 1);
+    });
+    return list;
+  }
+
   /// 小说源：笔趣阁（tobiquge.com）+ 新笔趣阁（xbiquge.bz）+ 本地导入。
   /// 本地源放最后：不参与网络列表，仅在书架/导入入口展示。
   static final List<NovelSource> novelSources = [
@@ -226,7 +244,7 @@ class SourceManager {
   }
 
   static bool removeNovelSource(String id) {
-    if (id == 'biquge' || id == 'xbiquge' || id == 'local_novel') return false;
+    if (id == 'biquge' || id == 'xbiquge' || id == 'local') return false;
     final idx = novelSources.indexWhere((s) => s.id == id);
     if (idx < 0) return false;
     novelSources.removeAt(idx);

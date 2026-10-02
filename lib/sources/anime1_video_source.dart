@@ -4,6 +4,7 @@ import '../models/comic_item.dart';
 import '../net/http_client.dart';
 import 'comic_source.dart';
 import 'video_source.dart';
+import 'dsl/html_parser.dart';
 
 /// Anime1.me 动画源（anime1.me）。
 ///
@@ -17,7 +18,7 @@ import 'video_source.dart';
 ///   路径限定 .v.anime1.me/{cat}/{ep}.mp4），是直链访问凭证，原生播放器
 ///   无法携带这些 Cookie，故播放走 WebView（同域自动携带），[playUrl]
 ///   直接返回剧集页 URL，由 AnimePlayerPage 拦截/播放处理。
-class Anime1VideoSource implements VideoSource {
+class Anime1VideoSource extends VideoSource {
   static const String _base = 'https://anime1.me';
   static const String _listUrl = '$_base/animelist.json';
 
@@ -146,7 +147,7 @@ class Anime1VideoSource implements VideoSource {
     // 不同页面 h1 class 不统一（page-title / entry-title），故不用 class 匹配。
     var title = '';
     for (final m in _h1Re.allMatches(html)) {
-      final t = _unescape(_stripTags(m.group(1) ?? '')).trim();
+      final t = htmlUnescape(_stripTags(m.group(1) ?? '')).trim();
       if (t.isNotEmpty) title = t;
     }
     if (title == 'Anime1.me 動畫線上看' || title.isEmpty) {
@@ -238,14 +239,6 @@ class Anime1VideoSource implements VideoSource {
     }
     return '番剧 $catId';
   }
-
-  static String _unescape(String s) => s
-      .replaceAll('&amp;', '&')
-      .replaceAll('&#039;', "'")
-      .replaceAll('&quot;', '"')
-      .replaceAll('&lt;', '<')
-      .replaceAll('&gt;', '>')
-      .replaceAll('&nbsp;', ' ');
 
   static String _pad(int n) => n.toString().padLeft(2, '0');
 }

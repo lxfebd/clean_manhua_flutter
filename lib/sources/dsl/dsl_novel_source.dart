@@ -3,12 +3,11 @@ import 'dart:io';
 
 import '../../models/comic_item.dart';
 import '../../net/error_logger.dart';
-import '../../net/http_client.dart';
 import '../novel_source.dart';
 import '../source_config.dart';
 import '../source_result.dart';
 import 'custom_source_def.dart';
-import 'dsl_comic_source.dart' show DslDecrypt, dslGroup;
+import 'dsl_engine_mixin.dart';
 import 'html_parser.dart';
 
 /// 自定义源 JSON DSL 的小说源实现（最小可行版）。
@@ -30,7 +29,8 @@ import 'html_parser.dart';
 /// - 上下章导航：返回 null。
 ///
 /// 网络统一走全局 Net（http_client.dart）。
-class DslNovelSource extends NovelSource {
+class DslNovelSource extends NovelSource with DslEngineMixin {
+  @override
   final CustomSourceDef def;
 
   DslNovelSource(this.def);
@@ -44,35 +44,26 @@ class DslNovelSource extends NovelSource {
   @override
   bool get requiresLogin => def.requiresLogin;
 
-  @override
-  bool get isEnabled => true;
-
-  @override
-  SourceTier get tier => SourceTier.fallback;
-
-  @override
-  Future<ConnectionStatus> health() async => ConnectionStatus.unknown;
-
   // ---- 分类导航（与漫画/视频引擎同一套 categories/listByCategory 通道）----
   @override
   Future<List<Category>> categories() async {
     final rule = def.categoriesRule;
     final url = def.categoriesUrl;
     if (rule == null || url == null) return const [];
-    final html = await _fetch(url, null, rule.decrypt, '');
+    final html = await fetchHtml(url, null, rule.decrypt, '', 'dsl-novel');
     final root = parseHtml(html);
     if (rule.selector.isNotEmpty) {
       final els = root.querySelectorAll(rule.selector);
       final list = <Category>[];
       for (final e in els) {
         // 与 comic 引擎一致：itemName/itemUrl 支持 `text`/`innerText` 虚拟属性
-        // （走 _extract），href 是 HTML 属性（_attr）。
-        final href = _extract(e, rule.url.isNotEmpty ? rule.url : 'href');
+        // （走 extract），href 是 HTML 属性（attr）。
+        final href = extract(e, rule.url.isNotEmpty ? rule.url : 'href');
         final name = rule.itemName != null && rule.itemName!.isNotEmpty
-            ? _extract(e, rule.itemName!)
+            ? extract(e, rule.itemName!)
             : e.innerText.trim();
         final id = rule.itemUrl != null && rule.itemUrl!.isNotEmpty
-            ? _extract(e, rule.itemUrl!)
+            ? extract(e, rule.itemUrl!)
             : href;
         list.add(Category(id.isEmpty ? href : id, name.isEmpty ? href : name));
       }
@@ -85,9 +76,7 @@ class DslNovelSource extends NovelSource {
   Future<List<ComicItem>> listByCategory(String categoryId, int page) async {
     final rule = def.categoryListRule;
     if (rule == null || def.categoryListUrl == null) return const [];
-    final url = def.categoryListUrl!
-        .replaceAll('{page}', '$page')
-        .replaceAll('{categoryId}', categoryId);
+    final url = pageUrl(def.categoryListUrl!, categoryId, page);
     return _runList(url, rule);
   }
 
@@ -99,9 +88,7 @@ class DslNovelSource extends NovelSource {
   Future<List<ComicItem>> search(String keyword, int page) async {
     final rule = def.searchRule;
     if (rule == null || def.searchUrl == null) return const [];
-    final url = def.searchUrl!
-        .replaceAll('{page}', '$page')
-        .replaceAll('{keyword}', Uri.encodeQueryComponent(keyword));
+    final url = pageUrl(def.searchUrl!, null, page, keyword: keyword);
     return _runList(url, rule);
   }
 
@@ -112,14 +99,15 @@ class DslNovelSource extends NovelSource {
     if (d == null || def.detailUrl == null) {
       throw SourceError.service('该源未配置详情页规则');
     }
-    final html = await _fetch(def.detailUrl!, null, d.baseDecrypt, novelId);
+    final html =
+        await fetchHtml(def.detailUrl!, null, d.baseDecrypt, novelId, 'dsl-novel');
     final root = parseHtml(html);
-    final cover = _queryAttr(root, d.cover, d.coverAttr);
+    final cover = queryAttr(root, d.cover, d.coverAttr);
     final item = ComicItem(
       novelId,
-      d.title.isNotEmpty ? _queryText(root, d.title) : '',
-      cover.isEmpty ? '' : _abs(def.detailUrl!, cover),
-    )..author = _queryText(root, d.author);
+      d.title.isNotEmpty ? queryText(root, d.title) : '',
+      cover.isEmpty ? '' : abs(def.detailUrl!, cover),
+    )..author = queryText(root, d.author);
 
     final chapters = <NovelChapter>[];
     // CSS：章节容器
@@ -128,7 +116,7 @@ class DslNovelSource extends NovelSource {
         : <HtmlNode>[];
     var idx = 0;
     for (final n in nodes) {
-      var href = _attr(n, d.chapterUrl);
+      var href = attr(n, d.chapterUrl);
       if (href.isEmpty && d.chapterUrlRe.isNotEmpty) {
         final m = safeRegExp(d.chapterUrlRe).firstMatch(n.innerText);
         if (m != null) {
@@ -137,10 +125,10 @@ class DslNovelSource extends NovelSource {
       }
       }
       if (href.isEmpty) continue;
-      final cid = _extractId(href, novelId);
+      final cid = extractId(href, novelId);
       if (cid.isEmpty) continue;
-      final title = _opt(n, d.chapterTitle).isNotEmpty
-          ? _opt(n, d.chapterTitle)
+      final title = opt(n, d.chapterTitle).isNotEmpty
+          ? opt(n, d.chapterTitle)
           : n.innerText.trim();
       if (title.isEmpty) continue;
       chapters.add(NovelChapter(cid, title, index: idx++));
@@ -153,7 +141,7 @@ class DslNovelSource extends NovelSource {
         if (title.isEmpty) continue;
         final href = dslGroup(m, re, 'href', 2);
         if (href.isEmpty) continue;
-        final cid = _extractId(href, novelId);
+        final cid = extractId(href, novelId);
         if (cid.isEmpty) continue;
         chapters.add(NovelChapter(cid, title.trim(), index: idx++));
       }
@@ -162,11 +150,11 @@ class DslNovelSource extends NovelSource {
     return NovelDetail(
       item,
       chapters,
-      description: d.description.isNotEmpty ? _queryText(root, d.description) : null,
+      description: d.description.isNotEmpty ? queryText(root, d.description) : null,
       author: (item.author == null || item.author!.isEmpty) ? null : item.author,
-      area: d.area.isNotEmpty ? _queryText(root, d.area) : null,
-      type: d.type.isNotEmpty ? _queryText(root, d.type) : null,
-      status: d.status.isNotEmpty ? _queryText(root, d.status) : null,
+      area: d.area.isNotEmpty ? queryText(root, d.area) : null,
+      type: d.type.isNotEmpty ? queryText(root, d.type) : null,
+      status: d.status.isNotEmpty ? queryText(root, d.status) : null,
       sourceId: id,
     );
   }
@@ -178,7 +166,8 @@ class DslNovelSource extends NovelSource {
     if (d == null || d.picListUrl.isEmpty) {
       throw SourceError.service('该源未配置正文章节页规则（picListUrl）');
     }
-    final html = await _fetch(d.picListUrl, null, d.picListDecrypt, chapterId);
+    final html = await fetchHtml(
+        d.picListUrl, null, d.picListDecrypt, chapterId, 'dsl-novel');
     final root = parseHtml(html);
     final paragraphs = <String>[];
     final nodes = d.picListCss.isNotEmpty
@@ -213,31 +202,9 @@ class DslNovelSource extends NovelSource {
     return NovelContent(chapterId, '', paragraphs);
   }
 
-  // ---- 工具 ----
-  Future<String> _fetch(String url, String? page, String? decrypt, String id) async {
-    final u = url.replaceAll('{id}', id).replaceAll('{page}', page ?? '1');
-    try {
-      // 优先 Cronet（Android 上 Chromium 网络栈，指纹类浏览器），
-      // 规避部分站点对 dart:io HttpClient 指纹的 Cloudflare 质询 403；
-      // 非 Android / Cronet 不可用时会自动回退 dart:io。
-      final html = await Net.getCronet(u, headers: def.headers);
-      if (decrypt == null || decrypt.isEmpty) return html;
-      return DslDecrypt.apply(decrypt, html);
-    } on SourceError {
-      rethrow;
-    } catch (e) {
-      ErrorLogger.instance.warn('[dsl-novel] fetch failed ($id): $e');
-      if (e is SocketException || e is TimeoutException) {
-        throw SourceError.network('网络请求失败，请检查网络后重试');
-      }
-      if (e is FormatException) throw SourceError.parse('页面数据解析失败');
-      if (e is HttpException) throw SourceError.service('站点服务异常');
-      throw SourceError.unknown('请求失败');
-    }
-  }
-
+  // ---- 列表组装（复用 mixin 的字段抽取工具）----
   Future<List<ComicItem>> _runList(String url, DslListRule rule) async {
-    final html = await _fetch(url, null, rule.decrypt, '');
+    final html = await fetchHtml(url, null, rule.decrypt, '', 'dsl-novel');
     final root = parseHtml(html);
     List<HtmlNode> els;
     if (rule.selector.isNotEmpty) {
@@ -265,98 +232,15 @@ class DslNovelSource extends NovelSource {
     }
     final items = <ComicItem>[];
     for (final e in els) {
-      final name = _extract(e, rule.name);
+      final name = extract(e, rule.name);
       if (name.isEmpty) continue;
-      final id = _extractId(_extract(e, rule.id), '');
+      final id = extractId(extract(e, rule.id), '');
       if (id.isEmpty) continue;
-      final pic = _extract(e, rule.pic);
-      items.add(ComicItem(id, name, pic.isEmpty ? '' : _abs(url, pic))
-        ..author = _opt(e, rule.author)
-        ..content = _opt(e, rule.content));
+      final pic = extract(e, rule.pic);
+      items.add(ComicItem(id, name, pic.isEmpty ? '' : abs(url, pic))
+        ..author = opt(e, rule.author)
+        ..content = opt(e, rule.content));
     }
     return items;
-  }
-
-  String _extract(HtmlNode e, String field) {
-    final f = field.trim();
-    if (f.isEmpty) return e.innerText.trim();
-    if (f.contains('|')) {
-      final idx = f.indexOf('|');
-      final sel = f.substring(0, idx).trim();
-      final attr = f.substring(idx + 1).trim();
-      final sub = _firstSub(e, sel);
-      if (sub == null) return '';
-      if (attr == 'text' || attr == 'innerText') return sub.innerText.trim();
-      if (attr.isNotEmpty) return sub.attrs[attr.toLowerCase()] ?? '';
-      return sub.innerText.trim();
-    }
-    final direct = e.attrs[f.toLowerCase()];
-    if (direct != null) return direct;
-    final sub = e.querySelectorAll(f);
-    if (sub.isNotEmpty) return sub.first.innerText.trim();
-    return e.innerText.trim();
-  }
-
-  HtmlNode? _firstSub(HtmlNode e, String selector) {
-    final list = e.querySelectorAll(selector);
-    return list.isEmpty ? null : list.first;
-  }
-
-  String _attr(HtmlNode e, String field) {
-    if (field.isEmpty) return '';
-    return e.attrs[field.toLowerCase()] ?? '';
-  }
-
-  String _opt(HtmlNode e, String? field) {
-    if (field == null || field.isEmpty) return '';
-    return _extract(e, field);
-  }
-
-  String _queryText(HtmlNode root, String selector) {
-    if (selector.isEmpty) return '';
-    final els = root.querySelectorAll(selector);
-    if (els.isEmpty) return '';
-    return els.first.innerText.trim();
-  }
-
-  String _queryAttr(HtmlNode root, String selector, String attr) {
-    if (selector.isEmpty) return '';
-    final els = root.querySelectorAll(selector);
-    if (els.isEmpty) return '';
-    if (attr.isNotEmpty) return els.first.attrs[attr.toLowerCase()] ?? '';
-    return els.first.innerText.trim();
-  }
-
-  String _extractId(String href, String novelId) {
-    var s = href.trim();
-    if (s.isEmpty) return '';
-    if (s.startsWith('/')) {
-      s = '${def.baseUrl}$s';
-    } else if (!s.startsWith('http://') && !s.startsWith('https://')) {
-      final base = Uri.tryParse(def.baseUrl);
-      if (base != null) s = base.resolve(s).toString();
-    }
-    final uri = Uri.tryParse(s);
-    if (uri == null) return s;
-    var path = uri.path;
-    while (path.startsWith('/')) {
-      path = path.substring(1);
-    }
-    return path;
-  }
-
-  String _abs(String fromUrl, String url) {
-    final u = url.trim();
-    if (u.isEmpty) return u;
-    if (u.startsWith('http://') || u.startsWith('https://') || u.startsWith('data:')) {
-      return u;
-    }
-    final base = Uri.tryParse(fromUrl);
-    if (base == null) return u;
-    if (u.startsWith('//')) return '${base.scheme}:$u';
-    if (u.startsWith('/')) {
-      return '${base.scheme}://${base.authority}$u';
-    }
-    return base.resolve(u).toString();
   }
 }

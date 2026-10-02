@@ -1,13 +1,14 @@
 import '../models/comic_item.dart';
 import '../net/http_client.dart';
 import 'comic_source.dart';
+import 'dsl/html_parser.dart';
 import 'video_source.dart';
 
 /// AGE 动漫视频源（www.agedm.io）。
 /// HTML 站点，剧集列表与播放入口（iframe m3u8 解析器）均在 HTML 中可直接解析。
 /// 真实的 m3u8 URL 被站点 JS 加密后放在 iframe URL 参数里；
 /// 这里把 iframe URL 直接返回给 WebView 进行播放。
-class AgedMVideoSource implements VideoSource {
+class AgedMVideoSource extends VideoSource {
   static const String _base = 'https://www.agedm.io';
 
   static final RegExp _cardRe = RegExp(
@@ -112,13 +113,13 @@ class AgedMVideoSource implements VideoSource {
   Future<VideoDetail> detail(String videoId) async {
     final html =
         await Net.get('$_base/detail/$videoId', headers: {'Cookie': 'adult=1'});
-    final title = _unescape(_first(_titleRe, html).trim());
+    final title = htmlUnescape(_first(_titleRe, html).trim());
     String cover = _first(_coverRe, html);
     final gi = html.indexOf('property="og:image"');
     if (gi >= 0) {
       final cs = html.indexOf('content="', gi);
       final ce = cs >= 0 ? html.indexOf('"', cs + 9) : -1;
-      if (ce > cs) cover = _unescape(html.substring(cs + 9, ce));
+      if (ce > cs) cover = htmlUnescape(html.substring(cs + 9, ce));
     }
     cover = _resolveCover(cover);
     final desc = _extractDescription(html);
@@ -135,7 +136,7 @@ class AgedMVideoSource implements VideoSource {
       final s = int.tryParse(m.group(2) ?? '');
       final e = int.tryParse(m.group(3) ?? '');
       if (s == null || e == null) continue;
-      episodes.add(VideoEpisode(s, e, _unescape(m.group(4) ?? '')));
+      episodes.add(VideoEpisode(s, e, htmlUnescape(m.group(4) ?? '')));
     }
     return VideoDetail(
       ComicItem(videoId, title, cover),
@@ -190,7 +191,7 @@ class AgedMVideoSource implements VideoSource {
       if (!seen.add(id)) continue;
       out.add(ComicItem(
           id,
-          _unescape(m.group(3) ?? '').trim(),
+          htmlUnescape(m.group(3) ?? '').trim(),
           _resolveCover(m.group(1)!)));
     }
     if (out.isNotEmpty) return out;
@@ -201,7 +202,7 @@ class AgedMVideoSource implements VideoSource {
       if (!seen.add(id)) continue;
       out.add(ComicItem(
           id,
-          _unescape(m.group(2) ?? '').trim(),
+          htmlUnescape(m.group(2) ?? '').trim(),
           _resolveCover(m.group(3)!)));
     }
     return out;
@@ -215,7 +216,7 @@ class AgedMVideoSource implements VideoSource {
     for (final m in _catalogCoverRe.allMatches(html)) {
       final id = m.group(1)!;
       if (!seen.add(id)) continue;
-      final raw = _unescape(m.group(2) ?? '').trim();
+      final raw = htmlUnescape(m.group(2) ?? '').trim();
       if (raw.isEmpty || _catalogNoise.contains(raw)) continue;
       out.add(ComicItem(id, raw, _resolveCover(m.group(3)!)));
     }
@@ -223,7 +224,7 @@ class AgedMVideoSource implements VideoSource {
     for (final m in _catalogCardRe.allMatches(html)) {
       final id = m.group(1)!;
       if (!seen.add(id)) continue;
-      final raw = _unescape(m.group(2) ?? '').trim();
+      final raw = htmlUnescape(m.group(2) ?? '').trim();
       if (raw.isEmpty || _catalogNoise.contains(raw)) continue;
       out.add(ComicItem(id, raw, ''));
     }
@@ -231,7 +232,7 @@ class AgedMVideoSource implements VideoSource {
   }
 
   /// 解析封面图 URL：百度图片代理 URL（/gimg/app=...&src=<实际图片>）取真实 src。
-  /// 注意：原始 URL 含 &amp; HTML 实体，需先 _unescape 才能被 Uri 正确解析。
+  /// 注意：原始 URL 含 &amp; HTML 实体，需先解码实体才能被 Uri 正确解析。
   static String _resolveCover(String raw) {
     final unescaped = raw
         .replaceAll('&amp;', '&')
@@ -251,16 +252,9 @@ class AgedMVideoSource implements VideoSource {
     final start = html.indexOf('>', i) + 1;
     final end = html.indexOf('</p>', start);
     if (end < 0) return '';
-    return _unescape(html.substring(start, end).trim());
+    return htmlUnescape(html.substring(start, end).trim());
   }
 
   static String _first(RegExp re, String s) =>
       re.firstMatch(s)?.group(1)?.trim() ?? '';
-
-  static String _unescape(String s) => s
-      .replaceAll('&amp;', '&')
-      .replaceAll('&quot;', '"')
-      .replaceAll('&#39;', "'")
-      .replaceAll('&lt;', '<')
-      .replaceAll('&gt;', '>');
 }

@@ -170,6 +170,20 @@ class SourceConfigStore {
           hosts: ['https://www.dainyew.com'],
         ),
         const SourceConfig(
+          engineId: 'xifan',
+          id: 'xifan',
+          name: '稀饭动漫',
+          tier: SourceTier.fallback,
+          hosts: ['https://anime.xifanacg.com'],
+        ),
+        const SourceConfig(
+          engineId: 'anime1',
+          id: 'anime1',
+          name: 'Anime1',
+          tier: SourceTier.fallback,
+          hosts: ['https://anime1.me'],
+        ),
+        const SourceConfig(
           engineId: 'biquge',
           id: 'biquge',
           name: '笔趣阁',
@@ -187,6 +201,12 @@ class SourceConfigStore {
           hosts: [
             'https://www.xbiquge.bz',
           ],
+        ),
+        const SourceConfig(
+          engineId: 'local',
+          id: 'local',
+          name: '本地小说',
+          tier: SourceTier.fallback,
         ),
       ];
 

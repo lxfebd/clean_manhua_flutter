@@ -45,6 +45,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
   final _scrollCtrl = ScrollController();
   final _searchCtrl = TextEditingController();
   late VideoSource _source;
+  List<VideoSource> _sources = [];
   List<Category> _sourceCats = _cats;
 
   static final _cats = [
@@ -57,10 +58,28 @@ class AnimeHomePageState extends State<AnimeHomePage> {
   @override
   void initState() {
     super.initState();
-    _source = SourceManager.videoSources.first;
+    // 同步初值：全量列表第一个（与改造前一致），保证首帧渲染不依赖异步加载。
+    // _loadSources() 完成后若启用源不同会切换默认源并刷新列表。
+    _sources = SourceManager.videoSources;
+    _source = _sources.first;
     _scrollCtrl.addListener(_onScroll);
     _loadSourceCats();
     _refresh();
+    _loadSources();
+  }
+
+  /// 异步加载启用中的视频源（配置优先），首个作为默认源。
+  /// 全禁用时回退到全量列表第一个，保证页面可用。
+  Future<void> _loadSources() async {
+    final enabled = await SourceManager.enabledVideoSources();
+    if (!mounted) return;
+    setState(() {
+      _sources = enabled.isNotEmpty ? enabled : SourceManager.videoSources;
+      if (!_sources.any((s) => s.id == _source.id)) {
+        _source = _sources.first;
+      }
+    });
+    _loadSourceCats();
   }
 
   /// 弹出视频源选择底部弹窗。
@@ -88,7 +107,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
                 shrinkWrap: true,
                 padding: EdgeInsets.zero,
                 children: [
-                  for (final s in SourceManager.videoSources)
+                  for (final s in _sources)
                     ListTile(
                       leading: Icon(
                         s.id == _source.id ? Icons.radio_button_checked : Icons.radio_button_off,

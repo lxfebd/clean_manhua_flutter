@@ -1,6 +1,7 @@
 import '../models/comic_item.dart';
 import '../net/http_client.dart';
 import 'comic_source.dart';
+import 'dsl/html_parser.dart';
 import 'source_result.dart';
 import 'video_source.dart';
 
@@ -27,7 +28,7 @@ import 'video_source.dart';
 ///
 /// 防 SEO 垃圾：列表只收录 id 形如 `/{ns}/{纯数字}.html` 的条目。垃圾页的特征是
 /// 数字 id 前多一段随机目录（`/mtv/dvgesudtgc/324622.html`），会被此规则过滤。
-class AshanYingyuanVideoSource implements VideoSource {
+class AshanYingyuanVideoSource extends VideoSource {
   static const String _base = 'https://www.dainyew.com';
 
   static const _ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -149,7 +150,7 @@ class AshanYingyuanVideoSource implements VideoSource {
         final channel = int.tryParse(m.group(2) ?? '');
         final ep = int.tryParse(m.group(3) ?? '');
         if (channel == null || ep == null) continue;
-        final rawLabel = _unescape(m.group(4) ?? '').trim();
+        final rawLabel = htmlUnescape(m.group(4) ?? '').trim();
         final label = rawLabel.isEmpty ? '第${_pad(ep)}集' : rawLabel;
         episodes.add(VideoEpisode(channel, ep, label));
       }
@@ -235,10 +236,10 @@ class AshanYingyuanVideoSource implements VideoSource {
       final href = link.group(1) ?? '';
       if (!seen.add(href)) continue;
       // 站点用 `&#22899;` 形式编码中文，标题/备注都需解码。
-      final title = _unescape(_cardTitleRe.firstMatch(win)?.group(1) ?? '').trim();
+      final title = htmlUnescape(_cardTitleRe.firstMatch(win)?.group(1) ?? '').trim();
       if (title.isEmpty) continue;
       final pic = _abs(_cardPicRe.firstMatch(win)?.group(1) ?? '');
-      final remarks = _unescape(_cardRemarkRe.firstMatch(win)?.group(1) ?? '').trim();
+      final remarks = htmlUnescape(_cardRemarkRe.firstMatch(win)?.group(1) ?? '').trim();
       out.add(ComicItem(href, title, pic)
         ..remarks = remarks.isEmpty ? null : remarks);
     }
@@ -283,7 +284,7 @@ class AshanYingyuanVideoSource implements VideoSource {
   static final RegExp _detailCoverRe = RegExp(r'data-original="(/[^"]+)"');
 
   String _abs(String url) {
-    var pic = _unescape(url).trim();
+    var pic = htmlUnescape(url).trim();
     if (pic.isEmpty) return '';
     if (pic.startsWith('http://') || pic.startsWith('https://')) return pic;
     if (pic.startsWith('//')) return 'https:$pic';
@@ -307,7 +308,7 @@ class AshanYingyuanVideoSource implements VideoSource {
       re.firstMatch(s)?.group(1)?.trim() ?? '';
 
   static String _stripTags(String s) =>
-      _unescape(s).replaceAll(RegExp(r'<[^>]+>'), '').trim();
+      htmlUnescape(s).replaceAll(RegExp(r'<[^>]+>'), '').trim();
 
   /// 元信息字段值：取「标签：」之后、下一个「已知字段标签：」之前的内容。
   ///
@@ -332,19 +333,4 @@ class AshanYingyuanVideoSource implements VideoSource {
 
   /// 站点主用数字实体转义（`&#22899;` 中文、`&#xNNNN;` 符号），
   /// 故必须先解码数字实体再解码命名实体，否则标题会是乱码数字串。
-  static String _unescape(String s) {
-    s = s.replaceAllMapped(
-        _numHexRe, (m) => String.fromCharCode(int.parse(m.group(1)!, radix: 16)));
-    s = s.replaceAllMapped(_numDecRe, (m) => String.fromCharCode(int.parse(m.group(1)!)));
-    return s
-        .replaceAll('&amp;', '&')
-        .replaceAll('&quot;', '"')
-        .replaceAll('&#39;', "'")
-        .replaceAll('&lt;', '<')
-        .replaceAll('&gt;', '>')
-        .replaceAll('&nbsp;', ' ');
-  }
-
-  static final RegExp _numHexRe = RegExp(r'&#x([0-9a-fA-F]+);');
-  static final RegExp _numDecRe = RegExp(r'&#(\d+);');
 }

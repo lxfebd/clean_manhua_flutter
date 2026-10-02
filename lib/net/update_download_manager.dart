@@ -186,12 +186,8 @@ class UpdateDownloadManager {
       received = await file.length();
     }
 
-    final client =
-        HttpClient()..connectionTimeout = const Duration(seconds: 20);
-    // 默认校验证书；仅用户开启「信任自签」才放行
-    if (Net.trustSelfSigned) {
-      client.badCertificateCallback = (c, h, p) => true;
-    }
+    // 复用统一连接策略：代理 / 优选 IP / 信任自签证书
+    final client = Net.clientForRequest(Uri.parse(url).host);
     try {
       final req = await client
           .getUrl(Uri.parse(url))

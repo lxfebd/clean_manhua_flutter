@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../models/comic_item.dart';
+import 'dsl/html_parser.dart';
 import '../net/aes_cbc.dart';
 import 'comic_source.dart';
 import 'source_http.dart';
@@ -68,7 +69,7 @@ class DoubaoSource extends ComicSource {
     if (title.isEmpty) title = _first(_titleRe, body);
     final cover = _first(_coverRe, body);
     final chapters = _chapterRe.allMatches(body).map((m) => Chapter(
-        '${m.group(1)}/${m.group(2)}', _unescape(m.group(3) ?? ''))).toList();
+        '${m.group(1)}/${m.group(2)}', htmlUnescape(m.group(3) ?? ''))).toList();
     return ComicDetail(ComicItem(comicId, title, cover), chapters);
   }
 
@@ -112,17 +113,14 @@ class DoubaoSource extends ComicSource {
     final base = await SourceHttp.pickHost('doubao', _fallbackHosts);
     return _itemRe.allMatches(html).map((m) {
       final cover = m.group(3)!;
-      return ComicItem(m.group(1)!, _unescape(m.group(2)!),
+      return ComicItem(m.group(1)!, htmlUnescape(m.group(2)!),
           cover.startsWith('http') ? cover : '$base$cover');
     }).toList();
   }
 
-  static String _unescape(String s) =>
-      s.replaceAll('&amp;', '&').replaceAll('&quot;', '"').replaceAll('&#39;', "'");
-
   static String _first(RegExp re, String s) {
     final m = re.firstMatch(s);
-    return m == null ? '' : _unescape(m.group(1) ?? '');
+    return m == null ? '' : htmlUnescape(m.group(1) ?? '');
   }
 
   /// 豆包的加密 payload 用了 URL/文件安全型 base64（-/_），这里只接受字母数字+/= 和 -_。
