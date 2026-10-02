@@ -143,6 +143,21 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     // 首次加载由订阅触发（listenManual 激活 provider 即开始读取）：
     // 不在 initState 里直接调 reload()——后者经 ref.invalidate/ref.read 访问
     // ProviderScope 容器，initState 阶段依赖树尚未建立（框架断言）。
+    // 动漫下载任务单独订阅（bookshelfDataProvider 已不聚合下载，避免高频进度
+    // 重读拖累书架主列表）；progress 实时流入「下载」Tab。
+    ref.listenManual<AsyncValue<List<VideoDownloadTask>>>(
+      animeDownloadTasksProvider,
+      (prev, next) {
+        if (!mounted) return;
+        next.when(
+          data: (tasks) => setState(() => _animeDownloads = tasks),
+          error: (e, _) {
+            ErrorLogger.instance.warn('动漫下载任务读取失败: $e');
+          },
+          loading: () {},
+        );
+      },
+    );
   }
 
   /// 把 provider 聚合快照灌入本地渲染字段（setState 已在调用方包好）。
@@ -168,7 +183,6 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     _videos = data.videos;
     _bookmarks = data.bookmarks;
     _mangaDownloads = data.mangaDownloads;
-    _animeDownloads = data.animeDownloads;
     _loading = false;
     _loadError = data.totalError;
     _applyFilters();
@@ -1675,17 +1689,10 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                     f['id'] != BookshelfStore.defaultFolderId)
                 .toList();
             setSheetState(() {});
-            if (mounted) {
-              setState(() {
-                _folders = fs;
-                if (_folderFilter != null &&
-                    _folderFilter != BookshelfStore.allFolderId &&
-                    !fs.any((f) => f['id'] == _folderFilter)) {
-                  _folderFilter = null;
-                }
-                _applyFilters();
-              });
-            }
+            // 页面 _folders/_folderFilter 由 bookshelfDataProvider 经
+            // foldersVersionProvider 自动失效重灌（_applyData），这里不再
+            // 手动复制一份，避免双维护（增删改后 provider 链已同步）。
+            if (mounted) _applyFilters();
           }
 
           return SafeArea(

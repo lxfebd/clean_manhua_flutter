@@ -5,6 +5,7 @@ import '../net/local_store.dart';
 import '../utils/colorizer_manager.dart';
 import 'ai_colorize_capability.dart';
 import 'ai_frame_rife_capability.dart';
+import 'builtin_capabilities.dart';
 import 'capability_artifact_store.dart';
 import 'capability_plugin.dart';
 import 'demo_native_capability.dart';
@@ -198,7 +199,7 @@ class CapabilityPluginManager {
   Future<void> restore() async {
     if (_restored) return;
     _restored = true;
-    await _registerBuiltin();
+    await registerBuiltinCapabilities();
     // AI 上色/插帧的元数据壳随版本预注册（不经 install、不落盘、不进
     // installed）：保证能力中心能看到、id 稳定，用户从市场安装/更新后才
     // 持久化。用户已显式卸载的（_removed）不重建。当前平台不支持的
@@ -266,12 +267,13 @@ class CapabilityPluginManager {
   }
 
   /// 内置能力：仅元数据壳（正文随版本代码发布，bind 空实现），
-  /// 不落盘、不可卸载。注册闪存索引，供能力中心 UI 统一枚举。
+  /// 不落盘、不可卸载。注册闪存索引，供能力中心 UI 统一枚举。幂等。
   ///
   /// 平台门闸：与 install/restore 路径对齐——`isSupportedOnCurrentPlatform`
   /// 为 false 的内置能力不注册（如未来某内置能力仅桌面可用，Web/手机侧
   /// 能力中心不应展示）。全平台能力默认 true 不受影响（`utility.stats`）。
-  Future<void> _registerBuiltin() async {
+  /// 单一事实源：utility.stats 的正文本体在 [ChapterStatsPlugin]，仅此处注册。
+  Future<void> registerBuiltinCapabilities() async {
     void add(CapabilityPlugin p) {
       // 平台门闸：与 install()/restore() 一致，避免「市场安装路径查门闸，
       // 但内置注册路径不查」导致同一条能力在不同平台显示不一致。
@@ -279,18 +281,11 @@ class CapabilityPluginManager {
       _registry[p.id] = p;
     }
 
-    // 内置能力（纯 Dart 壳，无原生依赖）。
+    // 内置能力（纯 Dart 壳，无原生依赖）：正文由 [ChapterStatsPlugin] 提供，
+    // 注册单一事实源在 `builtin_capabilities.dart`，仅此一处不被其它入口重复建。
     // 注：AI 上色/插帧等原生能力由独立 agent 专项（红线 M4 前不碰 colorizer），
     // 上线后作为市场能力而非内置注册。
-    add(const CapabilityPlugin(
-      id: 'utility.stats',
-      name: '阅读统计',
-      category: 'utility',
-      version: '1.0.0',
-      author: '星漫匣内置',
-      description: '本地阅读统计（纯本地计算，不上传）',
-      builtin: true,
-    ));
+    add(ChapterStatsPlugin());
     // M2 演示原生能力：FFI 加载真实动态库（走 artifact 下载→SHA256→Isolate）。
     add(DemoNativePlugin());
   }

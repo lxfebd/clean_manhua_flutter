@@ -8,7 +8,6 @@ import '../models/comic_item.dart';
 import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import '../sources/comic_source.dart';
-import '../sources/novel_source.dart';
 import 'search_providers.dart';
 import 'detail_page.dart';
 import 'novel_detail_page.dart';
@@ -30,7 +29,7 @@ class UnifiedSearchPage extends ConsumerStatefulWidget {
 }
 
 class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
-  List<_SourceResult> _results = [];
+  List<SourceResult> _results = [];
   bool _loading = true;
   String? _error; // 搜索失败原因（非空时展示错误态并提供重试）
   bool _loadingMore = false; // 正在加载下一页
@@ -127,13 +126,13 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
         data: (ev) {
           if (ev.group != null) {
             setState(() {
-              _results = [..._results, _SourceResult(
+              _results = [..._results, SourceResult(
                 source: ev.group!.source,
                 novelSource: ev.group!.novelSource,
                 items: ev.group!.items,
                 page: ev.group!.page,
               )];
-              _hasMore = _hasMore || ev.group!.items.length >= _pageSize;
+              _hasMore = _hasMore || ev.group!.items.length >= searchPageSize;
             });
           } else {
             // 无命中/失败的源：只更新失败计数（loading 判定依赖所有源落定）。
@@ -182,9 +181,6 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
     }();
   }
 
-  /// 搜索单页结果的大致容量（各源实际页容量可能不同，仅用于判断"还有没有更多"）。
-  static const int _pageSize = 20;
-
   /// 滚动到底加载下一页：所有源并发拉取下一页，按 id 去重追加。
   Future<void> _loadMore() async {
     if (_loading || _loadingMore || !_hasMore) return;
@@ -193,24 +189,25 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
     if (kw.isEmpty || _results.isEmpty) return;
     // 快照当前结果：期间 _search 可能完成并整体替换 _results（长度变化），
     // 用快照迭代可避免 all[i] 越界/源错配。
-    final snapshot = List<_SourceResult>.of(_results);
+    final snapshot = List<SourceResult>.of(_results);
     setState(() {
       _loadingMore = true;
       _loadMoreError = false;
     });
     try {
+      // 复用公开容错包装（safeSearch/safeSearchNovel）并发拉各源下一页。
       final futures = <Future<(List<ComicItem>, bool)>>[
         for (final r in snapshot)
           r.isNovel
-              ? _safeSearchNovel(r.novelSource!, kw, r.page + 1)
-              : _safeSearch(r.source!, kw, r.page + 1),
+              ? safeSearchNovel(r.novelSource!, kw, r.page + 1)
+              : safeSearch(r.source!, kw, r.page + 1),
       ];
       final all = await Future.wait(futures, eagerError: false);
       // 期间发起了新搜索（代际已变）：本页结果作废，防止旧页数据
       // 叠加到新关键词的结果上。
       if (!mounted || gen != _searchGen) return;
       // 该源下一页失败且当前没有任何结果时，先保留已有结果并提示可重试。
-      final updated = <_SourceResult>[];
+      final updated = <SourceResult>[];
       var failedAny = false;
       var anyMore = false;
       for (var i = 0; i < snapshot.length; i++) {
@@ -232,9 +229,9 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
         for (final it in newItems) {
           if (seen.add(it.id)) merged.add(it);
         }
-        anyMore = anyMore || newItems.length >= _pageSize;
+        anyMore = anyMore || newItems.length >= searchPageSize;
         updated.add(
-          _SourceResult(
+          SourceResult(
             source: r.source,
             novelSource: r.novelSource,
             items: merged,
@@ -256,41 +253,6 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
           _loadMoreError = true;
         });
       }
-    }
-  }
-
-  /// 单源搜索的容错包装：失败/超时返回空列表，绝不让一个源的异常
-  /// 拖垮 `Future.wait` 里的其他源结果（被墙/验证码/反爬都只是该源无结果）。
-  /// 返回 `(items, failed)`：failed 标记该源请求是否真正失败（区别于无结果）。
-  Future<(List<ComicItem>, bool)> _safeSearch(
-    ComicSource src,
-    String keyword,
-    int page,
-  ) async {
-    try {
-      final items = await src
-          .search(keyword, page)
-          .timeout(const Duration(seconds: 15));
-      return (items, false);
-    } catch (_) {
-      return (const <ComicItem>[], true);
-    }
-  }
-
-  /// 小说源的同款容错搜索包装：小说条目复用 [ComicItem] 模型（id/name/pic
-  /// 同构），失败静默（与漫画一致，单源失败只丢该源结果）。
-  Future<(List<ComicItem>, bool)> _safeSearchNovel(
-    NovelSource src,
-    String keyword,
-    int page,
-  ) async {
-    try {
-      final items = await src
-          .search(keyword, page)
-          .timeout(const Duration(seconds: 15));
-      return (items, false);
-    } catch (_) {
-      return (const <ComicItem>[], true);
     }
   }
 
@@ -940,31 +902,8 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
   }
 }
 
-class _SourceResult {
-  /// 漫画源（isNovel=false 时非空）。
-  final ComicSource? source;
-
-  /// 小说源（isNovel=true 时非空）。
-  final NovelSource? novelSource;
-
-  final List<ComicItem> items;
-  final int page; // 已加载到的页码（从 1 开始）
-
-  _SourceResult({
-    this.source,
-    this.novelSource,
-    required this.items,
-    this.page = 1,
-  }) : assert(source != null || novelSource != null,
-            '_SourceResult 必须携带漫画源或小说源之一');
-
-  bool get isNovel => novelSource != null;
-  String get sourceId => novelSource?.id ?? source!.id;
-  String get sourceName => novelSource?.name ?? source!.name;
-}
-
 class _SourceResultGroup extends StatelessWidget {
-  final _SourceResult result;
+  final SourceResult result;
   final ValueChanged<ComicItem> onTap;
   final ValueChanged<ComicItem> onHover;
   final ComicItem? selected;

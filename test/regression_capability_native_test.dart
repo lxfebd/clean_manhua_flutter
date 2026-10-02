@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:xingmanxia/capabilities/builtin_capabilities.dart';
 import 'package:xingmanxia/capabilities/capability_artifact_store.dart';
 import 'package:xingmanxia/capabilities/capability_plugin.dart';
 import 'package:xingmanxia/capabilities/capability_plugin_manager.dart';
@@ -33,7 +32,7 @@ void main() {
     tmpDir = await Directory.systemTemp.createTemp('cap_native_test');
     CapabilityArtifactStore.instance.testOverrideDir = tmpDir;
     // 注册内置能力（含 DemoNativePlugin）。
-    await registerBuiltinCapabilities();
+    await CapabilityPluginManager.instance.registerBuiltinCapabilities();
   });
 
   tearDownAll(() async {

@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:xingmanxia/capabilities/builtin_capabilities.dart';
 import 'package:xingmanxia/capabilities/capability_artifact_store.dart';
 import 'package:xingmanxia/capabilities/capability_market.dart';
 import 'package:xingmanxia/capabilities/capability_plugin.dart';
@@ -152,7 +151,7 @@ void main() {
     });
 
     test('内置能力不可卸载（uninstall 返回 false）', () async {
-      await registerBuiltinCapabilities();
+      await CapabilityPluginManager.instance.registerBuiltinCapabilities();
       final removed = await CapabilityMarket.uninstall('utility.stats');
       expect(removed, isFalse);
     });

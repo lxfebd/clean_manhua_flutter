@@ -16,13 +16,13 @@ void main() {
       mgr.plugins.toList().forEach((p) {
         if (!p.builtin) mgr.uninstall(p.id);
       });
-      await registerBuiltinCapabilities();
+      await CapabilityPluginManager.instance.registerBuiltinCapabilities();
       final stats = mgr.byId('utility.stats');
       expect(stats, isNotNull);
       expect(stats!.builtin, isTrue);
       expect(stats.category, 'utility');
       // 幂等：重复注册不报错、不重复
-      await registerBuiltinCapabilities();
+      await CapabilityPluginManager.instance.registerBuiltinCapabilities();
       expect(mgr.byId('utility.stats'), isNotNull);
     });
 
@@ -54,7 +54,7 @@ void main() {
 
     test('内置能力不可卸载', () async {
       final mgr = CapabilityPluginManager.instance;
-      await registerBuiltinCapabilities();
+      await CapabilityPluginManager.instance.registerBuiltinCapabilities();
       final removed = await mgr.uninstall('utility.stats');
       expect(removed, isFalse);
       expect(mgr.byId('utility.stats'), isNotNull);
@@ -82,7 +82,7 @@ void main() {
 
     test('acquire 未启用 → 失败；启用 → 成功', () async {
       final mgr = CapabilityPluginManager.instance;
-      await registerBuiltinCapabilities();
+      await CapabilityPluginManager.instance.registerBuiltinCapabilities();
       final ok = await CapabilityRuntime.instance.acquire('utility.stats');
       expect(ok, isA<CapabilityOk>());
 

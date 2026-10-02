@@ -158,7 +158,7 @@ class WebDavSheetState extends State<WebDavSheet> {
           _statusOk = false;
         });
       }
-      ErrorLogger.instance.error(
+      ErrorLogger.instance.logError(
         'webdav 保存配置失败: $e',
         error: e,
       );

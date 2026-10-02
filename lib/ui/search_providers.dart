@@ -41,6 +41,10 @@ Future<(List<ComicItem>, bool)> safeSearchNovel(
   }
 }
 
+/// 搜索单页的大致容量（各源实际页容量可能不同，仅用于「还有没有更多」判定）。
+/// 页面与 provider 共用同一常量，避免两处硬编码 20。
+const int searchPageSize = 20;
+
 /// 单个源的搜索结果（漫画源或小说源二选一）。
 class SourceResult {
   /// 漫画源（[isNovel] = false 时非空）。
@@ -91,20 +95,15 @@ class SearchOutcome {
   });
 }
 
-/// 跨源搜索（第一页）：并发搜所有启用漫画源 + 小说源，按源分组聚合。
+/// 跨源搜索的非流式聚合（一次性 `Future.wait` 等待全部源落定）。
 ///
-/// - 空关键词返回空结果（不发起请求）。
-/// - 单源失败静默丢该源；全部失败置 [SearchOutcome.allFailed]。
-/// - 页面触发搜索用 `ref.invalidate(searchSweepProvider(keyword))`；
-///   「加载更多」由页面自行并发拉第 N 页去重追加（交互态留页面）。
-///
-/// ⚠️ 慢源拖垮问题：本 provider 是 `Future.wait` 聚合，最慢源 15s 超时
-/// 才落定，期间页面整页转圈无任何结果。逐源先到先显示请用
-/// [searchSweepStreamProvider]（Stream 增量，每源完成即 emit）。
+/// 页面主链路已改用 [searchSweepStreamProvider]（逐源增量，快源先上屏）；
+/// 本 provider 保留给「一次拿全量」的调用方（测试/非交互态）使用，
+/// ⚠️ 会把最慢源（15s 超时）拖到整个 Future 才落定。
 final searchSweepProvider =
     FutureProvider.family<SearchOutcome, String>((ref, keyword) async {
   final kw = keyword.trim();
-  const pageSize = 20;
+  const pageSize = searchPageSize;
   if (kw.isEmpty) {
     return const SearchOutcome(
       groups: [],

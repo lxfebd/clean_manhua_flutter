@@ -24,7 +24,7 @@ class DebouncedSerialWriter {
   /// 写盘失败回调（可选）：调度完成后 [act] 抛异常时同步调用一次，
   /// 书架/小说 store 可据此弹出「写入失败」toast 提示，避免用户长时间
   /// 无感后重启才发现数据未落盘。回调本身抛异常不会向外冒泡——写盘失败的
-  /// 兜底仍然是 ErrorLogger.error，UI 层不能反过来打断落盘链路。
+  /// 兜底仍然是 ErrorLogger.logError，UI 层不能反过来打断落盘链路。
   ///
   /// 语义：
   /// - 参数 (Object e, StackTrace st) 与写盘异常一致；
@@ -47,7 +47,7 @@ class DebouncedSerialWriter {
 
   /// 防抖后执行 [act] 一次，并按调度顺序串行排队。
   ///
-  /// [act] 内抛出的写盘异常（磁盘满/权限）统一拦下记 ErrorLogger.error
+  /// [act] 内抛出的写盘异常（磁盘满/权限）统一拦下记 ErrorLogger.logError
   /// （原为 warn，静默吞掉导致进程被杀时内存改动永久丢失且无提示），并调用
   /// [onWriteError]（若已注入）让 UI 层有选择地提示用户。不打断主流程——
   /// 否则内存已更新但磁盘没落盘，下次启动数据丢失且无法追溯。
@@ -63,7 +63,7 @@ class DebouncedSerialWriter {
           // ErrorLogger 自身异常（磁盘满、日志目录不可写）也静默兜底，
           // 避免「写日志本身」反过来打断后续写盘队列。
           try {
-            ErrorLogger.instance.error(
+            ErrorLogger.instance.logError(
               '$debugName 写盘失败（内存改动可能丢失）: $e',
               error: e,
             );

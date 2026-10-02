@@ -30,7 +30,7 @@ void main() {
       logger.debug('d1');
       logger.info('i1');
       logger.warn('w1');
-      logger.error('e1');
+      logger.logError('e1');
       logger.logError('e2', stack: 'stack line');
       final buf = logger.debugBuffer();
       expect(buf.any((l) => l.contains('DEBUG d1')), isTrue);
@@ -43,7 +43,7 @@ void main() {
     });
 
     test('记录落盘为当日 .log 文件', () {
-      ErrorLogger.instance.error('boom');
+      ErrorLogger.instance.logError('boom');
       final files = tmpDir.listSync().whereType<File>().toList();
       expect(files.length, 1);
       final content = files.first.readAsStringSync();

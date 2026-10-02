@@ -173,17 +173,17 @@ void main() {
 
       final container = ProviderContainer();
       addTearDown(container.dispose);
-      final data = await container.read(bookshelfDataProvider.future);
-
-      expect(data.animeDownloads.map((t) => t.title),
-          containsAll(['进行中', '已完成']));
-      expect(data.animeDownloads.map((t) => t.title), isNot(contains('失败')));
-      expect(data.animeDownloads.map((t) => t.title),
-          isNot(contains('已取消')));
-      expect(data.totalError, isNull);
+      // animeDownloadTasksProvider 初始同步 emit 一次当前快照（StreamProvider
+      // 冷流：listen 激活后收到首条即含已 seed 的任务过滤结果）。
+      final tasks = await container
+          .read(animeDownloadTasksProvider.stream)
+          .first;
+      expect(tasks.map((t) => t.title), containsAll(['进行中', '已完成']));
+      expect(tasks.map((t) => t.title), isNot(contains('失败')));
+      expect(tasks.map((t) => t.title), isNot(contains('已取消')));
     });
 
-    test('任务进度变化 → 版本号递增 → 列表实时更新（进度可见）', () async {
+    test('任务进度变化 → 任务列表实时更新（进度可见，联动仅限下载 Tab）', () async {
       final m = VideoDownloadManager.instance;
       await m.resetForTest();
       addTearDown(m.resetForTest);
@@ -194,60 +194,44 @@ void main() {
 
       final container = ProviderContainer();
       addTearDown(container.dispose);
-      final first = await container.read(bookshelfDataProvider.future);
-      final key = first.animeDownloads.single.key;
+      final stream = container.read(animeDownloadTasksProvider.stream);
+      final first = await stream.first;
+      final key = first.single.key;
 
-      // 推进进度：直接改任务字段 + 触发 notifier → 版本号递增 → provider 重读。
+      // 推进进度：直接改任务字段 + 触发 notifier → provider 重推。
       final live = m.taskOf(key);
       expect(live, isNotNull);
       live!.segmentsDone = 5;
       m.notifier.value = Map.of(m.tasks.fold(<String, VideoDownloadTask>{},
           (map, t) => map..[t.key] = t));
-      await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      final updated = await container.read(bookshelfDataProvider.future);
-      final liveTask = updated.animeDownloads.single;
-      expect(liveTask.segmentsDone, 5, reason: '进度变化后列表应反映最新进度');
+      final updated = await stream.firstWhere(
+          (ts) => ts.any((t) => t.segmentsDone == 5));
+      final liveTask = updated.single;
+      expect(liveTask.segmentsDone, 5, reason: '进度变化后任务列表应反映最新进度');
     });
 
-    test('BookshelfData 值相等：进度推进 → 不相等；无实质变化重读 → 相等', () {
-      final mk = ({
-        int done = 0,
-        int total = 10,
-        String state = 'downloading',
-      }) =>
-          VideoDownloadTask(
-              sourceId: 's', videoId: 'v', title: 'T', season: 1,
-              episode: 1, url: 'http://x/a.mp4')
-            ..segmentsDone = done
-            ..segmentsTotal = total
-            ..state = state;
+    test('BookshelfData 值相等：无实质变化重读 → 相等；内容变化 → 不相等', () {
       final base = BookshelfData(
         items: const [], recent: const [], videos: const [],
-        mangaDownloads: const [], animeDownloads: [mk()],
+        mangaDownloads: const [],
         folders: const [], bookmarks: const [],
       );
       // 同一内容重新构造（列表/容器新实例）→ 相等（短路重灌）。
       final same = BookshelfData(
         items: const [], recent: const [], videos: const [],
-        mangaDownloads: const [], animeDownloads: [mk()],
+        mangaDownloads: const [],
         folders: const [], bookmarks: const [],
       );
       expect(same, equals(base), reason: '无实质变化的重读应相等短路');
-      // 进度推进（done 变）→ 不相等（驱动实时进度）。
-      final progressed = BookshelfData(
+      // 内容变化（folders 增一个）→ 不相等。
+      final withFolder = BookshelfData(
         items: const [], recent: const [], videos: const [],
-        mangaDownloads: const [], animeDownloads: [mk(done: 5)],
-        folders: const [], bookmarks: const [],
+        mangaDownloads: const [],
+        folders: const [{'id': 'x', 'name': '新分类'}],
+        bookmarks: const [],
       );
-      expect(progressed, isNot(equals(base)), reason: '进度变化必须触发重灌');
-      // 状态变化（done→failed）→ 不相等。
-      final failed = BookshelfData(
-        items: const [], recent: const [], videos: const [],
-        mangaDownloads: const [], animeDownloads: [mk(state: 'failed')],
-        folders: const [], bookmarks: const [],
-      );
-      expect(failed, isNot(equals(base)));
+      expect(withFolder, isNot(equals(base)), reason: '内容变化必须触发重灌');
       // hashCode 契约：相等对象 hashCode 必相等。
       expect(same.hashCode, base.hashCode);
     });

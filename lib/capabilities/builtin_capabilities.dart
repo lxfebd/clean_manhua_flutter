@@ -1,9 +1,7 @@
 import 'dart:async';
 
 import 'capability_plugin.dart';
-import 'capability_plugin_manager.dart';
 import 'capability_runtime.dart';
-import 'demo_native_capability.dart';
 
 /// 演示能力：章节字数统计（M1 框架验证用，纯 Dart 无原生依赖）。
 ///
@@ -47,15 +45,4 @@ class ChapterStatsPlugin extends CapabilityPlugin {
       };
     });
   }
-}
-
-/// 注册内置能力（main 启动时调用，幂等）。
-Future<void> registerBuiltinCapabilities() async {
-  final mgr = CapabilityPluginManager.instance;
-  // 幂等：重复调用 install 对同 id 忽略。
-  await mgr.install(ChapterStatsPlugin());
-  await mgr.install(DemoNativePlugin());
-  // 注意：AI 上色（AiColorizePlugin）作为可卸载的市场能力，由
-  // CapabilityPluginManager.restore() 统一 install（非闪存内置注册），
-  // 此处不重复安装，避免多源头注册（单一事实源在 restore）。
 }

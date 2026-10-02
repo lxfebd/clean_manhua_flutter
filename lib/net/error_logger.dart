@@ -112,10 +112,7 @@ class ErrorLogger {
       _write(levelWarn, message, stack);
 
   /// 记录错误级日志（崩溃 / 解析失败 / 网络错误）。
-  void error(String message, {String? stack, Object? error}) =>
-      _write(levelError, message, stack ?? (error?.toString()));
-
-  /// [error] 的别名，语义与项目内 `debugPrint` 对齐。
+  /// 本项目错误记录统一走 [logError]，与 `debugPrint` 的语义对齐。
   void logError(String message, {String? stack, Object? error}) =>
       _write(levelError, message, stack ?? (error?.toString()));
 
