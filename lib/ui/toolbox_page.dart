@@ -36,7 +36,7 @@ class _CardD {
       {required bool outline}) {
     final r = c.uiStyle == UIStyle.minimalist
         ? R.card
-        : StyleTokens.cardRadius(c);
+        : R.of(R.card, style: c.uiStyle);
     final b = _border(c, s, outline);
     return BoxDecoration(
       gradient: StyleTokens.cardGradient(c),
@@ -95,7 +95,7 @@ class _IconBox extends StatelessWidget {
       height: boxSize,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(
-            ui == UIStyle.minimalist ? R.control : StyleTokens.controlRadius(c)),
+            ui == UIStyle.minimalist ? R.control : R.of(R.control, style: c.uiStyle)),
         color: scheme.primary.withValues(alpha: 0.1),
       ),
       child: Icon(icon, size: iconSize, color: scheme.primary),
@@ -1078,7 +1078,7 @@ class ToolboxPageState extends State<ToolboxPage> {
       backgroundColor: scheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
-          top: Radius.circular(StyleTokens.sheetRadius(context)),
+          top: Radius.circular(R.of(R.sheet, style: context.uiStyle)),
         ),
       ),
       builder: (_) => SafeArea(

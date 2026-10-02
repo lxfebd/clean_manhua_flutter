@@ -625,7 +625,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
                       borderRadius: BorderRadius.circular(
                           context.uiStyle == UIStyle.minimalist
                               ? R.pill
-                              : StyleTokens.controlRadius(context)),
+                              : R.of(R.control, style: context.uiStyle)),
                       border: Border.all(
                         color: scheme.primary.withValues(alpha: 0.22),
                         width: 0.8,
@@ -807,7 +807,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
         borderRadius: BorderRadius.circular(
             context.uiStyle == UIStyle.minimalist
                 ? 10
-                : StyleTokens.controlRadius(context)),
+                : R.of(R.control, style: context.uiStyle)),
         border: Border.all(
           color: scheme.onSurface.withValues(alpha: 0.06),
           width: 0.6,
@@ -849,7 +849,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
     // 分类 chip 圆角：极简锁原 10（回归面为零），小米/苹果走风格档位。
     final chipRadius = context.uiStyle == UIStyle.minimalist
         ? 10.0
-        : StyleTokens.controlRadius(context);
+        : R.of(R.control, style: context.uiStyle);
     return SizedBox(
       height: Responsive.isTablet(context) ? 48 : 44,
       child: ListView(
@@ -985,7 +985,7 @@ class _AnimeCardState extends State<_AnimeCard> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final style = context.uiStyle;
-    final cardR = StyleTokens.cardRadius(context);
+    final cardR = R.of(R.card, style: context.uiStyle);
     // 极简锁原值：原版本无描边；仅小米/苹果走 StyleTokens（小米无、苹果细分隔线）。
     final cardBorder = style == UIStyle.minimalist
         ? null

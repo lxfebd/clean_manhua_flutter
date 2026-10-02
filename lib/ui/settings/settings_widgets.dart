@@ -63,9 +63,7 @@ class SettingsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     // 极简锁改造前原值（圆角 14 + onSurface@0.06 描边），其余风格走 StyleTokens。
-    final r = context.uiStyle == UIStyle.minimalist
-        ? 14.0
-        : StyleTokens.cardRadius(context);
+    final r = StyleTokens.cardRadiusOr(context, 14);
     final border = context.uiStyle == UIStyle.minimalist
         ? Border.all(color: scheme.onSurface.withValues(alpha: 0.06))
         : (() {
@@ -112,9 +110,7 @@ class SettingsTile extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final disabledColor = scheme.onSurface.withValues(alpha: 0.38);
     // 极简锁改造前原值 10，其余风格走控件档。
-    final iconRadius = context.uiStyle == UIStyle.minimalist
-        ? 10.0
-        : StyleTokens.controlRadius(context);
+    final iconRadius = StyleTokens.controlRadiusOr(context, 10);
     return Material(
       color: Colors.transparent,
       child: InkWell(

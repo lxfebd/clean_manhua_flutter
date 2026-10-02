@@ -1,10 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:flutter/foundation.dart';
-import 'package:pointycastle/export.dart';
 
+import 'backup_cipher.dart';
 import 'bookshelf_store.dart';
 import 'http_client.dart';
 import 'local_store.dart';
@@ -417,62 +416,16 @@ class WebDavSync {
     }
   }
 
-  /// 解密或识别明文。
+  /// 解密或识别明文（委托 [BackupCipher]，明文穿透）。
   static String _decode(String body) {
-    if (!body.startsWith(magic) && !body.startsWith(magicV2)) {
+    if (!BackupCipher.isEncrypted(body)) {
       return body; // 明文
     }
-    final v2 = body.startsWith(magicV2);
-    final lines = body.split('\n');
-    if (lines.length < 3) throw Exception('加密文件格式损坏');
-    final ivB64 = lines[1].trim();
-    final ctB64 = lines.sublist(2).join('\n').trim();
-    final iv = base64Decode(ivB64);
-    final ct = base64Decode(ctB64);
-    final key = _deriveKey(_config!.password, v2: v2);
-    final gcm = GCMBlockCipher(AESEngine())
-      ..init(false, AEADParameters(KeyParameter(key), 128, iv, Uint8List(0)));
-    final out = Uint8List(gcm.getOutputSize(ct.length));
-    var off = gcm.processBytes(ct, 0, ct.length, out, 0);
-    off += gcm.doFinal(out, off);
-    return utf8.decode(Uint8List.sublistView(out, 0, off));
+    return BackupCipher.decrypt(body, _config!.password);
   }
 
-  /// AES-256-GCM 加密（随机 IV，派生密钥；GCM 自带认证，篡改会抛异常）。
-  /// 新文件写 v2 格式（PBKDF2 派生），旧 v1 仍可解密（兼容历史备份）。
-  static String _encrypt(String json) {
-    final key = _deriveKey(_config!.password, v2: true);
-    final iv = Uint8List.fromList(List<int>.generate(12, (_) => Random.secure().nextInt(256)));
-    final gcm = GCMBlockCipher(AESEngine())
-      ..init(true, AEADParameters(KeyParameter(key), 128, iv, Uint8List(0)));
-    final pt = utf8.encode(json);
-    final out = Uint8List(gcm.getOutputSize(pt.length));
-    var off = gcm.processBytes(pt, 0, pt.length, out, 0);
-    off += gcm.doFinal(out, off);
-    // 只编码实际写入的字节：getOutputSize 按块对齐会含尾部零填充，
-    // 全量编码会把零填充带进密文，解密的 MAC 校验失败。
-    return '$magicV2\n${base64Encode(iv)}\n${base64Encode(Uint8List.sublistView(out, 0, off))}';
-  }
-
-  /// 口令 → 32 字节密钥。v2 走 PBKDF2-HMAC-SHA256（120k 迭代 + 固定盐，
-  /// 抵御离线字典爆破）；v1 保留旧裸 SHA-256 仅用于解密历史文件。
-  static Uint8List _deriveKey(String password, {bool v2 = false}) {
-    if (!v2) {
-      final digest = SHA256Digest();
-      final input = utf8.encode(password);
-      final out = Uint8List(32);
-      var off = 0;
-      digest.update(input, 0, input.length);
-      off += digest.doFinal(out, off);
-      return out;
-    }
-    // 固定盐 + 固定迭代：同步场景密钥只用于本机解密自己的备份，
-    // 盐由应用统一生成（多端必须一致才能互相解密，不能存随机盐在云端）。
-    const salt = 'xingmanxia-webdav-v2';
-    final pbkdf2 = PBKDF2KeyDerivator(HMac(SHA256Digest(), 64))
-      ..init(Pbkdf2Parameters(utf8.encode(salt), 120000, 32));
-    return Uint8List.fromList(pbkdf2.process(utf8.encode(password)));
-  }
+  /// AES-256-GCM 加密（委托 [BackupCipher]，统一 v2 派生）。
+  static String _encrypt(String json) => BackupCipher.encrypt(json, _config!.password);
 
   /// 测试用：仅加解密（无网络），验证往返一致与防篡改。
   @visibleForTesting

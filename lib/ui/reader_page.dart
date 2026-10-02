@@ -1377,7 +1377,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
     final page = _horizontal ? _curPage : 0; // 纵向整章标记，页固定 0
     try {
       final all = await LocalStore.bookmarks();
-      final key = '$s::$c::$ch::$page';
+      final key = '$s/$c/$ch/$page';
       if (_horizontal) {
         if (all.any((b) => b.key == key)) {
           await LocalStore.removeBookmark(s, c, ch, page);
@@ -1389,7 +1389,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
         }
       } else {
         // 纵向：章节级书签——该章已有任意页书签则整体取消
-        final match = all.where((b) => b.book.key == '$s::$c' && b.chapterId == ch).toList();
+        final match = all.where((b) => b.book.key == '$s/$c' && b.chapterId == ch).toList();
         if (match.isEmpty) {
           await LocalStore.addBookmark(ComicBookmark(
             book: _book, chapterId: ch, chapterTitle: _activeChapterTitle,

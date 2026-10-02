@@ -277,24 +277,20 @@ class DownloadManager {
 
   /// 重试单个失败的下载任务。返回失败原因（null = 成功）。
   static Future<String?> retry(
-    String bookKey,
+    Bookmark book,
     String chapterId,
     String chapterTitle,
     List<String> urls, {
     void Function(int done, int total)? onProgress,
   }) async {
-    final parts = bookKey.split('::');
-    if (parts.length != 2) return '无效的下载任务';
     // 复用已存记录里的书名/封面，避免重试后元信息被清空（下载列表显示空标题）。
-    final prev = await LocalStore.downloadOf('$bookKey::$chapterId');
+    final prev = await LocalStore.downloadOf('${book.key}/$chapterId');
     final r = await downloadChapter(
       batchGen: beginBatch(),
-      book: Bookmark(
-        sourceId: parts[0],
-        comicId: parts[1],
-        name: prev?.book.name ?? '',
-        pic: prev?.book.pic ?? '',
-        author: prev?.book.author ?? '',
+      book: book.copyWith(
+        name: prev?.book.name ?? book.name,
+        pic: prev?.book.pic ?? book.pic,
+        author: prev?.book.author ?? book.author,
       ),
       chapterId: chapterId,
       chapterTitle: chapterTitle,
@@ -307,7 +303,7 @@ class DownloadManager {
   /// 判断某章节是否已下载完成。web 端无下载能力，恒为 false。
   static Future<bool> isDownloaded(String bookKey, String chapterId) async {
     if (kIsWeb) return false;
-    final d = await LocalStore.downloadOf('$bookKey::$chapterId');
+    final d = await LocalStore.downloadOf('$bookKey/$chapterId');
     return d?.finished == true;
   }
 
@@ -315,19 +311,18 @@ class DownloadManager {
   static Future<String?> localUrlIfExists(
       String bookKey, String chapterId, int index) async {
     if (kIsWeb) return null;
-    final key = '${bookKey.replaceFirst('::', '/')}/$chapterId';  // bookKey sourceId::comicId → path
+    final key = '$bookKey/$chapterId';
     final p = await LocalStore.localImagePath(key, index);
     if (File(p).existsSync()) return p;
     return null;
   }
 
-  /// 通过源 + 漫画/章节 id 构造 bookKey。
+  /// 作品 key（`sourceId/comicId`，与 [taskKeyOf] 同为 `/` 分隔，P2-15 统一）。
   static String bookKeyOf(String sourceId, String comicId) =>
-      '$sourceId::$comicId';
+      '$sourceId/$comicId';
 
   /// 单任务取消 key（与 [downloadChapter] 内部任务 key 一致）：
-  /// `sourceId/comicId/chapterId`。UI 取消按钮必须用它构造，
-  /// 拼 [bookKeyOf]（`::` 格式）会与任务 key（`/` 格式）错配导致取消无效。
+  /// `sourceId/comicId/chapterId`。与 [bookKeyOf] 同构，可直接拼接。
   static String taskKeyOf(String sourceId, String comicId, String chapterId) =>
       '$sourceId/$comicId/$chapterId';
 

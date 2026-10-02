@@ -170,7 +170,7 @@ class Net {
   /// 恶意/异常超大的页面在拉满内存前被拦截。
   static const int maxTextBytes = 8 * 1024 * 1024;
 
-  /// 字节类下载（[getBytes]/[getBytesCronet]/[getBytesAuto]/[getBytesMirrors]）
+  /// 字节类下载（[downloadBytes]/[getBytesCronet]/[getBytesAuto]/[getBytesMirrors]）
   /// 的响应体上限。图片/超分单张远小于此；最大场景——能力权重(225MB)——也放行。
   /// 需要更大体量或更紧约束的调用点用 [maxBytes] 显式覆盖。
   static const int maxDownloadBytes = 256 * 1024 * 1024;
@@ -513,7 +513,7 @@ class Net {
   static Future<List<int>> getBytesCronet(String urlStr,
       {Map<String, String>? headers, Duration? timeout, String? proxy, int? maxBytes}) async {
     if (proxy != null || _cronetUsable == false || _proxyEnabled) {
-      return getBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout, maxBytes: maxBytes);
+      return downloadBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout, maxBytes: maxBytes);
     }
     final t = timeout ?? _timeout;
     final limit = maxBytes ?? maxDownloadBytes;
@@ -525,10 +525,10 @@ class Net {
           urlStr, headers, t, probe, limit,
           accept: 'image/webp,image/*,*/*', asBytes: true);
       if (b is List<int>) return b;
-      return getBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout, maxBytes: maxBytes);
+      return downloadBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout, maxBytes: maxBytes);
     } catch (_) {
       _cronetUsable = false;
-      return getBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout, maxBytes: maxBytes);
+      return downloadBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout, maxBytes: maxBytes);
     }
   }
 
@@ -601,35 +601,20 @@ class Net {
       {Map<String, String>? headers, Duration? timeout, String? proxy, int? maxBytes}) async {
     final host = Uri.parse(urlStr).host;
     if (proxy != null || preferredHostIps.containsKey(host)) {
-      return getBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout, maxBytes: maxBytes);
+      return downloadBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout, maxBytes: maxBytes);
     }
     return getBytesCronet(urlStr, headers: headers, timeout: timeout, proxy: proxy, maxBytes: maxBytes);
   }
 
-  /// GET 请求，返回原始响应字节。
+  /// GET 请求，返回原始响应字节（下载基元，P2-13 五入口收敛后唯一原语）。
   /// [proxy] 为单源代理覆盖：null=走全局代理/直连；''=强制直连；其余=强制走该代理。
   /// [maxBytes] 覆盖响应体上限（默认 [maxDownloadBytes]）。
-  static Future<List<int>> getBytes(String urlStr,
-      {Map<String, String>? headers, String? proxy, Duration? timeout, int? maxBytes}) async {
-    if (proxy == null) {
-      return _getBytesOnce(urlStr, headers, proxy: null, timeout: timeout, maxBytes: maxBytes);
-    }
-    return _getBytesWithFallback(urlStr, headers, timeout, proxy, maxBytes);
-  }
-
-  /// 带进度回调的 GET：分块读取响应体，边收边报 `(received, total)`。
-  ///
-  /// 用途：数百 MB 的模型权重下载（能力中心 200MB 模型）。通用 [getBytes]
-  /// 一次性拉全量进内存，无进度可看——UI 只能转圈。此方法按块累计，
-  /// [onProgress] 每次收到数据块即回调；[total] 来自响应头 content-length
-  /// （二进制直链通常给出；缺失时为 null，UI 退化为不定进度）。
-  ///
-  /// 仅 io 端可用（模型权重仅桌面）；web 端无字节流进度（fetch 不暴露
-  /// 传输中进度），直接回落 [getBytes]（无进度回调，语义不变）。
-  ///
-  /// 与 [getBytes] 同契约：非 2xx 抛 [HttpStatusException]，超上限抛
-  /// [ResponseTooLargeException]，限流（令牌桶）、代理/直连均沿用。
-  static Future<List<int>> getBytesWithProgress(
+  /// [onProgress] 非 null 时走分块读取，边收边报 `(received, total)`（[total]
+  /// 来自 content-length，缺失为 null，UI 退化为不定进度）。用途：数百 MB 的
+  /// 模型权重下载（能力中心）。仅 io 端有传输中进度，web 端回落无进度路径
+  /// （fetch 不暴露进度，语义不变）。与无进度路径同契约：非 2xx 抛
+  /// [HttpStatusException]，超上限抛 [ResponseTooLargeException]，限流/代理沿用。
+  static Future<List<int>> downloadBytes(
     String urlStr, {
     Map<String, String>? headers,
     String? proxy,
@@ -637,10 +622,17 @@ class Net {
     int? maxBytes,
     void Function(int received, int? total)? onProgress,
   }) async {
+    if (onProgress == null) {
+      if (proxy == null) {
+        return _getBytesOnce(urlStr, headers, proxy: null, timeout: timeout, maxBytes: maxBytes);
+      }
+      return _getBytesWithFallback(urlStr, headers, timeout, proxy, maxBytes);
+    }
     final t = timeout ?? _timeout;
     final limit = maxBytes ?? maxDownloadBytes;
     if (kIsWeb) {
-      return getBytes(urlStr, headers: headers, proxy: proxy, timeout: t, maxBytes: limit);
+      return downloadBytes(urlStr,
+          headers: headers, proxy: proxy, timeout: t, maxBytes: limit);
     }
     final host = Uri.parse(urlStr).host;
     await RateLimiter.acquire(host);
@@ -669,7 +661,7 @@ class Net {
           received += chunk.length;
           if (received > limit) throw ResponseTooLargeException(limit);
           chunks.addAll(chunk);
-          onProgress?.call(received, total);
+          onProgress(received, total);
         }
         return chunks;
       } finally {

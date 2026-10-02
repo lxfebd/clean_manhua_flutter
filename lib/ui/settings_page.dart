@@ -896,7 +896,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     if (result == null || result.files.single.path == null) return;
     try {
       var json = await File(result.files.single.path!).readAsString();
-      if (json.trimLeft().startsWith(BackupCipher.magic)) {
+      if (BackupCipher.isEncrypted(json.trimLeft())) {
         final password = await _askBackupPassword(
           title: '备份已加密',
           prompt: '该备份文件已用密码加密，请输入导出时设置的密码。',

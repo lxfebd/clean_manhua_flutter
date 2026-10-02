@@ -259,7 +259,7 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
   /// 选中一个结果：清除旧详情，异步拉取详情填充右侧预览面板。
   void _select(ComicSource src, ComicItem item) {
     if (_selected?.id == item.id && _selectedSource?.id == src.id) return;
-    final key = '${src.id}::${item.id}';
+    final key = '${src.id}/${item.id}';
     _fetchKey = key;
     setState(() {
       _selected = item;
@@ -813,7 +813,7 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
                     // 新 key 重新发起（已有 key 已消费，复用会与旧请求错配）。
                     final key =
                         _fetchKey =
-                            '${_selectedSource!.id}::${_selected!.id}::retry';
+                            '${_selectedSource!.id}/${_selected!.id}/retry';
                     setState(() => _detailLoading = true);
                     _loadDetail(_selectedSource!, _selected!.id, key);
                   },

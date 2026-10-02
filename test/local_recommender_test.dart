@@ -4,7 +4,7 @@ import 'package:xingmanxia/utils/local_recommender.dart';
 
 void main() {
   group('LocalRecommender 纯规则聚合', () {
-    test('同作品只计一次（按 sourceId::comicId 去重）', () {
+    test('同作品只计一次（按 sourceId/comicId 去重）', () {
       final h = [
         HistoryEntry(
           book: Bookmark(sourceId: 'a', comicId: '1', name: 'A', author: '作者X', pic: ''),

@@ -92,9 +92,9 @@ void main() {
         ),
       );
       final context = tester.element(find.byType(_TokenProbe));
-      expect(StyleTokens.controlRadius(context), R.control);
-      expect(StyleTokens.cardRadius(context), R.card);
-      expect(StyleTokens.sheetRadius(context), R.sheet);
+      expect(R.of(R.control, style: context.uiStyle), R.control);
+      expect(R.of(R.card, style: context.uiStyle), R.card);
+      expect(R.of(R.sheet, style: context.uiStyle), R.sheet);
     });
 
     testWidgets('极简：cardShadow/cardGradient 无、cardBorder 为 1px 描边', (tester) async {
@@ -120,9 +120,9 @@ void main() {
         ),
       );
       final context = tester.element(find.byType(_TokenProbe));
-      expect(StyleTokens.controlRadius(context), R.controlXiaomi);
-      expect(StyleTokens.cardRadius(context), R.cardXiaomi);
-      expect(StyleTokens.sheetRadius(context), R.sheetXiaomi);
+      expect(R.of(R.control, style: context.uiStyle), R.controlXiaomi);
+      expect(R.of(R.card, style: context.uiStyle), R.cardXiaomi);
+      expect(R.of(R.sheet, style: context.uiStyle), R.sheetXiaomi);
       expect(StyleTokens.cardBorder(context), isNull); // 小米无描边
       expect(StyleTokens.cardShadow(context), isNotNull); // 彩色浮起
       expect(StyleTokens.cardGradient(context), isNotNull); // 品牌渐变
@@ -136,9 +136,9 @@ void main() {
         ),
       );
       final context = tester.element(find.byType(_TokenProbe));
-      expect(StyleTokens.controlRadius(context), R.controlApple);
-      expect(StyleTokens.cardRadius(context), R.cardApple);
-      expect(StyleTokens.sheetRadius(context), R.sheetApple);
+      expect(R.of(R.control, style: context.uiStyle), R.controlApple);
+      expect(R.of(R.card, style: context.uiStyle), R.cardApple);
+      expect(R.of(R.sheet, style: context.uiStyle), R.sheetApple);
       final border = StyleTokens.cardBorder(context);
       expect(border, isNotNull);
       expect(border!.width, lessThan(1)); // 细分隔线 < 1px
@@ -238,10 +238,10 @@ void main() {
           child: MaterialApp(
             home: Scaffold(
               body: PressableScale(
-                child: const Text('t'),
                 onTap: () {},
                 curve: Curves.linear,
                 duration: const Duration(milliseconds: 90),
+                child: const Text('t'),
               ),
             ),
           ),
@@ -467,8 +467,6 @@ void main() {
     });
 
     testWidgets('R.of 按风格解析四槽位（minimalist 与静态档位一致）', (tester) async {
-      // R.of 只读 style 参数，用固定 BuildContext 即可。
-      final ctx = _FakeContext();
       for (final (style, expectMap) in [
         (
           UIStyle.minimalist,
@@ -500,7 +498,7 @@ void main() {
       ]) {
         for (final entry in expectMap.entries) {
           expect(
-            R.of(ctx, entry.key, style: style),
+            R.of(entry.key, style: style),
             entry.value,
             reason: '${style.name} 槽位 ${entry.key} 应为 ${entry.value}',
           );
@@ -618,11 +616,4 @@ class _TokenProbe extends StatelessWidget {
   const _TokenProbe();
   @override
   Widget build(BuildContext context) => const SizedBox.shrink();
-}
-
-/// R.of 纯函数测试用假 BuildContext（R.of 只读 style 参数，不触真实树）。
-class _FakeContext implements BuildContext {
-  const _FakeContext();
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
 }

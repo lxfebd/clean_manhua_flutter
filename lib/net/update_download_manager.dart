@@ -233,7 +233,10 @@ class UpdateDownloadManager {
       var lastBytes = received;
       final startTime = DateTime.now();
       var speedCheckPassed = false;
-      await for (final chunk in res) {
+      // 停滞守护（与视频下载同一原语）：相邻数据块间隔超 45s 视为悬挂，
+      // 抛超时让外层切下一个镜像——避免「头已返回但 body 悬挂」的下载
+      // 永远卡住（Range 续传 + 镜像回退保证悬挂后能续上）。
+      await for (final chunk in _stallGuarded(res, stall: const Duration(seconds: 45))) {
         if (_cancelled) {
           await sink.close();
           throw Exception('已取消');
@@ -286,6 +289,15 @@ class UpdateDownloadManager {
 
   /// 解析 Content-Range 的完整总大小（斜杠后的值），解析失败返回 0。
   static int _contentRangeTotal(String cr) => contentRangeTotal(cr);
+
+  /// 带停滞超时的分块流：相邻两个块间隔超过 [stall] 即抛超时
+  /// （与 [VideoDownloadManager] 同一原语，避免悬挂流永远卡住）。
+  Stream<List<int>> _stallGuarded(HttpClientResponse resp,
+      {Duration stall = const Duration(seconds: 20)}) async* {
+    await for (final chunk in resp.timeout(stall)) {
+      yield chunk;
+    }
+  }
 
   /// 单个镜像失败 → 可上屏的短摘要（≤80 字符）：截异常首行、剥掉
   /// 长 URL（`https://...` 整段替换为省略号），保留 HTTP 状态码/超时等关键信息。

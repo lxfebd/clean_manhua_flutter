@@ -2141,8 +2141,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     final h = widget.take;
     final histKey = widget.historyKey ??
         (widget.sourceId != null && widget.videoId != null
-            ? '${widget.sourceId}::${widget.videoId}::$_curSeason-$_curEpisode'
-            : '${widget.title}::${_curSeason}_$_curEpisode');
+            ? '${widget.sourceId}/${widget.videoId}/$_curSeason-$_curEpisode'
+            : '${widget.title}/$_curSeason-$_curEpisode');
     _skipPlayerDispose = true;
     PlayerRegistry.publish(PlayerHandoff(
       player: p,
@@ -4128,7 +4128,7 @@ child: Icon(Icons.auto_awesome,
     final sid = widget.sourceId;
     final vid = widget.videoId;
     if (sid == null || vid == null) return '当前片源不支持下载';
-    final key = '$sid::$vid::$_curSeason-$_curEpisode';
+    final key = '$sid/$vid/$_curSeason-$_curEpisode';
     final t = VideoDownloadManager.instance.taskOf(key);
     if (t == null) return '保存到本地，可离线播放';
     switch (t.state) {

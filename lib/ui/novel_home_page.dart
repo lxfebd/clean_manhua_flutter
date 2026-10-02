@@ -12,6 +12,7 @@ import '../sources/source_manager.dart';
 import '../net/novel_shelf_store.dart';
 import '../ui/style_scope.dart';
 import '../ui/style_tokens.dart';
+import '../ui/tokens.dart';
 import '../ui/widgets/cached_image.dart';
 import '../ui/widgets/frosted_glass.dart';
 import '../ui/widgets/motion.dart';
@@ -358,15 +359,12 @@ abstract final class _CoverCardStyle {
   static const double radiusMinimalist = 8;
 
   /// 封面圆角：按风格取档。
-  static double cardRadius(BuildContext context) {
-    switch (context.uiStyle) {
-      case UIStyle.minimalist:
-        return radiusMinimalist;
-      case UIStyle.xiaomi:
-      case UIStyle.apple:
-        return StyleTokens.cardRadius(context);
-    }
-  }
+  static double cardRadius(BuildContext context) =>
+      switch (context.uiStyle) {
+        UIStyle.minimalist => radiusMinimalist,
+        UIStyle.xiaomi || UIStyle.apple =>
+          R.of(R.card, style: context.uiStyle),
+      };
 
   /// 仅苹果风格启用细分隔线。[StyleTokens.cardBorder] 在极简下也返回 hairline，
   /// 直接套用会破坏「极简逐字节等同现状」，故按风格显式开关。

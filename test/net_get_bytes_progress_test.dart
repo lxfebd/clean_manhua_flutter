@@ -6,7 +6,7 @@ import 'package:xingmanxia/capabilities/capability_artifact_store.dart';
 import 'package:xingmanxia/capabilities/capability_plugin.dart';
 import 'package:xingmanxia/net/http_client.dart';
 
-/// Net.getBytesWithProgress 单元测试：分块下载 + 进度回调 + 超上限。
+/// Net.downloadBytes（带 onProgress 分块路径）单元测试：分块下载 + 进度回调 + 超上限。
 ///
 /// 用本机 HttpServer 分块发送响应体（真实 TCP 分块，非整包 mock），验证：
 /// - 进度回调单调递增，最终 received == 响应体字节数、total == content-length；
@@ -56,7 +56,7 @@ void main() {
     await startServer(chunks, gap: const Duration(milliseconds: 10));
 
     final events = <(int, int?)>[];
-    final bytes = await Net.getBytesWithProgress(
+    final bytes = await Net.downloadBytes(
       url,
       maxBytes: 1024,
       timeout: const Duration(seconds: 5),
@@ -83,7 +83,7 @@ void main() {
     await startServer(chunks, gap: Duration.zero);
 
     await expectLater(
-      Net.getBytesWithProgress(
+      Net.downloadBytes(
         url,
         maxBytes: 100, // 小于 128 总字节 → 中途超限
         timeout: const Duration(seconds: 5),

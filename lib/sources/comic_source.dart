@@ -1,5 +1,6 @@
 import '../models/comic_item.dart';
 import '../net/bookshelf_store.dart';
+import '../net/local_store.dart';
 import 'source_config.dart';
 import 'source_result.dart';
 
@@ -89,4 +90,9 @@ class ComicDetail {
   String get id => comic.id;
   String get name => comic.name;
   String? get pic => comic.pic.isEmpty ? null : comic.pic;
+
+  /// 本作品对应的收藏/历史条目（详情页历史查找/记录用统一构造）。
+  /// 作者来自详情页抓取结果（[author]），优于条目自身可能为空的值。
+  Bookmark bookmarkFor(String sourceId) =>
+      Bookmark.fromComic(sourceId, comic).copyWith(author: author);
 }

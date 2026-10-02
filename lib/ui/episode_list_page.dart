@@ -90,7 +90,7 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
             sourceId: widget.source.id,
             videoId: widget.detail.video.id,
             historyKey:
-                '${widget.source.id}::${widget.detail.video.id}::$season-$episode',
+                '${widget.source.id}/${widget.detail.video.id}/$season-$episode',
             webChannelBuilder: animePlayerWebChannel,
           ),
         ),

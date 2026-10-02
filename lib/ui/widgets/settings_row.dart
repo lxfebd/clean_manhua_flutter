@@ -51,7 +51,7 @@ class SettingsRow extends StatelessWidget {
     final labelColor = danger
         ? scheme.error
         : T.color(scheme.onSurface, TextTier.high, brightness: brightness);
-    final iconRadius = StyleTokens.controlRadius(context);
+    final iconRadius = R.of(R.control, style: context.uiStyle);
     // 图标底块与字形按风格：极简锁本组件改造前原值（34 / 18）。
     final tile = StyleTokens.iconTileSize(context, 34);
     final glyph = StyleTokens.iconGlyphSize(context, 18);

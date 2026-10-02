@@ -169,18 +169,10 @@ class AppTheme {
     bool isTablet = true,
     UIStyle style = UIStyle.minimalist,
   }) {
-    // 风格圆角档位（与 tokens.R.of 的语义槽位对齐：control/card/hero/sheet）。
-    final radius = switch (style) {
-      UIStyle.minimalist =>
-        <double>[R.control, R.card, R.hero, R.sheet],
-      UIStyle.xiaomi =>
-        <double>[R.controlXiaomi, R.cardXiaomi, R.heroXiaomi, R.sheetXiaomi],
-      UIStyle.apple =>
-        <double>[R.controlApple, R.cardApple, R.heroApple, R.sheetApple],
-    };
-    final rControl = radius[0];
-    final rCard = radius[1];
-    final rSheet = radius[3];
+    // 风格圆角档位（统一走 tokens.R.of 的语义槽位：control/card/hero/sheet）。
+    final rControl = R.of(R.control, style: style);
+    final rCard = R.of(R.card, style: style);
+    final rSheet = R.of(R.sheet, style: style);
 
     // 风格阴影策略：
     // - 极简：零阴影（现有）；

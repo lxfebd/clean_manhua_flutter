@@ -1,32 +1,41 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
 import '../models/comic_item.dart';
 import '../sources/comic_source.dart';
-import '../utils/debounced_writer.dart';
-import '../utils/file_backup.dart';
 import 'error_logger.dart';
 import 'local_store.dart';
-import 'web_persist.dart';
+import 'shelf_store_base.dart';
 
 /// 通用本地书架：所有漫画源统一保存在一个 JSON 文件中，
-/// 按 sourceId 维度分组，避免每个源各自实现。
+/// 按 sourceId 维度分组。存储机制（装载/写盘/损坏恢复/章节更新计数）
+/// 由 [ShelfStoreBase] 提供，本类扩展书架分类、标签、id→sourceId 索引。
 class BookshelfStore {
-  static File? _file;
-  static Map<String, dynamic> _cache = {};
+  BookshelfStore._();
+
+  static final ShelfStoreBase _base = ShelfStoreBase(
+    webKey: 'bookshelf',
+    fileName: 'bookshelf',
+    debugName: 'bookshelf',
+  );
+
+  /// comicId → sourceId 索引（统一书架视图反查源用，随 add/remove/import 维护）。
   static Map<String, String> _idIndex = {};
-  /// 是否已从持久层加载（web 端避免重复读 localStorage）。
-  static bool _loaded = false;
-  /// 防抖串行写盘（300ms 合并 + 单写盘在途），与 NovelShelfStore 共用同一原语。
-  static final DebouncedSerialWriter _writer =
-      DebouncedSerialWriter(debugName: 'bookshelf');
 
   /// 注入写盘失败 UI 钩子（main 启动时接线，勿在构造期依赖 UI 层）。
   static void setWriteErrorHandler(
           void Function(Object error, StackTrace stack) cb) =>
-      _writer.onWriteError = cb;
+      _base.setWriteErrorHandler(cb);
+
+  static void bindFile(File file) {
+    _base.bindFile(file);
+    _rebuildIndex();
+    // 新文件范围：分类内存态作废，下次访问从该文件对应目录重读。
+    _foldersLoaded = false;
+    _folderNames = {};
+    _folderSort = {};
+  }
 
   // ---- 书架分类（文件夹） ----
   /// 分类存储文件名（独立于 bookshelf.json：书籍是条目级数据，
@@ -161,116 +170,28 @@ class BookshelfStore {
     if (!_folderSort.containsKey(id)) return;
     _folderSort.remove(id);
     _folderNames.remove(id);
-    for (final m in _all()) {
+    for (final m in _base.exportData().values.cast<Map<String, dynamic>>()) {
       if (m['folderId'] == id) m['folderId'] = defaultFolderId;
     }
-    _save();
+    _base.persist();
     await _persistFolders();
     foldersVersion.value++;
   }
 
   /// 读取某本书所属分类（id）。旧数据/未设置返回 [defaultFolderId]。
   static String folderIdOf(String sourceId, String comicId) {
-    _ensureLoaded();
-    final v = _cache[_key(sourceId, comicId)]?['folderId'];
+    final v = _base.field(sourceId, comicId, 'folderId');
     return (v is String && v.isNotEmpty) ? v : defaultFolderId;
   }
 
   /// 写入某本书所属分类（传 [defaultFolderId] 归入默认分类）。
   static void setFolderId(String sourceId, String comicId, String folderId) {
-    _ensureLoaded();
-    final m = _cache[_key(sourceId, comicId)];
-    if (m == null) return;
-    m['folderId'] = folderId;
-    _save();
+    _base.setField(sourceId, comicId, 'folderId', folderId);
   }
 
-  static void bindFile(File file) {
-    _file = file;
-    _loadFromFile();
-    _rebuildIndex();
-    // 新文件范围：分类内存态作废，下次访问从该文件对应目录重读。
-    _foldersLoaded = false;
-    _folderNames = {};
-    _folderSort = {};
-  }
-
-  /// 从持久层读全量数据（web=localStorage，io=bindFile 绑定的文件）。
-  /// web 端没有 bindFile（main.dart 的 shelf bind 失败兜底），首次访问时
-  /// 用 localStorage 里的书架数据初始化。
-  static bool _ensureLoaded() {
-    if (_cache.isNotEmpty || _loaded) return true;
-    if (kIsWeb) {
-      final raw = WebPersist.read('bookshelf');
-      if (raw != null) {
-        try {
-          _cache = jsonDecode(raw) as Map<String, dynamic>;
-        } catch (_) {
-          _cache = {};
-        }
-      } else {
-        _cache = {};
-      }
-      _loaded = true;
-      return true;
-    }
-    return false;
-  }
-
-  static void _loadFromFile() {
-    final f = _file;
-    if (f == null || !f.existsSync()) {
-      _cache = {};
-      return;
-    }
-    try {
-      _cache = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
-    } catch (e) {
-      // 数据损坏（写入中断/磁盘错误）：备份损坏文件再从空开始，
-      // 避免静默清空导致用户书架"凭空消失"且无法追溯。
-      ErrorLogger.instance.warn('bookshelf 数据损坏，已备份原文件: $e');
-      if (!f.backupCorrupt()) {
-        ErrorLogger.instance.warn('bookshelf 备份失败: $e');
-      }
-      _cache = {};
-    }
-  }
-
-  static void _rebuildIndex() {
-    _idIndex = {};
-    for (final m in _cache.values) {
-      if (m is Map<String, dynamic>) {
-        final id = m['id'];
-        final sid = m['sourceId'];
-        if (id is String && sid is String) _idIndex[id] = sid;
-      }
-    }
-  }
-
-  /// 防抖异步写盘：300ms 内多次调用合并为一次写入。
-  static void _save() {
-    _writer.schedule(() async {
-      final snapshot = jsonEncode(_cache);
-      if (kIsWeb) {
-        WebPersist.write('bookshelf', snapshot);
-        return;
-      }
-      final f = _file;
-      if (f == null) return;
-      await f.writeAsString(snapshot, flush: true);
-    });
-  }
-
-  static String _key(String sourceId, String comicId) => '$sourceId|$comicId';
-
-  static List<Map<String, dynamic>> _all() {
-    return _cache.values.cast<Map<String, dynamic>>().toList();
-  }
-
+  // ---- 书架条目 ----
   static void add(String sourceId, ComicDetail d) {
-    _ensureLoaded();
-    final k = _key(sourceId, d.id);
-    _cache[k] = {
+    _base.add(sourceId, d.id, {
       'sourceId': sourceId,
       'id': d.id,
       'name': d.name,
@@ -285,36 +206,27 @@ class BookshelfStore {
       'addedAt': DateTime.now().millisecondsSinceEpoch,
       // 新收藏书籍默认归入「默认分类」（后续可在移入分类菜单调整）。
       'folderId': defaultFolderId,
-    };
+    });
     _idIndex[d.id] = sourceId;
-    _save();
   }
 
   static void remove(String sourceId, String comicId) {
-    _ensureLoaded();
-    _cache.remove(_key(sourceId, comicId));
+    _base.remove(sourceId, comicId);
     _idIndex.remove(comicId);
-    _save();
   }
 
-  static bool contains(String sourceId, String comicId) {
-    _ensureLoaded();
-    return _cache.containsKey(_key(sourceId, comicId));
-  }
+  static bool contains(String sourceId, String comicId) =>
+      _base.contains(sourceId, comicId);
 
   /// 根据 comicId 反查所属 sourceId（书架统一视图中使用）。
   static String? sourceIdOf(String comicId) {
-    _ensureLoaded();
+    _base.rawAll();
     return _idIndex[comicId];
   }
 
   /// 列出某个源的书架。
   static List<ComicDetail> listBySource(String sourceId) {
-    _ensureLoaded();
-    return _all()
-        .where((m) => m['sourceId'] == sourceId)
-        .map((m) => _fromMap(m))
-        .toList()
+    return _base.rawBySource(sourceId).map(_fromMap).toList()
       ..sort((a, b) {
         final ma = _readAddedAt(a, defaultSourceId: sourceId);
         final mb = _readAddedAt(b, defaultSourceId: sourceId);
@@ -324,35 +236,40 @@ class BookshelfStore {
 
   /// 列出全部书架（用于统一书架视图）。
   static List<ComicDetail> listAll() {
-    _ensureLoaded();
-    return _all().map(_fromMap).toList()
-      ..sort((a, b) {
-        final ma = _readAddedAt(a);
-        final mb = _readAddedAt(b);
-        return mb.compareTo(ma);
-      });
+    return _base.rawAll().map(_fromMap).toList();
+  }
+
+  static void _rebuildIndex() {
+    _idIndex = {};
+    for (final m in _base.exportData().values) {
+      if (m is Map<String, dynamic>) {
+        final id = m['id'];
+        final sid = m['sourceId'];
+        if (id is String && sid is String) _idIndex[id] = sid;
+      }
+    }
   }
 
   static int _readAddedAt(ComicDetail d, {String? defaultSourceId}) {
-    final sid = defaultSourceId ?? (_cache.values
-        .cast<Map<String, dynamic>>()
-        .firstWhere(
-          (m) => m['id'] == d.id,
-          orElse: () => {'addedAt': 0},
-    ))['sourceId'] as String? ?? '';
-    final v = _cache[_key(sid, d.id)]?['addedAt'];
-    return (v as int?) ?? 0;
+    final sid = defaultSourceId ??
+        (_base.exportData().values
+            .cast<Map<String, dynamic>>()
+            .firstWhere(
+              (m) => m['id'] == d.id,
+              orElse: () => {'addedAt': 0},
+            ))['sourceId'] as String? ??
+        '';
+    return (_base.field(sid, d.id, 'addedAt') as int?) ?? 0;
   }
 
   /// 导出原始数据（用于备份）。
-  static Map<String, dynamic> exportData() => Map.from(_cache);
+  static Map<String, dynamic> exportData() => _base.exportData();
 
   /// 覆盖导入（用于恢复备份）。恢复后分类定义可能一并变化，
   /// 清掉内存缓存标记，下次 [folders] 从磁盘重新读取。
   static void importData(Map<String, dynamic> data) {
-    _cache = Map.from(data);
+    _base.importData(data);
     _rebuildIndex(); // 替换缓存后必须重建 id→sourceId 索引，否则恢复后 sourceIdOf 失效
-    _save();
     _foldersLoaded = false;
     _folderNames = {};
     _folderSort = {};
@@ -364,24 +281,20 @@ class BookshelfStore {
 
   /// 读取某本书的书架标签。
   static List<String> tagsOf(String sourceId, String comicId) {
-    final v = _cache[_key(sourceId, comicId)]?['tags'];
+    final v = _base.field(sourceId, comicId, 'tags');
     if (v is List) return v.cast<String>().toList();
     return const [];
   }
 
   /// 写入某本书的书架标签（去重保序）。
   static void setTags(String sourceId, String comicId, List<String> tags) {
-    final k = _key(sourceId, comicId);
-    final m = _cache[k];
-    if (m == null) return;
-    m['tags'] = tags.toSet().toList();
-    _save();
+    _base.setField(sourceId, comicId, 'tags', tags.toSet().toList());
   }
 
   /// 当前书架使用过的全部标签（含预设，按使用频率降序）。
   static List<String> allTags() {
     final count = <String, int>{};
-    for (final m in _all()) {
+    for (final m in _base.exportData().values.cast<Map<String, dynamic>>()) {
       final tags = (m['tags'] as List?)?.cast<String>() ?? const <String>[];
       for (final t in tags) {
         count[t] = (count[t] ?? 0) + 1;
@@ -396,33 +309,22 @@ class BookshelfStore {
   /// 上次检查更新时记录的章节数（用于判断是否有新章节）。
   /// 存储结构：shelf_update -> { "src|cid": 173, ... }。
   static int lastSeenChapters(String sourceId, String comicId) =>
-      (_cache[_key(sourceId, comicId)]?['lastChapters'] as int?) ?? -1;
+      _base.lastSeenChapters(sourceId, comicId);
 
   /// 写入上次检查到的章节数。
   static void setLastSeenChapters(
       String sourceId, String comicId, int count) {
-    final k = _key(sourceId, comicId);
-    final m = _cache[k];
-    if (m == null) return;
-    m['lastChapters'] = count;
-    _save();
+    _base.setLastSeenChapters(sourceId, comicId, count);
   }
 
   /// 判断某本书是否有更新：当前章节数 > 上次记录。
-  static bool hasUpdate(String sourceId, String comicId, int currentChapters) {
-    final last = lastSeenChapters(sourceId, comicId);
-    if (last < 0) return false;
-    return currentChapters > last;
-  }
+  static bool hasUpdate(String sourceId, String comicId, int currentChapters) =>
+      _base.hasUpdate(sourceId, comicId, currentChapters);
 
   /// 新增章节数（current - last）。
   static int newChapterCount(
-      String sourceId, String comicId, int currentChapters) {
-    final last = lastSeenChapters(sourceId, comicId);
-    if (last < 0) return 0;
-    final diff = currentChapters - last;
-    return diff > 0 ? diff : 0;
-  }
+      String sourceId, String comicId, int currentChapters) =>
+      _base.newChapterCount(sourceId, comicId, currentChapters);
 
   static ComicDetail _fromMap(Map<String, dynamic> m) {
     final comic = ComicItem(m['id'] as String, m['name'] as String,
@@ -447,7 +349,7 @@ class BookshelfStore {
   /// 无阅读记录时回退到收藏时间（addedAt）。供排序/展示用。
   static int updateTimeOf(ComicDetail d, List<HistoryEntry> history) {
     final sid = d.sourceId ?? '';
-    final key = '$sid::${d.id}';
+    final key = '$sid/${d.id}';
     for (final h in history) {
       if (h.book.key == key) return h.timestamp;
     }
@@ -461,7 +363,6 @@ class BookshelfStore {
   /// 读取某本书的收藏时间（addedAt），无记录返回 0。
   static int addedAtOf(ComicDetail d) {
     final sid = d.sourceId ?? '';
-    final v = _cache[_key(sid, d.id)]?['addedAt'];
-    return (v as int?) ?? 0;
+    return (_base.field(sid, d.id, 'addedAt') as int?) ?? 0;
   }
 }

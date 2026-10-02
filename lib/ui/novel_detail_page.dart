@@ -15,6 +15,7 @@ import 'detail_providers.dart';
 import 'keyboard_shortcuts.dart';
 import 'style_scope.dart';
 import 'style_tokens.dart';
+import 'tokens.dart';
 import 'widgets/squircle.dart';
 
 /// 小说详情封面三风格分支（手机/平板共用）：
@@ -37,7 +38,7 @@ class _NovelCover extends StatelessWidget {
     final style = context.uiStyle;
     final r = switch (style) {
       UIStyle.minimalist => 10.0,
-      UIStyle.xiaomi || UIStyle.apple => StyleTokens.cardRadius(context),
+      UIStyle.xiaomi || UIStyle.apple => R.of(R.card, style: context.uiStyle),
     };
     if (style == UIStyle.xiaomi) {
       return SizedBox(

@@ -45,7 +45,36 @@ class Bookmark {
         author: (m['author'] as String?) ?? '',
       );
 
-  String get key => '$sourceId::$comicId';
+  /// 作品唯一 key（`sourceId/comicId`）。全项目统一 `/` 分隔（P2-15），
+  /// 与下载任务 key（`DownloadManager.taskKeyOf`）同构，不再有 `::`/`/` 互转。
+  String get key => '$sourceId/$comicId';
+
+  /// 从源条目构造（统一「ComicItem → Bookmark」的字段映射，避免各调用点
+  /// 手拼 sourceId/comicId/name/pic/author）。作者来自条目自身；
+  /// ComicDetail 的 author（来自详情页）由调用点 `copyWith(author:)` 补齐。
+  factory Bookmark.fromComic(
+    String sourceId,
+    ComicItem item, {
+    String? name,
+    String? pic,
+  }) =>
+      Bookmark(
+        sourceId: sourceId,
+        comicId: item.id,
+        name: name ?? item.name,
+        pic: pic ?? item.pic,
+        author: item.author ?? '',
+      );
+
+  /// 替换元信息（书名/封面/作者），保留作品身份（sourceId/comicId）——
+  /// 下载重试/详情页历史查找等「保留 key、补齐展示字段」场景用。
+  Bookmark copyWith({String? name, String? pic, String? author}) => Bookmark(
+        sourceId: sourceId,
+        comicId: comicId,
+        name: name ?? this.name,
+        pic: pic ?? this.pic,
+        author: author ?? this.author,
+      );
 
   ComicItem toComic() => ComicItem(comicId, name, pic)..author = author;
 }
@@ -135,7 +164,8 @@ class ComicBookmark {
         timestamp: (m['timestamp'] as num?)?.toInt() ?? 0,
       );
 
-  String get key => '${book.key}::$chapterId::$pageIndex';
+  /// `book.key/chapterId/pageIndex`（全项目统一 `/` 分隔，P2-15）。
+  String get key => '${book.key}/$chapterId/$pageIndex';
 }
 
 /// 动画观看记录：记录看到哪部剧、哪一集、播到第几秒。
@@ -203,8 +233,8 @@ class VideoRecord {
         timestamp: (m['timestamp'] as num?)?.toInt() ?? 0,
       );
 
-  /// 同一剧集同一集的唯一 key，与历史 key 一致。
-  String get key => '$sourceId::$videoId::$season-$episode';
+  /// 同一剧集同一集的唯一 key，与历史 key 一致（`/` 分隔，P2-15）。
+  String get key => '$sourceId/$videoId/$season-$episode';
 }
 
 /// 下载任务记录。
@@ -254,7 +284,8 @@ class DownloadRecord {
         error: m['error'] as String?,
       );
 
-  String get key => '${book.key}::$chapterId';
+  /// `book.key/chapterId`（全项目统一 `/` 分隔，P2-15）。
+  String get key => '${book.key}/$chapterId';
 }
 
 /// 本地存储：基于 JSON 文件的收藏/历史/设置/下载清单持久化。
@@ -265,7 +296,7 @@ class DownloadRecord {
 /// （迁移用普通 `_writeNow` 直写，禁用 `_write` 避免入队与迁移串行冲突）。
 class LocalStore {
   /// 当前结构版本。新增迁移时必须：+1 并在 [_migrations] 末尾注册钩子。
-  static const int schemaVersion = 1;
+  static const int schemaVersion = 2;
 
   static Directory? _dir;
 
@@ -281,7 +312,33 @@ class LocalStore {
   /// 例：v1 新增某字段 → `_migrations[1] = (name) async {...}`。
   /// 钩子按序幂等执行，失败记日志不中断启动（下次启动重试）。
   static const Map<int, Future<void> Function(LocalStoreMigrator)> _migrations =
-      {};
+      {
+    // v2（P2-15 作品 key 统一）：续播进度 Map 的 key 从 `sourceId::videoId::season-episode`
+    // 重写为 `sourceId/videoId/season-episode`。其余模型 key 均为计算 getter，
+    // 结构字段持久化，不受格式变更影响，无需迁移。
+    2: _migrateVideoProgressKeys,
+  };
+
+  /// v2 迁移：把 [video_progress] 的 `::` 分隔 key 改写为 `/` 分隔。
+  static Future<void> _migrateVideoProgressKeys(LocalStoreMigrator m) async {
+    final raw = await m.read('video_progress');
+    final norm = _normalizeVideoProgress(raw);
+    if (norm != null) await m.write('video_progress', norm);
+  }
+
+  /// 续播进度 Map 的 key 统一为 `/` 分隔（P2-15）。返回 null 表示无需改动
+  /// （null/空/已是新格式），供迁移与备份恢复共用，幂等。
+  static Map<String, dynamic>? _normalizeVideoProgress(dynamic raw) {
+    if (raw is! Map || raw.isEmpty) return null;
+    final map = <String, dynamic>{};
+    var changed = false;
+    for (final MapEntry(key: k, value: v) in raw.entries) {
+      final newKey = (k as String).replaceAll('::', '/');
+      if (newKey != k) changed = true;
+      map[newKey] = v;
+    }
+    return changed ? map : null;
+  }
 
   /// 每文件的串行写盘队列（文件名 -> 尾链）。
   /// "读-改-写"复合操作（如 addReadingSeconds / recordHistory）并发时会互相覆盖，
@@ -548,7 +605,7 @@ class LocalStore {
   /// 删除一条书签（同书同章同页）。
   static Future<void> removeBookmark(
       String sourceId, String comicId, String chapterId, int pageIndex) async {
-    final key = '$sourceId::$comicId::$chapterId::$pageIndex';
+    final key = '$sourceId/$comicId/$chapterId/$pageIndex';
     await _enqueue('bookmarks', () async {
       final raw = (await _read('bookmarks') as List?) ?? [];
       final list = raw
@@ -562,7 +619,7 @@ class LocalStore {
   /// 某书某章某页是否已加书签。
   static Future<bool> isBookmarked(
       String sourceId, String comicId, String chapterId, int pageIndex) async {
-    final key = '$sourceId::$comicId::$chapterId::$pageIndex';
+    final key = '$sourceId/$comicId/$chapterId/$pageIndex';
     return (await bookmarks()).any((x) => x.key == key);
   }
 
@@ -1197,7 +1254,8 @@ class LocalStore {
     await put('bookmarks', data['bookmarks']);
     await put('search_history', data['search_history']);
     await put('video_records', data['video_records']);
-    await put('video_progress', data['video_progress']);
+    // 旧备份的续播进度 key 仍是 `::` 分隔：恢复时统一改写为 `/`（P2-15）。
+    await put('video_progress', _normalizeVideoProgress(data['video_progress']));
     await put('downloads', data['downloads']);
     await put('settings', data['settings']);
     await put('novel_read_settings', data['novel_read_settings']);

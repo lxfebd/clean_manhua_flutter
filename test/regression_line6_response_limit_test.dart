@@ -10,7 +10,7 @@ import 'package:xingmanxia/net/http_client.dart';
 ///   2. 超过 [limit] 立即抛 [ResponseTooLargeException]，不再消费后续块
 ///   3. 恰好等于上限不抛（等于合法）
 /// 真实网络请求本身不加 mock（io 端难稳定注入超大响应），语义统一在
-/// 读写辅助函数这一层验证；[Net.get]/[Net.getBytes] 默认值通过常量断言锁定。
+/// 读写辅助函数这一层验证；[Net.get]/[Net.downloadBytes] 默认值通过常量断言锁定。
 void main() {
   Uint8List bytes(int n) => Uint8List.fromList(List.filled(n, 0x41));
 

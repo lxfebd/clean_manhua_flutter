@@ -20,6 +20,7 @@ import 'responsive.dart';
 import 'detail_batch_download_sheet.dart';
 import 'style_scope.dart';
 import 'style_tokens.dart';
+import 'tokens.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
@@ -337,7 +338,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                                       onTap: _showAllChapters,
                                       // 极简 R.control=8 与 token 一致，走 token 三风格化。
                                       borderRadius: BorderRadius.circular(
-                                        StyleTokens.controlRadius(context),
+                                        R.of(R.control, style: context.uiStyle),
                                       ),
                                       child: Padding(
                                         padding: const EdgeInsets.symmetric(
@@ -379,7 +380,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                                       onTap: _showBatchDownload,
                                       // 极简 R.control=8 与 token 一致，走 token 三风格化。
                                       borderRadius: BorderRadius.circular(
-                                        StyleTokens.controlRadius(context),
+                                        R.of(R.control, style: context.uiStyle),
                                       ),
                                       child: Padding(
                                         padding: const EdgeInsets.symmetric(
@@ -583,7 +584,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                       borderRadius: BorderRadius.circular(
                         style == UIStyle.minimalist
                             ? 18
-                            : StyleTokens.controlRadius(context),
+                            : R.of(R.control, style: context.uiStyle),
                       ),
                       child: Container(
                         width: double.infinity,
@@ -806,7 +807,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
         borderRadius: BorderRadius.circular(
           style == UIStyle.minimalist
               ? 14
-              : StyleTokens.cardRadius(context),
+              : R.of(R.card, style: context.uiStyle),
         ),
         // 极简保持现状 hairline（onSurface@0.06, 1px）；
         // 小米无描边；苹果 0.5px alpha0.4 细描边。
@@ -853,7 +854,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                   onTap: _showAllChapters,
                   // 极简 R.control=8 与 token 一致，走 token 三风格化。
                   borderRadius: BorderRadius.circular(
-                    StyleTokens.controlRadius(context),
+                    R.of(R.control, style: context.uiStyle),
                   ),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 14),
@@ -887,7 +888,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                   onTap: _showBatchDownload,
                   // 极简 R.control=8 与 token 一致，走 token 三风格化。
                   borderRadius: BorderRadius.circular(
-                    StyleTokens.controlRadius(context),
+                    R.of(R.control, style: context.uiStyle),
                   ),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 14),
@@ -995,7 +996,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     _chaptersBusy = true;
     try {
       final bookKey = DownloadManager.bookKeyOf(widget.sourceId, _detail!.id);
-      final prefix = '$bookKey::';
+      final prefix = '$bookKey/';
       final all = await LocalStore.downloads();
       final set = <String>{
         for (final d in all)
@@ -1019,9 +1020,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
           top: Radius.circular(
-            context.uiStyle == UIStyle.minimalist
-                ? 20
-                : StyleTokens.sheetRadius(context),
+            StyleTokens.sheetRadiusOr(context, 20),
           ),
         ),
       ),
@@ -1192,13 +1191,8 @@ class _DetailPageState extends ConsumerState<DetailPage> {
   /// 返回完整条目以同时提供页码与纵向滚动偏移（像素级续读）。
   Future<HistoryEntry> _historyForChapter(Chapter ch) async {
     final hist = await LocalStore.history();
-    final key =
-        Bookmark(
-          sourceId: widget.sourceId,
-          comicId: _detail!.id,
-          name: '',
-          pic: '',
-        ).key;
+    final b = _detail!.bookmarkFor(widget.sourceId);
+    final key = b.key;
     // 倒序找最新一条（同一章节可能被多次记录，页码取最近一次）。
     for (final h in hist.reversed) {
       if (h.book.key == key && h.chapterId == ch.id && h.hasPage) {
@@ -1206,12 +1200,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
       }
     }
     return HistoryEntry(
-      book: Bookmark(
-        sourceId: widget.sourceId,
-        comicId: _detail!.id,
-        name: '',
-        pic: '',
-      ),
+      book: b,
       chapterId: ch.id,
       chapterTitle: ch.title,
       timestamp: 0,
@@ -1308,7 +1297,7 @@ class _Hero extends StatelessWidget {
                         borderRadius: BorderRadius.circular(
                           style == UIStyle.minimalist
                               ? 5
-                              : StyleTokens.controlRadius(context),
+                              : R.of(R.control, style: context.uiStyle),
                         ),
                         // Minimalist：徽标扁平，不使用辉光。
                         boxShadow: const [],
@@ -1336,7 +1325,7 @@ class _Hero extends StatelessWidget {
                         borderRadius: BorderRadius.circular(
                           style == UIStyle.minimalist
                               ? 6
-                              : StyleTokens.controlRadius(context),
+                              : R.of(R.control, style: context.uiStyle),
                         ),
                         border: Border.all(
                           color: Colors.white.withValues(alpha: 0.3),
@@ -1471,7 +1460,7 @@ class _MetaSection extends StatelessWidget {
                 borderRadius: BorderRadius.circular(
                   style == UIStyle.minimalist
                       ? 10
-                      : StyleTokens.controlRadius(context),
+                      : R.of(R.control, style: context.uiStyle),
                 ),
                 child: Container(
                   width: 104,
@@ -1577,7 +1566,7 @@ class _StatusPill extends StatelessWidget {
         borderRadius: BorderRadius.circular(
           style == UIStyle.minimalist
               ? 5
-              : StyleTokens.controlRadius(context),
+              : R.of(R.control, style: context.uiStyle),
         ),
       ),
       child: Text(
@@ -1610,7 +1599,7 @@ class _CountPill extends StatelessWidget {
         borderRadius: BorderRadius.circular(
           style == UIStyle.minimalist
               ? 5
-              : StyleTokens.controlRadius(context),
+              : R.of(R.control, style: context.uiStyle),
         ),
       ),
       child: Text(

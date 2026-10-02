@@ -1008,7 +1008,8 @@ class _HistorySheet extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(StyleTokens.sheetRadius(context)),
+          borderRadius:
+              BorderRadius.circular(R.of(R.sheet, style: context.uiStyle)),
         ),
         child: entries.isEmpty
             ? StateView(
@@ -1106,7 +1107,8 @@ class _HelpSheet extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(StyleTokens.sheetRadius(context)),
+          borderRadius:
+              BorderRadius.circular(R.of(R.sheet, style: context.uiStyle)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1187,7 +1189,8 @@ class _ReadingReportSheet extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(StyleTokens.sheetRadius(context)),
+          borderRadius:
+              BorderRadius.circular(R.of(R.sheet, style: context.uiStyle)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1321,7 +1324,8 @@ class _TextExportSheet extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(StyleTokens.sheetRadius(context)),
+          borderRadius:
+              BorderRadius.circular(R.of(R.sheet, style: context.uiStyle)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1441,7 +1445,8 @@ class _ImageLoadingSheet extends StatelessWidget {
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(StyleTokens.sheetRadius(context)),
+          borderRadius:
+              BorderRadius.circular(R.of(R.sheet, style: context.uiStyle)),
         ),
         child: const Row(
           mainAxisSize: MainAxisSize.min,
@@ -1512,7 +1517,8 @@ class _ImageExportSheetState extends State<_ImageExportSheet> {
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(StyleTokens.sheetRadius(context)),
+          borderRadius:
+              BorderRadius.circular(R.of(R.sheet, style: context.uiStyle)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1689,7 +1695,8 @@ class _PosterCard extends StatelessWidget {
       children: [
         Expanded(
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(StyleTokens.controlRadius(context)),
+            borderRadius:
+                BorderRadius.circular(R.of(R.control, style: context.uiStyle)),
             child: cover != null
                 ? Image.memory(
                     cover!,
@@ -1801,7 +1808,8 @@ class _ImportBooklistSheetState extends State<_ImportBooklistSheet> {
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(StyleTokens.sheetRadius(context)),
+          borderRadius:
+              BorderRadius.circular(R.of(R.sheet, style: context.uiStyle)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,

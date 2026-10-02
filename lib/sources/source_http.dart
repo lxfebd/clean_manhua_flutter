@@ -89,18 +89,6 @@ class SourceHttp {
             headers: headers, body: body, proxy: await proxyFor(engineId)))));
   }
 
-  /// GET 字节（图片等），带熔断。
-  static Future<Uint8List> getBytes(
-    String engineId,
-    String url, {
-    Map<String, String>? headers,
-  }) async {
-    return _unwrap(await withCircuit(engineId, () => withTransientRetry(() async {
-      final b = await Net.getBytes(url, headers: headers, proxy: await proxyFor(engineId));
-      return Uint8List.fromList(b);
-    })));
-  }
-
   static T _unwrap<T>(SourceResult<T> r) {
     if (r is SourceOk<T>) return r.data;
     if (r is SourceErr<T>) throw Exception(r.error.toString());

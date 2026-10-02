@@ -43,7 +43,7 @@ class LocalRecommender {
     return counts;
   }
 
-  /// 跨启用源搜索作者名，聚合结果（去重按 sourceId::id）。
+  /// 跨启用源搜索作者名，聚合结果（去重按 sourceId/id）。
   static Future<List<RecommendItem>> recommend({
     List<HistoryEntry>? history,
     int max = _maxResults,
@@ -68,8 +68,8 @@ class LocalRecommender {
               .search(author, 1)
               .timeout(const Duration(seconds: 8));
           for (final it in items) {
-            final key = '${src.id}::${it.id}';
-            // 已读/已藏（历史记录 key = '$sourceId::$comicId'）
+            final key = '${src.id}/${it.id}';
+            // 已读/已藏（历史记录 key = '$sourceId/$comicId'）
             if (seenKeys.contains(key)) continue;
             if (found.containsKey(key)) continue;
             // 命中度：作者完全一致 > 名称包含作者名
@@ -111,8 +111,8 @@ class LocalRecommender {
     }
     final dedup = <String, RecommendItem>{};
     for (final r in out) {
-      dedup['${r.sourceId}::${r.item.id}'] =
-          dedup['${r.sourceId}::${r.item.id}'] ?? r;
+      dedup['${r.sourceId}/${r.item.id}'] =
+          dedup['${r.sourceId}/${r.item.id}'] ?? r;
     }
     return dedup.values.take(max).toList();
   }

@@ -17,36 +17,8 @@ class StyleTokens {
   const StyleTokens._();
 
   // ── 圆角 ────────────────────────────────────────────────────────────
-  static double controlRadius(BuildContext c, {UIStyle? style}) {
-    final s = style ?? c.uiStyle;
-    return switch (s) {
-      UIStyle.minimalist => R.control,
-      UIStyle.xiaomi => R.controlXiaomi,
-      UIStyle.apple => R.controlApple,
-    };
-  }
-
-  static double cardRadius(BuildContext c, {UIStyle? style}) {
-    final s = style ?? c.uiStyle;
-    return switch (s) {
-      UIStyle.minimalist => R.card,
-      UIStyle.xiaomi => R.cardXiaomi,
-      UIStyle.apple => R.cardApple,
-    };
-  }
-
-  static double sheetRadius(BuildContext c, {UIStyle? style}) {
-    final s = style ?? c.uiStyle;
-    return switch (s) {
-      UIStyle.minimalist => R.sheet,
-      UIStyle.xiaomi => R.sheetXiaomi,
-      UIStyle.apple => R.sheetApple,
-    };
-  }
-
-  // 带极简原值的圆角槽：与 [heroRadius] 同形——极简分支逐字节锁「该调用点改造
-  // 前的原值」（各页历史值不同：键盘弹层 16、更新下载弹层 14、源选择卡 12、
-  // 能力市场搜索框 10），不能由组件统一取 R 静态档。小米/苹果走风格档位。
+  // 三套风格的圆角档位统一由 [R.of] 解析（theme._base 与组件共用同一映射），
+  // 此处只保留「极简锁调用点原值」的 `*Or` 变体（各页历史值不同，不能由组件统一）。
 
   /// control 槽（输入框/小控件）。极简 = 调用点原值。
   static double controlRadiusOr(BuildContext c, double minimalistOriginal) =>

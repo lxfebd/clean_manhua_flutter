@@ -1029,7 +1029,7 @@ class _SearchBarState extends State<_SearchBar> {
     // 风格化：搜索框圆角走 controlRadius 语义槽；极简锁原 R.card=12（回归面为零）。
     final searchRadius = context.uiStyle == UIStyle.minimalist
         ? R.card
-        : StyleTokens.controlRadius(context);
+        : R.of(R.control, style: context.uiStyle);
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
@@ -1148,7 +1148,7 @@ class _Chip extends StatelessWidget {
               borderRadius: BorderRadius.circular(
                   context.uiStyle == UIStyle.minimalist
                       ? R.pill
-                      : StyleTokens.controlRadius(context)),
+                      : R.of(R.control, style: context.uiStyle)),
               border: Border.all(
                 color: active
                     ? Colors.transparent
@@ -1515,7 +1515,7 @@ class _ComicCardState extends State<_ComicCard> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final style = context.uiStyle;
-    final cardR = StyleTokens.cardRadius(context);
+    final cardR = R.of(R.card, style: context.uiStyle);
     // 三套风格差异化（仅在装饰层按风格分支，尺寸/padding/热区一律不动）：
     //   minimalist：与既有实现逐字节一致（surface 底 + 圆角 + 无阴影）。
     //   xiaomi：内容底改品牌渐变 + SquircleClipper 剪裁（HyperOS 特征）。
@@ -1960,7 +1960,7 @@ class _RecommendCard extends StatelessWidget {
     //   apple：surface 底 + cardBorder 细分隔线。
     // 布局尺寸（96x128 封面、10 间距、156 行高）保持原值不变。
     final style = context.uiStyle;
-    final cardR = StyleTokens.cardRadius(context);
+    final cardR = R.of(R.card, style: context.uiStyle);
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 14),
       child: Column(

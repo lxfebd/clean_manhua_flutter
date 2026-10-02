@@ -510,8 +510,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           sourceId: widget.sourceId,
           videoId: widget.videoId,
           historyKey: widget.sourceId != null && widget.videoId != null
-              ? '${widget.sourceId}::${widget.videoId}::$_curSeason-$_curEpisode'
-              : '${widget.title}::${_curSeason}_$_curEpisode',
+              ? '${widget.sourceId}/${widget.videoId}/$_curSeason-$_curEpisode'
+              : '${widget.title}/$_curSeason-$_curEpisode',
           webChannelBuilder: animePlayerWebChannel,
         ),
         transitionDuration: context.uiStyle == UIStyle.minimalist
@@ -1377,7 +1377,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     }
     try {
       final key =
-          '${widget.sourceId}::${widget.videoId}::$_curSeason-$_curEpisode';
+          '${widget.sourceId}/${widget.videoId}/$_curSeason-$_curEpisode';
       final sec = await LocalStore.videoProgressOf(key);
       if (sec <= 20 || !mounted) return;
       // 页面就绪但 <video> 可能还没创建/加载：延迟并等 readyState 达标再 seek，

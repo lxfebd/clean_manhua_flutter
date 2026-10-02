@@ -804,7 +804,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
         final source = SourceManager.byId(d.book.sourceId);
         final urls = await source.chapterPics(d.chapterId);
         final err = await DownloadManager.retry(
-            '${d.book.sourceId}::${d.book.comicId}',
+            d.book,
             d.chapterId,
             d.chapterTitle,
             urls);
@@ -831,7 +831,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
       final source = SourceManager.byId(d.book.sourceId);
       final urls = await source.chapterPics(d.chapterId);
       final err = await DownloadManager.retry(
-          '${d.book.sourceId}::${d.book.comicId}', d.chapterId, d.chapterTitle, urls);
+          d.book, d.chapterId, d.chapterTitle, urls);
       await reload();
       if (!mounted) return;
       if (err == null) {
@@ -2407,7 +2407,7 @@ abstract final class _BookshelfStyleDecorations {
   static double cardRadius(BuildContext context) =>
       context.uiStyle == UIStyle.minimalist
           ? R.card
-          : StyleTokens.cardRadius(context);
+          : R.of(R.card, style: context.uiStyle);
 
   /// 卡片装饰：圆角 + 描边 + 阴影。极简分支严格保持既有观感。
   /// - 极简：R.card 圆角 + Border.all(hairline = onSurface @ alpha 0.08) + 无阴影。
@@ -2449,13 +2449,13 @@ abstract final class _BookshelfStyleDecorations {
   static double coverRadius(BuildContext context) =>
       context.uiStyle == UIStyle.minimalist
           ? kCoverRadius
-          : StyleTokens.cardRadius(context);
+          : R.of(R.card, style: context.uiStyle);
 
   /// BottomSheet 上圆角：极简锁 20（既有值），其余走 StyleTokens.sheetRadius。
   static double sheetRadius(BuildContext context) =>
       context.uiStyle == UIStyle.minimalist
           ? 20.0
-          : StyleTokens.sheetRadius(context);
+          : R.of(R.sheet, style: context.uiStyle);
 
   /// BottomSheet 上圆角形状（不可 const：内部依赖 context 走风格分支）。
   static RoundedRectangleBorder topSheetShape(BuildContext context) =>

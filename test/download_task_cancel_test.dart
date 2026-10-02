@@ -43,8 +43,9 @@ void main() {
 
   String taskKeyOf(String chapterId) => 'src/c1/$chapterId';
 
-  /// 下载记录表（downloadOf）用 `sourceId::comicId::chapterId` 格式。
-  String recordKeyOf(String chapterId) => '${book.key}::$chapterId';
+  /// 下载记录表（downloadOf）用 `sourceId/comicId/chapterId` —— 与任务 key
+  /// 同一格式（P2-15 统一），所以 recordKeyOf 与 taskKeyOf 等价。
+  String recordKeyOf(String chapterId) => '${book.key}/$chapterId';
 
   setUp(() async {
     await LocalStore.init();

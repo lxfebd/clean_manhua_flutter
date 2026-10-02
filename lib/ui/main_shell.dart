@@ -19,7 +19,6 @@ import 'novel_home_page.dart';
 import 'profile_page.dart';
 import 'responsive.dart';
 import 'style_scope.dart';
-import 'style_tokens.dart';
 import 'tokens.dart';
 import 'toolbox_page.dart';
 import 'unified_search_page.dart';
@@ -636,7 +635,7 @@ class _NavigationRailItem extends StatelessWidget {
     // 侧栏胶囊圆角：极简锁既有 10（回归面为零），小米/苹果走风格档位。
     final railRadius = context.uiStyle == UIStyle.minimalist
         ? 10.0
-        : StyleTokens.controlRadius(context);
+        : R.of(R.control, style: context.uiStyle);
 
     if (horizontal) {
       return HoverEffect(

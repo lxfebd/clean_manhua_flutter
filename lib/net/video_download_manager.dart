@@ -42,7 +42,7 @@ class VideoDownloadTask {
     required this.episode,
     required this.url,
     this.headers = const {},
-  }) : key = '$sourceId::$videoId::$season-$episode';
+  }) : key = '$sourceId/$videoId/$season-$episode';
 
   bool get isM3u8 {
     final u = url;

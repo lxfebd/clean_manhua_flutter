@@ -55,7 +55,8 @@ abstract final class R {
   static const double sheetApple = 28;
 
   /// 由 [UIStyle] 解析各语义槽位的圆角——风格化组件（S2/S3）统一入口。
-  static double of(BuildContext context, double slot, {required UIStyle style}) {
+  /// 槽位用 [control]/[card]/[hero]/[sheet] 静态值传入；未知槽位回退卡片档。
+  static double of(double slot, {required UIStyle style}) {
     final r = switch (style) {
       UIStyle.minimalist => <double>[control, card, hero, sheet],
       UIStyle.xiaomi => <double>[controlXiaomi, cardXiaomi, heroXiaomi, sheetXiaomi],

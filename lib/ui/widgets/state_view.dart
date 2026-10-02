@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../style_tokens.dart';
+import '../style_scope.dart';
 import '../tokens.dart';
 
 /// 空态类型。
@@ -95,7 +95,7 @@ class StateView extends StatelessWidget {
                             : Brightness.light),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(
-                          StyleTokens.controlRadius(context)),
+                          R.of(R.control, style: context.uiStyle)),
                     ),
                   ),
                 ),

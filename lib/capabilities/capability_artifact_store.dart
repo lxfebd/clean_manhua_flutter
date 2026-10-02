@@ -317,7 +317,7 @@ class CapabilityArtifactStore {
 
     // 下载。权重可达数百 MB，必须给足超时（Net 默认 15s 会必超时失败）。
     // 走带进度回调的分块下载（io 端）：边收边报进度；SHA256 在落盘前对
-    // 全量字节校验（与旧路径语义一致）。web 端回落 getBytes 无进度——
+    // 全量字节校验（与旧路径语义一致）。web 端回落无进度路径——
     // 模型权重仅桌面（isSupportedOnCurrentPlatform 门闸），web 不可达。
     // 显式走 dart:io：getBytesAuto 在 Android 上先试 Cronet，而 Cronet
     // 探针级超时（probe=6s）会在大文件读完前掐断整个请求，每次都假失败后
@@ -326,7 +326,7 @@ class CapabilityArtifactStore {
     // "异常超大响应"防御范围（通用下载仍是 256MB）。
     final List<int> bytes;
     try {
-      bytes = await Net.getBytesWithProgress(weight.url,
+      bytes = await Net.downloadBytes(weight.url,
           proxy: proxy,
           timeout: const Duration(minutes: 10),
           maxBytes: 512 * 1024 * 1024,
