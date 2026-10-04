@@ -710,7 +710,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
             'Referer': referer,
             'Accept': 'image/webp,image/*,*/*',
           },
-          proxy: await SourceHttp.proxyFor(widget.sourceId),
+          proxy: await proxyForSource(widget.sourceId),
         ));
         if (JmScramble.parseAid(url) != null) {
           raw = await JmScramble.descrambleAsync(raw, url);
@@ -733,8 +733,16 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
 
   /// 异步解析当前源的代理配置（缓存结果，避免每次预载重复读存储）。
   Future<String?>? _proxyFuture;
-  Future<String?> _pendingProxy() => _proxyFuture ??=
-      SourceHttp.proxyFor(widget.sourceId);
+  Future<String?> _pendingProxy() =>
+      _proxyFuture ??= proxyForSource(widget.sourceId);
+
+  /// 阅读器统一的源代理解析：按源缓存（一次解析 + 同源章节共享）。
+  /// 纵向滚动连续建页时图片加载不再逐页 await [SourceHttp.proxyFor]。
+  static final Map<String, Future<String?>> _proxyCache = {};
+  static Future<String?> proxyForSource(String sourceId) {
+    if (sourceId.isEmpty) return Future.value(null);
+    return _proxyCache[sourceId] ??= SourceHttp.proxyFor(sourceId);
+  }
 
   String _jmReferer(String url) {
     try {
@@ -2586,9 +2594,10 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
       _failed = false;
     }
     try {
-      // 单源代理：阅读器图片与文本同源，走该源的代理配置（无则 null 走全局/直连）
-      final proxy =
-          widget.sourceId.isEmpty ? null : await SourceHttp.proxyFor(widget.sourceId);
+      // 单源代理：阅读器图片与文本同源，走该源的代理配置（无则 null 走全局/直连）。
+      // 代理解析整章一致且已由 state 级 future 缓存（_pendingProxy），
+      // 不每页重复 await（源配置带 5min TTL，滚动建页时避免逐页查配置）。
+      final proxy = await _ReaderPageState.proxyForSource(widget.sourceId);
       // 第一步：先加载原图（快速显示）。走多级降级链：
       // 原画失败自动尝试省空间压缩图（mangadex data-saver）与备用镜像（jm CDN），
       // 任一档位成功即显示；全部失败由 catch 落失败态。
@@ -2724,12 +2733,30 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
     }
     final dpr = MediaQuery.of(context).devicePixelRatio;
     final cw = (MediaQuery.sizeOf(context).width * dpr).toInt();
-    return Image.memory(
+    final image = Image.memory(
       bytes,
       width: double.infinity,
       fit: widget.fit,
       filterQuality: widget.filterQuality,
       cacheWidth: cw,
+      gaplessPlayback: true,
+    );
+    // 纵向条漫按屏高限制解码高度：原图常远高于屏（几千 px），全高解码
+    // 徒耗内存与 UI 线程解码时间，滚动滑入即卡。cacheHeight 让 Flutter
+    // 解码时直接降采样到可视高度（横向 PageView 无此问题，屏即全高）。
+    // 注意必须用 ResizeImagePolicy.fit 等比限制：Image.memory 的
+    // cacheWidth+cacheHeight 默认 exact 策略会按两轴独立拉伸把图压变形。
+    if (widget.horizontal) return image;
+    final ch = (MediaQuery.sizeOf(context).height * dpr).toInt();
+    return Image(
+      image: ResizeImage(
+        image.image,
+        height: ch,
+        policy: ResizeImagePolicy.fit,
+      ),
+      width: double.infinity,
+      fit: widget.fit,
+      filterQuality: widget.filterQuality,
       gaplessPlayback: true,
     );
   }

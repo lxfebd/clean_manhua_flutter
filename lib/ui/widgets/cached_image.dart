@@ -164,21 +164,43 @@ class _CachedImageState extends State<CachedImage> {
       // width*dpr 会请求 3 倍宽的缓存图，内存压力陡增且封面图本身无 2K 细节。
       // 2x 是 UI 设计稿标准，足以覆盖绝大多数设备的清晰度需求。
       final dpr = math.min(MediaQuery.of(context).devicePixelRatio, 2.0);
-      // 布局异常时 width 可能是 NaN/Infinity（如页面尺寸计算失效），
-      // toInt() 会抛「Infinity or NaN toInt」导致整页渲染中断；此处兜底钳制。
-      final cwRaw = widget.width != null
-          ? widget.width! * dpr
-          : MediaQuery.sizeOf(context).width * dpr;
-      final cw = (cwRaw.isFinite && cwRaw > 0) ? cwRaw.toInt() : null;
-      img = Image.memory(
-        _bytes!,
-        width: widget.width,
-        height: widget.height,
-        fit: widget.fit,
-        gaplessPlayback: true,
-        filterQuality: FilterQuality.medium,
-        cacheWidth: cw,
-      );
+      // 无显式宽高（网格卡常见：封面铺满卡片）时按真实约束宽降采样——
+      // 不能回退到整屏宽：桌面多列下卡片只有 ~200px 宽，按屏幕宽解码
+      // 白白消耗 8× 解码时间与内存（信息流滚动卡顿的直接来源）。
+      // LayoutBuilder 的 maxWidth 即卡片实际列宽。
+      final Widget mem;
+      if (widget.width != null || widget.height != null) {
+        final cwRaw = widget.width != null
+            ? widget.width! * dpr
+            : MediaQuery.sizeOf(context).width * dpr;
+        // 布局异常时 width 可能是 NaN/Infinity（如页面尺寸计算失效），
+        // toInt() 会抛「Infinity or NaN toInt」导致整页渲染中断；此处兜底钳制。
+        final cw = (cwRaw.isFinite && cwRaw > 0) ? cwRaw.toInt() : null;
+        mem = Image.memory(
+          _bytes!,
+          width: widget.width,
+          height: widget.height,
+          fit: widget.fit,
+          gaplessPlayback: true,
+          filterQuality: FilterQuality.medium,
+          cacheWidth: cw,
+        );
+      } else {
+        mem = LayoutBuilder(
+          builder: (c, cons) {
+            final cwRaw = cons.maxWidth * dpr;
+            final cw = (cwRaw.isFinite && cwRaw > 0) ? cwRaw.toInt() : null;
+            return Image.memory(
+              _bytes!,
+              fit: widget.fit,
+              gaplessPlayback: true,
+              filterQuality: FilterQuality.medium,
+              cacheWidth: cw,
+            );
+          },
+        );
+      }
+      img = mem;
     } else {
       img = Image.asset(
         'assets/placeholder_cover.webp',
