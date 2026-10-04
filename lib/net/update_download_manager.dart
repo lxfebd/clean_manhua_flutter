@@ -59,13 +59,9 @@ class UpdateDownloadManager {
   String _fileName = 'xingmanxia_update.apk';
   int _totalSize = 0;
 
-  /// GitHub 加速镜像：按速度优先级排列，空字符串表示直连 GitHub。
-  /// 2026-08 实测：ghproxy.net 是唯一稳定支持大文件+Range 的镜像（241KB/s）。
-  static const _mirrors = <String>[
-    'https://ghproxy.net/',
-    'https://ghfast.top/',
-    '',
-  ];
+  /// 更新包下载的镜像候选与更新检查共用 [UpdateChecker.githubMirrors]
+  /// （同一份事实，避免两处维护分叉：检查用镜像抓 release 页、下载用镜像
+  /// 拉附件，孰优孰劣一致）。镜像拼装与双层前缀防御见 [mirrorCandidates]。
 
   /// 慢速阈值：5 秒内平均速度低于此值则放弃当前镜像换下一个。
   static const int _minSpeedBytesPerSec = 200 * 1024; // 200 KB/s
@@ -126,16 +122,10 @@ class UpdateDownloadManager {
 
   Future<void> _downloadWithMirrors(String originalUrl) async {
     _mirrorFailures.clear();
-    final candidates = <String>[];
-    for (final m in _mirrors) {
-      candidates.add(m.isEmpty ? originalUrl : m + originalUrl);
-    }
-    for (var i = 0; i < candidates.length; i++) {
+    for (final c in mirrorCandidates(originalUrl)) {
       if (_cancelled) break;
-      final url = candidates[i];
-      final label = i == 0 ? '直连' : '镜像$i';
       try {
-        final path = await _downloadOne(url, label: label);
+        final path = await _downloadOne(c.url, label: c.label);
         if (_cancelled) return;
         _downloadedPath = path;
         _state = UpdateDownloadState(
@@ -156,7 +146,7 @@ class UpdateDownloadManager {
         return;
       } catch (e) {
         ErrorLogger.instance.warn(
-          'update dl mirror $label failed: ${e is Exception ? e : e.toString()}',
+          'update dl mirror ${c.label} failed: ${e is Exception ? e : e.toString()}',
         );
         _mirrorFailures.add(_mirrorFailSummary(e));
       }
@@ -470,4 +460,37 @@ int contentRangeTotal(String cr) {
   final m = RegExp(r'/(\d+)\s*$').firstMatch(cr);
   if (m == null) return 0;
   return int.tryParse(m.group(1)!) ?? 0;
+}
+
+/// 镜像下载候选：前缀拼 GitHub 原 URL，空前缀（直连）放链尾兜底。
+/// label 与候选严格对应，避免全失败时上屏原因归因错误。
+/// 若 [originalUrl] 已带镜像前缀（检查端 HTML 降级可能已镜像化，例如
+/// `https://ghproxy.net/https://github.com/...`），不能再拼第二层前缀：
+/// 该镜像已证明可达，复用为第一候选，再补剥掉前缀的 GitHub 原 URL 兜底。
+@visibleForTesting
+List<({String url, String label})> mirrorCandidates(String originalUrl) {
+  String? preMirror;
+  for (final m in UpdateChecker.githubMirrors) {
+    if (m.isNotEmpty && originalUrl.startsWith(m)) {
+      preMirror = m;
+      break;
+    }
+  }
+  if (preMirror != null) {
+    final candidates = <({String url, String label})>[
+      (url: originalUrl, label: '镜像(已选)'),
+    ];
+    final bare = originalUrl.substring(preMirror.length);
+    if (bare.isNotEmpty) candidates.add((url: bare, label: '直连'));
+    return candidates;
+  }
+  return [
+    for (var i = 0; i < UpdateChecker.githubMirrors.length; i++)
+      (
+        url: UpdateChecker.githubMirrors[i].isEmpty
+            ? originalUrl
+            : UpdateChecker.githubMirrors[i] + originalUrl,
+        label: UpdateChecker.githubMirrors[i].isEmpty ? '直连' : '镜像$i',
+      ),
+  ];
 }

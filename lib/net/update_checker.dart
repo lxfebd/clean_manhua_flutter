@@ -41,6 +41,19 @@ class UpdateChecker {
   /// 仓库全名（owner/repo），写死为当前开源仓库。
   static const String repo = 'lxfebd/clean_manhua_flutter';
 
+  /// GitHub 加速镜像（检查与下载共用一份事实）。空字符串 = 直连 GitHub，
+  /// 位于链尾兜底。2026-10 实测：ghproxy.net 支持大文件+Range 且可达；
+  /// ghfast.top 已失效但仍保留（网络环境变化后可能恢复，超时即自动跳过）。
+  static const List<String> githubMirrors = <String>[
+    'https://ghproxy.net/',
+    'https://ghfast.top/',
+    '',
+  ];
+
+  /// 检查阶段每次网络尝试的超时。API 直连实测 <1s；收紧到 8s 让降级链
+  /// （HTML 直连 → 镜像）在 API 失败后能快速接棒，总失败路径不拖到 1 分钟。
+  static const Duration _checkTimeout = Duration(seconds: 8);
+
   /// 本机版本号缓存（启动时从 PackageInfo 异步获取）。
   static String _cached = '';
 
@@ -72,6 +85,7 @@ class UpdateChecker {
   /// 拉取最新 release 信息。若已是最新返回 null；网络/解析失败抛异常。
   static Future<UpdateInfo?> checkLatest({Duration? timeout}) async {
     if (kIsWeb) return null; // Web 端无自更新
+    final t = timeout ?? _checkTimeout;
     Map<String, dynamic> json;
     try {
       final body = await Net.get(
@@ -80,7 +94,7 @@ class UpdateChecker {
           'Accept': 'application/vnd.github+json',
           'User-Agent': 'xingmanxia-android',
         },
-        timeout: timeout ?? const Duration(seconds: 12),
+        timeout: t,
       );
       json = jsonDecode(body) as Map<String, dynamic>;
     } on HttpStatusException catch (e) {
@@ -88,9 +102,16 @@ class UpdateChecker {
       // 403/429 时降级抓 releases 网页（不占 API 配额），保证检查更新仍可用。
       if (e.statusCode == 403 || e.statusCode == 429) {
         ErrorLogger.instance.warn('更新检查 API 限流(HTTP ${e.statusCode})，降级网页抓取');
-        return _checkLatestFromHtml(timeout: timeout);
+        return _checkLatestFromHtml(timeout: t);
       }
-      rethrow;
+      // 真实失败（500/404 等）也降级网页抓取：API 状态异常不代表 release 不存在。
+      ErrorLogger.instance.warn('更新检查 API 失败(HTTP ${e.statusCode})，降级网页抓取');
+      return _checkLatestFromHtml(timeout: t);
+    } on Exception catch (e) {
+      // 网络层失败（超时/断连/被墙/证书）→ 同样降级网页抓取。API 直连被墙
+      // 是常见场景，仅靠 403/429 降级会漏掉这类失败直接抛「检查更新失败」。
+      ErrorLogger.instance.warn('更新检查 API 网络失败，降级网页抓取: $e');
+      return _checkLatestFromHtml(timeout: t);
     }
     final tag = json['tag_name'] as String? ?? '';
     final version = tag.startsWith('v') ? tag.substring(1) : tag;
@@ -125,14 +146,14 @@ class UpdateChecker {
     return cmp > 0 ? info : null;
   }
 
-  /// API 被限流（403/429）时的降级：直接抓取 GitHub releases 网页（不占 API 配额），
+  /// API 被限流/失败时的降级：直接抓取 GitHub releases 网页（不占 API 配额），
   /// 从 HTML 里的附件下载链接解析版本，再复用 [pickAssetForPlatform] 按平台挑选。
-  /// 解析不到可用附件/版本时抛异常，由上层按「检查更新失败」统一处理。
+  /// 依次尝试镜像链：直连 github.com → 各镜像前缀（ghproxy/ghfast）——直连被墙
+  /// 时镜像仍可拿到同一份 HTML。解析不到可用附件/版本时抛异常，由上层按
+  /// 「检查更新失败」统一处理。
   static Future<UpdateInfo?> _checkLatestFromHtml({Duration? timeout}) async {
-    final html = await Net.get(
-      'https://github.com/$repo/releases/latest',
-      timeout: timeout ?? const Duration(seconds: 12),
-    );
+    final t = timeout ?? _checkTimeout;
+    final html = await _fetchHtmlViaMirrors(t);
     final assets = parseReleasePageAssets(html);
     if (assets.isEmpty) {
       throw const FormatException('release 页面未找到可下载附件');
@@ -163,6 +184,32 @@ class UpdateChecker {
           assetName: picked.name,
         )
         : null;
+  }
+
+  /// 抓取 releases/latest 网页 HTML：直连 github.com → 各镜像前缀。
+  /// 镜像前缀拼在 github.com URL 前（如 `https://ghproxy.net/https://github.com/...`），
+  /// 镜像对 `/releases/latest` 返回 302 → 跟随重定向到具体 tag 页，附件链接
+  /// 均可在结果 HTML 中解析。全部失败抛最后一条异常（含 HTTP 状态码/超时）。
+  static Future<String> _fetchHtmlViaMirrors(Duration timeout) async {
+    Object? lastErr;
+    for (var i = 0; i < githubMirrors.length; i++) {
+      final m = githubMirrors[i];
+      final url =
+          m.isEmpty
+              ? 'https://github.com/$repo/releases/latest'
+              : '${m}https://github.com/$repo/releases/latest';
+      try {
+        return await Net.get(
+          url,
+          headers: {'User-Agent': 'xingmanxia-android'},
+          timeout: timeout,
+        );
+      } on Exception catch (e) {
+        lastErr = e;
+        ErrorLogger.instance.warn('更新检查 HTML 镜像$i 失败: $e');
+      }
+    }
+    throw lastErr ?? const FormatException('release 页面抓取失败');
   }
 
   /// 从 GitHub releases 网页 HTML 中提取附件列表（name + browser_download_url），

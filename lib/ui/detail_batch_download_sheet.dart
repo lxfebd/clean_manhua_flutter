@@ -44,6 +44,27 @@ void showBatchDownloadSheet(
   // 调 setState（"setState() called after dispose()"）。
   void Function(VoidCallback)? syncQuality;
   BuildContext? sheetCtx;
+
+  // sheet 存活守卫：批量下载闭包不随弹窗存活而中止——下载管理器是全局
+  // 后台任务，弹窗关闭（点遮罩/返回/切页）后下载必须继续跑。所有进度
+  // 刷新都经 safeSetS：sheet 已 dispose 时直接跳过（StatefulBuilder 的
+  // setState 在 dispose 后调用会抛错，未捕获会让整个下载循环终止，
+  // 表现为「退出页面下载就停/显示失败」）。
+  bool sheetAlive = true;
+  void safeSetS(VoidCallback fn) {
+    if (!sheetAlive) return;
+    final ctx = sheetCtx;
+    if (ctx == null || !ctx.mounted) return;
+    try {
+      fn();
+    } catch (_) {/* sheet 正在销毁：进度刷新可丢，下载继续 */}
+  }
+  void closeSheet() {
+    if (!sheetAlive) return;
+    sheetAlive = false;
+    final ctx = sheetCtx;
+    if (ctx != null && ctx.mounted) Navigator.pop(ctx);
+  }
   LocalStore.downloadQuality().then((v) {
     if (!context.mounted) return;
     quality = v == 1 ? DownloadQuality.compact : DownloadQuality.original;
@@ -255,7 +276,7 @@ void showBatchDownloadSheet(
                                     ? null
                                     : () async {
                                       picks = selected.toList()..sort();
-                                      setS(() => downloading = true);
+                                      safeSetS(() => downloading = true);
                                       final gen = DownloadManager.beginBatch();
                                       final book = Bookmark(
                                         sourceId: sourceId,
@@ -281,7 +302,7 @@ void showBatchDownloadSheet(
                                         )) {
                                           break;
                                         }
-                                        setS(() {
+                                        safeSetS(() {
                                           currentIdx = idx;
                                           currentDone = 0;
                                           currentTotal = 0;
@@ -290,7 +311,7 @@ void showBatchDownloadSheet(
                                           final urls = await SourceManager.byId(
                                             sourceId,
                                           ).chapterPics(ch.id);
-                                          setS(
+                                          safeSetS(
                                             () => currentTotal = urls.length,
                                           );
                                           final okCh =
@@ -303,7 +324,7 @@ void showBatchDownloadSheet(
                                                     urls: urls,
                                                     quality: quality,
                                                     onProgress: (d, t) =>
-                                                        setS(() {
+                                                        safeSetS(() {
                                                           currentDone = d;
                                                           currentTotal = t;
                                                         }),
@@ -322,9 +343,7 @@ void showBatchDownloadSheet(
                                           );
                                         }
                                       }
-                                      if (ctx.mounted) {
-                                        Navigator.pop(ctx);
-                                      }
+                                      closeSheet();
                                       if (context.mounted) {
                                         final msg =
                                             fail == 0

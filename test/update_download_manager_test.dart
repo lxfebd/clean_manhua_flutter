@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xingmanxia/net/update_checker.dart';
 import 'package:xingmanxia/net/update_download_manager.dart';
 
 void main() {
@@ -89,6 +90,50 @@ void main() {
       expect(contentRangeStart(''), -1);
       expect(contentRangeTotal('bytes 0-499'), 0);
       expect(contentRangeTotal(''), 0);
+    });
+  });
+
+  group('_mirrorCandidates（镜像下载候选 + 双层前缀防御）', () {
+    const githubUrl =
+        'https://github.com/lxfebd/clean_manhua_flutter/'
+        'releases/download/v1.5.3/app-release.apk';
+
+    test('裸 GitHub URL：前缀镜像在前，直连在链尾', () {
+      final c = mirrorCandidates(githubUrl);
+      expect(c.length, UpdateChecker.githubMirrors.length);
+      // 链首是第一个镜像前缀 + 原 URL
+      expect(c.first.url, '${UpdateChecker.githubMirrors.first}$githubUrl');
+      expect(c.first.label, '镜像0');
+      // 链尾是直连（空前缀）
+      expect(c.last.url, githubUrl);
+      expect(c.last.label, '直连');
+    });
+
+    test('已带镜像前缀的 URL（检查端 HTML 降级产物）：前缀只拼一层，不叠双层', () {
+      final mirrored = '${UpdateChecker.githubMirrors.first}$githubUrl';
+      final c = mirrorCandidates(mirrored);
+      // 第一候选直接复用镜像 URL，不再拼第二层前缀
+      expect(c.first.url, mirrored);
+      expect(c.first.label, '镜像(已选)');
+      // 第二候选是剥掉前缀的 GitHub 原 URL（直连兜底）
+      expect(c[1].url, githubUrl);
+      expect(c[1].label, '直连');
+      // 无任何候选带着双层前缀
+      for (final x in c) {
+        expect(
+          x.url.contains('${UpdateChecker.githubMirrors.first}'
+              '${UpdateChecker.githubMirrors.first}'),
+          isFalse,
+          reason: '不允许镜像前缀叠加：${x.url}',
+        );
+      }
+    });
+
+    test('URL 恰为某个镜像前缀本身：剥前缀后为空则仅一个候选', () {
+      final c = mirrorCandidates(UpdateChecker.githubMirrors.first);
+      expect(c.length, 1);
+      expect(c.first.url, UpdateChecker.githubMirrors.first);
+      expect(c.first.label, '镜像(已选)');
     });
   });
 }
