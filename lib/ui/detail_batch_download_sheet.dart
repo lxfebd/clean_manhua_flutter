@@ -29,6 +29,16 @@ List<int> filterBatchDownloadIndexes(
   ];
 }
 
+/// 反选：对 [targets] 内的索引翻转选中态，输出新选中集合（其余保持不变）。
+/// 批量下载弹窗「反选」按钮用；纯函数便于单元测试。
+Set<int> invertSelection(Set<int> selected, List<int> targets) {
+  final out = Set<int>.from(selected);
+  for (final i in targets) {
+    if (!out.add(i)) out.remove(i);
+  }
+  return out;
+}
+
 /// 批量下载选章弹窗（原 detail_page.dart 内嵌逻辑搬移）。
 ///
 /// 多选章节 → 批量下载，含画质档位选择（原画/省空间）、下载进度、
@@ -196,24 +206,42 @@ class _BatchSheetBodyState extends State<_BatchSheetBody> {
                       child: const Text('取消'),
                     )
                   else
-                    TextButton(
-                      onPressed:
-                          () => setState(() {
-                            if (_selected.length ==
-                                _visibleSelectable.length) {
-                              _selected.clear();
-                            } else {
-                              // 全选 = 选中所有「可见且未下载」章节
-                              _selected
-                                ..clear()
-                                ..addAll(_visibleSelectable);
-                            }
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextButton(
+                          onPressed:
+                              () => setState(() {
+                                if (_selected.length ==
+                                    _visibleSelectable.length) {
+                                  _selected.clear();
+                                } else {
+                                  // 全选 = 选中所有「可见且未下载」章节
+                                  _selected
+                                    ..clear()
+                                    ..addAll(_visibleSelectable);
+                                }
+                              }),
+                          child: Text(
+                            _selected.length == _visibleSelectable.length
+                                ? '取消全选'
+                                : '全选未下载',
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => setState(() {
+                            // 反选 = 翻转当前可见未下载章节的选中态
+                            final next = invertSelection(
+                              _selected,
+                              _visibleSelectable,
+                            );
+                            _selected
+                              ..clear()
+                              ..addAll(next);
                           }),
-                      child: Text(
-                        _selected.length == _visibleSelectable.length
-                            ? '取消全选'
-                            : '全选未下载',
-                      ),
+                          child: const Text('反选'),
+                        ),
+                      ],
                     ),
                 ],
               ),

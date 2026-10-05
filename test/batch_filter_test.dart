@@ -57,4 +57,34 @@ void main() {
     final r = filterBatchDownloadIndexes(chapters, all, '   ');
     expect(r, same(all));
   });
+
+  _invertTests();
+}
+
+/// 反选 [invertSelection]：翻转 targets 内索引选中态，其余不变。
+void _invertTests() {
+  test('反选翻转目标内选中态', () {
+    expect(invertSelection({1, 3}, [1, 2, 3]), {2});
+  });
+
+  test('反选保留目标外选中态', () {
+    expect(invertSelection({0, 5}, [1, 2, 3]), {0, 5, 1, 2, 3});
+  });
+
+  test('反选空目标 = 原集合', () {
+    final sel = {1, 2};
+    expect(invertSelection(sel, const []), {1, 2});
+  });
+
+  test('反选两次幂等', () {
+    final s = {1, 3};
+    final once = invertSelection(s, [1, 2, 3, 4]);
+    expect(invertSelection(once, [1, 2, 3, 4]), s);
+  });
+
+  test('反选不修改原集合', () {
+    final s = {1, 3};
+    invertSelection(s, [1, 2, 3]);
+    expect(s, {1, 3});
+  });
 }
