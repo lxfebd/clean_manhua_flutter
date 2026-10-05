@@ -333,8 +333,14 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
             final sc = _listController;
             if (sc == null || !sc.hasClients) return;
             sc.jumpTo(target.clamp(0, sc.position.maxScrollExtent));
+            _updateProgress(); // 续读定位后同步进度条
           });
         }
+        // 短章（内容不满一屏）不会触发滚动事件：布局完成后主动刷新
+        // 一次进度，避免进度条停在 0%（应显示读完）。
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _updateProgress();
+        });
       }
     } catch (e) {
       ErrorLogger.instance.logError('[novel-reader] FAIL id=$chapterId err=$e');
