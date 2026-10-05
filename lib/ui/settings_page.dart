@@ -353,6 +353,18 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   ),
                   const SizedBox(height: 16),
                   FadeSlideIn(
+                    delay: const Duration(milliseconds: 300),
+                    child: SectionLabel(label: '小说阅读器'),
+                  ),
+                  const SizedBox(height: 6),
+                  FadeSlideIn(
+                    delay: const Duration(milliseconds: 360),
+                    child: _NovelReaderPrefsCard(
+                      prefs: ref.watch(novelReaderPrefsProvider),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  FadeSlideIn(
                     delay: const Duration(milliseconds: 220),
                     child: SectionLabel(label: '播放器'),
                   ),
@@ -1608,6 +1620,104 @@ class _SliderTile extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 小说阅读器偏好设置卡（设置页入口；阅读器抽屉内同源同值）。
+/// 直接 watch [novelReaderPrefsProvider]，改动经 notifier.update 写回——
+/// 懒加载首读（resume）+ 相等短路（同值不写盘）都在 provider 内，这里
+/// 只做纯展示与转发，不维护本地镜像副本。
+class _NovelReaderPrefsCard extends ConsumerWidget {
+  final NovelReaderPrefs prefs;
+  const _NovelReaderPrefsCard({required this.prefs});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notifier = ref.read(novelReaderPrefsProvider.notifier);
+    return SettingsCard(
+      children: [
+        _SliderTile(
+          icon: Icons.format_size_rounded,
+          title: '字号',
+          value: prefs.fontSize.toDouble(),
+          min: 13,
+          max: 28,
+          divisions: 15,
+          display: '${prefs.fontSize}',
+          onChanged: (v) =>
+              notifier.update(fontSize: v.round()),
+        ),
+        RowSeparator(),
+        _SliderTile(
+          icon: Icons.format_line_spacing_rounded,
+          title: '行距',
+          value: prefs.lineHeight.toDouble(),
+          min: 120,
+          max: 240,
+          divisions: 24,
+          display: '${prefs.lineHeight}%',
+          onChanged: (v) =>
+              notifier.update(lineHeight: v.round()),
+        ),
+        RowSeparator(),
+        _SliderTile(
+          icon: Icons.space_bar_rounded,
+          title: '段间距',
+          value: prefs.paragraphGap.toDouble(),
+          min: 6,
+          max: 36,
+          divisions: 30,
+          display: '${prefs.paragraphGap}px',
+          onChanged: (v) =>
+              notifier.update(paragraphGap: v.round()),
+        ),
+        RowSeparator(),
+        SettingsTile(
+          icon: Icons.format_indent_increase_rounded,
+          title: '首行缩进',
+          subtitle: prefs.firstIndent ? '每段首行缩进两字' : '顶格排版',
+          trailing: Switch(
+            value: prefs.firstIndent,
+            onChanged: (v) => notifier.update(firstIndent: v),
+          ),
+        ),
+        RowSeparator(),
+        _SliderTile(
+          icon: Icons.gradient_rounded,
+          title: '色温',
+          value: prefs.colorTemp.toDouble(),
+          min: 0,
+          max: 100,
+          divisions: 20,
+          display: prefs.colorTemp == 0 ? '无' : '${prefs.colorTemp}',
+          onChanged: (v) =>
+              notifier.update(colorTemp: v.round()),
+        ),
+        RowSeparator(),
+        SettingsTile(
+          icon: Icons.palette_outlined,
+          title: '纸色主题',
+          subtitle: switch (prefs.theme) {
+            1 => '米白',
+            2 => '浅绿',
+            3 => '深青',
+            _ => '跟随系统',
+          },
+          trailing: PopupMenuButton<int>(
+            initialValue: prefs.theme,
+            icon: const Icon(Icons.unfold_more_rounded),
+            onSelected: (v) => notifier.update(theme: v),
+            itemBuilder:
+                (_) => const [
+                  PopupMenuItem(value: 0, child: Text('跟随系统')),
+                  PopupMenuItem(value: 1, child: Text('米白')),
+                  PopupMenuItem(value: 2, child: Text('浅绿')),
+                  PopupMenuItem(value: 3, child: Text('深青')),
+                ],
+          ),
+        ),
+      ],
     );
   }
 }
