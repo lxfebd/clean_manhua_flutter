@@ -26,6 +26,31 @@ import 'widgets/cached_image.dart';
 import 'widgets/motion.dart';
 import 'keyboard_shortcuts.dart';
 
+/// 章节列表过滤+排序纯函数（全部章节 sheet 用；独立便于单元测试）。
+/// [filter] 按标题模糊匹配（空 = 不过滤）；[descending] 倒序（最新在顶）。
+/// 空标题章节按「第N话」占位参与匹配，与原列表展示一致。
+List<Chapter> filterChapters(
+  List<Chapter> chapters,
+  String filter, {
+  bool descending = false,
+}) {
+  final sorted =
+      descending ? chapters.reversed.toList(growable: false) : chapters;
+  final f = filter.trim().toLowerCase();
+  if (f.isEmpty) return sorted;
+  return [
+    for (var i = 0; i < sorted.length; i++)
+      if (titleOfChapter(chapters, sorted[i]).toLowerCase().contains(f))
+        sorted[i],
+  ];
+}
+
+/// 章节显示标题：空标题用「第N话」占位（下标按原始顺序计算）。
+String titleOfChapter(List<Chapter> chapters, Chapter c) {
+  final idx = chapters.indexOf(c);
+  return c.title.isEmpty ? '第${idx + 1}话' : c.title;
+}
+
 /// 漫画详情页：沉浸式 Hero 头 + 信息卡 + 章节网格。
 class DetailPage extends ConsumerStatefulWidget {
   final String sourceId;
@@ -1014,6 +1039,8 @@ class _DetailPageState extends ConsumerState<DetailPage> {
   Set<String> _cachedChapters = {};
 
   void _showAllChaptersSheet() {
+    final detail = _detail;
+    if (detail == null) return;
     showResponsiveBottomSheet<void>(
       context: context,
       backgroundColor: Theme.of(context).colorScheme.surface,
@@ -1024,108 +1051,14 @@ class _DetailPageState extends ConsumerState<DetailPage> {
           ),
         ),
       ),
-      builder:
-          (ctx) => SafeArea(
-            child: SizedBox(
-              height: MediaQuery.of(context).size.height * 0.6,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Row(
-                      children: [
-                        Text(
-                          '全部章节 · ${_detail!.chapters.length} 话',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 15,
-                            color: Theme.of(ctx).colorScheme.onSurface,
-                          ),
-                        ),
-                        if (_cachedChapters.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(left: 8),
-                            child: Text(
-                              '已缓存 ${_cachedChapters.length} 话',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: Theme.of(ctx).colorScheme.primary,
-                              ),
-                            ),
-                          ),
-                        const Spacer(),
-                        TextButton.icon(
-                          onPressed: () {
-                            setState(() {
-                              _descending = !_descending;
-                              _sortedCache = null;
-                            });
-                          },
-                          icon: Icon(
-                            _descending
-                                ? Icons.arrow_upward_rounded
-                                : Icons.arrow_downward_rounded,
-                            size: 16,
-                          ),
-                          label: Text(_descending ? '倒序' : '正序'),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Divider(
-                                      height: 0.5,
-                                      indent: StyleTokens.separatorIndent(context, 0),
-                                      endIndent: StyleTokens.separatorEndIndent(context, 0),
-                                      color: context.uiStyle == UIStyle.minimalist
-                                          ? null
-                                          : StyleTokens.rowSeparatorColor(context),
-                                    ),
-                  Expanded(
-                    child: ListView.builder(
-                      itemCount: _sortedChapters().length,
-                      itemBuilder: (_, i) {
-                        final ch = _sortedChapters()[i];
-                        final cached = _cachedChapters.contains(ch.id);
-                        return ListTile(
-                          title: Row(
-                            children: [
-                              if (cached)
-                                Padding(
-                                  padding: const EdgeInsets.only(right: 6),
-                                  child: Icon(
-                                    Icons.download_done_rounded,
-                                    size: 14,
-                                    color: Theme.of(ctx).colorScheme.primary,
-                                  ),
-                                ),
-                              Flexible(
-                                child: Text(
-                                  ch.title.isEmpty ? '第${i + 1}话' : ch.title,
-                                  style: const TextStyle(fontSize: 13.5),
-                                ),
-                              ),
-                            ],
-                          ),
-                          trailing: Icon(
-                            Icons.chevron_right_rounded,
-                            size: 18,
-                            color: Theme.of(
-                              ctx,
-                            ).colorScheme.onSurface.withValues(alpha: 0.3),
-                          ),
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            _openChapter(ch);
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+      builder: (ctx) => _AllChaptersSheet(
+        detail: detail,
+        cachedIds: _cachedChapters,
+        onPick: (ch) {
+          Navigator.pop(ctx);
+          _openChapter(ch);
+        },
+      ),
     );
   }
 
@@ -1895,6 +1828,201 @@ class _ErrorView extends StatelessWidget {
               onPressed: onRetry,
               icon: const Icon(Icons.refresh_rounded, size: 18),
               label: const Text('重试'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 「全部章节」底部弹窗：独立 StatefulWidget，自带倒序/正序切换与标题
+/// 搜索过滤（数百话漫画按关键词定位章节）。状态在组件内，切换即时
+/// 重建列表——比挂在父页 State 上可靠（modal 是独立 route，父 setState
+/// 不会重绘 sheet 内容）。
+class _AllChaptersSheet extends StatefulWidget {
+  final ComicDetail detail;
+  final Set<String> cachedIds;
+  final ValueChanged<Chapter> onPick;
+
+  const _AllChaptersSheet({
+    required this.detail,
+    required this.cachedIds,
+    required this.onPick,
+  });
+
+  @override
+  State<_AllChaptersSheet> createState() => _AllChaptersSheetState();
+}
+
+class _AllChaptersSheetState extends State<_AllChaptersSheet> {
+  final _filterCtrl = TextEditingController();
+  String _filter = '';
+  bool _descending = false;
+
+  @override
+  void dispose() {
+    _filterCtrl.dispose();
+    super.dispose();
+  }
+
+  List<Chapter> get _visible =>
+      filterChapters(widget.detail.chapters, _filter, descending: _descending);
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final visible = _visible;
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.6,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+              child: Row(
+                children: [
+                  Text(
+                    '全部章节 · ${widget.detail.chapters.length} 话',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                      color: scheme.onSurface,
+                    ),
+                  ),
+                  if (widget.cachedIds.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Text(
+                        '已缓存 ${widget.cachedIds.length} 话',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: scheme.primary,
+                        ),
+                      ),
+                    ),
+                  const Spacer(),
+                  TextButton.icon(
+                    onPressed: () {
+                      setState(() => _descending = !_descending);
+                    },
+                    icon: Icon(
+                      _descending
+                          ? Icons.arrow_upward_rounded
+                          : Icons.arrow_downward_rounded,
+                      size: 16,
+                    ),
+                    label: Text(_descending ? '倒序' : '正序'),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+              child: TextField(
+                controller: _filterCtrl,
+                onChanged: (v) => setState(() => _filter = v),
+                style: const TextStyle(fontSize: 13.5),
+                decoration: InputDecoration(
+                  isDense: true,
+                  hintText: '搜索章节标题 / 话数',
+                  hintStyle: TextStyle(
+                    fontSize: 13,
+                    color: scheme.onSurface.withValues(alpha: 0.4),
+                  ),
+                  prefixIcon: Icon(
+                    Icons.search_rounded,
+                    size: 18,
+                    color: scheme.onSurface.withValues(alpha: 0.5),
+                  ),
+                  suffixIcon: _filter.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: '清除',
+                          icon: const Icon(Icons.close_rounded, size: 16),
+                          onPressed: () {
+                            _filterCtrl.clear();
+                            setState(() => _filter = '');
+                          },
+                        ),
+                  filled: true,
+                  fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(R.control),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ),
+            Divider(
+              height: 0.5,
+              indent: StyleTokens.separatorIndent(context, 0),
+              endIndent: StyleTokens.separatorEndIndent(context, 0),
+              color: context.uiStyle == UIStyle.minimalist
+                  ? null
+                  : StyleTokens.rowSeparatorColor(context),
+            ),
+            Expanded(
+              child: visible.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.search_off_rounded,
+                            size: 36,
+                            color: scheme.onSurface.withValues(alpha: 0.3),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _filter.trim().isEmpty ? '暂无章节' : '没有匹配「$_filter」的章节',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: scheme.onSurface.withValues(alpha: 0.55),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: visible.length,
+                      itemBuilder: (_, i) {
+                        final ch = visible[i];
+                        final cached = widget.cachedIds.contains(ch.id);
+                        return ListTile(
+                          title: Row(
+                            children: [
+                              if (cached)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 6),
+                                  child: Icon(
+                                    Icons.download_done_rounded,
+                                    size: 14,
+                                    color: scheme.primary,
+                                  ),
+                                ),
+                              Flexible(
+                                child: Text(
+                                  titleOfChapter(widget.detail.chapters, ch),
+                                  style: const TextStyle(fontSize: 13.5),
+                                ),
+                              ),
+                            ],
+                          ),
+                          trailing: Icon(
+                            Icons.chevron_right_rounded,
+                            size: 18,
+                            color: scheme.onSurface.withValues(alpha: 0.3),
+                          ),
+                          onTap: () => widget.onPick(ch),
+                        );
+                      },
+                    ),
             ),
           ],
         ),
