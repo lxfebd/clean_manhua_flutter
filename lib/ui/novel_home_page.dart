@@ -128,8 +128,16 @@ class NovelHomePageState extends State<NovelHomePage> {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       backgroundColor: scheme.surface,
-      body: CustomScrollView(
-        controller: _scrollCtrl,
+      body: RefreshIndicator(
+        // 下拉刷新与漫画/动漫首页对齐；AlwaysScrollable 保证内容不满
+        // 一屏时也可下拉触发。
+        onRefresh: () async {
+          if (_sourceId != null) await _loadNovels();
+          _refreshShelf();
+        },
+        child: CustomScrollView(
+          controller: _scrollCtrl,
+          physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
           SliverAppBar(
             pinned: true,
@@ -222,6 +230,7 @@ class NovelHomePageState extends State<NovelHomePage> {
               child: _EmptySource(),
             ),
         ],
+      ),
       ),
     );
   }
