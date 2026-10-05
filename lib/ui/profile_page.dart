@@ -352,7 +352,9 @@ class ProfilePageState extends ConsumerState<ProfilePage> {
 
   void _showHistory() {
     final data = ref.read(profileProvider).value;
-    final entries = (data?.history ?? const <HistoryEntry>[]).take(30).toList();
+    // 历史存储上限 200 条，弹窗全量展示（原只取最近 30，翻旧记录要
+    // 反复退出重进）。条数不多，轻量 ListTile 全 build 无压力。
+    final entries = data?.history ?? const <HistoryEntry>[];
     showResponsiveBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
