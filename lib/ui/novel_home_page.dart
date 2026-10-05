@@ -451,7 +451,7 @@ class NovelHomePageState extends State<NovelHomePage> {
           size: 18,
           color: scheme.onSurface.withValues(alpha: 0.5),
         ),
-        suffixIcon: _keyword.isNotEmpty
+        suffixIcon: _searchCtrl.text.isNotEmpty
             ? IconButton(
                 tooltip: '清除',
                 icon: const Icon(Icons.close_rounded, size: 16),
