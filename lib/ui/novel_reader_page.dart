@@ -203,6 +203,12 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
   Future<void> _showToc() async {
     final s = SourceManager.novelById(widget.sourceId);
     if (s == null) return;
+    // 目录 sheet 里标注已离线缓存的章节（断网时用户无需退出即可辨识）。
+    final cached = await NovelChapterCache.cachedChapterIds(
+      widget.sourceId,
+      widget.novelId,
+    );
+    if (!mounted) return;
     showResponsiveBottomSheet<void>(
       context: context,
       backgroundColor: Theme.of(context).colorScheme.surface,
@@ -214,6 +220,7 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
         load: () => s.detail(widget.novelId)
             .timeout(const Duration(seconds: 15)),
         currentChapterId: _curChapterId,
+        cachedIds: cached,
         onPick: (id) {
           Navigator.pop(ctx);
           _go(id);
@@ -1374,11 +1381,15 @@ class _SummarySheet extends StatelessWidget {
 class _TocSheet extends StatefulWidget {
   final Future<NovelDetail> Function() load;
   final String currentChapterId;
+
+  /// 已离线缓存的章节 id 集合（打开目录时快照；断网标记用）。
+  final Set<String> cachedIds;
   final ValueChanged<String> onPick;
 
   const _TocSheet({
     required this.load,
     required this.currentChapterId,
+    required this.cachedIds,
     required this.onPick,
   });
 
@@ -1498,6 +1509,7 @@ class _TocSheetState extends State<_TocSheet> {
       itemBuilder: (ctx, i) {
         final ch = chapters[i];
         final cur = ch.id == widget.currentChapterId;
+        final cached = widget.cachedIds.contains(ch.id);
         return ListTile(
           dense: true,
           selected: cur,
@@ -1510,6 +1522,19 @@ class _TocSheetState extends State<_TocSheet> {
               color: cur ? Theme.of(ctx).colorScheme.primary : null,
             ),
           ),
+          // 已缓存章节标注离线小图标（断网可读），当前章高亮优先。
+          trailing: cur
+              ? null
+              : cached
+                  ? Icon(
+                      Icons.offline_pin_rounded,
+                      size: 15,
+                      color: Theme.of(ctx)
+                          .colorScheme
+                          .primary
+                          .withValues(alpha: 0.6),
+                    )
+                  : null,
           onTap: () => widget.onPick(ch.id),
         );
       },
