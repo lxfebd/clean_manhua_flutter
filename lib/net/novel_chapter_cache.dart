@@ -89,6 +89,35 @@ class NovelChapterCache {
     } catch (_) {}
   }
 
+  /// 某小说已缓存的章节 id 集合（供目录离线标记）。一次列目录扫描，
+  /// 文件名去 `.json` 后缀后 decodeComponent。目录不存在返回空集。
+  static Future<Set<String>> cachedChapterIds(
+    String sourceId,
+    String novelId,
+  ) async {
+    try {
+      final d = await getApplicationSupportDirectory();
+      final dir = Directory(
+        '${d.path}/novel_cache/${Uri.encodeComponent(sourceId)}/'
+        '${Uri.encodeComponent(novelId)}',
+      );
+      if (!await dir.exists()) return const {};
+      final ids = <String>{};
+      await for (final e in dir.list()) {
+        if (e is! File) continue;
+        final name = e.uri.pathSegments.last;
+        if (!name.endsWith('.json')) continue;
+        try {
+          ids.add(Uri.decodeComponent(
+              name.substring(0, name.length - '.json'.length)));
+        } catch (_) {}
+      }
+      return ids;
+    } catch (_) {
+      return const {};
+    }
+  }
+
   /// 配额清理（公开以便测试注入小配额）：删除 [root] 下修改时间最旧的
   /// 文件，直到总大小 ≤ [maxBytes]，返回删除的文件数。
   /// 文件 mtime ≈ 最近一次写入/读取，即 LRU 序。

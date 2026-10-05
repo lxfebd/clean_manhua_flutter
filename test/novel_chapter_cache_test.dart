@@ -98,6 +98,24 @@ void main() {
     expect(await NovelChapterCache.read('src1', 'novel1', 'ch1'), isNull);
   });
 
+  test('cachedChapterIds 返回已缓存章节 id 集合', () async {
+    await NovelChapterCache.write(
+        'src1', 'novel1', 'ch1', NovelContent('ch1', '甲', const ['a']));
+    await NovelChapterCache.write(
+        'src1', 'novel1', 'ch2', NovelContent('ch2', '乙', const ['b']));
+    final ids = await NovelChapterCache.cachedChapterIds('src1', 'novel1');
+    expect(ids, {'ch1', 'ch2'});
+  });
+
+  test('cachedChapterIds 不同小说互相隔离 + 无缓存返回空', () async {
+    await NovelChapterCache.write(
+        'src1', 'novel1', 'ch1', NovelContent('ch1', '甲', const ['a']));
+    expect(
+        await NovelChapterCache.cachedChapterIds('src1', 'novel2'), isEmpty);
+    expect(await NovelChapterCache.cachedChapterIds('src1', 'novel1'),
+        {'ch1'});
+  });
+
   group('pruneDirectory 配额清理', () {
     test('总量在配额内不动任何文件', () async {
       final root = Directory('${tmp.path}/cache')..createSync(recursive: true);

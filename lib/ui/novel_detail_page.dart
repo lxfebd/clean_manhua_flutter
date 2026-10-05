@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../net/error_logger.dart';
 import '../net/local_store.dart';
+import '../net/novel_chapter_cache.dart';
 import '../sources/novel_source.dart';
 import '../sources/source_manager.dart';
 import '../ui/novel_reader_page.dart';
@@ -134,6 +135,10 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
   /// 可视区附近，行高估算 + ensureVisible 两段式才可靠）。
   final GlobalKey _resumeTileKey = GlobalKey();
 
+  /// 已离线缓存的章节 id 集合（目录里标小图标）。详情就绪后异步扫描，
+  /// 断网时用户能一眼看出哪些章节可直接离线读。
+  Set<String> _cachedIds = const {};
+
   /// 续读章节是否在当前目录里（历史兜底章节可能已被源下架）。
   bool get _hasResumeInList {
     final r = _resume;
@@ -150,6 +155,18 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
         (prev, next) {
       if (next.hasValue) _loadResume();
     });
+    // 详情就绪前就启动缓存扫描：阅读器返回时缓存可能新增，_openChapter
+    // 返回后同样会重扫。
+    _loadCachedIds();
+  }
+
+  /// 扫描本小说已缓存章节（供目录离线标记）。失败静默（无标记不阻塞）。
+  Future<void> _loadCachedIds() async {
+    final ids = await NovelChapterCache.cachedChapterIds(
+      widget.sourceId,
+      widget.novelId,
+    );
+    if (mounted) setState(() => _cachedIds = ids);
   }
 
   @override
@@ -316,8 +333,12 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
         ),
       );
       // 从阅读器返回：续读位可能已前进（读了新章节），重新解析历史，
-      // 让「继续阅读」按钮、目录高亮与定位按钮跟随最新进度。
-      if (mounted) _loadResume();
+      // 让「继续阅读」按钮、目录高亮与定位按钮跟随最新进度；阅读器里
+      // 也会新增章节缓存，重扫目录离线标记。
+      if (mounted) {
+        _loadResume();
+        _loadCachedIds();
+      }
     } finally {
       _openingChapter = false;
     }
@@ -542,7 +563,15 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                       trailing: isResume
                           ? Icon(Icons.play_circle_fill_rounded,
                               size: 18, color: scheme.primary)
-                          : const Icon(Icons.chevron_right_rounded, size: 18),
+                          : Icon(
+                              _cachedIds.contains(ch.id)
+                                  ? Icons.offline_pin_rounded
+                                  : Icons.chevron_right_rounded,
+                              size: 18,
+                              color: _cachedIds.contains(ch.id)
+                                  ? scheme.primary.withValues(alpha: 0.7)
+                                  : null,
+                            ),
                       onTap: () => _openChapter(ch),
                     );
                   },
@@ -713,7 +742,15 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                 trailing: isResume
                     ? Icon(Icons.play_circle_fill_rounded,
                         size: 18, color: scheme.primary)
-                    : const Icon(Icons.chevron_right_rounded, size: 18),
+                    : Icon(
+                        _cachedIds.contains(ch.id)
+                            ? Icons.offline_pin_rounded
+                            : Icons.chevron_right_rounded,
+                        size: 18,
+                        color: _cachedIds.contains(ch.id)
+                            ? scheme.primary.withValues(alpha: 0.7)
+                            : null,
+                      ),
                 onTap: () => _openChapter(ch),
               ),
             );
