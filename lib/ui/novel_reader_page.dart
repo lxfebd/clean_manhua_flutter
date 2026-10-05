@@ -43,6 +43,14 @@ HistoryEntry snapshotHistoryEntry({
   );
 }
 
+/// 滚动位置 → 本章进度（0~1）。纯函数便于单测：
+/// - maxScrollExtent <= 0（内容不满一屏）：算读完 1.0；
+/// - 否则 offset / maxScrollExtent，夹到 [0,1]。
+double chapterProgress(double offset, double maxScrollExtent) {
+  if (maxScrollExtent <= 0) return 1.0;
+  return (offset / maxScrollExtent).clamp(0.0, 1.0);
+}
+
 /// 小说阅读器：渲染章节正文（段落列表），支持上下章导航与阅读进度记录。
 class NovelReaderPage extends ConsumerStatefulWidget {
   final String sourceId;
@@ -91,6 +99,10 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
   Timer? _statsTimer;
   ScrollController? _listController;
   Timer? _recordHistoryDebounce; // 滚动位置防抖落盘（合并快速滚动为一次写盘）
+
+  /// 本章阅读进度（0~1）：滚动监听里更新，底部进度条经
+  /// [ValueListenableBuilder] 局部重建——不触发整页 setState 重建正文。
+  final ValueNotifier<double> _chapterProgress = ValueNotifier(0);
 
   // ---- 朗读（TTS） ----
   final NovelTtsService _tts = NovelTtsService.instance;
@@ -233,6 +245,7 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
     }
     _statsTimer?.cancel();
     _recordHistoryDebounce?.cancel();
+    _chapterProgress.dispose();
     // ScrollController dispose：detach 所有 scroll position，避免页面退出后
     // listener 闭包（引用本 State）被 controller/position 长期持有。
     _listController?.dispose();
@@ -265,10 +278,13 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
     if (mounted) {
       setState(() => _loading = true);
     }
+    // 新章加载中进度条回零（旧章残留值先清掉，加载完成前显示空条）。
+    _chapterProgress.value = 0;
     // 复用同一 controller：翻章时已由 _go 跳回顶部，卸载不清除以便重建 Focus。
     // 首次创建时挂滚动监听：活动中持续记录进度（防抖），退出后可按偏移续读。
     _listController ??= ScrollController()
       ..addListener(() {
+        _updateProgress();
         if (_loading || _content == null) return;
         _recordHistory(_content!.title);
       });
@@ -308,6 +324,19 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  /// 滚动位置 → 本章进度（0~1）。内容不满一屏时算读完（1.0）。
+  void _updateProgress() {
+    final sc = _listController;
+    if (sc == null || !sc.hasClients) {
+      _chapterProgress.value = 0.0;
+      return;
+    }
+    _chapterProgress.value = chapterProgress(
+      sc.offset,
+      sc.position.maxScrollExtent,
+    );
   }
 
   /// 用 [snapshotHistoryEntry]（文件顶部纯函数）构造 HistoryEntry 并写盘。
@@ -600,8 +629,46 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
                   child: ConstrainedBox(
                     constraints: BoxConstraints(
                         maxWidth: Responsive.novelReaderMaxWidth(context)),
-                    child: Row(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
+                        // 本章阅读进度：细进度线 + 百分比。仅进度条局部重建，
+                        // 滚动时不会连带重建按钮行/正文。
+                        ValueListenableBuilder<double>(
+                          valueListenable: _chapterProgress,
+                          builder: (_, p, __) {
+                            final pct = (p * 100).round();
+                            return Row(
+                              children: [
+                                Expanded(
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(1),
+                                    child: LinearProgressIndicator(
+                                      value: p,
+                                      minHeight: 2,
+                                      backgroundColor:
+                                          scheme.onSurface.withValues(alpha: 0.1),
+                                      color: _colorTemp > 0
+                                          ? const Color(0xFFE8A87C)
+                                          : scheme.primary,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  '$pct%',
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    color: scheme.onSurface.withValues(alpha: 0.5),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
                         // 朗读开关：首按钮常驻，让“听书”入口一眼可见。
                         if (_ttsState == TtsPlayState.idle)
                           IconButton(
@@ -642,11 +709,13 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
                           ),
                         ),
                       ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ),
             ),
+          ),
     );
   }
 
