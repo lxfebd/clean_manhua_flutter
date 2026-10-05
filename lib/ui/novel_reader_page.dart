@@ -1401,6 +1401,8 @@ class _TocSheetState extends State<_TocSheet> {
   List<NovelChapter>? _chapters;
   bool _failed = false;
   final ScrollController _ctrl = ScrollController();
+  final TextEditingController _filterCtrl = TextEditingController();
+  String _filter = '';
 
   @override
   void initState() {
@@ -1411,7 +1413,20 @@ class _TocSheetState extends State<_TocSheet> {
   @override
   void dispose() {
     _ctrl.dispose();
+    _filterCtrl.dispose();
     super.dispose();
+  }
+
+  /// 过滤后的可见章节（标题模糊匹配；空 = 全量）。
+  List<NovelChapter> get _visible {
+    final all = _chapters;
+    if (all == null) return const [];
+    final f = _filter.trim().toLowerCase();
+    if (f.isEmpty) return all;
+    return [
+      for (final c in all)
+        if (c.title.toLowerCase().contains(f)) c,
+    ];
   }
 
   Future<void> _fetch() async {
@@ -1503,41 +1518,97 @@ class _TocSheetState extends State<_TocSheet> {
     if (chapters.isEmpty) {
       return const Center(child: Text('暂无目录'));
     }
-    return ListView.builder(
-      controller: _ctrl,
-      itemCount: chapters.length,
-      itemBuilder: (ctx, i) {
-        final ch = chapters[i];
-        final cur = ch.id == widget.currentChapterId;
-        final cached = widget.cachedIds.contains(ch.id);
-        return ListTile(
-          dense: true,
-          selected: cur,
-          title: Text(
-            ch.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 13.5,
-              color: cur ? Theme.of(ctx).colorScheme.primary : null,
+    final visible = _visible;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+          child: TextField(
+            controller: _filterCtrl,
+            onChanged: (v) => setState(() => _filter = v),
+            style: const TextStyle(fontSize: 13.5),
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: '搜索章节标题',
+              hintStyle: TextStyle(
+                fontSize: 13,
+                color: scheme.onSurface.withValues(alpha: 0.4),
+              ),
+              prefixIcon: Icon(
+                Icons.search_rounded,
+                size: 18,
+                color: scheme.onSurface.withValues(alpha: 0.5),
+              ),
+              suffixIcon: _filter.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: '清除',
+                      icon: const Icon(Icons.close_rounded, size: 16),
+                      onPressed: () {
+                        _filterCtrl.clear();
+                        setState(() => _filter = '');
+                      },
+                    ),
+              filled: true,
+              fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide.none,
+              ),
             ),
           ),
-          // 已缓存章节标注离线小图标（断网可读），当前章高亮优先。
-          trailing: cur
-              ? null
-              : cached
-                  ? Icon(
-                      Icons.offline_pin_rounded,
-                      size: 15,
-                      color: Theme.of(ctx)
-                          .colorScheme
-                          .primary
-                          .withValues(alpha: 0.6),
-                    )
-                  : null,
-          onTap: () => widget.onPick(ch.id),
-        );
-      },
+        ),
+        Expanded(
+          child: visible.isEmpty
+              ? Center(
+                  child: Text(
+                    '没有匹配「$_filter」的章节',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: scheme.onSurface.withValues(alpha: 0.55),
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  controller: _ctrl,
+                  itemCount: visible.length,
+                  itemBuilder: (ctx, i) {
+                    final ch = visible[i];
+                    final cur = ch.id == widget.currentChapterId;
+                    final cached = widget.cachedIds.contains(ch.id);
+                    return ListTile(
+                      dense: true,
+                      selected: cur,
+                      title: Text(
+                        ch.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          color: cur ? Theme.of(ctx).colorScheme.primary : null,
+                        ),
+                      ),
+                      // 已缓存章节标注离线小图标（断网可读），当前章高亮优先。
+                      trailing: cur
+                          ? null
+                          : cached
+                              ? Icon(
+                                  Icons.offline_pin_rounded,
+                                  size: 15,
+                                  color: Theme.of(ctx)
+                                      .colorScheme
+                                      .primary
+                                      .withValues(alpha: 0.6),
+                                )
+                              : null,
+                      onTap: () => widget.onPick(ch.id),
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 }
