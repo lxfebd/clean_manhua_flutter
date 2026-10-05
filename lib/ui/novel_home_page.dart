@@ -6,6 +6,7 @@ import 'responsive.dart';
 
 import '../models/comic_item.dart';
 import '../net/error_logger.dart';
+import '../net/local_store.dart';
 import '../sources/local_novel_source.dart';
 import '../sources/novel_source.dart';
 import '../sources/source_manager.dart';
@@ -40,10 +41,31 @@ class NovelHomePageState extends State<NovelHomePage> {
   List<NovelDetail> _shelf = [];
   List<Map<String, dynamic>> _localBooks = [];
 
+  /// 书架卡的续读信息：book.key → 最近一条历史（上次读到哪章）。
+  /// 一次性拉全量历史建映射，避免每张卡各自读盘。
+  Map<String, HistoryEntry> _historyByKey = const {};
+
   @override
   void initState() {
     super.initState();
     _loadSources();
+  }
+
+  /// 拉全量阅读历史，按书 key 建续读映射（详情页/阅读器返回后重刷）。
+  Future<void> _loadHistory() async {
+    try {
+      final hist = await LocalStore.history();
+      if (!mounted) return;
+      final byKey = <String, HistoryEntry>{};
+      // history() 已按时间倒序：同一本书多条记录时，先到先写即最新。
+      for (final h in hist) {
+        byKey.putIfAbsent(h.book.key, () => h);
+      }
+      setState(() => _historyByKey = byKey);
+    } catch (e) {
+      // 历史读取失败不阻塞书架：卡面无续读信息，仍可点进详情。
+      ErrorLogger.instance.warn('novel shelf history failed: $e');
+    }
   }
 
   Future<void> _loadSources() async {
@@ -59,6 +81,7 @@ class NovelHomePageState extends State<NovelHomePage> {
       _localBooks = LocalNovelSource.store.listAll();
     });
     if (_sourceId != null) _loadNovels();
+    _loadHistory();
   }
 
   /// 刷新书架缓存（在线收藏 + 本地导入），供详情页/导入页返回后调用，
@@ -69,6 +92,7 @@ class NovelHomePageState extends State<NovelHomePage> {
       _shelf = NovelShelfStore.listAll();
       _localBooks = LocalNovelSource.store.listAll();
     });
+    _loadHistory();
   }
 
   /// 主壳 Ctrl+R 刷新入口。
@@ -238,7 +262,13 @@ class NovelHomePageState extends State<NovelHomePage> {
         FadeSlideIn(
           delay: const Duration(milliseconds: 40),
           offset: 16,
-          child: _ShelfCard(d: d, scheme: scheme, onReturned: _refreshShelf),
+          child: _ShelfCard(
+            d: d,
+            scheme: scheme,
+            history: _historyByKey[
+                Bookmark(sourceId: d.sourceId ?? '', comicId: d.id, name: '', pic: '').key],
+            onReturned: _refreshShelf,
+          ),
         ),
     ];
     return SliverPadding(
@@ -477,8 +507,14 @@ class _NovelCard extends StatelessWidget {
 class _ShelfCard extends StatelessWidget {
   final NovelDetail d;
   final ColorScheme scheme;
+  final HistoryEntry? history; // 该书的最近阅读记录（无则卡面不显示续读）
   final VoidCallback? onReturned;
-  const _ShelfCard({required this.d, required this.scheme, this.onReturned});
+  const _ShelfCard({
+    required this.d,
+    required this.scheme,
+    this.history,
+    this.onReturned,
+  });
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -513,6 +549,18 @@ class _ShelfCard extends StatelessWidget {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 12.5, color: scheme.onSurface)),
+          if (history != null) ...[
+            const SizedBox(height: 3),
+            Text(
+              '上次读到：${history!.chapterTitle}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 10.5,
+                color: scheme.primary.withValues(alpha: 0.85),
+              ),
+            ),
+          ],
         ],
       ),
     );
