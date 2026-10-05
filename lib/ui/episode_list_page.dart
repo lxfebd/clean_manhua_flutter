@@ -627,7 +627,20 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
               icon: Icons.playlist_play_rounded,
               title: '全集',
               count: EpisodeListPage._epCount(d),
-              trailing: _videoRecords.isNotEmpty
+              // 过滤态额外提示「匹配 N」，避免筛选后标题计数与可见集数不符。
+              trailing: _filter.trim().isNotEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Text(
+                        '匹配 ${filterVideoEpisodes(d.episodes, _filter).length}',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    )
+                  : _videoRecords.isNotEmpty
                   ? GestureDetector(
                       onTap: () {
                         final r = _videoRecords.first;
