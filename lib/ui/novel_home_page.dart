@@ -48,12 +48,14 @@ class NovelHomePageState extends State<NovelHomePage> {
   @override
   void initState() {
     super.initState();
+    _scrollCtrl.addListener(_onScroll);
     _loadSources();
   }
 
   @override
   void dispose() {
     _searchCtrl.dispose();
+    _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
     super.dispose();
   }
@@ -109,12 +111,25 @@ class NovelHomePageState extends State<NovelHomePage> {
 
   /// 请求代际：切源/刷新时自增，作废在途旧请求，防止慢响应覆盖新列表/提前清 loading。
   int _loadGen = 0;
+  int _page = 1; // 下一次加载的页码（1 基）
+  bool _noMore = false; // 源已返回空页：停止滚动触底空转
+  bool _loadMoreFailed = false; // 分页失败：尾部显示重试条（保留已加载内容）
 
   /// 站内搜索关键词（非空 = 搜索模式，显示当前源搜索结果而非榜单）。
   String _keyword = '';
   final TextEditingController _searchCtrl = TextEditingController();
 
-  Future<void> _loadNovels() async {
+  /// 滚动触底（距底部 400px 内）加载下一页；正在加载/已到底/暂无源时不触发。
+  void _onScroll() {
+    if (_noMore || _loading || _sourceId == null) return;
+    if (!_scrollCtrl.hasClients) return;
+    if (_scrollCtrl.position.pixels >
+        _scrollCtrl.position.maxScrollExtent - 400) {
+      _loadNovels(page: _page);
+    }
+  }
+
+  Future<void> _loadNovels({int? page}) async {
     if (_sourceId == null) return;
     final src = SourceManager.novelById(_sourceId!);
     if (src == null) return;
@@ -122,18 +137,47 @@ class NovelHomePageState extends State<NovelHomePage> {
     if (mounted) setState(() => _loading = true);
     try {
       final kw = _keyword.trim();
+      final p = page ?? 1;
       final list = kw.isEmpty
-          ? await src.rank(1).timeout(const Duration(seconds: 15))
-          : await src.search(kw, 1).timeout(const Duration(seconds: 15));
+          ? await src.rank(p).timeout(const Duration(seconds: 15))
+          : await src.search(kw, p).timeout(const Duration(seconds: 15));
       if (mounted && gen == _loadGen) {
-        _items = list;
+        // 空页 = 到底：置标记停止触底空转，尾部展示「已经到底啦」。
+        if (list.isEmpty) {
+          _noMore = true;
+        } else if (page == null || page == 1) {
+          // 首屏/刷新/搜索提交/切源：整体替换并重置分页状态
+          _items = list;
+          _page = 2;
+          _noMore = false;
+          _loadMoreFailed = false;
+        } else {
+          // 触底翻页：续接（去重防粘页重复）
+          final merged = <ComicItem>[];
+          final seen = <String>{};
+          for (final it in [..._items, ...list]) {
+            if (seen.add(it.id)) merged.add(it);
+          }
+          _items = merged;
+          _page = p + 1;
+        }
         _error = null;
+        _loadMoreFailed = false;
       }
     } catch (e) {
       ErrorLogger.instance.warn('novel home load failed: $e');
-      if (mounted && gen == _loadGen) _error = '加载失败，请检查网络';
+      if (mounted && gen == _loadGen) {
+        if (_items.isEmpty) {
+          _error = '加载失败，请检查网络';
+        } else {
+          // 分页失败：保留已加载内容，尾部显示重试条
+          _loadMoreFailed = true;
+        }
+      }
     } finally {
-      if (mounted && gen == _loadGen) setState(() => _loading = false);
+      if (mounted && gen == _loadGen) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -246,6 +290,7 @@ class NovelHomePageState extends State<NovelHomePage> {
               ),
             ),
             _novelGrid(scheme),
+            _paginationFooter(scheme),
           ] else
             SliverToBoxAdapter(
               child: _EmptySource(),
@@ -319,7 +364,8 @@ class NovelHomePageState extends State<NovelHomePage> {
   }
 
   Widget _novelGrid(scheme) {
-    if (_loading) {
+    // 仅首屏（列表空）加载时整页 spinner；触底翻页时列表保持 + 尾部 loading。
+    if (_loading && _items.isEmpty) {
       return const SliverToBoxAdapter(
           child: Center(
               child: Padding(
@@ -397,6 +443,62 @@ class NovelHomePageState extends State<NovelHomePage> {
           childCount: _items.length,
         ),
       ),
+    );
+  }
+
+  /// 分页尾部：加载中 / 失败重试条 / 已到底，对齐漫画首页。
+  Widget _paginationFooter(ColorScheme scheme) {
+    final out = <Widget>[
+      if (_loading)
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            child: Center(
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: scheme.primary,
+                ),
+              ),
+            ),
+          ),
+        ),
+      if (_loadMoreFailed && !_loading)
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Center(
+              child: TextButton.icon(
+                onPressed: () => _loadNovels(page: _page),
+                icon: Icon(Icons.refresh_rounded,
+                    size: 18, color: scheme.primary),
+                label: Text('加载失败，点击重试',
+                    style: TextStyle(
+                        fontSize: 12.5, color: scheme.primary)),
+              ),
+            ),
+          ),
+        ),
+      if (_noMore && _items.isNotEmpty)
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            child: Center(
+              child: Text('已经到底啦',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: scheme.onSurface.withValues(alpha: 0.35))),
+            ),
+          ),
+        ),
+    ];
+    return SliverMainAxisGroup(
+      slivers: [
+        ...out,
+        const SliverToBoxAdapter(child: SizedBox(height: 70)),
+      ],
     );
   }
 
