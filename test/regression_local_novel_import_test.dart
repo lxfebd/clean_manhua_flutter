@@ -146,6 +146,30 @@ void main() {
       final body = store.chapterBody(id, 0);
       expect(body, contains('你好世界'));
     });
+
+    test('rename 只改书名，章节不动', () async {
+      final store = LocalNovelStore(dir: tmp.path);
+      final parsed = parseTxt(
+          utf8.encode('第1章 初见\n\n你好世界。\n'), 't2.txt');
+      final id = await store.import(parsed, sourceName: '本地');
+      final renamed = await store.rename(id, '新书名');
+      expect(renamed, '新书名');
+      final meta = store.metaOf(id);
+      expect(meta!['name'], '新书名');
+      expect(meta['chapters'], isA<List>());
+      expect(store.chapterBody(id, 0), contains('你好世界'));
+    });
+
+    test('rename 空名/不存在/空白返回 null 且不改原名', () async {
+      final store = LocalNovelStore(dir: tmp.path);
+      final parsed = parseTxt(
+          utf8.encode('第1章 初见\n\n你好世界。\n'), 't3.txt');
+      final id = await store.import(parsed, sourceName: '本地');
+      expect(await store.rename(id, '   '), isNull);
+      expect(await store.rename('no-such-book', '名字'), isNull);
+      final meta = store.metaOf(id);
+      expect(meta!['name'], 't3'); // 原名未变
+    });
   });
 }
 

@@ -641,4 +641,22 @@ class LocalNovelStore {
       await d.delete(recursive: true);
     }
   }
+
+  /// 重命名本地书：仅改 book.json 的 name 字段，章节文件不动。
+  /// 返回新的书名（不存在的书返回 null）。
+  Future<String?> rename(String bookId, String newName) async {
+    if (kIsWeb || dir.isEmpty) return null;
+    final name = newName.trim();
+    if (name.isEmpty) return null;
+    final f = File(_metaPath(bookId));
+    if (!f.existsSync()) return null;
+    try {
+      final meta = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+      meta['name'] = name;
+      await f.writeAsString(jsonEncode(meta), flush: true);
+      return name;
+    } catch (_) {
+      return null;
+    }
+  }
 }

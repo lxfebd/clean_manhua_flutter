@@ -281,6 +281,53 @@ class _NovelDetailPageLocalState extends State<NovelDetailPageLocal> {
     }
   }
 
+  /// 重命名本地书：弹窗输入新书名 → LocalNovelStore.rename 改 book.json。
+  /// 成功后刷新本地 _meta 供标题即时更新（弹窗内标题来自 meta['name']）。
+  Future<void> _rename() async {
+    final meta = _meta;
+    if (meta == null) return;
+    final ctrl = TextEditingController(text: meta['name'] as String? ?? '');
+    final result = await showDialog<String>(
+      context: context,
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text('重命名本地书'),
+            content: TextField(
+              controller: ctrl,
+              autofocus: true,
+              maxLines: 1,
+              onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+              decoration: const InputDecoration(
+                labelText: '书名',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+                child: const Text('保存'),
+              ),
+            ],
+          ),
+    );
+    ctrl.dispose();
+    if (result == null || result.isEmpty || result == meta['name']) return;
+    setState(() {});
+    final ok = await LocalNovelSource.store.rename(widget.bookId, result);
+    if (!mounted) return;
+    if (ok != null) {
+      _meta = LocalNovelSource.store.metaOf(widget.bookId);
+      setState(() {});
+      AppToast.info(context, '已重命名', duration: const Duration(seconds: 1));
+    } else {
+      AppToast.error(context, '重命名失败，请重试');
+    }
+  }
+
   void _openChapter(int seq) {
     final meta = _meta;
     if (meta == null) return;
@@ -322,6 +369,11 @@ class _NovelDetailPageLocalState extends State<NovelDetailPageLocal> {
           style: const TextStyle(fontSize: 16),
         ),
         actions: [
+          IconButton(
+            tooltip: '重命名本地书',
+            icon: const Icon(Icons.edit_outlined, size: 20),
+            onPressed: _deleting ? null : _rename,
+          ),
           IconButton(
             tooltip: '删除本地书',
             icon: Icon(
