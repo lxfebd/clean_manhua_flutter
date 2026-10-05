@@ -346,8 +346,13 @@ class BookshelfDownloadView extends StatelessWidget {
     final canceled = t.state == 'canceled';
     final missing = t.state == 'done' && !hasFile;
     final (icon, color, bg) = t.state == 'done'
-        ? (Icons.play_circle_outline, scheme.primary,
-            scheme.primary.withValues(alpha: 0.12))
+        ? (missing
+            ? (Icons.help_outline_rounded,
+                T.color(scheme.onSurface, TextTier.low,
+                    brightness: scheme.brightness),
+                scheme.onSurface.withValues(alpha: 0.08))
+            : (Icons.play_circle_outline, scheme.primary,
+                scheme.primary.withValues(alpha: 0.12)))
         : failed
             ? (Icons.error_outline_rounded, Colors.red,
                 Colors.red.withValues(alpha: 0.1))
