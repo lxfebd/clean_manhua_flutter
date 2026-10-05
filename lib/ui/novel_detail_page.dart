@@ -278,6 +278,12 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
     if (resume == null || !_tocCtrl.hasClients) return;
     final d = _detail;
     if (d == null) return;
+    // 过滤态下续读章可能不在可见列表（tile 未 build，精修找不到）：
+    // 清除过滤词再定位，让「定位续读」永远有可预期的结果。
+    if (_chapterFilter.isNotEmpty) {
+      _chapterFilterCtrl.clear();
+      setState(() => _chapterFilter = '');
+    }
     final idx = d.chapters.indexWhere((c) => c.id == resume.chapter.id);
     if (idx < 0) return;
     final viewport = _tocCtrl.position.viewportDimension;
