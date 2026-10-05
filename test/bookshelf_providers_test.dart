@@ -33,6 +33,9 @@ void main() {
         return null;
       },
     );
+    // 清掉跨测试残留的静态目录缓存与写队列：前一个测试的 container dispose
+    // 后 _dir 仍指向其已删临时目录，不 reset 会让本测试读写到空目录。
+    LocalStore.resetForTest();
     await LocalStore.init();
   });
 
@@ -175,12 +178,10 @@ void main() {
       addTearDown(container.dispose);
       // animeDownloadTasksProvider 初始同步 emit 一次当前快照（StreamProvider
       // 冷流：listen 激活后收到首条即含已 seed 的任务过滤结果）。
-      final tasks = await container
-          .read(animeDownloadTasksProvider.stream)
-          .first;
-      expect(tasks.map((t) => t.title), containsAll(['进行中', '已完成']));
-      expect(tasks.map((t) => t.title), isNot(contains('失败')));
-      expect(tasks.map((t) => t.title), isNot(contains('已取消')));
+      final first = await container.read(animeDownloadTasksProvider.future);
+      expect(first.map((t) => t.title), containsAll(['进行中', '已完成']));
+      expect(first.map((t) => t.title), isNot(contains('失败')));
+      expect(first.map((t) => t.title), isNot(contains('已取消')));
     });
 
     test('任务进度变化 → 任务列表实时更新（进度可见，联动仅限下载 Tab）', () async {
@@ -234,6 +235,79 @@ void main() {
       expect(withFolder, isNot(equals(base)), reason: '内容变化必须触发重灌');
       // hashCode 契约：相等对象 hashCode 必相等。
       expect(same.hashCode, base.hashCode);
+    });
+  });
+
+  group('mangaDownloadsProvider', () {
+    Bookmark book(String comicId, String chapterId, {int done = 0, int total = 10}) =>
+        Bookmark(
+            sourceId: 'src', comicId: comicId, name: '漫画$comicId', pic: '');
+
+    test('首帧即时快照 + upsertDownload 经版本号自动重推最新进度', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      // 预置一条进行中记录（done=2/10）。
+      await LocalStore.upsertDownload(DownloadRecord(
+        book: book('1', 'c1'),
+        chapterId: 'c1',
+        chapterTitle: '第1话',
+        total: 10,
+        done: 2,
+        finished: false,
+        localKey: 'src/1/c1',
+      ));
+
+      final events = <List<DownloadRecord>>[];
+      container.listen(mangaDownloadsProvider, (prev, next) {
+        next.whenData(events.add);
+      });
+      // 首帧：listen 激活即读到已落盘记录（含 done 2）。
+      final first = await container.read(mangaDownloadsProvider.future);
+      expect(first.single.done, 2, reason: '首帧应即时反映已落盘的记录');
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(events.last.single.done, 2);
+
+      // 下载推进：落盘新进度 → downloadsVersion 自增 → 合并窗口后重推最新。
+      await LocalStore.upsertDownload(DownloadRecord(
+        book: book('1', 'c1'),
+        chapterId: 'c1',
+        chapterTitle: '第1话',
+        total: 10,
+        done: 5,
+        finished: false,
+        localKey: 'src/1/c1',
+      ));
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      expect(events.last.single.done, 5, reason: '进度变化后列表应实时反映最新进度');
+    });
+
+    test('合并 300ms：窗口内连续落盘只合并为一次重读', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final events = <List<DownloadRecord>>[];
+      container.listen(mangaDownloadsProvider, (prev, next) {
+        next.whenData(events.add);
+      });
+      await container.read(mangaDownloadsProvider.future); // 等首帧（空列表）
+      events.clear(); // 后续只看落盘触发的重推
+
+      // 模拟下载每张图落盘：连续 3 次 upsert 推进进度（都在 300ms 窗口内）。
+      for (var i = 1; i <= 3; i++) {
+        await LocalStore.upsertDownload(DownloadRecord(
+          book: book('1', 'c1'),
+          chapterId: 'c1',
+          chapterTitle: '第1话',
+          total: 10,
+          done: i,
+          finished: false,
+          localKey: 'src/1/c1',
+        ));
+      }
+      // 越过合并窗口（300ms debounce + 串行落盘耗时 + 重读 IO，留足余量）：
+      // 窗口内多次落盘应收敛为一次重推，且反映最终进度 3。
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+      expect(events, hasLength(1), reason: '窗口内 3 次落盘应合并为 1 次重读');
+      expect(events.single.single.done, 3, reason: '合并重推应反映最终进度');
     });
   });
 }

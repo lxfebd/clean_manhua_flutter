@@ -738,6 +738,7 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
     if (text == null) return;
     // 长度上限：超长直接拒绝，避免解析阶段卡死
     if (text.length > kCustomSourceJsonMaxBytes) {
+      if (!mounted) return;
       AppToast.error(
         context,
         '导入内容过长（${(text.length / 1024).toStringAsFixed(1)} KB > '

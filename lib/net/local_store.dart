@@ -1063,6 +1063,13 @@ class LocalStore {
       _write('update_check', {'ts': ts});
 
   // ---- 下载记录 ----
+
+  /// 下载记录变更版本号（书架「下载」Tab 实时刷新用，与
+  /// [BookshelfStore.foldersVersion] 同构）。所有 downloads 集合写入点
+  /// （upsert/remove/clear/恢复导入）在落盘后自增，供
+  /// `mangaDownloadsProvider` 监听、以 ~300ms 合并重读书架下载列表。
+  static final ValueNotifier<int> downloadsVersion = ValueNotifier(0);
+
   static Future<List<DownloadRecord>> downloads() async {
     try {
       final raw = await _read('downloads');
@@ -1106,6 +1113,7 @@ class LocalStore {
         }
       }
       await _writeNow('downloads', list.map((e) => e.toMap()).toList());
+      downloadsVersion.value++;
     });
   }
 
@@ -1113,6 +1121,7 @@ class LocalStore {
     await _enqueue('downloads', () async {
       final list = (await downloads()).where((d) => d.key != key).toList();
       await _writeNow('downloads', list.map((e) => e.toMap()).toList());
+      downloadsVersion.value++;
     });
   }
 
@@ -1142,6 +1151,7 @@ class LocalStore {
       ErrorLogger.instance.warn('clearDownloads file delete failed: $e');
     }
     await _write('downloads', []);
+    downloadsVersion.value++;
   }
 
   /// 仅清理已完成的下载（文件 + 记录），保留进行中的任务。
@@ -1155,6 +1165,7 @@ class LocalStore {
       }
       await _writeNow('downloads',
           list.where((d) => !d.finished).map((e) => e.toMap()).toList());
+      downloadsVersion.value++;
       return finished.length;
     });
   }
@@ -1257,6 +1268,7 @@ class LocalStore {
     // 旧备份的续播进度 key 仍是 `::` 分隔：恢复时统一改写为 `/`（P2-15）。
     await put('video_progress', _normalizeVideoProgress(data['video_progress']));
     await put('downloads', data['downloads']);
+    if (data['downloads'] != null) downloadsVersion.value++;
     await put('settings', data['settings']);
     await put('novel_read_settings', data['novel_read_settings']);
     await put('reading_stats', data['reading_stats']);

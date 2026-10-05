@@ -161,3 +161,45 @@ final animeDownloadTasksProvider =
 List<VideoDownloadTask> _activeTasks(List<VideoDownloadTask> all) => all
     .where((t) => t.state == 'downloading' || t.state == 'done')
     .toList();
+
+/// 漫画章节下载记录实时列表：与动漫侧对称，让「下载」Tab 进度条实时走动。
+///
+/// 数据仍来自 [LocalStore.downloads]（单份事实），但通过
+/// [LocalStore.downloadsVersion] 信号（每次落盘自增）+ 300ms 合并窗口
+/// 流式重读——下载进行中每张图落盘一次，若逐次触发会高频全量重读，
+/// 窗口合并后同一批并发页只产生一次读取。进度变化只影响「下载」Tab，
+/// 不再像旧版那样联动整个 [bookshelfDataProvider] 重读。
+final mangaDownloadsProvider =
+    StreamProvider<List<DownloadRecord>>((ref) async* {
+  final version = LocalStore.downloadsVersion;
+  var last = -1; // 初始 -1：即使起始版本为 0 也会先读一帧
+  // 落盘信号：每次 upsert/remove/clear 后 downloadsVersion 自增 →
+  // bump 推入流；下游 debounce 合并窗口处理。
+  final signals = StreamController<void>();
+  void bump() => signals.add(null);
+  version.addListener(bump);
+  ref.onDispose(() {
+    version.removeListener(bump);
+    signals.close();
+  });
+  yield await LocalStore.downloads();
+  // Debounce：窗口内多次落盘（每张图一次）只触发一次重读。
+  // 窗口期间新信号会重置计时器，直到连续 [debounce] 无新信号才重读。
+  const debounce = Duration(milliseconds: 300);
+  await for (final _ in signals.stream) {
+    // 窗口内又来了新信号：读最终进度前先等窗口结束。
+    // 具体实现：等待直到连续 debounce 内无新 bump。
+    var observed = version.value;
+    var changed = false;
+    while (true) {
+      await Future<void>.delayed(debounce);
+      if (version.value == observed) break;
+      observed = version.value;
+      changed = true;
+    }
+    if (changed || version.value != last) {
+      last = version.value;
+      yield await LocalStore.downloads();
+    }
+  }
+});

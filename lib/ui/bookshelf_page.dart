@@ -158,6 +158,22 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
         );
       },
     );
+    // 漫画下载记录单独订阅（同动漫侧理由：bookshelfDataProvider 内嵌的
+    // downloads 组读一次就固化，进度不动；改用 mangaDownloadsProvider 的
+    // 版本号信号 + 300ms 合并窗口流式重读，进度条实时走动）。
+    ref.listenManual<AsyncValue<List<DownloadRecord>>>(
+      mangaDownloadsProvider,
+      (prev, next) {
+        if (!mounted) return;
+        next.when(
+          data: (records) => setState(() => _mangaDownloads = records),
+          error: (e, _) {
+            ErrorLogger.instance.warn('漫画下载记录读取失败: $e');
+          },
+          loading: () {},
+        );
+      },
+    );
   }
 
   /// 把 provider 聚合快照灌入本地渲染字段（setState 已在调用方包好）。
