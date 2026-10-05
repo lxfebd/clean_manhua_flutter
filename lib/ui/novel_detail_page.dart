@@ -315,6 +315,9 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
               ),
         ),
       );
+      // 从阅读器返回：续读位可能已前进（读了新章节），重新解析历史，
+      // 让「继续阅读」按钮、目录高亮与定位按钮跟随最新进度。
+      if (mounted) _loadResume();
     } finally {
       _openingChapter = false;
     }
