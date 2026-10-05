@@ -10,13 +10,17 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../net/bookshelf_store.dart';
+import '../net/error_logger.dart';
 import '../net/image_cache.dart';
 import '../sources/comic_source.dart';
+import '../sources/novel_source.dart';
 import '../sources/source_manager.dart';
 import '../utils/booklist_text.dart';
 import '../net/local_store.dart';
 import '../net/update_checker.dart';
+import 'novel_reader_page.dart';
 import 'profile_providers.dart';
+import 'reader_page.dart';
 import 'responsive.dart';
 import 'settings_page.dart';
 import 'style_scope.dart';
@@ -353,10 +357,105 @@ class ProfilePageState extends ConsumerState<ProfilePage> {
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => _HistorySheet(entries: entries),
+      builder: (_) => _HistorySheet(
+        entries: entries,
+        onTap: _openHistoryEntry,
+      ),
     ).then((_) {
       if (mounted) _refresh();
     });
+  }
+
+  /// 阅读历史直达：先向源解析该作品目录（拿章节列表供阅读器连读/切章），
+  /// 再携带上次读到的位置直接进入阅读器。漫画/小说按源类型分流。
+  /// 网络失败不阻塞浏览：历史面板照常展示，仅对失败项提示。
+  Future<void> _openHistoryEntry(HistoryEntry h) async {
+    final b = h.book;
+    // 按 sourceId 是否小说源分流（与书架 _openFromHistory 同规则）。
+    if (SourceManager.novelById(b.sourceId) != null) {
+      final src = SourceManager.novelById(b.sourceId);
+      if (src == null) {
+        if (mounted) AppToast.error(context, '该小说源已不可用');
+        return;
+      }
+      try {
+        final detail = await src
+            .detail(b.comicId)
+            .timeout(const Duration(seconds: 15));
+        if (!mounted) return;
+        final ch = detail.chapters.isNotEmpty
+            ? detail.chapters.firstWhere(
+                (c) => c.id == h.chapterId,
+                orElse: () => detail.chapters.first,
+              )
+            : NovelChapter(h.chapterId, h.chapterTitle);
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => NovelReaderPage(
+              sourceId: b.sourceId,
+              novelId: b.comicId,
+              chapterId: ch.id,
+              title: ch.title,
+              novelName: detail.name,
+              novelPic: detail.pic ?? '',
+              novelAuthor: detail.author ?? '',
+              initialOffset: h.scrollOffset,
+            ),
+          ),
+        );
+      } catch (e) {
+        ErrorLogger.instance.warn('history novel jump failed: $e');
+        if (mounted) AppToast.error(context, '跳转失败，该作品可能已下架');
+      }
+      return;
+    }
+    final src = SourceManager.byId(b.sourceId);
+    try {
+      final detail = await src.detail(b.comicId).timeout(const Duration(seconds: 15));
+      if (!mounted) return;
+      final chapters = detail.chapters;
+      final ch = chapters.isNotEmpty
+          ? chapters.firstWhere((c) => c.id == h.chapterId,
+              orElse: () => chapters.first)
+          : Chapter(h.chapterId, h.chapterTitle);
+      await Navigator.of(context).push(
+        PageRouteBuilder<void>(
+          pageBuilder: (_, __, ___) => ReaderPage(
+            sourceId: b.sourceId,
+            comicId: b.comicId,
+            chapterId: ch.id,
+            title: ch.title,
+            comicName: detail.name,
+            comicPic: detail.pic ?? '',
+            comicAuthor: detail.author ?? '',
+            chapters: chapters,
+            initialPage: h.pageIndex,
+            initialOffset: h.scrollOffset,
+          ),
+          transitionDuration: context.uiStyle == UIStyle.minimalist
+              ? const Duration(milliseconds: 320)
+              : StyleTokens.transitionDuration(context),
+          transitionsBuilder: (_, anim, __, child) => FadeTransition(
+            opacity: anim,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 0.05),
+                end: Offset.zero,
+              ).animate(CurvedAnimation(
+                parent: anim,
+                curve: context.uiStyle == UIStyle.minimalist
+                    ? Curves.easeOut
+                    : StyleTokens.transitionCurve(context),
+              )),
+              child: child,
+            ),
+          ),
+        ),
+      );
+    } catch (e) {
+      ErrorLogger.instance.warn('history comic jump failed: $e');
+      if (mounted) AppToast.error(context, '跳转失败，该作品可能已下架');
+    }
   }
 
   void _showHelp() {
@@ -993,10 +1092,11 @@ class _ModernSwitch extends StatelessWidget {
 }
 
 
-/// 阅读历史底部弹窗（最近 30 条）。
+/// 阅读历史底部弹窗（最近 30 条）。条目可点：直达阅读器续读上次位置。
 class _HistorySheet extends StatelessWidget {
   final List<HistoryEntry> entries;
-  const _HistorySheet({required this.entries});
+  final ValueChanged<HistoryEntry> onTap;
+  const _HistorySheet({required this.entries, required this.onTap});
 
 @override
   Widget build(BuildContext context) {
@@ -1065,6 +1165,12 @@ class _HistorySheet extends StatelessWidget {
                                   brightness: scheme.brightness),
                             ),
                           ),
+                          trailing: Icon(
+                            Icons.play_circle_outline_rounded,
+                            size: 18,
+                            color: scheme.primary.withValues(alpha: 0.55),
+                          ),
+                          onTap: () => onTap(e),
                         );
                       },
                     ),
