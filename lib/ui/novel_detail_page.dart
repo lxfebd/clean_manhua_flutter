@@ -11,7 +11,7 @@ import '../ui/responsive.dart';
 import '../ui/widgets/app_toast.dart';
 import '../ui/widgets/cached_image.dart';
 import '../ui/widgets/motion.dart';
-import 'detail_providers.dart';
+import 'detail_providers.dart' as detailp;
 import 'keyboard_shortcuts.dart';
 import 'style_scope.dart';
 import 'style_tokens.dart';
@@ -99,6 +99,21 @@ class NovelDetailPage extends ConsumerStatefulWidget {
     this.pic,
   });
 
+  /// 解析「继续阅读」目标：历史里该小说最近读到的章节；无则 null（按钮不
+  /// 显示）。转发到 detail_providers 层（与漫画 [DetailPage.resolveResumeChapter]
+  /// 同模式），纯函数便于单元测试。
+  static ({NovelChapter chapter, double offset})? resolveNovelResumeChapter({
+    required List<HistoryEntry> history,
+    required List<NovelChapter> chapters,
+    required String sourceId,
+    required String novelId,
+  }) => detailp.resolveNovelResumeChapter(
+    history: history,
+    chapters: chapters,
+    sourceId: sourceId,
+    novelId: novelId,
+  );
+
   @override
   ConsumerState<NovelDetailPage> createState() => _NovelDetailPageState();
 }
@@ -107,10 +122,45 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
   bool _descExpanded = false; // 平板左侧窄面板长简介折叠
   bool _openingChapter = false; // 防连点：进入阅读器期间忽略重复点击
 
+  /// 续读位：详情加载后查历史得到最后阅读章节（无记录为 null）。
+  /// 查询在 initState 异步进行，就绪前「继续阅读」按钮不显示。
+  ({NovelChapter chapter, double offset})? _resume;
+
+  @override
+  void initState() {
+    super.initState();
+    // 详情异步加载中就绪后查续读位（initState 时 provider 未就绪，直接查
+    // 拿不到章节表）。
+    ref.listenManual(detailp.novelDetailProvider((widget.sourceId, widget.novelId)),
+        (prev, next) {
+      if (next.hasValue) _loadResume();
+    });
+  }
+
+  /// 从历史记录解析续读位（复用纯函数 [resolveNovelResumeChapter]）。
+  Future<void> _loadResume() async {
+    try {
+      final hist = await LocalStore.history();
+      final d = _detail;
+      if (d == null) return; // 详情未就绪时历史不落位（等下次进入）
+      final r = detailp.resolveNovelResumeChapter(
+        history: hist,
+        chapters: d.chapters,
+        sourceId: widget.sourceId,
+        novelId: widget.novelId,
+      );
+      if (r == null) return;
+      if (mounted) setState(() => _resume = r);
+    } catch (e) {
+      // 历史读取失败不阻塞页面：无续读按钮，用户仍可手动从目录进。
+      ErrorLogger.instance.warn('novel resume load failed: $e');
+    }
+  }
+
   /// 详情数据（provider 承载加载/超时/错误日志；页面只读展示）。
   NovelDetail? get _detail {
     final v = ref.read(
-      novelDetailProvider((widget.sourceId, widget.novelId)),
+      detailp.novelDetailProvider((widget.sourceId, widget.novelId)),
     );
     return v.when(data: (d) => d, loading: () => null, error: (_, __) => null);
   }
@@ -118,14 +168,14 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
   /// 加载中：详情 provider 未就绪。
   bool get _loading =>
       ref
-          .watch(novelDetailProvider((widget.sourceId, widget.novelId)))
+          .watch(detailp.novelDetailProvider((widget.sourceId, widget.novelId)))
           .isLoading;
 
   /// 错误文案：源缺失 → 「未找到小说源」；其余统一网络文案。
   String? get _error {
-    final v = ref.watch(novelDetailProvider((widget.sourceId, widget.novelId)));
+    final v = ref.watch(detailp.novelDetailProvider((widget.sourceId, widget.novelId)));
     if (v.hasError) {
-      if (v.error is NovelSourceMissing) return '未找到小说源';
+      if (v.error is detailp.NovelSourceMissing) return '未找到小说源';
       return '加载失败，请检查网络后重试';
     }
     return null;
@@ -134,7 +184,7 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
   /// 是否在书架（本地状态，读取即缓存；增删经 invalidate 刷新）。
   bool get _saved {
     final v = ref.watch(
-      novelInShelfProvider((widget.sourceId, widget.novelId)),
+      detailp.novelInShelfProvider((widget.sourceId, widget.novelId)),
     );
     return v.when(data: (d) => d, loading: () => false, error: (_, __) => false);
   }
@@ -157,7 +207,7 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
     if (!mounted) return;
     // 翻转书架状态：失效 provider 让下次读取重跑 isInBookshelf（异步，
     // UI 随 watch 重建自动反映新值）；toast 用本地捕获的旧值取反。
-    ref.invalidate(novelInShelfProvider((widget.sourceId, widget.novelId)));
+    ref.invalidate(detailp.novelInShelfProvider((widget.sourceId, widget.novelId)));
     AppToast.info(
       context,
       wasSaved ? '已移出书架' : '已加入书架',
@@ -165,27 +215,31 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
     );
   }
 
-  void _openChapter(NovelChapter ch) async {
+  void _openChapter(NovelChapter ch, {double resumeOffset = 0}) async {
     // 防连点：history() await 期间重复点击会 push 多个阅读器。
     if (_openingChapter) return;
     _openingChapter = true;
     HapticFeedback.selectionClick();
     try {
       final d = _detail!;
-      final hist = await LocalStore.history();
-      final key =
-          Bookmark(
-            sourceId: widget.sourceId,
-            comicId: widget.novelId,
-            name: '',
-            pic: '',
-          ).key;
-      // 倒序找最新一条：同一章节被多次记录时取最近一次位置。
-      var scrollOffset = 0.0;
-      for (final h in hist.reversed) {
-        if (h.book.key == key && h.chapterId == ch.id) {
-          scrollOffset = h.scrollOffset;
-          break;
+      // 续读直达场景（「继续阅读」按钮）已带偏移，无需再查历史；
+      // 目录手动点选仍按历史恢复该章节内的滚动位置。
+      var scrollOffset = resumeOffset;
+      if (resumeOffset == 0) {
+        final hist = await LocalStore.history();
+        final key =
+            Bookmark(
+              sourceId: widget.sourceId,
+              comicId: widget.novelId,
+              name: '',
+              pic: '',
+            ).key;
+        // 倒序找最新一条：同一章节被多次记录时取最近一次位置。
+        for (final h in hist.reversed) {
+          if (h.book.key == key && h.chapterId == ch.id) {
+            scrollOffset = h.scrollOffset;
+            break;
+          }
         }
       }
       if (!mounted) return;
@@ -249,7 +303,7 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                     const SizedBox(height: 12),
                     FilledButton(
                       onPressed: () => ref.invalidate(
-                        novelDetailProvider(
+                        detailp.novelDetailProvider(
                           (widget.sourceId, widget.novelId),
                         ),
                       ),
@@ -321,6 +375,17 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                     ),
                   ),
                 const SizedBox(height: 10),
+                if (_resume != null) ...[
+                  FilledButton.icon(
+                    onPressed: () => _openChapter(
+                      _resume!.chapter,
+                      resumeOffset: _resume!.offset,
+                    ),
+                    icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                    label: Text('继续阅读'),
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 FilledButton.icon(
                   onPressed: _toggleSave,
                   icon: Icon(
@@ -447,6 +512,17 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                           ),
                         ),
                       const SizedBox(height: 10),
+                      if (_resume != null) ...[
+                        FilledButton.icon(
+                          onPressed: () => _openChapter(
+                            _resume!.chapter,
+                            resumeOffset: _resume!.offset,
+                          ),
+                          icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                          label: Text('继续阅读'),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
                       FilledButton.icon(
                         onPressed: _toggleSave,
                         icon: Icon(

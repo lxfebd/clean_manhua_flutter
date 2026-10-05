@@ -32,6 +32,32 @@ Chapter? resolveResumeChapter({
   return null;
 }
 
+/// 解析小说「继续阅读」目标：从历史里找该小说最近读到的章节及其滚动位置；
+/// 无则返回 null（按钮不显示）。纯函数便于单元测试，行为与历史/章节数据
+/// 契约解耦。同 [resolveResumeChapter]，章节已从源移除时用历史条目构造兜底。
+({NovelChapter chapter, double offset})? resolveNovelResumeChapter({
+  required List<HistoryEntry> history,
+  required List<NovelChapter> chapters,
+  required String sourceId,
+  required String novelId,
+}) {
+  final key =
+      Bookmark(sourceId: sourceId, comicId: novelId, name: '', pic: '').key;
+  for (final h in history.reversed) {
+    if (h.book.key != key) continue;
+    for (final c in chapters) {
+      if (c.id == h.chapterId) {
+        return (chapter: c, offset: h.scrollOffset);
+      }
+    }
+    return (
+      chapter: NovelChapter(h.chapterId, h.chapterTitle),
+      offset: h.scrollOffset,
+    );
+  }
+  return null;
+}
+
 /// 小说源缺失（详情页需要展示「未找到小说源」而非网络错误）。
 class NovelSourceMissing implements Exception {
   final String sourceId;
