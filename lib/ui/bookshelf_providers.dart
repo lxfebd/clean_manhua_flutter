@@ -136,9 +136,10 @@ final bookshelfDataProvider = FutureProvider<BookshelfData>((ref) async {
   );
 });
 
-/// 动漫下载任务实时列表：展示进行中 + 已完成（此前只取 done → 动漫下载
-/// 进行中在书架「下载」页完全不可见，用户以为任务丢了）。failed/canceled
-/// 是已终止的历史残留，不占列表。
+/// 动漫下载任务实时列表：展示下载中 / 已完成 / 失败 / 已取消全部状态
+/// （此前只取 done → 进行中在书架「下载」页完全不可见，用户以为任务丢了；
+/// 失败/取消被过滤 → 失败后在列表消失，既看不到原因也没有重试入口）。
+/// 四种状态都是用户关心的呈现对象；清理动作（删除文件/清空）仍由卡片提供。
 ///
 /// 使用 [StreamProvider]：`VideoDownloadManager.instance.notifier` 每 ~300ms
 /// 推送一次进度，流式产出让「下载」Tab 进度条实时走动，且**只**影响下载
@@ -148,7 +149,7 @@ final animeDownloadTasksProvider =
   final notifier = VideoDownloadManager.instance.notifier;
   final controller = StreamController<List<VideoDownloadTask>>();
   void emit() =>
-      controller.add(_activeTasks(VideoDownloadManager.instance.tasks));
+      controller.add(_visibleTasks(VideoDownloadManager.instance.tasks));
   notifier.addListener(emit);
   ref.onDispose(() {
     notifier.removeListener(emit);
@@ -158,8 +159,13 @@ final animeDownloadTasksProvider =
   return controller.stream;
 });
 
-List<VideoDownloadTask> _activeTasks(List<VideoDownloadTask> all) => all
-    .where((t) => t.state == 'downloading' || t.state == 'done')
+/// 下载 Tab 可见任务：四种状态全保留（进行中/完成/失败/取消）。
+/// 失败/取消是用户需要看到并重试/删除的呈现对象，而非可丢弃的历史残留。
+List<VideoDownloadTask> _visibleTasks(List<VideoDownloadTask> all) => all
+    .where((t) => t.state == 'downloading' ||
+        t.state == 'done' ||
+        t.state == 'failed' ||
+        t.state == 'canceled')
     .toList();
 
 /// 漫画章节下载记录实时列表：与动漫侧对称，让「下载」Tab 进度条实时走动。

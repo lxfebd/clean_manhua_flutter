@@ -153,7 +153,7 @@ void main() {
       expect(after.folders.map((f) => f['name']), contains('新分类'));
     });
 
-    test('动漫下载过滤：仅展示进行中 + 已完成，终止的历史残留不占列表', () async {
+    test('动漫下载过滤：四种状态全部呈现（进行中/已完成/失败/已取消）', () async {
       final m = VideoDownloadManager.instance;
       await m.resetForTest();
       addTearDown(m.resetForTest);
@@ -179,9 +179,8 @@ void main() {
       // animeDownloadTasksProvider 初始同步 emit 一次当前快照（StreamProvider
       // 冷流：listen 激活后收到首条即含已 seed 的任务过滤结果）。
       final first = await container.read(animeDownloadTasksProvider.future);
-      expect(first.map((t) => t.title), containsAll(['进行中', '已完成']));
-      expect(first.map((t) => t.title), isNot(contains('失败')));
-      expect(first.map((t) => t.title), isNot(contains('已取消')));
+      expect(first.map((t) => t.title),
+          containsAll(['进行中', '已完成', '失败', '已取消']));
     });
 
     test('任务进度变化 → 任务列表实时更新（进度可见，联动仅限下载 Tab）', () async {

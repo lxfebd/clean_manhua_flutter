@@ -36,6 +36,7 @@ class BookshelfDownloadView extends StatelessWidget {
     required this.onRemoveManga,
     required this.onClearAnime,
     required this.onOpenAnime,
+    required this.onRetryAnime,
     required this.onRemoveAnime,
   });
 
@@ -67,6 +68,9 @@ class BookshelfDownloadView extends StatelessWidget {
 
   /// 打开本地动漫视频（或提示文件缺失）。
   final void Function(VideoDownloadTask task) onOpenAnime;
+
+  /// 重新下载失败的动漫单集（重试走同一 start 入口恢复原任务）。
+  final Future<void> Function(VideoDownloadTask task) onRetryAnime;
 
   /// 删除单条动漫下载（含确认对话框）。
   final void Function(VideoDownloadTask task) onRemoveAnime;
@@ -332,6 +336,28 @@ class BookshelfDownloadView extends StatelessWidget {
     final hasFile = !kIsWeb &&
         t.localPath != null &&
         File(t.localPath!).existsSync();
+    // 三态区分（与漫画卡片同构，取消≠失败）：
+    // - done + 文件在      → 完成（蓝/绿，可播放）
+    // - done + 文件缺失    → 文件缺失（灰，可删除重下）
+    // - failed             → 失败（红，显示原因 + 可重试）
+    // - canceled           → 已取消（中性灰，可重新下载）
+    // - downloading        → 进行中（橙，进度条实时走动）
+    final failed = t.state == 'failed';
+    final canceled = t.state == 'canceled';
+    final missing = t.state == 'done' && !hasFile;
+    final (icon, color, bg) = t.state == 'done'
+        ? (Icons.play_circle_outline, scheme.primary,
+            scheme.primary.withValues(alpha: 0.12))
+        : failed
+            ? (Icons.error_outline_rounded, Colors.red,
+                Colors.red.withValues(alpha: 0.1))
+            : canceled
+                ? (Icons.stop_circle_outlined,
+                    T.color(scheme.onSurface, TextTier.low,
+                        brightness: scheme.brightness),
+                    scheme.onSurface.withValues(alpha: 0.08))
+                : (Icons.downloading_rounded, Colors.orange,
+                    Colors.orange.withValues(alpha: 0.1));
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -351,16 +377,10 @@ class BookshelfDownloadView extends StatelessWidget {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: hasFile
-                    ? scheme.primary.withValues(alpha: 0.12)
-                    : Colors.orange.withValues(alpha: 0.1),
+                color: bg,
                 borderRadius: BorderRadius.circular(R.control),
               ),
-              child: Icon(
-                hasFile ? Icons.play_circle_outline : Icons.downloading_rounded,
-                size: 20,
-                color: hasFile ? scheme.primary : Colors.orange,
-              ),
+              child: Icon(icon, size: 20, color: color),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -374,15 +394,63 @@ class BookshelfDownloadView extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                           color: scheme.onSurface)),
                   const SizedBox(height: 4),
-                  Text('第 ${t.episode} 集${hasFile ? '' : ' · 文件缺失'}',
+                  Text(
+                      missing
+                          ? '第 ${t.episode} 集 · 文件缺失'
+                          : failed
+                              ? '第 ${t.episode} 集：${t.error ?? '下载失败'}'
+                              : canceled
+                                  ? '第 ${t.episode} 集 · 已取消'
+                                  : '第 ${t.episode} 集',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: text.bodySmall?.copyWith(
-                          color: T.color(scheme.onSurface, TextTier.low,
-                              brightness: scheme.brightness))),
+                          color: failed
+                              ? Colors.red
+                              : T.color(scheme.onSurface, TextTier.low,
+                                  brightness: scheme.brightness))),
+                  if (t.state == 'downloading') ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(2),
+                            child: LinearProgressIndicator(
+                              value: t.progress,
+                              minHeight: 4,
+                              backgroundColor:
+                                  T.color(scheme.onSurface, TextTier.hairline,
+                                      brightness: scheme.brightness),
+                              valueColor:
+                                  AlwaysStoppedAnimation(scheme.primary),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                            t.totalBytes > 0
+                                ? '${(t.progress * 100).round()}%'
+                                : '${t.segmentsDone}/${t.segmentsTotal}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: text.labelSmall?.copyWith(
+                                color: T.color(scheme.onSurface,
+                                    TextTier.low,
+                                    brightness: scheme.brightness))),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
+            if (failed || canceled || missing)
+              IconButton(
+                icon: Icon(Icons.refresh_rounded,
+                    color: scheme.primary.withValues(alpha: 0.8)),
+                tooltip: '重新下载',
+                onPressed: () => onRetryAnime(t),
+              ),
             IconButton(
               icon: Icon(Icons.close_rounded,
                   color: T.color(scheme.onSurface, TextTier.disabled,

@@ -565,6 +565,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
             onRemoveManga: _confirmRemoveManga,
             onClearAnime: _confirmClearAnimeAll,
             onOpenAnime: _openAnimeDownload,
+            onRetryAnime: _retryAnimeDownload,
             onRemoveAnime: _confirmRemoveAnime,
           )
         else
@@ -953,6 +954,25 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     AppToast.info(context, '已删除动漫下载');
   }
 
+  /// 重新下载失败的动漫单集：复用任务原信息走 start 入口（key 相同会
+  /// 直接恢复原任务，无需先删再下——重试即把 failed/canceled 拉回
+  /// downloading）。
+  Future<void> _retryAnimeDownload(VideoDownloadTask t) async {
+    try {
+      final started = await VideoDownloadManager.instance.retry(t.key);
+      if (!mounted) return;
+      if (started) {
+        AppToast.info(context, '已重新加入下载队列');
+      } else {
+        AppToast.info(context, '该任务已在下载或已删除', duration: const Duration(seconds: 2));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      AppToast.error(context, '重试失败，请稍后再试');
+      ErrorLogger.instance.warn('anime download retry failed: $e');
+    }
+  }
+
   void _confirmRemoveAnime(VideoDownloadTask t) {
     showDialog(
       context: context,
@@ -1318,6 +1338,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
             onRemoveManga: _confirmRemoveManga,
             onClearAnime: _confirmClearAnimeAll,
             onOpenAnime: _openAnimeDownload,
+            onRetryAnime: _retryAnimeDownload,
             onRemoveAnime: _confirmRemoveAnime,
           )
         else
