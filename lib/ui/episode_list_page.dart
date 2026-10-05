@@ -9,6 +9,23 @@ import 'native_player_page.dart';
 import 'responsive.dart';
 import 'widgets/app_toast.dart';
 
+/// 选集过滤纯函数（选集搜索框用；独立便于单元测试）。
+/// [filter] 按剧集标题模糊匹配，也支持直接输集数（如「12」匹配第 12 集）；
+/// 空 = 原列表原样。
+List<VideoEpisode> filterVideoEpisodes(
+  List<VideoEpisode> eps,
+  String filter,
+) {
+  final f = filter.trim().toLowerCase();
+  if (f.isEmpty) return eps;
+  return [
+    for (final e in eps)
+      if (e.title.toLowerCase().contains(f) ||
+          e.episode.toString().contains(f))
+        e,
+  ];
+}
+
 /// B站风格视频详情页：大封面 + 元信息 + 选集网格。
 class EpisodeListPage extends StatefulWidget {
   final VideoSource source;
@@ -36,11 +53,19 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
   List<VideoRecord> _videoRecords = [];
   final Map<int, int> _linePages = {};
   static const int _epsPerPage = 12;
+  final TextEditingController _filterCtrl = TextEditingController();
+  String _filter = '';
 
   @override
   void initState() {
     super.initState();
     _loadHistory();
+  }
+
+  @override
+  void dispose() {
+    _filterCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _loadHistory() async {
@@ -635,7 +660,69 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
   /// 仅当存在多个源时才显示分组头，单源时退化为原来的扁平网格。
   List<Widget> _buildEpisodeSlivers(ThemeData theme, VideoDetail d) {
     final scheme = theme.colorScheme;
-    final flat = d.episodes;
+    // 搜索过滤：标题/集数模糊匹配；过滤后重算分页（集数变少自动退化为单页）。
+    final flat = filterVideoEpisodes(d.episodes, _filter);
+    final out = <Widget>[
+      // 选集搜索框：数百集番剧按标题/集数关键词定位（与章节搜索对齐）。
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+          child: TextField(
+            controller: _filterCtrl,
+            onChanged: (v) => setState(() => _filter = v),
+            style: TextStyle(fontSize: 13.5, color: scheme.onSurface),
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: '搜索剧集（标题 / 集数）',
+              hintStyle: TextStyle(
+                fontSize: 13,
+                color: scheme.onSurface.withValues(alpha: 0.4),
+              ),
+              prefixIcon: Icon(
+                Icons.search_rounded,
+                size: 18,
+                color: scheme.onSurface.withValues(alpha: 0.5),
+              ),
+              suffixIcon: _filter.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: '清除',
+                      icon: const Icon(Icons.close_rounded, size: 16),
+                      onPressed: () {
+                        _filterCtrl.clear();
+                        setState(() => _filter = '');
+                      },
+                    ),
+              filled: true,
+              fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ),
+      ),
+      if (flat.isEmpty)
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 32),
+            child: Center(
+              child: Text(
+                _filter.trim().isEmpty
+                    ? '暂无剧集'
+                    : '没有匹配「$_filter」的剧集',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: scheme.onSurface.withValues(alpha: 0.55),
+                ),
+              ),
+            ),
+          ),
+        ),
+    ];
     final bySeason = <int, List<VideoEpisode>>{};
     for (final e in flat) {
       (bySeason[e.season] ??= []).add(e);
@@ -650,7 +737,6 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
         ),
     ];
     final multi = groups.length > 1;
-    final out = <Widget>[];
     for (final g in groups) {
       final total = g.eps.length;
       final pageCount = (total + _epsPerPage - 1) ~/ _epsPerPage;
@@ -703,7 +789,9 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
           delegate: SliverChildBuilderDelegate(
             (c, i) {
               final ep = pageEps[i];
-              final flatIdx = flat.indexOf(ep);
+              // 用原始全量列表找下标：过滤后列表位置 ≠ 播放器索引，
+              // 切集/高亮须基于全量集序。
+              final flatIdx = widget.detail.episodes.indexOf(ep);
               final isOpening = _openingIndex == flatIdx;
               final isCurrent =
                   ep.season == _curSeason && ep.episode == _curEpisode;
