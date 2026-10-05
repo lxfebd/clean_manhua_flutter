@@ -1112,12 +1112,39 @@ class _ModernSwitch extends StatelessWidget {
 
 
 /// 阅读历史底部弹窗（最近 30 条）。条目可点：直达阅读器续读上次位置。
-class _HistorySheet extends StatelessWidget {
+/// 阅读历史过滤纯函数（历史弹窗搜索框用；独立便于单元测试）。
+/// [filter] 按书名或章节标题模糊匹配（空 = 原列表原样）。
+List<HistoryEntry> filterHistoryEntries(List<HistoryEntry> entries, String filter) {
+  final f = filter.trim().toLowerCase();
+  if (f.isEmpty) return entries;
+  return [
+    for (final e in entries)
+      if (e.book.name.toLowerCase().contains(f) ||
+          e.chapterTitle.toLowerCase().contains(f))
+        e,
+  ];
+}
+
+class _HistorySheet extends StatefulWidget {
   final List<HistoryEntry> entries;
   final ValueChanged<HistoryEntry> onTap;
   const _HistorySheet({required this.entries, required this.onTap});
 
-@override
+  @override
+  State<_HistorySheet> createState() => _HistorySheetState();
+}
+
+class _HistorySheetState extends State<_HistorySheet> {
+  final _filterCtrl = TextEditingController();
+  String _filter = '';
+
+  @override
+  void dispose() {
+    _filterCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
@@ -1130,7 +1157,7 @@ class _HistorySheet extends StatelessWidget {
           borderRadius:
               BorderRadius.circular(R.of(R.sheet, style: context.uiStyle)),
         ),
-        child: entries.isEmpty
+        child: widget.entries.isEmpty
             ? StateView(
                 kind: StateViewKind.empty,
                 message: '暂无阅读记录',
@@ -1144,59 +1171,136 @@ class _HistorySheet extends StatelessWidget {
                 children: [
                   const SheetHandle(),
                   const SizedBox(height: 12),
-                  Text('阅读历史（最近 ${entries.length} 条）',
+                  Text('阅读历史（最近 ${widget.entries.length} 条）',
                       style: text.titleMedium),
                   const SizedBox(height: S.x8),
+                  TextField(
+                    controller: _filterCtrl,
+                    onChanged: (v) => setState(() => _filter = v),
+                    style: TextStyle(fontSize: 13.5, color: scheme.onSurface),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      hintText: '搜索书名 / 章节',
+                      hintStyle: TextStyle(
+                        fontSize: 13,
+                        color: scheme.onSurface.withValues(alpha: 0.4),
+                      ),
+                      prefixIcon: Icon(
+                        Icons.search_rounded,
+                        size: 18,
+                        color: scheme.onSurface.withValues(alpha: 0.5),
+                      ),
+                      suffixIcon: _filter.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: '清除',
+                              icon: const Icon(Icons.close_rounded, size: 16),
+                              onPressed: () {
+                                _filterCtrl.clear();
+                                setState(() => _filter = '');
+                              },
+                            ),
+                      filled: true,
+                      fillColor:
+                          scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: S.x8),
                   Flexible(
-                    child: ListView.separated(
-                      shrinkWrap: true,
-                      itemCount: entries.length,
-                      separatorBuilder: (_, __) =>
-                          RowSeparator(tier: TextTier.hairline),
-                      itemBuilder: (_, i) {
-                        final e = entries[i];
-                        return ListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          leading: SizedBox(
-                            width: 42,
-                            height: 56,
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(R.control),
-                              child: (e.book.pic.isEmpty)
-                                  ? Container(color: scheme.surfaceContainerHighest)
-                                  : CachedImage(e.book.pic,
-                                      fit: BoxFit.cover, radius: 0),
-                            ),
-                          ),
-                          title: Text(
-                            e.book.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: text.bodyMedium,
-                          ),
-                          subtitle: Text(
-                            '读到 ${e.chapterTitle.isEmpty ? '未知章节' : e.chapterTitle}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: text.labelSmall?.copyWith(
-                              color: T.color(scheme.onSurface, TextTier.low,
-                                  brightness: scheme.brightness),
-                            ),
-                          ),
-                          trailing: Icon(
-                            Icons.play_circle_outline_rounded,
-                            size: 18,
-                            color: scheme.primary.withValues(alpha: 0.55),
-                          ),
-                          onTap: () => onTap(e),
-                        );
-                      },
+                    child: _HistoryList(
+                      entries: filterHistoryEntries(widget.entries, _filter),
+                      filter: _filter,
+                      onTap: widget.onTap,
+                      scheme: scheme,
+                      text: text,
                     ),
                   ),
                 ],
               ),
       ),
+    );
+  }
+}
+
+/// 历史条目列表（过滤空态 / 条目复用，减少 _HistorySheet build 膨胀）。
+class _HistoryList extends StatelessWidget {
+  final List<HistoryEntry> entries;
+  final String filter;
+  final ValueChanged<HistoryEntry> onTap;
+  final ColorScheme scheme;
+  final TextTheme text;
+  const _HistoryList({
+    required this.entries,
+    required this.filter,
+    required this.onTap,
+    required this.scheme,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (entries.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 24),
+          child: Text(
+            '没有匹配「$filter」的记录',
+            style: TextStyle(
+              fontSize: 13,
+              color: scheme.onSurface.withValues(alpha: 0.55),
+            ),
+          ),
+        ),
+      );
+    }
+    return ListView.separated(
+      shrinkWrap: true,
+      itemCount: entries.length,
+      separatorBuilder: (_, __) => RowSeparator(tier: TextTier.hairline),
+      itemBuilder: (_, i) {
+        final e = entries[i];
+        return ListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          leading: SizedBox(
+            width: 42,
+            height: 56,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(R.control),
+              child: (e.book.pic.isEmpty)
+                  ? Container(color: scheme.surfaceContainerHighest)
+                  : CachedImage(e.book.pic, fit: BoxFit.cover, radius: 0),
+            ),
+          ),
+          title: Text(
+            e.book.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: text.bodyMedium,
+          ),
+          subtitle: Text(
+            '读到 ${e.chapterTitle.isEmpty ? '未知章节' : e.chapterTitle}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: text.labelSmall?.copyWith(
+              color: T.color(scheme.onSurface, TextTier.low,
+                  brightness: scheme.brightness),
+            ),
+          ),
+          trailing: Icon(
+            Icons.play_circle_outline_rounded,
+            size: 18,
+            color: scheme.primary.withValues(alpha: 0.55),
+          ),
+          onTap: () => onTap(e),
+        );
+      },
     );
   }
 }
