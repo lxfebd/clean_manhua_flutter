@@ -450,16 +450,22 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                   itemCount: d.chapters.length,
                   itemBuilder: (ctx, i) {
                     final ch = d.chapters[i];
+                    final isResume = _resume?.chapter.id == ch.id;
                     return ListTile(
                       dense: true,
                       title: Text(
                         ch.title,
-                        style: TextStyle(fontSize: 14, color: scheme.onSurface),
+                        style: TextStyle(
+                          fontSize: 14,
+                          color:
+                              isResume ? scheme.primary : scheme.onSurface,
+                          fontWeight: isResume ? FontWeight.w600 : null,
+                        ),
                       ),
-                      trailing: const Icon(
-                        Icons.chevron_right_rounded,
-                        size: 18,
-                      ),
+                      trailing: isResume
+                          ? Icon(Icons.play_circle_fill_rounded,
+                              size: 18, color: scheme.primary)
+                          : const Icon(Icons.chevron_right_rounded, size: 18),
                       onTap: () => _openChapter(ch),
                     );
                   },
@@ -595,15 +601,24 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
         SliverList(
           delegate: SliverChildBuilderDelegate((ctx, i) {
             final ch = d.chapters[i];
+            final isResume = _resume?.chapter.id == ch.id;
             return FadeSlideIn(
               delay: Duration(milliseconds: 250 + 30 * (i % 20)),
               child: ListTile(
                 dense: true,
+                // 续读章节高亮：主题色文字 + 播放小图标，用户一眼定位追更位。
                 title: Text(
                   ch.title,
-                  style: TextStyle(fontSize: 14, color: scheme.onSurface),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: isResume ? scheme.primary : scheme.onSurface,
+                    fontWeight: isResume ? FontWeight.w600 : null,
+                  ),
                 ),
-                trailing: const Icon(Icons.chevron_right_rounded, size: 18),
+                trailing: isResume
+                    ? Icon(Icons.play_circle_fill_rounded,
+                        size: 18, color: scheme.primary)
+                    : const Icon(Icons.chevron_right_rounded, size: 18),
                 onTap: () => _openChapter(ch),
               ),
             );
