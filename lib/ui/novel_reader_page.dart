@@ -157,10 +157,14 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
   }
 
   /// 读取当前章书签状态（B 键/目录高亮用）。
+  /// 异步查询返回前若已换章，丢弃结果——快速连点翻章时旧章的查询晚
+  /// 返回会覆盖新章的正确书签态（按钮高亮错乱）。
   Future<void> _initBookmark() async {
+    final chapterId = _curChapterId;
     final marked = await LocalStore.isBookmarked(
-        widget.sourceId, widget.novelId, _curChapterId, 0);
-    if (mounted) setState(() => _bookmarked = marked);
+        widget.sourceId, widget.novelId, chapterId, 0);
+    if (!mounted || _curChapterId != chapterId) return;
+    setState(() => _bookmarked = marked);
   }
 
   /// 书签当前章：复用漫画书签存储（pageIndex 固定 0），书架"书签"栏统一展示。
