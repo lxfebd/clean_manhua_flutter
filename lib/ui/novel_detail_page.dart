@@ -119,6 +119,10 @@ class NovelDetailPage extends ConsumerStatefulWidget {
   ConsumerState<NovelDetailPage> createState() => _NovelDetailPageState();
 }
 
+/// 「缓存后续」预取章节数：从续读章下一个开始向后预取，覆盖离线追更
+/// 常用量。单章 15s 超时、失败跳过，串行不阻塞 UI。
+const int prefetchCount = 20;
+
 class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
   bool _descExpanded = false; // 平板左侧窄面板长简介折叠
   bool _openingChapter = false; // 防连点：进入阅读器期间忽略重复点击
@@ -139,11 +143,77 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
   /// 断网时用户能一眼看出哪些章节可直接离线读。
   Set<String> _cachedIds = const {};
 
+  /// 「缓存后续」预取状态：null = 空闲，否则正在预取（value = 已完成/总数）。
+  /// 预取串行跑，可取消（置 true 后当前章结束后中断）。
+  ({int done, int total})? _prefetch;
+  bool _prefetchCancel = false;
+
   /// 续读章节是否在当前目录里（历史兜底章节可能已被源下架）。
   bool get _hasResumeInList {
     final r = _resume;
     final d = _detail;
     return r != null && d != null && d.chapters.any((c) => c.id == r.chapter.id);
+  }
+
+  /// 预取起点：续读章节的下一个（继续往追更位置之前的不重复拉）。
+  NovelChapter? get _prefetchStart {
+    final r = _resume;
+    final d = _detail;
+    if (r == null || d == null) return null;
+    final idx = d.chapters.indexWhere((c) => c.id == r.chapter.id);
+    if (idx < 0 || idx + 1 >= d.chapters.length) return null;
+    return d.chapters[idx + 1];
+  }
+
+  /// 串行预取「续读章之后的 [prefetchCount] 章」离线缓存。
+  /// 每章 15s 超时、失败跳过继续（源站单章挂了不阻塞整批），可取消。
+  Future<void> _prefetchChapters() async {
+    final s = SourceManager.novelById(widget.sourceId);
+    final d = _detail;
+    final start = _prefetchStart;
+    if (s == null || d == null || start == null) return;
+    final idx0 = d.chapters.indexWhere((c) => c.id == start.id);
+    if (idx0 < 0) return;
+    final total = (d.chapters.length - idx0).clamp(1, prefetchCount);
+    final targets = d.chapters.sublist(idx0, idx0 + total);
+    _prefetchCancel = false;
+    setState(() => _prefetch = (done: 0, total: total));
+    var done = 0;
+    var cancelled = false;
+    for (final ch in targets) {
+      if (_prefetchCancel || !mounted) {
+        cancelled = _prefetchCancel;
+        break;
+      }
+      try {
+        final c = await s
+            .chapterContent(ch.id)
+            .timeout(const Duration(seconds: 15));
+        if (mounted) {
+          await NovelChapterCache.write(
+            widget.sourceId,
+            widget.novelId,
+            ch.id,
+            c,
+          );
+        }
+      } catch (e) {
+        // 单章失败跳过：断更/被墙章节不阻塞整批预取。
+        ErrorLogger.instance.warn(
+            '[novel-prefetch] chapter ${ch.id} failed: $e');
+      }
+      done++;
+      if (mounted) setState(() => _prefetch = (done: done, total: total));
+    }
+    if (!mounted) return;
+    setState(() {
+      _prefetch = null;
+      _prefetchCancel = false;
+    });
+    _loadCachedIds(); // 刷新目录离线标记
+    if (!cancelled && done > 0) {
+      AppToast.info(context, '已缓存 $done 章，可离线阅读');
+    }
   }
 
   @override
@@ -526,7 +596,31 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                       ),
                     ),
                     const Spacer(),
-                    if (_hasResumeInList)
+                    if (_prefetch != null)
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                        ),
+                        onPressed: () => setState(() => _prefetchCancel = true),
+                        icon: const Icon(Icons.stop_circle_rounded, size: 14),
+                        label: Text(
+                          '缓存中 ${_prefetch!.done}/${_prefetch!.total}',
+                          style: const TextStyle(fontSize: 12.5),
+                        ),
+                      )
+                    else if (_prefetchStart != null)
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                        ),
+                        onPressed: _prefetchChapters,
+                        icon: const Icon(Icons.download_rounded, size: 14),
+                        label: const Text('缓存后续',
+                            style: TextStyle(fontSize: 12.5)),
+                      )
+                    else if (_hasResumeInList)
                       TextButton.icon(
                         style: TextButton.styleFrom(
                           visualDensity: VisualDensity.compact,
@@ -705,7 +799,31 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                     ),
                   ),
                   const Spacer(),
-                  if (_hasResumeInList)
+                  if (_prefetch != null)
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                      onPressed: () => setState(() => _prefetchCancel = true),
+                      icon: const Icon(Icons.stop_circle_rounded, size: 14),
+                      label: Text(
+                        '缓存中 ${_prefetch!.done}/${_prefetch!.total}',
+                        style: const TextStyle(fontSize: 12.5),
+                      ),
+                    )
+                  else if (_prefetchStart != null)
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                      onPressed: _prefetchChapters,
+                      icon: const Icon(Icons.download_rounded, size: 14),
+                      label: const Text('缓存后续',
+                          style: TextStyle(fontSize: 12.5)),
+                    )
+                  else if (_hasResumeInList)
                     TextButton.icon(
                       style: TextButton.styleFrom(
                         visualDensity: VisualDensity.compact,
