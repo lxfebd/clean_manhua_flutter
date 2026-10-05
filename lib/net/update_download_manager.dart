@@ -219,6 +219,9 @@ class UpdateDownloadManager {
       final total = _totalSize > 0 ? _totalSize : respTotal;
 
       final sink = file.openWrite(mode: FileMode.append);
+      // 本次镜像会话起点：续传时 received 含已下字节，速度必须用增量算
+      // （旧版 avgSpeed = received / 耗时 在续传时恒虚高，慢速换镜像失效）。
+      final sessionStart = received;
       var lastTick = DateTime.now();
       var lastBytes = received;
       final startTime = DateTime.now();
@@ -241,11 +244,13 @@ class UpdateDownloadManager {
           lastTick = now;
           // 慢速检测：前 10 秒内平均速度 < 50KB/s 则放弃当前镜像换下一个。
           // 不删除已下载文件，下一个镜像用 Range 续传。
+          // 用会话增量（received - sessionStart）算，续传时不被历史字节虚高。
           if (!speedCheckPassed &&
               now.difference(startTime).inMilliseconds >=
                   _speedCheckDuration.inMilliseconds) {
+            final elapsed = now.difference(startTime).inMilliseconds;
             final avgSpeed =
-                received / now.difference(startTime).inMilliseconds * 1000;
+                elapsed <= 0 ? 0.0 : (received - sessionStart) / elapsed * 1000;
             if (avgSpeed < _minSpeedBytesPerSec) {
               await sink.close();
               throw Exception('速度太慢 ${_fmtSpeed(avgSpeed)} ($label)');
@@ -299,6 +304,11 @@ class UpdateDownloadManager {
   }
 
   /// 通过 MethodChannel 调用原生通知（进度条）。
+  /// 进度通知节流：更新下载每秒可达多次分块，通知栏 500ms 刷新一次太频繁
+  /// （闪烁/卡顿），进度类通知（done=false）至少间隔 [_notifyMinInterval]；
+  /// 首次与完成通知不节流。
+  static const Duration _notifyMinInterval = Duration(seconds: 2);
+  DateTime? _lastNotifyAt;
   Future<void> _notify(
     String title,
     String text,
@@ -306,6 +316,12 @@ class UpdateDownloadManager {
     int total,
     bool done,
   ) async {
+    if (!done) {
+      final now = DateTime.now();
+      final last = _lastNotifyAt;
+      if (last != null && now.difference(last) < _notifyMinInterval) return;
+      _lastNotifyAt = now;
+    }
     try {
       await _channel.invokeMethod('showProgress', {
         'title': title,
