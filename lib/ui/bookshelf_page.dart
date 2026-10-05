@@ -609,6 +609,9 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
         itemBuilder: (c, i) => _ReadingCard(
           history: _recent[i],
           progress: _progressOf(_recent[i]),
+          // 小说历史无章内进度，不渲染进度条（见 _ReadingCard.showProgress）。
+          showProgress:
+              SourceManager.novelById(_recent[i].book.sourceId) == null,
           onTap: () => _openFromHistory(_recent[i]),
         ),
       ),
@@ -1209,6 +1212,10 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                       child: _ReadingCard(
                         history: _recent[i],
                         progress: _progressOf(_recent[i]),
+                        // 小说历史无章内进度，不渲染进度条（避免 0.3 假进度）。
+                        showProgress:
+                            SourceManager.novelById(_recent[i].book.sourceId) ==
+                            null,
                         onTap: () => _openFromHistory(_recent[i]),
                       ),
                     ),
@@ -2522,10 +2529,15 @@ abstract final class _BookshelfStyleDecorations {
 class _ReadingCard extends StatelessWidget {
   final HistoryEntry history;
   final double progress;
+
+  /// 是否显示进度条：小说历史无「页码/章内进度」语义，_progressOf 只会
+  /// 落到 0.3 兜底假进度，不渲染避免误导。
+  final bool showProgress;
   final VoidCallback onTap;
   const _ReadingCard({
     required this.history,
     required this.progress,
+    this.showProgress = true,
     required this.onTap,
   });
 
@@ -2586,33 +2598,34 @@ class _ReadingCard extends StatelessWidget {
                         ),
                   ),
                   const SizedBox(height: 6),
-                  // 进度条
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(2),
-                          child: LinearProgressIndicator(
-                            value: progress,
-                            minHeight: 3,
-                            backgroundColor:
-                                T.color(scheme.onSurface, TextTier.hairline,
-                                    brightness: scheme.brightness),
-                            valueColor:
-                                AlwaysStoppedAnimation(scheme.primary),
+                  // 进度条（小说无章内进度语义，不渲染避免 0.3 假进度）
+                  if (showProgress)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(2),
+                            child: LinearProgressIndicator(
+                              value: progress,
+                              minHeight: 3,
+                              backgroundColor:
+                                  T.color(scheme.onSurface, TextTier.hairline,
+                                      brightness: scheme.brightness),
+                              valueColor:
+                                  AlwaysStoppedAnimation(scheme.primary),
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${(progress * 100).round()}%',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: T.color(scheme.onSurface, TextTier.disabled,
-                                  brightness: scheme.brightness),
-                            ),
-                      ),
-                    ],
-                  ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${(progress * 100).round()}%',
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: T.color(scheme.onSurface, TextTier.disabled,
+                                    brightness: scheme.brightness),
+                              ),
+                        ),
+                      ],
+                    ),
                 ],
               ),
             ),
