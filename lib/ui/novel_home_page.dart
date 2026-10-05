@@ -51,6 +51,13 @@ class NovelHomePageState extends State<NovelHomePage> {
     _loadSources();
   }
 
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
   /// 拉全量阅读历史，按书 key 建续读映射（详情页/阅读器返回后重刷）。
   Future<void> _loadHistory() async {
     try {
@@ -103,6 +110,10 @@ class NovelHomePageState extends State<NovelHomePage> {
   /// 请求代际：切源/刷新时自增，作废在途旧请求，防止慢响应覆盖新列表/提前清 loading。
   int _loadGen = 0;
 
+  /// 站内搜索关键词（非空 = 搜索模式，显示当前源搜索结果而非榜单）。
+  String _keyword = '';
+  final TextEditingController _searchCtrl = TextEditingController();
+
   Future<void> _loadNovels() async {
     if (_sourceId == null) return;
     final src = SourceManager.novelById(_sourceId!);
@@ -110,13 +121,16 @@ class NovelHomePageState extends State<NovelHomePage> {
     final gen = ++_loadGen;
     if (mounted) setState(() => _loading = true);
     try {
-      final list = await src.rank(1).timeout(const Duration(seconds: 15));
+      final kw = _keyword.trim();
+      final list = kw.isEmpty
+          ? await src.rank(1).timeout(const Duration(seconds: 15))
+          : await src.search(kw, 1).timeout(const Duration(seconds: 15));
       if (mounted && gen == _loadGen) {
         _items = list;
         _error = null;
       }
     } catch (e) {
-      ErrorLogger.instance.warn('novel home rank failed: $e');
+      ErrorLogger.instance.warn('novel home load failed: $e');
       if (mounted && gen == _loadGen) _error = '加载失败，请检查网络';
     } finally {
       if (mounted && gen == _loadGen) setState(() => _loading = false);
@@ -224,6 +238,13 @@ class NovelHomePageState extends State<NovelHomePage> {
                 child: _sourceChips(scheme),
               ),
             ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                    horizontal: Responsive.pagePadding(context), vertical: 4),
+                child: _searchField(scheme),
+              ),
+            ),
             _novelGrid(scheme),
           ] else
             SliverToBoxAdapter(
@@ -320,11 +341,20 @@ class NovelHomePageState extends State<NovelHomePage> {
       );
     }
     if (_items.isEmpty) {
-      return const SliverToBoxAdapter(
-          child: EmptyStateView(
-            icon: Icons.article_outlined,
-            title: '暂无内容',
-          ));
+      // 搜索模式空态提示关键词，榜单空态保持「暂无内容」。
+      final kw = _keyword.trim();
+      return SliverToBoxAdapter(
+        child: kw.isEmpty
+            ? const EmptyStateView(
+                icon: Icons.article_outlined,
+                title: '暂无内容',
+              )
+            : EmptyStateView(
+                icon: Icons.search_off_rounded,
+                title: '没有找到「$kw」',
+                subtitle: '换个关键词，或点击下方源标签切换站点搜索',
+              ),
+      );
     }
     return SliverPadding(
       padding: EdgeInsets.symmetric(
@@ -377,12 +407,72 @@ class NovelHomePageState extends State<NovelHomePage> {
                   label: Text(s.name),
                   selected: s.id == _sourceId,
                   onSelected: (_) {
+                    // 切源后清空搜索词回到榜单（搜索词属于具体源）。
+                    if (_keyword.isNotEmpty) {
+                      _keyword = '';
+                      _searchCtrl.clear();
+                    }
                     setState(() => _sourceId = s.id);
                     _loadNovels();
                   },
                 ))
             .toList(),
       );
+
+  /// 站内小说搜索框：输入回车即搜当前源（与漫画/动漫首页同交互）。
+  /// 非空关键词或提交后 = 搜索模式，网格显示当前源搜索结果；清空回榜单。
+  Widget _searchField(ColorScheme scheme) {
+    return TextField(
+      controller: _searchCtrl,
+      textInputAction: TextInputAction.search,
+      onSubmitted: (v) {
+        final kw = v.trim();
+        if (kw == _keyword) return;
+        _keyword = kw;
+        _loadNovels();
+      },
+      onChanged: (v) {
+        // 清空即退出搜索模式回榜单（输入中不实时搜，避免每键打源）。
+        if (v.trim().isEmpty && _keyword.isNotEmpty) {
+          _keyword = '';
+          _loadNovels();
+        }
+      },
+      style: TextStyle(fontSize: 13.5, color: scheme.onSurface),
+      decoration: InputDecoration(
+        isDense: true,
+        hintText: '搜索当前源小说…',
+        hintStyle: TextStyle(
+          fontSize: 13,
+          color: scheme.onSurface.withValues(alpha: 0.4),
+        ),
+        prefixIcon: Icon(
+          Icons.search_rounded,
+          size: 18,
+          color: scheme.onSurface.withValues(alpha: 0.5),
+        ),
+        suffixIcon: _keyword.isNotEmpty
+            ? IconButton(
+                tooltip: '清除',
+                icon: const Icon(Icons.close_rounded, size: 16),
+                onPressed: () {
+                  _searchCtrl.clear();
+                  _keyword = '';
+                  _loadNovels();
+                },
+              )
+            : null,
+        filled: true,
+        fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide.none,
+        ),
+      ),
+    );
+  }
 }
 
 // _TypeSegment 已移至 responsive.dart 作为共享组件 TypeSegment
