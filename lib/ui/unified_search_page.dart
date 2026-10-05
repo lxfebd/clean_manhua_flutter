@@ -30,6 +30,9 @@ class UnifiedSearchPage extends ConsumerStatefulWidget {
 
 class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
   List<SourceResult> _results = [];
+  /// 结果类型过滤：all = 全部，comic = 只看漫画，novel = 只看小说。
+  /// 仅过滤展示，不影响已拉取的数据与「加载更多」。
+  String _typeFilter = 'all';
   bool _loading = true;
   String? _error; // 搜索失败原因（非空时展示错误态并提供重试）
   bool _loadingMore = false; // 正在加载下一页
@@ -540,6 +543,14 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
   }
 
   Widget _buildResultList(ColorScheme scheme, {required bool compactCards}) {
+    // 类型过滤：全部/漫画/小说。仅过滤源分组展示（结果数据不动）。
+    final visible = _typeFilter == 'all'
+        ? _results
+        : _results.where((r) =>
+            _typeFilter == 'novel' ? r.isNovel : !r.isNovel).toList();
+    // 过滤后各类型是否还有内容：小说源过滤时漫画全空则空态提示。
+    final hasComic = _results.any((r) => !r.isNovel);
+    final hasNovel = _results.any((r) => r.isNovel);
     return ListView.builder(
       controller: _listCtrl,
       padding: EdgeInsets.fromLTRB(
@@ -548,17 +559,62 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
         Responsive.pagePadding(context),
         (Responsive.isTablet(context) ? 24 : 110),
       ),
-      itemCount: _results.length + (_failedCount > 0 ? 1 : 0) + 1,
+      itemCount: visible.length + (_failedCount > 0 ? 1 : 0) + 2,
       itemBuilder: (_, i) {
-        if (_failedCount > 0 && i == _results.length) {
+        if (i == 0) {
+          // 过滤条：三种类型选择，空类型自动禁用（无对应源产出）。
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              children: [
+                _FilterChipBtn(
+                  label: '全部',
+                  active: _typeFilter == 'all',
+                  onTap: () => setState(() => _typeFilter = 'all'),
+                ),
+                const SizedBox(width: 8),
+                _FilterChipBtn(
+                  label: '漫画',
+                  active: _typeFilter == 'comic',
+                  enabled: hasComic,
+                  onTap: () => setState(() => _typeFilter = 'comic'),
+                ),
+                const SizedBox(width: 8),
+                _FilterChipBtn(
+                  label: '小说',
+                  active: _typeFilter == 'novel',
+                  enabled: hasNovel,
+                  onTap: () => setState(() => _typeFilter = 'novel'),
+                ),
+              ],
+            ),
+          );
+        }
+        // 过滤后无该类型结果：提示切回全部（懒 Sliver 不会 build 的空白区）。
+        if (visible.isEmpty && i == 1) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 24),
+            child: Center(
+              child: Text(
+                '当前类型没有结果，点「全部」查看完整结果',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: scheme.onSurface.withValues(alpha: 0.5),
+                ),
+              ),
+            ),
+          );
+        }
+        final listIdx = i - 1;
+        if (_failedCount > 0 && listIdx == visible.length) {
           return _buildFailedHint(scheme);
         }
-        final resultIdx = i;
-        if (resultIdx >= _results.length) {
+        if (listIdx >= visible.length) {
           return _buildListFooter();
         }
+        final r = visible[listIdx];
         return _SourceResultGroup(
-          result: _results[resultIdx],
+          result: r,
           selected: _selected,
           selectedSourceId: _selectedSource?.id,
           compact: compactCards,
@@ -567,7 +623,6 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
           // 小说结果不进漫画预览面板（预览面板绑 ComicDetail 章节），
           // 两种模式都直达小说详情页。
           onTap: (item) {
-            final r = _results[resultIdx];
             if (r.isNovel) {
               _openNovelDetail(r.sourceId, item);
               return;
@@ -579,7 +634,6 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
             }
           },
           onHover: (item) {
-            final r = _results[resultIdx];
             if (r.isNovel) return; // 小说无预览面板，悬停不选中
             _scheduleSelect(r.source!, item);
           },
@@ -1043,6 +1097,56 @@ class _UnifiedCardState extends State<_UnifiedCard> {
                 ],
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 结果类型过滤小按钮：选中态主题色高亮，无对应类型结果时禁用置灰。
+class _FilterChipBtn extends StatelessWidget {
+  final String label;
+  final bool active;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _FilterChipBtn({
+    required this.label,
+    required this.active,
+    this.enabled = true,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: active
+              ? scheme.primary.withValues(alpha: 0.14)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: active
+                ? scheme.primary.withValues(alpha: 0.6)
+                : scheme.onSurface.withValues(alpha: 0.15),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12.5,
+            color: !enabled
+                ? scheme.onSurface.withValues(alpha: 0.3)
+                : active
+                    ? scheme.primary
+                    : scheme.onSurface.withValues(alpha: 0.75),
+            fontWeight: active ? FontWeight.w600 : null,
           ),
         ),
       ),
