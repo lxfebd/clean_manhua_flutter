@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../net/error_logger.dart';
 import '../net/local_store.dart';
+import '../net/novel_chapter_cache.dart';
 import '../services/novel_tts_service.dart';
 import '../sources/novel_source.dart';
 import '../sources/source_manager.dart';
@@ -92,6 +93,9 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
   NovelContent? _content;
   bool _loading = true;
   String? _error;
+
+  /// 当前章来自本地缓存（网络失败兜底）：顶部提示「缓存数据」而非错误页。
+  bool _offlineHint = false;
   String _curChapterId;
 
   /// 最近一次尝试加载的章（含失败目标）：翻章失败时 `_curChapterId` 仍是
@@ -312,10 +316,20 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
       final c = await s.chapterContent(chapterId).timeout(const Duration(seconds: 15));
       // 成功事件用 debug 级，不写 ERROR 日志（避免污染 7 天滚动日志与错误计数）。
       ErrorLogger.instance.debug('[novel-reader] chapterContent OK id=$chapterId title=${c.title} paras=${c.paragraphs.length} prev=${c.prevChapterId != null} next=${c.nextChapterId != null}');
+      // 写盘缓存：断网/源失效时离线兜底。静默失败（写盘错误不影响本次阅读）。
+      if (mounted) {
+        unawaited(NovelChapterCache.write(
+          widget.sourceId,
+          widget.novelId,
+          chapterId,
+          c,
+        ));
+      }
       if (mounted) {
         _content = c;
         _curChapterId = chapterId;
         _error = null;
+        _offlineHint = false;
         _autoNextFired = false; // 新章重置「章末自动加载」标记
         _recordHistory(c.title);
         // 换章后刷新朗读队列：内容加载期间朗读自然停在旧章末尾。
@@ -344,8 +358,25 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
       }
     } catch (e) {
       ErrorLogger.instance.logError('[novel-reader] FAIL id=$chapterId err=$e');
-      if (mounted) {
+      // 网络失败回退：尝试本地缓存（离线阅读）。缓存章节不置 error 态，
+      // 正常渲染但顶部提示「缓存数据，可能非最新」，与 _error 互斥。
+      final cached = await NovelChapterCache.read(
+        widget.sourceId,
+        widget.novelId,
+        chapterId,
+      );
+      if (mounted && cached != null) {
+        _content = cached;
+        _curChapterId = chapterId;
+        _error = null;
+        _offlineHint = true;
+        _autoNextFired = false;
+        _tts.reset();
+        _tts.loadChapter(cached.paragraphs);
+        _initBookmark();
+      } else if (mounted) {
         _error = '章节加载失败，请重试';
+        _offlineHint = false;
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -597,6 +628,29 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
       body: Stack(
         fit: StackFit.expand,
         children: [
+          // 离线缓存提示条：网络失败但命中本地缓存时显示（非错误态）。
+          if (_offlineHint)
+            Align(
+              alignment: Alignment.topCenter,
+              child: SafeArea(
+                child: Container(
+                  margin: const EdgeInsets.only(top: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '缓存数据，可能非最新',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: scheme.primary,
+                    ),
+                  ),
+                ),
+              ),
+            ),
           _loading
               ? Center(
                   child: Column(
