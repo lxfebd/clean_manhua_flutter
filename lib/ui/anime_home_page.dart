@@ -816,6 +816,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
       child: TextField(
         controller: _searchCtrl,
         textInputAction: TextInputAction.search,
+        onChanged: (_) => setState(() {}),
         onSubmitted: (v) {
           _keyword = v;
           _switchMode('search');
@@ -834,6 +835,24 @@ class AnimeHomePageState extends State<AnimeHomePage> {
             color: T.color(scheme.onSurface, TextTier.low,
                 brightness: scheme.brightness),
           ),
+          suffixIcon: _searchCtrl.text.isEmpty
+              ? null
+              : IconButton(
+                  tooltip: '清空',
+                  icon: Icon(
+                    Icons.close_rounded,
+                    size: 17,
+                    color: T.color(scheme.onSurface, TextTier.low,
+                        brightness: scheme.brightness),
+                  ),
+                  onPressed: () {
+                    _searchCtrl.clear();
+                    setState(() {
+                      _keyword = '';
+                      if (_mode == 'search') _switchMode('rank');
+                    });
+                  },
+                ),
           isDense: true,
           contentPadding: const EdgeInsets.symmetric(vertical: 10),
           border: InputBorder.none,
