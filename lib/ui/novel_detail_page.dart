@@ -126,6 +126,21 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
   /// 查询在 initState 异步进行，就绪前「继续阅读」按钮不显示。
   ({NovelChapter chapter, double offset})? _resume;
 
+  /// 章节目录滚动控制：手机端整页 CustomScrollView 与平板右栏目录共用，
+  /// 「定位续读」按钮按续读章节下标 jumpTo（dense ListTile ≈ 48px 估算）。
+  final ScrollController _tocCtrl = ScrollController();
+
+  /// 续读章节 tile 的锚点：定位时从估算跳后精确对齐（惰性列表只 build
+  /// 可视区附近，行高估算 + ensureVisible 两段式才可靠）。
+  final GlobalKey _resumeTileKey = GlobalKey();
+
+  /// 续读章节是否在当前目录里（历史兜底章节可能已被源下架）。
+  bool get _hasResumeInList {
+    final r = _resume;
+    final d = _detail;
+    return r != null && d != null && d.chapters.any((c) => c.id == r.chapter.id);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -135,6 +150,47 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
         (prev, next) {
       if (next.hasValue) _loadResume();
     });
+  }
+
+  @override
+  void dispose() {
+    _tocCtrl.dispose();
+    super.dispose();
+  }
+
+  /// 目录「定位续读」：先按行高估算 jumpTo（惰性 SliverList 无法对
+  /// 远视口项 ensureVisible），进入 cacheExtent 后 post-frame 用
+  /// [Scrollable.ensureVisible] 精确对齐；估算落点仍没找到目标时
+  /// （手机端目录前有头图，估算可能偏差超出缓存区）再补跳一屏重试。
+  void _jumpToResume() {
+    final resume = _resume;
+    if (resume == null || !_tocCtrl.hasClients) return;
+    final d = _detail;
+    if (d == null) return;
+    final idx = d.chapters.indexWhere((c) => c.id == resume.chapter.id);
+    if (idx < 0) return;
+    final viewport = _tocCtrl.position.viewportDimension;
+    final maxExtent = _tocCtrl.position.maxScrollExtent;
+    final estimate = (idx * 48.0 - viewport * 0.3).clamp(0.0, maxExtent);
+    _tocCtrl.jumpTo(estimate);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_tocCtrl.hasClients) return;
+      if (_refineToResumeTile()) return;
+      // 估算偏出缓存区：目标 tile 尚未 build，补跳一屏后再精修一次。
+      final max2 = _tocCtrl.position.maxScrollExtent;
+      _tocCtrl.jumpTo((_tocCtrl.offset + viewport).clamp(0.0, max2));
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _refineToResumeTile();
+      });
+    });
+  }
+
+  /// 目标 tile 已 build 则精确滚到可视区上部；返回是否找到。
+  bool _refineToResumeTile() {
+    final ctx = _resumeTileKey.currentContext;
+    if (ctx == null) return false;
+    Scrollable.ensureVisible(ctx, duration: Duration.zero, alignment: 0.1);
+    return true;
   }
 
   /// 从历史记录解析续读位（复用纯函数 [resolveNovelResumeChapter]）。
@@ -434,24 +490,42 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: EdgeInsets.fromLTRB(pad, 16, pad, 8),
-                child: Text(
-                  '目录（${d.chapters.length} 章）',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: scheme.onSurface,
-                  ),
+                padding: EdgeInsets.fromLTRB(pad, 16, pad, 4),
+                child: Row(
+                  children: [
+                    Text(
+                      '目录（${d.chapters.length} 章）',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: scheme.onSurface,
+                      ),
+                    ),
+                    const Spacer(),
+                    if (_hasResumeInList)
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                        ),
+                        onPressed: _jumpToResume,
+                        icon: const Icon(Icons.my_location_rounded, size: 14),
+                        label: const Text('定位续读',
+                            style: TextStyle(fontSize: 12.5)),
+                      ),
+                  ],
                 ),
               ),
               Expanded(
                 child: ListView.builder(
+                  controller: _tocCtrl,
                   padding: EdgeInsets.fromLTRB(pad, 0, pad, 16),
                   itemCount: d.chapters.length,
                   itemBuilder: (ctx, i) {
                     final ch = d.chapters[i];
                     final isResume = _resume?.chapter.id == ch.id;
                     return ListTile(
+                      key: isResume ? _resumeTileKey : null,
                       dense: true,
                       title: Text(
                         ch.title,
@@ -481,6 +555,7 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
   Widget _body(scheme) {
     final d = _detail!;
     return CustomScrollView(
+      controller: _tocCtrl,
       slivers: [
         SliverToBoxAdapter(
           child: Padding(
@@ -586,14 +661,30 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
           child: FadeSlideIn(
             delay: const Duration(milliseconds: 200),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Text(
-                '目录（${d.chapters.length} 章）',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: scheme.onSurface,
-                ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Row(
+                children: [
+                  Text(
+                    '目录（${d.chapters.length} 章）',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: scheme.onSurface,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (_hasResumeInList)
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                      onPressed: _jumpToResume,
+                      icon: const Icon(Icons.my_location_rounded, size: 14),
+                      label: const Text('定位续读',
+                          style: TextStyle(fontSize: 12.5)),
+                    ),
+                ],
               ),
             ),
           ),
@@ -605,6 +696,7 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
             return FadeSlideIn(
               delay: Duration(milliseconds: 250 + 30 * (i % 20)),
               child: ListTile(
+                key: isResume ? _resumeTileKey : null,
                 dense: true,
                 // 续读章节高亮：主题色文字 + 播放小图标，用户一眼定位追更位。
                 title: Text(
