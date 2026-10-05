@@ -129,6 +129,22 @@ class NovelHomePageState extends State<NovelHomePage> {
     }
   }
 
+  /// 内容不满一屏时自动续页，避免首屏太短时滚动分页不触发导致"很快到底"的错觉。
+  /// 最多续 3 页：封面加载慢/失败导致网格高度不足时，避免无限循环狂拉分页
+  /// 把请求队列打满（每页 20 张图并发加载 + 源站限流会明显卡顿）。
+  int _autoLoadCount = 0;
+  void _maybeAutoLoadMore() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _loading || _noMore || _sourceId == null) return;
+      if (_scrollCtrl.hasClients &&
+          _scrollCtrl.position.maxScrollExtent <= 0) {
+        if (_autoLoadCount >= 3) return;
+        _autoLoadCount++;
+        _loadNovels(page: _page);
+      }
+    });
+  }
+
   Future<void> _loadNovels({int? page}) async {
     if (_sourceId == null) return;
     final src = SourceManager.novelById(_sourceId!);
@@ -163,6 +179,8 @@ class NovelHomePageState extends State<NovelHomePage> {
         }
         _error = null;
         _loadMoreFailed = false;
+        // 内容不满一屏时自动续页（最多 3 次），避免首屏太短"很快到底"
+        _maybeAutoLoadMore();
       }
     } catch (e) {
       ErrorLogger.instance.warn('novel home load failed: $e');
@@ -515,6 +533,7 @@ class NovelHomePageState extends State<NovelHomePage> {
                       _searchCtrl.clear();
                     }
                     setState(() => _sourceId = s.id);
+                    _autoLoadCount = 0; // 新源续页额度重新计算
                     _loadNovels();
                   },
                 ))
@@ -531,12 +550,14 @@ class NovelHomePageState extends State<NovelHomePage> {
         final kw = v.trim();
         if (kw == _keyword) return;
         _keyword = kw;
+        _autoLoadCount = 0; // 搜索/回榜单新列表，续页额度重算
         _loadNovels();
       },
       onChanged: (v) {
         // 清空即退出搜索模式回榜单（输入中不实时搜，避免每键打源）。
         if (v.trim().isEmpty && _keyword.isNotEmpty) {
           _keyword = '';
+          _autoLoadCount = 0;
           _loadNovels();
         }
       },

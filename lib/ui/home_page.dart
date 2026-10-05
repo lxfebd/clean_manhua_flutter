@@ -117,6 +117,7 @@ class HomePageState extends State<HomePage> {
     _done = false;
     _loadMoreFailed = false;
     _noMore = false;
+    _autoLoadCount = 0; // 新一轮续页额度重新计算
     _loadGen++; // 作废在途旧请求
     // 记录旧列表与滚动偏移：成功后替换数据并把滚动位置跳回原位。
     final restoreOffset =
@@ -199,6 +200,22 @@ class HomePageState extends State<HomePage> {
     }
   }
 
+  /// 内容不满一屏时自动续页，避免首屏太短时滚动分页不触发导致"很快到底"的错觉。
+  /// 最多续 3 页：封面加载慢/失败导致网格高度不足时，避免无限循环狂拉分页
+  /// 把请求队列打满（每页 20 张图并发加载 + 源站限流会明显卡顿）。
+  int _autoLoadCount = 0;
+  void _maybeAutoLoadMore() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _loading || _noMore) return;
+      if (_scrollCtrl.hasClients &&
+          _scrollCtrl.position.maxScrollExtent <= 0) {
+        if (_autoLoadCount >= 3) return;
+        _autoLoadCount++;
+        _loadMore();
+      }
+    });
+  }
+
   Future<void> _loadMore(
       {bool replaceFirst = false, double? restoreOffset}) async {
     if (_loading || _noMore) return;
@@ -257,6 +274,8 @@ class HomePageState extends State<HomePage> {
       if (next == 1 && _mode == 'rank') {
         _saveSnapshot(r);
       }
+      // 内容不满一屏时自动续页（最多 3 次），避免首屏太短"很快到底"
+      _maybeAutoLoadMore();
       // 刷新模式替换数据后把滚动位置跳回原位，避免回顶闪空。
       if (replaceFirst && restoreOffset != null && _scrollCtrl.hasClients) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
