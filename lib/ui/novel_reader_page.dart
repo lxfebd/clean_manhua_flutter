@@ -779,14 +779,20 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
                         const SizedBox(width: 4),
                         Expanded(
                           child: OutlinedButton(
-                            onPressed: () => _go(_content!.prevChapterId),
+                            // 首章禁用上一章：避免「点了没反应」。
+                            onPressed: _content?.prevChapterId != null
+                                ? () => _go(_content!.prevChapterId)
+                                : null,
                             child: const Text('上一章'),
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: FilledButton(
-                            onPressed: () => _go(_content!.nextChapterId),
+                            // 末章禁用下一章：无下章时置灰而非空响应。
+                            onPressed: _content?.nextChapterId != null
+                                ? () => _go(_content!.nextChapterId)
+                                : null,
                             child: const Text('下一章'),
                           ),
                         ),
