@@ -86,6 +86,10 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
   String? _error;
   String _curChapterId;
 
+  /// 最近一次尝试加载的章（含失败目标）：翻章失败时 `_curChapterId` 仍是
+  /// 旧章，错误态「重试」必须重载失败的目标章而不是被拉回上一章。
+  String _pendingChapterId;
+
   // 阅读自定义（经 novelReaderPrefsProvider 读写；下方 getter 供渲染取当前值）
   NovelReaderPrefs get _prefs => ref.read(novelReaderPrefsProvider);
   int get _fontSize => _prefs.fontSize;
@@ -118,7 +122,9 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
     (name: '深青', bg: '0xFF10242B', text: '0xFFC8D8DC', isDark: true),
   ];
 
-  _NovelReaderPageState() : _curChapterId = '';
+  _NovelReaderPageState()
+      : _curChapterId = '',
+        _pendingChapterId = '';
 
   @override
   void initState() {
@@ -265,6 +271,8 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
   }
 
   Future<void> _load(String chapterId) async {
+    // 先记 pending（含失败目标）：翻章失败后错误态「重试」重载此章。
+    _pendingChapterId = chapterId;
     final s = SourceManager.novelById(widget.sourceId);
     if (s == null) {
       if (mounted) {
@@ -598,7 +606,9 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
                           FilledButton(
                               onPressed: () {
                                 setState(() => _loading = true);
-                                _load(_curChapterId);
+                                // 重载失败的目标章（翻章失败时 _curChapterId
+                                // 仍停在旧章，用 pending 才不会被拉回上一章）。
+                                _load(_pendingChapterId);
                               },
                               child: const Text('重试')),
                         ],
