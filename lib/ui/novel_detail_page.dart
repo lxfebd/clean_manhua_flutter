@@ -19,6 +19,20 @@ import 'style_tokens.dart';
 import 'tokens.dart';
 import 'widgets/squircle.dart';
 
+/// 章节目录过滤纯函数（小说详情页目录搜索框用；独立便于单元测试）。
+/// [filter] 按标题模糊匹配（空 = 原列表原样）。
+List<NovelChapter> filterNovelChapters(
+  List<NovelChapter> chapters,
+  String filter,
+) {
+  final f = filter.trim().toLowerCase();
+  if (f.isEmpty) return chapters;
+  return [
+    for (final c in chapters)
+      if (c.title.toLowerCase().contains(f)) c,
+  ];
+}
+
 /// 小说详情封面三风格分支（手机/平板共用）：
 /// - 极简：既有圆角 10 逐字节等同；
 /// - 小米：[StyleTokens.cardRadius] + 超椭圆剪裁 + 品牌渐变底衬；
@@ -148,6 +162,15 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
   ({int done, int total})? _prefetch;
   bool _prefetchCancel = false;
 
+  /// 章节目录标题搜索关键词（空 = 不过滤）。手机/平板两处目录共用；
+  /// 过滤后「定位续读」在下标按原列表计算，被过滤章不可定位。
+  String _chapterFilter = '';
+  final _chapterFilterCtrl = TextEditingController();
+
+  /// 过滤后的可见章节列表（按标题模糊匹配；空过滤 = 原列表）。
+  List<NovelChapter> get _visibleChapters =>
+      filterNovelChapters(_detail?.chapters ?? const [], _chapterFilter);
+
   /// 续读章节是否在当前目录里（历史兜底章节可能已被源下架）。
   bool get _hasResumeInList {
     final r = _resume;
@@ -242,6 +265,7 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
   @override
   void dispose() {
     _tocCtrl.dispose();
+    _chapterFilterCtrl.dispose();
     super.dispose();
   }
 
@@ -278,6 +302,47 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
     if (ctx == null) return false;
     Scrollable.ensureVisible(ctx, duration: Duration.zero, alignment: 0.1);
     return true;
+  }
+
+  /// 章节目录搜索框（手机整页目录与平板右栏目录共用）：
+  /// 数百章小说按标题关键词即时过滤，跨屏查找章节不用翻到底。
+  Widget _chapterSearchField(ColorScheme scheme) {
+    return TextField(
+      controller: _chapterFilterCtrl,
+      onChanged: (v) => setState(() => _chapterFilter = v),
+      style: const TextStyle(fontSize: 13.5),
+      decoration: InputDecoration(
+        isDense: true,
+        hintText: '搜索章节标题',
+        hintStyle: TextStyle(
+          fontSize: 13,
+          color: scheme.onSurface.withValues(alpha: 0.4),
+        ),
+        prefixIcon: Icon(
+          Icons.search_rounded,
+          size: 18,
+          color: scheme.onSurface.withValues(alpha: 0.5),
+        ),
+        suffixIcon: _chapterFilter.isEmpty
+            ? null
+            : IconButton(
+                tooltip: '清除',
+                icon: const Icon(Icons.close_rounded, size: 16),
+                onPressed: () {
+                  _chapterFilterCtrl.clear();
+                  setState(() => _chapterFilter = '');
+                },
+              ),
+        filled: true,
+        fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(R.control),
+          borderSide: BorderSide.none,
+        ),
+      ),
+    );
   }
 
   /// 从历史记录解析续读位（复用纯函数 [resolveNovelResumeChapter]）。
@@ -634,13 +699,17 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                   ],
                 ),
               ),
+              Padding(
+                padding: EdgeInsets.fromLTRB(pad, 0, pad, 8),
+                child: _chapterSearchField(scheme),
+              ),
               Expanded(
                 child: ListView.builder(
                   controller: _tocCtrl,
                   padding: EdgeInsets.fromLTRB(pad, 0, pad, 16),
-                  itemCount: d.chapters.length,
+                  itemCount: _visibleChapters.length,
                   itemBuilder: (ctx, i) {
-                    final ch = d.chapters[i];
+                    final ch = _visibleChapters[i];
                     final isResume = _resume?.chapter.id == ch.id;
                     return ListTile(
                       key: isResume ? _resumeTileKey : null,
@@ -823,25 +892,34 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                       label: const Text('缓存后续',
                           style: TextStyle(fontSize: 12.5)),
                     )
-                  else if (_hasResumeInList)
-                    TextButton.icon(
-                      style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                    else if (_hasResumeInList)
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                        ),
+                        onPressed: _jumpToResume,
+                        icon: const Icon(Icons.my_location_rounded, size: 14),
+                        label: const Text('定位续读',
+                            style: TextStyle(fontSize: 12.5)),
                       ),
-                      onPressed: _jumpToResume,
-                      icon: const Icon(Icons.my_location_rounded, size: 14),
-                      label: const Text('定位续读',
-                          style: TextStyle(fontSize: 12.5)),
-                    ),
                 ],
               ),
             ),
           ),
         ),
+        SliverToBoxAdapter(
+          child: FadeSlideIn(
+            delay: const Duration(milliseconds: 220),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: _chapterSearchField(scheme),
+            ),
+          ),
+        ),
         SliverList(
           delegate: SliverChildBuilderDelegate((ctx, i) {
-            final ch = d.chapters[i];
+            final ch = _visibleChapters[i];
             final isResume = _resume?.chapter.id == ch.id;
             return FadeSlideIn(
               delay: Duration(milliseconds: 250 + 30 * (i % 20)),
@@ -872,7 +950,7 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                 onTap: () => _openChapter(ch),
               ),
             );
-          }, childCount: d.chapters.length),
+          }, childCount: _visibleChapters.length),
         ),
       ],
     );
