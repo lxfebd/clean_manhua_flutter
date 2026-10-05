@@ -96,4 +96,71 @@ void main() {
     await UpdateNotifier.instance.notifyShelfUpdate(['作品X']);
     expect(invoked, 0);
   });
+
+  // ---- 下载完成通知：与收藏更新共用开关，成功走 showDone、失败走 showError ----
+
+  test('下载完成通知：开关关闭时不调用原生通道', () async {
+    await UpdateNotifier.setEnabled(false);
+    var invoked = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('xingmanxia/update_notification'),
+      (call) async {
+        if (call.method == 'showDone' || call.method == 'showError') invoked++;
+        return null;
+      },
+    );
+    await UpdateNotifier.notifyDownloadResult(
+      title: '《作品A》下载完成',
+      text: '已下载 12 话',
+      error: false,
+    );
+    expect(invoked, 0);
+  });
+
+  test('下载完成通知：成功走 showDone 并透传 title/text', () async {
+    await UpdateNotifier.setEnabled(true);
+    String? seenMethod;
+    Map? seenArgs;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('xingmanxia/update_notification'),
+      (call) async {
+        seenMethod = call.method;
+        seenArgs = call.arguments as Map;
+        return null;
+      },
+    );
+    await UpdateNotifier.notifyDownloadResult(
+      title: '《作品A》下载完成',
+      text: '已下载 12 话',
+      error: false,
+    );
+    expect(seenMethod, 'showDone');
+    expect(seenArgs!['title'], '《作品A》下载完成');
+    expect(seenArgs!['text'], '已下载 12 话');
+  });
+
+  test('下载完成通知：失败走 showError 透传错误摘要', () async {
+    await UpdateNotifier.setEnabled(true);
+    String? seenMethod;
+    Map? seenArgs;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('xingmanxia/update_notification'),
+      (call) async {
+        seenMethod = call.method;
+        seenArgs = call.arguments as Map;
+        return null;
+      },
+    );
+    await UpdateNotifier.notifyDownloadResult(
+      title: '《作品A》下载失败',
+      text: '第 3 集：请重试',
+      error: true,
+    );
+    expect(seenMethod, 'showError');
+    expect(seenArgs!['title'], '《作品A》下载失败');
+    expect(seenArgs!['text'], '第 3 集：请重试');
+  });
 }

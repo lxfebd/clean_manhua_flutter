@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../net/download_manager.dart';
 import '../net/error_logger.dart';
 import '../net/local_store.dart';
+import '../net/update_notifier.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
 import 'responsive.dart';
@@ -344,11 +345,18 @@ void showBatchDownloadSheet(
                                         }
                                       }
                                       closeSheet();
+                                      // 页面已退出（批量下载关窗后继续跑）时应用内
+                                      // toast 不可达：补系统通知兜底，让用户知道结果。
+                                      final msg =
+                                          fail == 0
+                                              ? '已下载 $ok 话'
+                                              : '$ok 话成功，$fail 话失败${firstErr == null ? '' : '：$firstErr'}';
+                                      await UpdateNotifier.notifyDownloadResult(
+                                        title: '《$comicName》下载完成',
+                                        text: msg,
+                                        error: fail > 0,
+                                      );
                                       if (context.mounted) {
-                                        final msg =
-                                            fail == 0
-                                                ? '已下载 $ok 话'
-                                                : '$ok 话成功，$fail 话失败${firstErr == null ? '' : '：$firstErr'}';
                                         AppToast.show(
                                           context,
                                           msg,

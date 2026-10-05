@@ -103,4 +103,26 @@ class UpdateNotifier {
       // 原生通道不可用（如桌面端无实现）静默
     }
   }
+
+  /// 下载完成通知：批量/单话下载收尾时告知结果（走同一「系统通知」开关）。
+  ///
+  /// 与收藏更新共用开关与原生通道；桌面/Web 无原生实现时静默降级。
+  /// [title] 如「《某漫画》下载完成」；[text] 结果摘要（成功/失败计数）。
+  /// 失败时用 showError 通道（红标错误图标），成功用 showDone。
+  static Future<void> notifyDownloadResult({
+    required String title,
+    required String text,
+    required bool error,
+  }) async {
+    if (!await enabled()) return;
+    try {
+      await _channel.invokeMethod(error ? 'showError' : 'showDone', {
+        'title': title,
+        'text': text,
+        'path': '',
+      });
+    } catch (e) {
+      // 原生通道不可用（桌面/Web）静默降级
+    }
+  }
 }

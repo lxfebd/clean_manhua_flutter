@@ -4,12 +4,12 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:pointycastle/export.dart';
 
 import 'error_logger.dart';
 import 'http_client.dart';
 import 'local_store.dart';
+import 'update_notifier.dart';
 
 /// 单集视频下载任务。
 class VideoDownloadTask {
@@ -354,6 +354,21 @@ class VideoDownloadManager {
       _stalled.remove(t.key);
     }
     _running.remove(t.key);
+    // 单集收尾：完成/失败发系统通知（应用切后台或退出下载页时告知结果）。
+    // 已取消不发（用户主动行为，无需提醒）。
+    if (t.state == 'done') {
+      unawaited(UpdateNotifier.notifyDownloadResult(
+        title: '《${t.title}》下载完成',
+        text: '第 ${t.episode} 集已缓存，可离线观看',
+        error: false,
+      ));
+    } else if (t.state == 'failed') {
+      unawaited(UpdateNotifier.notifyDownloadResult(
+        title: '《${t.title}》下载失败',
+        text: '第 ${t.episode} 集：${t.error ?? '请重试'}',
+        error: true,
+      ));
+    }
     _notify();
     _persist();
     _drain();
