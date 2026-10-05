@@ -118,6 +118,40 @@ class NovelChapterCache {
     }
   }
 
+  /// 缓存总占用字节数（设置页展示用）。目录不存在返回 0。
+  static Future<int> totalBytes() async {
+    try {
+      final d = await getApplicationSupportDirectory();
+      final base = Directory('${d.path}/novel_cache');
+      if (!await base.exists()) return 0;
+      var total = 0;
+      await for (final e in base.list(recursive: true)) {
+        if (e is File) total += await e.length();
+      }
+      return total;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// 清空全部小说章节缓存（设置页「清除小说缓存」用）。删除整棵
+  /// novel_cache 目录后重建为空目录。返回删除的文件数。
+  static Future<int> clearAll() async {
+    try {
+      final d = await getApplicationSupportDirectory();
+      final base = Directory('${d.path}/novel_cache');
+      if (!await base.exists()) return 0;
+      var count = 0;
+      await for (final e in base.list(recursive: true)) {
+        if (e is File) count++;
+      }
+      await base.delete(recursive: true);
+      return count;
+    } catch (_) {
+      return 0;
+    }
+  }
+
   /// 配额清理（公开以便测试注入小配额）：删除 [root] 下修改时间最旧的
   /// 文件，直到总大小 ≤ [maxBytes]，返回删除的文件数。
   /// 文件 mtime ≈ 最近一次写入/读取，即 LRU 序。

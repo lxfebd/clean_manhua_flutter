@@ -11,6 +11,7 @@ import '../net/bookshelf_store.dart';
 import '../net/error_logger.dart';
 import '../net/http_client.dart';
 import '../net/local_store.dart';
+import '../net/novel_chapter_cache.dart';
 import '../net/novel_shelf_store.dart';
 import '../net/shelf_updater.dart';
 import '../net/update_checker.dart';
@@ -576,6 +577,21 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                                   await LocalStore.clearHistory();
                                 },
                                 successMsg: '已清空历史',
+                              ),
+                        ),
+                        RowSeparator(),
+                        SettingsTile(
+                          icon: Icons.cleaning_services_outlined,
+                          title: '清除小说缓存',
+                          subtitle: '删除离线缓存的章节正文（断网兜底用）',
+                          onTap:
+                              () => _confirm(
+                                title: '清除小说缓存',
+                                content: '确定清除全部离线小说章节缓存？',
+                                action: () async {
+                                  await NovelChapterCache.clearAll();
+                                },
+                                successMsg: '已清除小说缓存',
                               ),
                         ),
                       ],

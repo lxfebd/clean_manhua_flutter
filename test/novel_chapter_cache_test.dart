@@ -116,6 +116,27 @@ void main() {
         {'ch1'});
   });
 
+  test('totalBytes 统计整棵缓存树，空目录返回 0', () async {
+    expect(await NovelChapterCache.totalBytes(), 0);
+    await NovelChapterCache.write(
+        'src1', 'novel1', 'ch1', NovelContent('ch1', '甲', const ['a', 'b']));
+    await NovelChapterCache.write(
+        'src2', 'novel2', 'ch9', NovelContent('ch9', '乙', const ['x']));
+    final bytes = await NovelChapterCache.totalBytes();
+    expect(bytes, greaterThan(0));
+  });
+
+  test('clearAll 清空全部缓存后 totalBytes 为 0', () async {
+    await NovelChapterCache.write(
+        'src1', 'novel1', 'ch1', NovelContent('ch1', '甲', const ['a']));
+    final removed = await NovelChapterCache.clearAll();
+    expect(removed, greaterThan(0));
+    expect(await NovelChapterCache.totalBytes(), 0);
+    expect(await NovelChapterCache.read('src1', 'novel1', 'ch1'), isNull);
+    // 幂等：再次清空返回 0 不抛。
+    expect(await NovelChapterCache.clearAll(), 0);
+  });
+
   group('pruneDirectory 配额清理', () {
     test('总量在配额内不动任何文件', () async {
       final root = Directory('${tmp.path}/cache')..createSync(recursive: true);
