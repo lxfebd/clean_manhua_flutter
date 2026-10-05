@@ -3165,7 +3165,7 @@ class _NextChapterFooter extends StatelessWidget {
 }
 
 /// 全作品章节列表底部弹窗（章内切换章节）。
-class _ChapterListSheet extends StatelessWidget {
+class _ChapterListSheet extends StatefulWidget {
   final List<Chapter> chapters;
   final int currentIndex;
   final ValueChanged<int> onSelect;
@@ -3176,7 +3176,37 @@ class _ChapterListSheet extends StatelessWidget {
   });
 
   @override
+  State<_ChapterListSheet> createState() => _ChapterListSheetState();
+}
+
+class _ChapterListSheetState extends State<_ChapterListSheet> {
+  final _filterCtrl = TextEditingController();
+  String _filter = '';
+
+  @override
+  void dispose() {
+    _filterCtrl.dispose();
+    super.dispose();
+  }
+
+  /// 当前选中章在过滤后列表里的下标（未过滤 = 原下标）。
+  int get _activeIndex => widget.currentIndex;
+
+  /// 过滤后的章节（标题模糊匹配；空 = 原列表）。
+  List<Chapter> get _visible {
+    final all = widget.chapters;
+    final f = _filter.trim().toLowerCase();
+    if (f.isEmpty) return all;
+    return [
+      for (var i = 0; i < all.length; i++)
+        if (chapterFilterTitle(all, all[i], i).toLowerCase().contains(f))
+          all[i],
+    ];
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final visible = _visible;
     return SafeArea(
       child: Container(
         margin: const EdgeInsets.all(12),
@@ -3201,70 +3231,122 @@ class _ChapterListSheet extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 14),
-            Text('章节列表 · 共 ${chapters.length} 话',
+            Text('章节列表 · 共 ${widget.chapters.length} 话',
                 style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
                     color: Colors.white)),
             const SizedBox(height: 12),
-            Flexible(
-              child: ListView.builder(
-                itemCount: chapters.length,
-                itemBuilder: (_, i) {
-                  final active = i == currentIndex;
-                  return InkWell(
-                    onTap: () => onSelect(i),
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 11),
-                      margin: const EdgeInsets.only(bottom: 2),
-                      decoration: BoxDecoration(
-                        color: active
-                            ? Theme.of(context).colorScheme.primary
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(8),
+            TextField(
+              controller: _filterCtrl,
+              onChanged: (v) => setState(() => _filter = v),
+              style: const TextStyle(fontSize: 13.5, color: Colors.white),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: '搜索章节标题',
+                hintStyle: TextStyle(
+                  fontSize: 13,
+                  color: Colors.white.withValues(alpha: 0.4),
+                ),
+                prefixIcon: Icon(
+                  Icons.search_rounded,
+                  size: 18,
+                  color: Colors.white.withValues(alpha: 0.5),
+                ),
+                suffixIcon: _filter.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: '清除',
+                        icon: const Icon(Icons.close_rounded,
+                            size: 16, color: Colors.white70),
+                        onPressed: () {
+                          _filterCtrl.clear();
+                          setState(() => _filter = '');
+                        },
                       ),
-                      child: Row(
-                        children: [
-                          Text(
-                            '${i + 1}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: active
-                                  ? Colors.white
-                                  : Colors.white.withValues(alpha: 0.45),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              chapters[i].title.isEmpty
-                                  ? '第${i + 1}话'
-                                  : chapters[i].title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: active
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
-                                color: active
-                                    ? Colors.white
-                                    : Colors.white.withValues(alpha: 0.75),
-                              ),
-                            ),
-                          ),
-                          if (active)
-                            Icon(Icons.check_rounded,
-                                size: 16, color: Colors.white),
-                        ],
-                      ),
-                    ),
-                  );
-                },
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.08),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
               ),
+            ),
+            const SizedBox(height: 10),
+            Flexible(
+              child: visible.isEmpty
+                  ? Center(
+                      child: Text(
+                        '没有匹配「$_filter」的章节',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.white.withValues(alpha: 0.5),
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: visible.length,
+                      // 过滤后原下标偏移：选中章不在过滤结果里时不高亮任何项。
+                      itemBuilder: (_, v) {
+                        final i = widget.chapters.indexOf(visible[v]);
+                        final active = i == _activeIndex;
+                        return InkWell(
+                          onTap: () => widget.onSelect(i),
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 11),
+                            margin: const EdgeInsets.only(bottom: 2),
+                            decoration: BoxDecoration(
+                              color: active
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              children: [
+                                Text(
+                                  '${i + 1}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: active
+                                        ? Colors.white
+                                        : Colors.white.withValues(alpha: 0.45),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    chapterFilterTitle(
+                                        widget.chapters,
+                                        visible[v],
+                                        i),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: active
+                                          ? FontWeight.w700
+                                          : FontWeight.w500,
+                                      color: active
+                                          ? Colors.white
+                                          : Colors.white
+                                              .withValues(alpha: 0.75),
+                                    ),
+                                  ),
+                                ),
+                                if (active)
+                                  Icon(Icons.check_rounded,
+                                      size: 16, color: Colors.white),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
             ),
           ],
         ),
@@ -3272,3 +3354,7 @@ class _ChapterListSheet extends StatelessWidget {
     );
   }
 }
+
+/// 章节显示标题：空标题用「第N话」占位（下标按原始顺序）。
+String chapterFilterTitle(List<Chapter> chapters, Chapter c, int index) =>
+    c.title.isEmpty ? '第${index + 1}话' : c.title;
