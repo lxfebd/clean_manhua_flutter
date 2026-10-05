@@ -711,6 +711,12 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                   _videoRecords.first.season == ep.season &&
                   _videoRecords.first.episode == ep.episode &&
                   !isCurrent;
+              // 已看标记：该集存在续播记录（看完即清除记录，故有记录=看过）。
+              // 当前集/上次看的集已用强调色，不再叠勾避免视觉噪音。
+              final isWatched = !isCurrent &&
+                  !isHistory &&
+                  _videoRecords.any((r) =>
+                      r.season == ep.season && r.episode == ep.episode);
               final showTitle =
                   ep.title.isNotEmpty && !ep.title.startsWith('第');
               return Material(
@@ -733,6 +739,16 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                       ? () => _play(ep.season, ep.episode, flatIdx)
                       : null,
                   child: Stack(children: [
+                    if (isWatched)
+                      Positioned(
+                        top: 3,
+                        right: 4,
+                        child: Icon(
+                          Icons.check_circle_rounded,
+                          size: 11,
+                          color: scheme.primary.withValues(alpha: 0.7),
+                        ),
+                      ),
                     Center(
                       child: isOpening
                           ? const SizedBox(
