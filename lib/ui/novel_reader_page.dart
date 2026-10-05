@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../net/error_logger.dart';
 import '../net/local_store.dart';
@@ -148,6 +149,7 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
     _initTts();
     _load(widget.chapterId);
     _initBookmark();
+    WakelockPlus.enable(); // 阅读时保持屏幕常亮（与漫画阅读器对齐）
     // 桌面端键盘：←/→ 翻章、Esc 返回。仅桌面注册，避免移动端蓝牙键盘误触。
     if (DesktopUi.isDesktopPlatform) {
       HardwareKeyboard.instance.addHandler(_keyHandler);
@@ -280,6 +282,7 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
     _listController?.dispose();
     _listController = null;
     _readWatch.stop();
+    WakelockPlus.disable(); // 退出阅读时恢复系统默认熄屏
     final elapsed = _readWatch.elapsed.inSeconds;
     if (elapsed > 0) LocalStore.addReadingSeconds(elapsed);
     super.dispose();
