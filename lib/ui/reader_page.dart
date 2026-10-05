@@ -19,6 +19,7 @@ import '../net/image_deg.dart';
 import '../net/jm_scramble.dart';
 import '../net/local_store.dart';
 import '../net/smart_prefetch.dart';
+import '../net/update_notifier.dart';
 import 'reader_providers.dart';
 import 'reader_prefs_providers.dart';
 import 'responsive.dart';
@@ -832,11 +833,23 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
           AppToast.error(context, ok.error ?? '下载未完成');
         }
       }
+      // 系统通知兜底：下载在后台完成（切后台/退出阅读器后仍在跑）时告知
+      // 结果；走同一「系统通知」开关，桌面/Web 无原生实现时静默降级。
+      await UpdateNotifier.notifyDownloadResult(
+        title: '《${_book.name}》下载完成',
+        text: ok.ok ? _activeChapterTitle : (ok.error ?? '下载未完成'),
+        error: !ok.ok,
+      );
     } catch (e) {
       ErrorLogger.instance.warn('reader download failed: $e');
       if (mounted) {
         AppToast.error(context, '下载失败，请重试');
       }
+      await UpdateNotifier.notifyDownloadResult(
+        title: '《${_book.name}》下载失败',
+        text: _activeChapterTitle,
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _downloading = false);
     }
