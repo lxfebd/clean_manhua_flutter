@@ -837,7 +837,17 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
         : scheme.onSurface.withValues(alpha: 0.92);
 
     final isSpeaking = _ttsState != TtsPlayState.idle && _ttsSentence >= 0;
-    Widget para(int i) => Text(
+    Widget para(int i) => GestureDetector(
+          // 点段落即从该段开始朗读：听书时跳读/校准位置的高频操作
+          // （读岔了不用从头，点目标段直接续）。朗读中同段点击无效。
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            if (_ttsState == TtsPlayState.idle) return;
+            if (i == _ttsSentence && _ttsState != TtsPlayState.paused) return;
+            _tts.seekTo(i);
+            if (_ttsState == TtsPlayState.paused) _tts.play();
+          },
+          child: Text(
           // 首行缩进 2 字符：全角空格前缀是中文排版最稳的实现方式
           // （TextIndent 对跨平台字体/缩放兼容性差，文本前缀永远正确）。
           _firstIndent ? '　　${paras[i]}' : paras[i],
@@ -849,6 +859,7 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
                 ? scheme.primary
                 : textColor,
           ),
+        ),
         );
 
     // 单一 ListView：挂 _listController（翻章回顶、桌面键滚动都依赖它），
