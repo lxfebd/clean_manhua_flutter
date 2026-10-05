@@ -368,10 +368,27 @@ class ProfilePageState extends ConsumerState<ProfilePage> {
     });
   }
 
+  /// 历史直达进行中：防止 detail 解析期间连点其他条目叠出双阅读器。
+  bool _historyJumping = false;
+
   /// 阅读历史直达：先向源解析该作品目录（拿章节列表供阅读器连读/切章），
   /// 再携带上次读到的位置直接进入阅读器。漫画/小说按源类型分流。
   /// 网络失败不阻塞浏览：历史面板照常展示，仅对失败项提示。
   Future<void> _openHistoryEntry(HistoryEntry h) async {
+    // 收起历史弹窗：detail 解析可能耗时（15s 超时），期间 sheet 停留
+    // 会让用户误以为还能再点其他条目（连点会叠双阅读器）。先关面板
+    // 再解析，解析失败由 toast 提示，不打扰浏览。
+    Navigator.of(context).pop();
+    if (_historyJumping) return;
+    _historyJumping = true;
+    try {
+      await _openHistoryEntryInner(h);
+    } finally {
+      _historyJumping = false;
+    }
+  }
+
+  Future<void> _openHistoryEntryInner(HistoryEntry h) async {
     final b = h.book;
     // 按 sourceId 是否小说源分流（与书架 _openFromHistory 同规则）。
     if (SourceManager.novelById(b.sourceId) != null) {
