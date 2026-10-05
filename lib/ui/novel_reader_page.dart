@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:screen_brightness/screen_brightness.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../net/error_logger.dart';
@@ -112,6 +113,10 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
   bool get _firstIndent => _prefs.firstIndent;
   int get _colorTemp => _prefs.colorTemp;
 
+  /// 阅读亮度（1.0=最亮）。真实接管系统亮度，失败降级为黑纱遮罩。
+  double _dim = 1.0;
+  bool _brightnessNative = false; // 是否已接管系统亮度
+
   final Stopwatch _readWatch = Stopwatch();
   Timer? _statsTimer;
   ScrollController? _listController;
@@ -150,6 +155,7 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
     _load(widget.chapterId);
     _initBookmark();
     WakelockPlus.enable(); // 阅读时保持屏幕常亮（与漫画阅读器对齐）
+    _initBrightness(); // 接管系统亮度（失败降级遮罩）
     // 桌面端键盘：←/→ 翻章、Esc 返回。仅桌面注册，避免移动端蓝牙键盘误触。
     if (DesktopUi.isDesktopPlatform) {
       HardwareKeyboard.instance.addHandler(_keyHandler);
@@ -283,6 +289,12 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
     _listController = null;
     _readWatch.stop();
     WakelockPlus.disable(); // 退出阅读时恢复系统默认熄屏
+    // 还原系统亮度
+    if (_brightnessNative) {
+      try {
+        ScreenBrightness.instance.resetApplicationScreenBrightness();
+      } catch (_) {}
+    }
     final elapsed = _readWatch.elapsed.inSeconds;
     if (elapsed > 0) LocalStore.addReadingSeconds(elapsed);
     super.dispose();
@@ -530,6 +542,32 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
     ref.read(novelReaderPrefsProvider.notifier).update(fontSize: v);
   }
 
+  /// 进入阅读器时读取当前系统亮度：可读则接管（退出还原），否则降级遮罩。
+  Future<void> _initBrightness() async {
+    try {
+      final v = await ScreenBrightness.instance.application;
+      if (v >= 0 && v <= 1.0) {
+        _brightnessNative = true;
+        _dim = v;
+      }
+    } catch (_) {
+      _brightnessNative = false;
+    }
+    if (mounted) setState(() {});
+  }
+
+  /// 设置阅读亮度：真实调系统 API，失败则降级为黑纱遮罩。
+  void _setBrightness(double v) {
+    final nv = v.clamp(0.05, 1.0);
+    setState(() => _dim = nv);
+    if (!_brightnessNative) return; // 遮罩降级
+    try {
+      ScreenBrightness.instance.setApplicationScreenBrightness(nv);
+    } catch (_) {
+      _brightnessNative = false;
+    }
+  }
+
   /// 本章摘要：当前章正文本地纯规则生成（无网络、无模型依赖）。
   Future<void> _showSummary() {
     final content = _content;
@@ -566,6 +604,7 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
         paragraphGap: _paragraphGap,
         firstIndent: _firstIndent,
         colorTemp: _colorTemp,
+        brightness: _dim,
         onFontSize: (v) async {
           await ref.read(novelReaderPrefsProvider.notifier).update(fontSize: v);
         },
@@ -584,6 +623,7 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
         onColorTemp: (v) async {
           await ref.read(novelReaderPrefsProvider.notifier).update(colorTemp: v);
         },
+        onBrightness: _setBrightness,
       ),
     );
   }
@@ -725,6 +765,19 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
                 child: ColoredBox(
                   color: const Color(0xFFFF9E4D).withValues(
                       alpha: _colorTemp / 100 * 0.25),
+                ),
+              ),
+            ),
+          // 亮度黑纱层（仅降级模式：桌面端/无权限时用黑纱模拟亮度）。
+          // ⚠️ IgnorePointer：遮罩只做视觉压暗，绝不拦截命中测试——否则
+          // 调低亮度后正文滚动/点按全被黑纱吃掉（对齐漫画阅读器同款修复）。
+          if (!_brightnessNative)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 220),
+                  opacity: (1.0 - _dim) * 0.75,
+                  child: const ColoredBox(color: Colors.black),
                 ),
               ),
             ),
@@ -969,6 +1022,8 @@ class _NovelReaderSettingsSheet extends StatefulWidget {
   final ValueChanged<int> onParagraphGap;
   final ValueChanged<bool> onFirstIndent;
   final ValueChanged<int> onColorTemp;
+  final double brightness;
+  final ValueChanged<double> onBrightness;
   const _NovelReaderSettingsSheet({
     required this.fontSize,
     required this.lineHeight,
@@ -976,12 +1031,14 @@ class _NovelReaderSettingsSheet extends StatefulWidget {
     required this.paragraphGap,
     required this.firstIndent,
     required this.colorTemp,
+    required this.brightness,
     required this.onFontSize,
     required this.onLineHeight,
     required this.onTheme,
     required this.onParagraphGap,
     required this.onFirstIndent,
     required this.onColorTemp,
+    required this.onBrightness,
   });
 
   @override
@@ -1129,6 +1186,60 @@ class _NovelReaderSettingsSheetState
                         : '${(6500 - widget.colorTemp * 35)}K',
                     onChanged: (v) {
                       widget.onColorTemp(v.round());
+                      setState(() {});
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            // 阅读亮度：真实调系统亮度，失败时由阅读器黑纱遮罩降级模拟。
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text('亮度',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withValues(alpha: 0.85))),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${(widget.brightness * 100).round()}%',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.5)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                SliderTheme(
+                  data: SliderThemeData(
+                    activeTrackColor:
+                        Theme.of(context).colorScheme.primary,
+                    inactiveTrackColor: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.15),
+                    thumbColor: Theme.of(context).colorScheme.primary,
+                    trackHeight: 3,
+                    overlayShape: const RoundSliderOverlayShape(
+                        overlayRadius: 10),
+                  ),
+                  child: Slider(
+                    value: widget.brightness,
+                    max: 1.0,
+                    divisions: 20,
+                    label: '${(widget.brightness * 100).round()}%',
+                    onChanged: (v) {
+                      widget.onBrightness(v);
                       setState(() {});
                     },
                   ),
