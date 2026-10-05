@@ -475,6 +475,28 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
       _go(_content?.nextChapterId);
       return true;
     }
+    if (event.logicalKey == LogicalKeyboardKey.home) {
+      final sc = _listController;
+      if (sc != null && sc.hasClients) {
+        sc.animateTo(
+          0,
+          duration: const Duration(milliseconds: 240),
+          curve: Curves.easeOut,
+        );
+      }
+      return true;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.end) {
+      final sc = _listController;
+      if (sc != null && sc.hasClients) {
+        sc.animateTo(
+          sc.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 240),
+          curve: Curves.easeOut,
+        );
+      }
+      return true;
+    }
     switch (event.logicalKey) {
       case LogicalKeyboardKey.keyB:
         _toggleBookmark();
