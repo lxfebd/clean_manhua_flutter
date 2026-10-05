@@ -51,6 +51,14 @@ double chapterProgress(double offset, double maxScrollExtent) {
   return (offset / maxScrollExtent).clamp(0.0, 1.0);
 }
 
+/// 章节目录「定位到当前章」的目标偏移：让第 idx 项滚到可视区中间偏上
+/// （上方留上下文，能看到上一章在滚走的边缘）。每项高按 dense ListTile
+/// 约 56px 估算，clamp 到 [0, maxScrollExtent]。纯函数便于单测。
+double tocTargetOffset(int idx, double viewport, double maxExtent) {
+  final target = idx * 56.0 - viewport * 0.4;
+  return target.clamp(0.0, maxExtent);
+}
+
 /// 小说阅读器：渲染章节正文（段落列表），支持上下章导航与阅读进度记录。
 class NovelReaderPage extends ConsumerStatefulWidget {
   final String sourceId;
@@ -1311,11 +1319,18 @@ class _TocSheet extends StatefulWidget {
 class _TocSheetState extends State<_TocSheet> {
   List<NovelChapter>? _chapters;
   bool _failed = false;
+  final ScrollController _ctrl = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _fetch();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
   }
 
   Future<void> _fetch() async {
@@ -1326,9 +1341,29 @@ class _TocSheetState extends State<_TocSheet> {
     try {
       final d = await widget.load();
       if (mounted) setState(() => _chapters = d.chapters);
+      if (mounted) _scrollToCurrent();
     } catch (_) {
       if (mounted) setState(() => _failed = true);
     }
+  }
+
+  /// 目录加载后定位到当前章：长篇（几十上百章）打开目录时当前章可能
+  /// 在屏幕外，高亮章需要自动滚进可视区。post-frame 等 ListView 挂载。
+  void _scrollToCurrent() {
+    final chapters = _chapters;
+    if (chapters == null || chapters.isEmpty) return;
+    final idx = chapters.indexWhere((c) => c.id == widget.currentChapterId);
+    if (idx < 0) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_ctrl.hasClients) return;
+      // 定位到可视区中间偏上，四周留上下文（当前章上下各约 2 屏）。
+      final target = tocTargetOffset(
+        idx,
+        MediaQuery.of(context).size.height,
+        _ctrl.position.maxScrollExtent,
+      );
+      _ctrl.jumpTo(target);
+    });
   }
 
   @override
@@ -1388,6 +1423,7 @@ class _TocSheetState extends State<_TocSheet> {
       return const Center(child: Text('暂无目录'));
     }
     return ListView.builder(
+      controller: _ctrl,
       itemCount: chapters.length,
       itemBuilder: (ctx, i) {
         final ch = chapters[i];
