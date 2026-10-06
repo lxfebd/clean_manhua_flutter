@@ -50,6 +50,9 @@ Future<void> showBatchDownloadSheet(
   BuildContext context, {
   required List<Chapter> chapters,
   required Set<String> cachedIds,
+
+  /// 已读章节 id 集合（多选时标注「已读」，与「已下载」副标题对称）。
+  required Set<String> readIds,
   required String sourceId,
   required String comicId,
   required String comicName,
@@ -66,6 +69,7 @@ Future<void> showBatchDownloadSheet(
     builder: (ctx) => _BatchSheetBody(
       chapters: chapters,
       cachedIds: cachedIds,
+      readIds: readIds,
       sourceId: sourceId,
       comicId: comicId,
       comicName: comicName,
@@ -78,6 +82,7 @@ Future<void> showBatchDownloadSheet(
 class _BatchSheetBody extends StatefulWidget {
   final List<Chapter> chapters;
   final Set<String> cachedIds;
+  final Set<String> readIds;
   final String sourceId;
   final String comicId;
   final String comicName;
@@ -88,6 +93,7 @@ class _BatchSheetBody extends StatefulWidget {
   const _BatchSheetBody({
     required this.chapters,
     required this.cachedIds,
+    required this.readIds,
     required this.sourceId,
     required this.comicId,
     required this.comicName,
@@ -403,6 +409,7 @@ class _BatchSheetBodyState extends State<_BatchSheetBody> {
                         final idx = _visible[i];
                         final ch = widget.chapters[idx];
                         final downloaded = widget.cachedIds.contains(ch.id);
+                        final read = widget.readIds.contains(ch.id);
                         final sel = _selected.contains(idx);
                         return CheckboxListTile(
                           value: downloaded || sel,
@@ -429,7 +436,17 @@ class _BatchSheetBodyState extends State<_BatchSheetBody> {
                                         ),
                                       ),
                                     )
-                                  : null,
+                                  : read
+                                      ? Text(
+                                          '已读',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: scheme.onSurface.withValues(
+                                              alpha: 0.55,
+                                            ),
+                                          ),
+                                        )
+                                      : null,
                           dense: true,
                         );
                       },

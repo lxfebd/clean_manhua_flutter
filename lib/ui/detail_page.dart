@@ -1017,6 +1017,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
       context,
       chapters: _sortedChapters(),
       cachedIds: _cachedChapters,
+      readIds: _readChapters,
       sourceId: widget.sourceId,
       comicId: detail.id,
       comicName: detail.name,
