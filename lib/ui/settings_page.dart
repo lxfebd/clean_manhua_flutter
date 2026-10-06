@@ -593,6 +593,21 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                         ),
                         RowSeparator(),
                         SettingsTile(
+                          icon: Icons.manage_search_rounded,
+                          title: '清空搜索历史',
+                          subtitle: '清除搜索框的历史关键词',
+                          onTap:
+                              () => _confirm(
+                                title: '清空搜索历史',
+                                content: '确定清空搜索历史关键词？',
+                                action: () async {
+                                  await LocalStore.clearSearchHistory();
+                                },
+                                successMsg: '已清空搜索历史',
+                              ),
+                        ),
+                        RowSeparator(),
+                        SettingsTile(
                           icon: Icons.cleaning_services_outlined,
                           title: '清除小说缓存',
                           subtitle: '删除离线缓存的章节正文（断网兜底用）',
