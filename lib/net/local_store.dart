@@ -636,6 +636,9 @@ class LocalStore {
     return (await bookmarks()).any((x) => x.key == key);
   }
 
+  /// 清空全部手动书签。
+  static Future<void> clearBookmarks() async => _write('bookmarks', []);
+
   // ---- 动画观看记录 ----
   static Future<List<VideoRecord>> videoRecords() async {
     final list = (await _read('video_records') as List?) ?? [];

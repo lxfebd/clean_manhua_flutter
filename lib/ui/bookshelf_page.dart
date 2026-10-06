@@ -851,14 +851,42 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
         Responsive.pagePadding(context),
         110,
       ),
-      sliver: SliverList.separated(
-        itemCount: _bookmarks.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
-        itemBuilder: (c, i) => _BookmarkCard(
-          mark: _bookmarks[i],
-          onTap: () => _openBookmark(_bookmarks[i]),
-          onDelete: () => _deleteBookmark(_bookmarks[i]),
-        ),
+      sliver: SliverMainAxisGroup(
+        slivers: [
+          // 列表头：数量 + 清空入口（与最近阅读/动画记录 Tab 同款）。
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  Text(
+                    '共 ${_bookmarks.length} 条',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: T.color(scheme.onSurface, TextTier.low,
+                          brightness: scheme.brightness),
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton.icon(
+                    onPressed: _confirmClearBookmarks,
+                    icon: const Icon(Icons.delete_sweep_outlined, size: 16),
+                    label: const Text('清空'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SliverList.separated(
+            itemCount: _bookmarks.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemBuilder: (c, i) => _BookmarkCard(
+              mark: _bookmarks[i],
+              onTap: () => _openBookmark(_bookmarks[i]),
+              onDelete: () => _deleteBookmark(_bookmarks[i]),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1763,6 +1791,36 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     await LocalStore.removeBookmark(
         m.book.sourceId, m.book.comicId, m.chapterId, m.pageIndex);
     reload();
+  }
+
+  /// 清空全部手动书签（含确认；与最近阅读/动画记录 Tab 的清空入口对称）。
+  Future<void> _confirmClearBookmarks() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.sheet)),
+        title: const Text('清空书签'),
+        content:
+            Text('确定清空全部 ${_bookmarks.length} 条手动书签？此操作不可恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('清空'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await LocalStore.clearBookmarks();
+      await reload();
+      if (!mounted) return;
+      AppToast.info(context, '已清空书签');
+    }
   }
 
   /// 续播：向源解析该集的播放入口后统一进 NativePlayerPage（单一播放器）。
