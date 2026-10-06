@@ -44,6 +44,20 @@ String resumeTextOf(String key, List<HistoryEntry> recent) {
   return '';
 }
 
+/// 最近阅读过滤纯函数：按书名/章节标题匹配（空 = 原样返回）。
+/// 语义与书签/下载 Tab 过滤一致，独立便于单元测试。
+List<HistoryEntry> filterHistory(
+    List<HistoryEntry> history, String filter) {
+  final f = filter.trim().toLowerCase();
+  if (f.isEmpty) return history;
+  return [
+    for (final h in history)
+      if (h.book.name.toLowerCase().contains(f) ||
+          h.chapterTitle.toLowerCase().contains(f))
+        h,
+  ];
+}
+
 /// 动画记录过滤纯函数：按片名匹配（空 = 原样返回）。
 /// 语义与书签/下载 Tab 过滤一致，独立便于单元测试。
 List<VideoRecord> filterVideoRecords(
@@ -132,6 +146,9 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
   // 动画记录 Tab 搜索（番剧多了按标题定位；独立持有输入态）。
   final _videoFilterCtrl = TextEditingController();
   String _videoFilter = '';
+  // 最近阅读 Tab 搜索（独立持有输入态；对齐其它 Tab 搜索框）。
+  final _recentFilterCtrl = TextEditingController();
+  String _recentFilter = '';
   String? _statusFilter;
   List<String> _allStatuses = [];
   int _sortMode = 0; // 0=最近更新 1=最近收藏 2=名称
@@ -304,6 +321,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     _searchCtrl.dispose();
     _bookmarkFilterCtrl.dispose();
     _videoFilterCtrl.dispose();
+    _recentFilterCtrl.dispose();
     super.dispose();
   }
 
@@ -690,25 +708,93 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
               ),
             ),
           ),
-          SliverList.separated(
-            itemCount: _recent.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            // 平板/大屏内容由主框架 MaxWidthContainer 统一收口（1200/1400），
-            // 此处不再叠加 600 二级限宽，避免两级限宽叠加冲突。
-            itemBuilder: (c, i) => _ReadingCard(
-              history: _recent[i],
-              progress: _progressOf(_recent[i]),
-              // 小说历史无章内进度，不渲染进度条（见 _ReadingCard.showProgress）。
-              showProgress:
-                  SourceManager.novelById(_recent[i].book.sourceId) == null,
-              onTap: () => _openFromHistory(_recent[i]),
-              onLongPressDelete: () => _confirmRemoveRecent(_recent[i]),
+          // 最近阅读搜索框：条数多时按书名/章节定位（镜像书签/下载 Tab 样式）。
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _buildRecentSearchField(scheme),
             ),
           ),
+          if (_visibleRecent.isEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 48),
+                child: Center(
+                  child: Text(
+                    '没有匹配「${_recentFilter.trim()}」的阅读记录',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: scheme.onSurface.withValues(alpha: 0.55),
+                    ),
+                  ),
+                ),
+              ),
+            )
+          else
+            SliverList.separated(
+              itemCount: _visibleRecent.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              // 平板/大屏内容由主框架 MaxWidthContainer 统一收口（1200/1400），
+              // 此处不再叠加 600 二级限宽，避免两级限宽叠加冲突。
+              itemBuilder: (c, i) => _ReadingCard(
+                history: _visibleRecent[i],
+                progress: _progressOf(_visibleRecent[i]),
+                // 小说历史无章内进度，不渲染进度条（见 _ReadingCard.showProgress）。
+                showProgress:
+                    SourceManager.novelById(_visibleRecent[i].book.sourceId) ==
+                    null,
+                onTap: () => _openFromHistory(_visibleRecent[i]),
+                onLongPressDelete: () => _confirmRemoveRecent(
+                    _visibleRecent[i]),
+              ),
+            ),
         ],
       ),
     );
   }
+
+  /// 最近阅读搜索框（镜像书签/下载 Tab 搜索框样式；本地内存过滤）。
+  Widget _buildRecentSearchField(ColorScheme scheme) {
+    return TextField(
+      controller: _recentFilterCtrl,
+      onChanged: (v) => setState(() => _recentFilter = v),
+      style: TextStyle(fontSize: 13.5, color: scheme.onSurface),
+      decoration: InputDecoration(
+        isDense: true,
+        hintText: '搜索最近阅读（书名 / 章节）',
+        hintStyle: TextStyle(
+          fontSize: 13,
+          color: scheme.onSurface.withValues(alpha: 0.4),
+        ),
+        prefixIcon: Icon(
+          Icons.search_rounded,
+          size: 18,
+          color: scheme.onSurface.withValues(alpha: 0.5),
+        ),
+        suffixIcon: _recentFilter.isEmpty
+            ? null
+            : IconButton(
+                tooltip: '清除',
+                icon: const Icon(Icons.close_rounded, size: 16),
+                onPressed: () {
+                  _recentFilterCtrl.clear();
+                  setState(() => _recentFilter = '');
+                },
+              ),
+        filled: true,
+        fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(R.control),
+          borderSide: BorderSide.none,
+        ),
+      ),
+    );
+  }
+
+  /// 最近阅读列表（搜索过滤后的可见条目；空过滤 = 全量）。
+  List<HistoryEntry> get _visibleRecent =>
+      filterHistory(_recent, _recentFilter);
 
   /// 书架网格
   Widget _buildShelfGrid(ColorScheme scheme) {
