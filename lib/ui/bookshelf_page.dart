@@ -44,6 +44,20 @@ String resumeTextOf(String key, List<HistoryEntry> recent) {
   return '';
 }
 
+/// 书签列表过滤纯函数：按书名/章节标题匹配（空 = 原样返回）。
+/// 语义与下载 Tab/批量下载过滤一致，独立便于单元测试。
+List<ComicBookmark> filterBookmarks(
+    List<ComicBookmark> bookmarks, String filter) {
+  final f = filter.trim().toLowerCase();
+  if (f.isEmpty) return bookmarks;
+  return [
+    for (final b in bookmarks)
+      if (b.book.name.toLowerCase().contains(f) ||
+          b.chapterTitle.toLowerCase().contains(f))
+        b,
+  ];
+}
+
 /// 书架页：跨源聚合，按时间倒序。错峰入场。
 ///
 /// 平板布局（≥600dp）：
@@ -89,6 +103,9 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
   // 收藏 Tab 内搜索 + 筛选 + 排序。
   final _searchCtrl = TextEditingController();
   String _searchQuery = '';
+  // 书签 Tab 搜索（独立于收藏 Tab 搜索，各自持有输入态）。
+  final _bookmarkFilterCtrl = TextEditingController();
+  String _bookmarkFilter = '';
   String? _statusFilter;
   List<String> _allStatuses = [];
   int _sortMode = 0; // 0=最近更新 1=最近收藏 2=名称
@@ -259,6 +276,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     // 解除全局更新回调，避免页面销毁后仍被后台检查触发（context 已失效）。
     ShelfUpdater.instance.onUpdatesFound = null;
     _searchCtrl.dispose();
+    _bookmarkFilterCtrl.dispose();
     super.dispose();
   }
 
@@ -832,6 +850,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
 
   /// 书签列表
   Widget _buildBookmarkList(ColorScheme scheme) {
+    final filtered = filterBookmarks(_bookmarks, _bookmarkFilter);
     if (_bookmarks.isEmpty) {
       return const SliverToBoxAdapter(
         child: Padding(
@@ -853,40 +872,106 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
       ),
       sliver: SliverMainAxisGroup(
         slivers: [
-          // 列表头：数量 + 清空入口（与最近阅读/动画记录 Tab 同款）。
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                children: [
-                  Text(
-                    '共 ${_bookmarks.length} 条',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: T.color(scheme.onSurface, TextTier.low,
-                          brightness: scheme.brightness),
-                    ),
+          SliverToBoxAdapter(child: _buildBookmarkSearchField(scheme)),
+          if (_bookmarkFilter.trim().isNotEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  '匹配 ${filtered.length} 条书签',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: T.color(scheme.onSurface, TextTier.low,
+                        brightness: scheme.brightness),
                   ),
-                  const Spacer(),
-                  TextButton.icon(
-                    onPressed: _confirmClearBookmarks,
-                    icon: const Icon(Icons.delete_sweep_outlined, size: 16),
-                    label: const Text('清空'),
-                  ),
-                ],
+                ),
               ),
             ),
-          ),
-          SliverList.separated(
-            itemCount: _bookmarks.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (c, i) => _BookmarkCard(
-              mark: _bookmarks[i],
-              onTap: () => _openBookmark(_bookmarks[i]),
-              onDelete: () => _deleteBookmark(_bookmarks[i]),
+          if (filtered.isEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 48),
+                child: _TabEmpty(
+                  icon: Icons.search_off_rounded,
+                  text: '没有匹配「${_bookmarkFilter.trim()}」的书签',
+                ),
+              ),
+            )
+          else ...[
+            // 列表头：数量 + 清空入口（与最近阅读/动画记录 Tab 同款）。
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 8, bottom: 8),
+                child: Row(
+                  children: [
+                    Text(
+                      '共 ${_bookmarks.length} 条',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: T.color(scheme.onSurface, TextTier.low,
+                            brightness: scheme.brightness),
+                      ),
+                    ),
+                    const Spacer(),
+                    TextButton.icon(
+                      onPressed: _confirmClearBookmarks,
+                      icon: const Icon(Icons.delete_sweep_outlined, size: 16),
+                      label: const Text('清空'),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
+            SliverList.separated(
+              itemCount: filtered.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemBuilder: (c, i) => _BookmarkCard(
+                mark: filtered[i],
+                onTap: () => _openBookmark(filtered[i]),
+                onDelete: () => _deleteBookmark(filtered[i]),
+              ),
+            ),
+          ],
         ],
+      ),
+    );
+  }
+
+  /// 书签 Tab 搜索框（镜像下载 Tab 搜索框样式；本地内存过滤）。
+  Widget _buildBookmarkSearchField(ColorScheme scheme) {
+    return TextField(
+      controller: _bookmarkFilterCtrl,
+      onChanged: (v) => setState(() => _bookmarkFilter = v),
+      style: TextStyle(fontSize: 13.5, color: scheme.onSurface),
+      decoration: InputDecoration(
+        isDense: true,
+        hintText: '搜索书签（书名 / 章节）',
+        hintStyle: TextStyle(
+          fontSize: 13,
+          color: scheme.onSurface.withValues(alpha: 0.4),
+        ),
+        prefixIcon: Icon(
+          Icons.search_rounded,
+          size: 18,
+          color: scheme.onSurface.withValues(alpha: 0.5),
+        ),
+        suffixIcon: _bookmarkFilter.isEmpty
+            ? null
+            : IconButton(
+                tooltip: '清除',
+                icon: const Icon(Icons.close_rounded, size: 16),
+                onPressed: () {
+                  _bookmarkFilterCtrl.clear();
+                  setState(() => _bookmarkFilter = '');
+                },
+              ),
+        filled: true,
+        fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(R.control),
+          borderSide: BorderSide.none,
+        ),
       ),
     );
   }
