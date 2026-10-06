@@ -15,6 +15,7 @@ import '../sources/source_manager.dart';
 import '../utils/novel_summarizer.dart';
 import 'reader_prefs_providers.dart';
 import 'bookshelf_providers.dart' show bookshelfDataProvider;
+import 'detail_providers.dart' as detailp;
 import 'responsive.dart';
 import 'style_tokens.dart';
 import 'widgets/app_toast.dart';
@@ -217,6 +218,22 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
       widget.sourceId,
       widget.novelId,
     );
+    // 已读章节 id 集合：读过的章节标 ✓（与详情页目录/漫画目录对称）。
+    // 阅读器每次读/切章都会 recordHistory，直接按 book.key 筛历史即可。
+    List<HistoryEntry>? history;
+    Set<String> readIds = const {};
+    try {
+      history = await LocalStore.history();
+    } catch (_) {
+      // 历史读取失败不阻塞目录：无已读标记仍可浏览跳章。
+    }
+    if (history != null) {
+      readIds = detailp.readChapterIds(
+        history: history,
+        sourceId: widget.sourceId,
+        comicId: widget.novelId,
+      );
+    }
     if (!mounted) return;
     showResponsiveBottomSheet<void>(
       context: context,
@@ -230,6 +247,7 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
             .timeout(const Duration(seconds: 15)),
         currentChapterId: _curChapterId,
         cachedIds: cached,
+        readIds: readIds,
         onPick: (id) {
           Navigator.pop(ctx);
           _go(id);
@@ -1534,12 +1552,17 @@ class _TocSheet extends StatefulWidget {
 
   /// 已离线缓存的章节 id 集合（打开目录时快照；断网标记用）。
   final Set<String> cachedIds;
+
+  /// 已读章节 id 集合（打开目录时快照）：读过的章节标 ✓，
+  /// 与详情页目录/漫画目录的已读勾选对称。
+  final Set<String> readIds;
   final ValueChanged<String> onPick;
 
   const _TocSheet({
     required this.load,
     required this.currentChapterId,
     required this.cachedIds,
+    required this.readIds,
     required this.onPick,
   });
 
@@ -1728,6 +1751,7 @@ class _TocSheetState extends State<_TocSheet> {
                     final ch = visible[i];
                     final cur = ch.id == widget.currentChapterId;
                     final cached = widget.cachedIds.contains(ch.id);
+                    final read = widget.readIds.contains(ch.id);
                     return ListTile(
                       dense: true,
                       selected: cur,
@@ -1740,19 +1764,29 @@ class _TocSheetState extends State<_TocSheet> {
                           color: cur ? Theme.of(ctx).colorScheme.primary : null,
                         ),
                       ),
-                      // 已缓存章节标注离线小图标（断网可读），当前章高亮优先。
+                      // 当前章高亮优先；其次已读 ✓（看过比离线可读信息更重）；
+                      // 再其次已缓存离线小图标（断网可读）。
                       trailing: cur
                           ? null
-                          : cached
+                          : read
                               ? Icon(
-                                  Icons.offline_pin_rounded,
-                                  size: 15,
+                                  Icons.check_circle_rounded,
+                                  size: 16,
                                   color: Theme.of(ctx)
                                       .colorScheme
                                       .primary
-                                      .withValues(alpha: 0.6),
+                                      .withValues(alpha: 0.7),
                                 )
-                              : null,
+                              : cached
+                                  ? Icon(
+                                      Icons.offline_pin_rounded,
+                                      size: 15,
+                                      color: Theme.of(ctx)
+                                          .colorScheme
+                                          .primary
+                                          .withValues(alpha: 0.6),
+                                    )
+                                  : null,
                       onTap: () => widget.onPick(ch.id),
                     );
                   },
