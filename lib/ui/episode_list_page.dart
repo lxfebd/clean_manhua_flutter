@@ -4,6 +4,7 @@ import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import '../sources/video_source.dart';
 import 'anime_player_page.dart' show animePlayerWebChannel;
+import 'episode_batch_download_sheet.dart';
 import 'episode_grouping.dart';
 import 'native_player_page.dart';
 import 'responsive.dart';
@@ -640,27 +641,48 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                         ),
                       ),
                     )
-                  : _videoRecords.isNotEmpty
-                  ? GestureDetector(
-                      onTap: () {
-                        final r = _videoRecords.first;
-                        final flat = d.episodes;
-                        final hi = flat.indexWhere(
-                            (e) => e.season == r.season && e.episode == r.episode);
-                        if (hi >= 0) _play(r.season, r.episode, hi);
-                      },
-                      child: Row(children: [
-                        Icon(Icons.history_rounded,
-                            size: 15, color: theme.colorScheme.primary),
-                        const SizedBox(width: 4),
-                        Text('上次：第${_videoRecords.first.episode}集',
-                            style: TextStyle(
-                                fontSize: 12,
-                                color: theme.colorScheme.primary,
-                                fontWeight: FontWeight.w600)),
-                      ]),
-                    )
-                  : null,
+                  : Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_videoRecords.isNotEmpty)
+                          GestureDetector(
+                            onTap: () {
+                              final r = _videoRecords.first;
+                              final flat = d.episodes;
+                              final hi = flat.indexWhere((e) =>
+                                  e.season == r.season &&
+                                  e.episode == r.episode);
+                              if (hi >= 0) _play(r.season, r.episode, hi);
+                            },
+                            child: Row(children: [
+                              Icon(Icons.history_rounded,
+                                  size: 15, color: theme.colorScheme.primary),
+                              const SizedBox(width: 4),
+                              Text('上次：第${_videoRecords.first.episode}集',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: theme.colorScheme.primary,
+                                      fontWeight: FontWeight.w600)),
+                            ]),
+                          ),
+                        const SizedBox(width: 12),
+                        GestureDetector(
+                          onTap: () =>
+                              showEpisodeBatchDownloadSheet(context,
+                                  source: widget.source, detail: d),
+                          child: Row(children: [
+                            Icon(Icons.download_rounded,
+                                size: 15, color: theme.colorScheme.primary),
+                            const SizedBox(width: 4),
+                            Text('批量下载',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: theme.colorScheme.primary,
+                                    fontWeight: FontWeight.w600)),
+                          ]),
+                        ),
+                      ],
+                    ),
             ),
           ),
         ),
