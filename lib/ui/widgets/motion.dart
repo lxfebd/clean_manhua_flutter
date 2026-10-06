@@ -71,6 +71,9 @@ class _FadeSlideInState extends State<FadeSlideIn>
 class PressableScale extends StatefulWidget {
   final Widget child;
   final VoidCallback? onTap;
+
+  /// 长按回调（如最近阅读卡长按删除）；null = 不响应长按。
+  final VoidCallback? onLongPress;
   final double scale;
   final Duration? duration;
   final Curve? curve;
@@ -84,6 +87,7 @@ class PressableScale extends StatefulWidget {
     super.key,
     required this.child,
     this.onTap,
+    this.onLongPress,
     this.scale = 0.96,
     this.duration,
     this.curve,
@@ -120,6 +124,7 @@ class _PressableScaleState extends State<PressableScale> {
       onTapCancel: () => setState(() => _down = false),
       onTapUp: (_) => setState(() => _down = false),
       onTap: widget.onTap,
+      onLongPress: widget.onLongPress,
       child: AnimatedScale(
         scale: (_down || _focused) && widget.onTap != null
             ? widget.scale

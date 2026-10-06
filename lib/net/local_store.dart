@@ -577,6 +577,19 @@ class LocalStore {
 
   static Future<void> clearHistory() async => _write('history', []);
 
+  /// 删除单条历史（按 [HistoryEntry.key] 精确匹配，其余原样保留）。
+  /// 书架最近阅读长按删除用；记录按时间倒序读回，删除不重排。
+  static Future<void> removeHistoryEntry(HistoryEntry entry) async {
+    await _enqueue('history', () async {
+      final raw = (await _read('history') as List?) ?? [];
+      final list = raw
+          .map((e) => HistoryEntry.fromMap(e as Map<String, dynamic>))
+          .where((h) => h.key != entry.key)
+          .toList();
+      await _writeNow('history', list.map((e) => e.toMap()).toList());
+    });
+  }
+
   // ---- 手动书签 ----
   static Future<List<ComicBookmark>> bookmarks() async {
     final list = (await _read('bookmarks') as List?) ?? [];

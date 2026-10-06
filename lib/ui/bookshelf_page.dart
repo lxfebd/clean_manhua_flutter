@@ -619,19 +619,48 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
         Responsive.pagePadding(context),
         110,
       ),
-      sliver: SliverList.separated(
-        itemCount: _recent.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
-        // 平板/大屏内容由主框架 MaxWidthContainer 统一收口（1200/1400），
-        // 此处不再叠加 600 二级限宽，避免两级限宽叠加冲突。
-        itemBuilder: (c, i) => _ReadingCard(
-          history: _recent[i],
-          progress: _progressOf(_recent[i]),
-          // 小说历史无章内进度，不渲染进度条（见 _ReadingCard.showProgress）。
-          showProgress:
-              SourceManager.novelById(_recent[i].book.sourceId) == null,
-          onTap: () => _openFromHistory(_recent[i]),
-        ),
+      sliver: SliverMainAxisGroup(
+        slivers: [
+          // 列表头：数量 + 清空入口（最近阅读 Tab 直达清空，无需去设置页）。
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  Text(
+                    '共 ${_recent.length} 条',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: T.color(scheme.onSurface, TextTier.low,
+                          brightness: scheme.brightness),
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton.icon(
+                    onPressed: _confirmClearRecent,
+                    icon: const Icon(Icons.delete_sweep_outlined, size: 16),
+                    label: const Text('清空'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SliverList.separated(
+            itemCount: _recent.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            // 平板/大屏内容由主框架 MaxWidthContainer 统一收口（1200/1400），
+            // 此处不再叠加 600 二级限宽，避免两级限宽叠加冲突。
+            itemBuilder: (c, i) => _ReadingCard(
+              history: _recent[i],
+              progress: _progressOf(_recent[i]),
+              // 小说历史无章内进度，不渲染进度条（见 _ReadingCard.showProgress）。
+              showProgress:
+                  SourceManager.novelById(_recent[i].book.sourceId) == null,
+              onTap: () => _openFromHistory(_recent[i]),
+              onLongPressDelete: () => _confirmRemoveRecent(_recent[i]),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1273,37 +1302,73 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
               padding: EdgeInsets.fromLTRB(
                   Responsive.pagePadding(context), 8,
                   Responsive.pagePadding(context), 8),
-              sliver: SliverList.separated(
-                itemCount: _getRecentCount() + (_recentHidden > 0 ? 1 : 0),
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
-                itemBuilder: (c, i) {
-                  if (i == _getRecentCount()) {
-                    // 截断 6 条后的「查看全部」入口：展开完整列表，避免
-                    // 超过 6 条的最近阅读藏在列表深处无法触达。
-                    return Center(
-                      child: TextButton.icon(
-                        onPressed: () =>
-                            setState(() => _recentExpanded = true),
-                        icon: const Icon(Icons.expand_more_rounded, size: 18),
-                        label: Text('查看全部 ${_recent.length} 条'),
-                      ),
-                    );
-                  }
-                  return Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 600),
-                      child: _ReadingCard(
-                        history: _recent[i],
-                        progress: _progressOf(_recent[i]),
-                        // 小说历史无章内进度，不渲染进度条（避免 0.3 假进度）。
-                        showProgress:
-                            SourceManager.novelById(_recent[i].book.sourceId) ==
-                            null,
-                        onTap: () => _openFromHistory(_recent[i]),
+              sliver: SliverMainAxisGroup(
+                slivers: [
+                  // 列表头：数量 + 清空入口（与平板端 _buildRecentList 同款）。
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        children: [
+                          Text(
+                            '共 ${_recent.length} 条',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color:
+                                  T.color(scheme.onSurface, TextTier.low,
+                                      brightness: scheme.brightness),
+                            ),
+                          ),
+                          const Spacer(),
+                          TextButton.icon(
+                            onPressed: _confirmClearRecent,
+                            icon: const Icon(Icons.delete_sweep_outlined,
+                                size: 16),
+                            label: const Text('清空'),
+                          ),
+                        ],
                       ),
                     ),
-                  );
-                },
+                  ),
+                  SliverList.separated(
+                    itemCount:
+                        _getRecentCount() + (_recentHidden > 0 ? 1 : 0),
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (c, i) {
+                      if (i == _getRecentCount()) {
+                        // 截断 6 条后的「查看全部」入口：展开完整列表，避免
+                        // 超过 6 条的最近阅读藏在列表深处无法触达。
+                        return Center(
+                          child: TextButton.icon(
+                            onPressed: () =>
+                                setState(() => _recentExpanded = true),
+                            icon:
+                                const Icon(Icons.expand_more_rounded, size: 18),
+                            label: Text('查看全部 ${_recent.length} 条'),
+                          ),
+                        );
+                      }
+                      return Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 600),
+                          child: _ReadingCard(
+                            history: _recent[i],
+                            progress: _progressOf(_recent[i]),
+                            // 小说历史无章内进度，不渲染进度条（避免 0.3 假进度）。
+                            showProgress:
+                                SourceManager.novelById(_recent[i]
+                                    .book
+                                    .sourceId) ==
+                                null,
+                            onTap: () => _openFromHistory(_recent[i]),
+                            onLongPressDelete: () =>
+                                _confirmRemoveRecent(_recent[i]),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
               ),
             )
         else if (_tab == 1) ...[
@@ -1542,6 +1607,69 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
             pic: h.book.pic,
           );
     Navigator.push(context, MaterialPageRoute(builder: (_) => page));
+  }
+
+  /// 长按最近阅读卡 → 删除该条历史。
+  void _confirmRemoveRecent(HistoryEntry h) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.sheet)),
+        title: const Text('删除记录'),
+        content: Text('确定删除「${h.book.name}」的这条阅读记录？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _removeRecent(h);
+            },
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 删除单条历史（无 confirm，由调用方弹窗确认；随后刷新最近阅读）。
+  Future<void> _removeRecent(HistoryEntry h) async {
+    await LocalStore.removeHistoryEntry(h);
+    await reload();
+    if (!mounted) return;
+    AppToast.info(context, '已删除该条阅读记录');
+  }
+
+  /// 清空最近阅读（含确认；与设置页「清空阅读历史」同语义，书架内直达）。
+  Future<void> _confirmClearRecent() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.sheet)),
+        title: const Text('清空最近阅读'),
+        content: const Text('确定清空全部阅读记录？此操作不可恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('清空'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await LocalStore.clearHistory();
+      await reload();
+      if (!mounted) return;
+      AppToast.info(context, '已清空最近阅读');
+    }
   }
 
   /// 书签直达：先向源解析该章节的目录（拿到全章节列表供连读/切章），
@@ -2630,11 +2758,15 @@ class _ReadingCard extends StatelessWidget {
   /// 落到 0.3 兜底假进度，不渲染避免误导。
   final bool showProgress;
   final VoidCallback onTap;
+
+  /// 长按删除单条历史（最近阅读列表用；null = 不支持长按删除）。
+  final VoidCallback? onLongPressDelete;
   const _ReadingCard({
     required this.history,
     required this.progress,
     this.showProgress = true,
     required this.onTap,
+    this.onLongPressDelete,
   });
 
   @override
@@ -2643,6 +2775,7 @@ class _ReadingCard extends StatelessWidget {
     final b = history.book;
     return PressableScale(
       onTap: onTap,
+      onLongPress: onLongPressDelete,
       scale: 0.98,
       focusable: true, // TV 遥控器 D-pad 焦点导航（书架卡片）
       child: Container(
