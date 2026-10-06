@@ -2647,6 +2647,8 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     setState(() {
       _checkingUpdate = true;
       _cancelUpdateCheck = false;
+      // 新轮次开始清掉上轮残留的进度文案（如中止后的 '12/156'）。
+      _checkProgress = '';
     });
     try {
       final updated = await ShelfUpdater.checkNow(
