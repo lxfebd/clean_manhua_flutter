@@ -65,6 +65,7 @@ class BookshelfDownloadView extends StatefulWidget {
     required this.onOpenAnime,
     required this.onRetryAnime,
     required this.onRemoveAnime,
+    required this.onRemoveAnimeTitle,
   });
 
   final ColorScheme scheme;
@@ -104,6 +105,9 @@ class BookshelfDownloadView extends StatefulWidget {
 
   /// 删除单条动漫下载（含确认对话框）。
   final void Function(VideoDownloadTask task) onRemoveAnime;
+
+  /// 删除某部番剧的全部下载记录（含确认对话框；按 title 聚合）。
+  final Future<void> Function(VideoDownloadTask task) onRemoveAnimeTitle;
 
   @override
   State<BookshelfDownloadView> createState() => _BookshelfDownloadViewState();
@@ -476,9 +480,44 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
     );
   }
 
+  /// 动漫下载卡长按菜单：删除单集 / 删除该番剧全部下载（按 title 聚合）。
+  void _showAnimeCardMenu(BuildContext context, VideoDownloadTask t) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.delete_outline_rounded, size: 20),
+              title: Text('删除第 ${t.episode} 集「${t.title}」',
+                  style: const TextStyle(fontSize: 14)),
+              onTap: () {
+                Navigator.pop(ctx);
+                widget.onRemoveAnime(t);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_sweep_outlined, size: 20),
+              title: Text('删除《${t.title}》全部下载',
+                  style: const TextStyle(fontSize: 14)),
+              onTap: () {
+                Navigator.pop(ctx);
+                widget.onRemoveAnimeTitle(t);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _animeDownloadCard(
-      BuildContext context, ColorScheme scheme, VideoDownloadTask t) {
-    final text = Theme.of(context).textTheme;
+      BuildContext context, ColorScheme scheme, VideoDownloadTask t) {    final text = Theme.of(context).textTheme;
     final hasFile = !kIsWeb &&
         t.localPath != null &&
         File(t.localPath!).existsSync();
@@ -521,6 +560,7 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
       ),
       child: InkWell(
         onTap: () => widget.onOpenAnime(t),
+        onLongPress: () => _showAnimeCardMenu(context, t),
         borderRadius: BorderRadius.circular(R.card),
         child: Row(
           children: [

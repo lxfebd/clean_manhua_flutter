@@ -49,6 +49,7 @@ void main() {
                 onOpenAnime: (_) {},
                 onRetryAnime: (_) async {},
                 onRemoveAnime: (_) {},
+                onRemoveAnimeTitle: (_) async {},
               ),
             ],
           ),

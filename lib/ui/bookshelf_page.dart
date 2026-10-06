@@ -568,6 +568,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
             onOpenAnime: _openAnimeDownload,
             onRetryAnime: _retryAnimeDownload,
             onRemoveAnime: _confirmRemoveAnime,
+            onRemoveAnimeTitle: _confirmRemoveAnimeTitle,
           )
         else
           _buildBookmarkList(scheme),
@@ -1032,6 +1033,39 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     );
   }
 
+  Future<void> _confirmRemoveAnimeTitle(VideoDownloadTask t) async {
+    final tasks = _animeDownloads.where((x) => x.title == t.title).toList();
+    if (tasks.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.sheet)),
+        title: const Text('删除该番剧全部下载'),
+        content: Text('确定删除《${t.title}》的全部 ${tasks.length} 条下载记录和文件？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      for (final x in tasks) {
+        try {
+          await _removeAnimeDownload(x);
+        } catch (e) {
+          ErrorLogger.instance.warn('remove anime title failed key=${x.key}: $e');
+        }
+      }
+      await reload();
+    }
+  }
+
   Future<void> _confirmClearAnimeAll() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -1380,6 +1414,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
             onOpenAnime: _openAnimeDownload,
             onRetryAnime: _retryAnimeDownload,
             onRemoveAnime: _confirmRemoveAnime,
+            onRemoveAnimeTitle: _confirmRemoveAnimeTitle,
           )
         else
           _buildBookmarkList(scheme),
