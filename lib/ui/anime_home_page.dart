@@ -987,11 +987,15 @@ class AnimeHomePageState extends State<AnimeHomePage> {
     try {
       final detail = await source.detail(it.id);
       if (!mounted) return;
-      Navigator.push(
+      // push 返回（选集页/播放器看完返回）后重扫已看映射：
+      // 三页常驻 IndexedStack 保活，返回不重建 initState，
+      // 不刷新角标会停留在旧集数。
+      await Navigator.push(
         context,
         MaterialPageRoute(
             builder: (_) => EpisodeListPage(source: source, detail: detail)),
       );
+      if (mounted) _loadWatchedEpisodes();
     } catch (e) {
       if (mounted) {
         AppToast.error(context, '打开失败，请检查网络后重试');
