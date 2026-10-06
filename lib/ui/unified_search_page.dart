@@ -537,6 +537,14 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
                 color: scheme.onSurface.withValues(alpha: 0.6),
               ),
             ),
+            const SizedBox(height: 6),
+            Text(
+              '换个关键词试试，或检查是否有拼写/空格',
+              style: TextStyle(
+                fontSize: 12.5,
+                color: scheme.onSurface.withValues(alpha: 0.4),
+              ),
+            ),
           ],
         ),
       );
