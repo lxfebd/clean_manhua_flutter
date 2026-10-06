@@ -965,6 +965,9 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
           onCatalog: () => _showCatalog(),
           onLayout: () => _cycleReaderMode(),
           onDownload: _downloading ? null : _download,
+          // 底部「上一章 / 下一章」：直接跳上一话/下一话，无需翻到章节
+          // 末尾或靠手势。边界（首章/末章）传 null，按钮自动隐藏。
+          onPrevChapter: _chapterIndex > 0 ? _goPrevChapter : null,
           // 底部新增「下一章」：直接跳下一话，无需翻到章节末尾。
           // 最后一章时传 null，按钮自动隐藏。
           onNextChapter: _canContinue ? _continueToNextChapter : null,
@@ -2898,6 +2901,8 @@ class _ReaderToolbar extends StatelessWidget {
   final VoidCallback onCatalog;
   final VoidCallback onLayout;
   final VoidCallback? onDownload;
+  /// 上一章回调；null = 已到第一章（按钮置灰禁用）。
+  final VoidCallback? onPrevChapter;
   /// 下一章回调；null = 已到最后一章（按钮置灰禁用）。
   final VoidCallback? onNextChapter;
   const _ReaderToolbar({
@@ -2909,6 +2914,7 @@ class _ReaderToolbar extends StatelessWidget {
     required this.onCatalog,
     required this.onLayout,
     this.onDownload,
+    this.onPrevChapter,
     this.onNextChapter,
   });
 
@@ -2975,6 +2981,13 @@ class _ReaderToolbar extends StatelessWidget {
                         active: downloaded,
                         onTap: onDownload,
                       ),
+                      if (onPrevChapter != null) ...[
+                        _sep(),
+                        _ToolBtn(
+                          icon: Icons.skip_previous_rounded,
+                          onTap: onPrevChapter,
+                        ),
+                      ],
                       if (onNextChapter != null) ...[
                         _sep(),
                         _ToolBtn(
