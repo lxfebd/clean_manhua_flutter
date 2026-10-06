@@ -62,12 +62,20 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
   void initState() {
     super.initState();
     _loadHistory();
+    // 订阅下载任务流：后台任意时刻完成（批量 sheet 外/播放页返回）时
+    // 选集网格「已下载」角标实时点亮（仅触发 rebuild，不做 IO）。
+    VideoDownloadManager.instance.notifier.addListener(_onDownloadsChanged);
   }
 
   @override
   void dispose() {
+    VideoDownloadManager.instance.notifier.removeListener(_onDownloadsChanged);
     _filterCtrl.dispose();
     super.dispose();
+  }
+
+  void _onDownloadsChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadHistory() async {
