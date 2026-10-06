@@ -1830,6 +1830,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
           _continueToNextChapter();
         } else {
           _pageAnimating = false;
+          _toast('已经是最后一章了'); // 横向末页无下一话时与纵向对齐，避免边界点击无反馈
         }
       } else {
         _pageAnimating = false;
