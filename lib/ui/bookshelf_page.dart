@@ -2658,7 +2658,11 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
       );
       if (!mounted) return;
       setState(() => _checkingUpdate = false);
-      if (updated == null) return;
+      if (updated == null) {
+        // 用户点按钮主动取消：给明确反馈，否则「点了停止没反应」。
+        AppToast.info(context, '已停止检查');
+        return;
+      }
       // 手动检查同样把新章节数写入了 store（setLastSeenChapters），页面数据
       // 还是旧快照：重读本地数据让卡片「更新」角标/角标计数反映最新结果
       // （与后台横幅「查看」同款闭环，见 _onUpdatesFoundToast）。
