@@ -22,6 +22,7 @@ import '../net/smart_prefetch.dart';
 import '../net/update_notifier.dart';
 import 'reader_providers.dart';
 import 'reader_prefs_providers.dart';
+import 'detail_providers.dart' as detailp;
 import 'responsive.dart';
 import 'reader_mode_geometry.dart';
 import 'widgets/reader_settings_sheet.dart';
@@ -189,6 +190,9 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
   String _activeChapterId = '';
   String _activeChapterTitle = '';
   int _activeTotalPages = 0;
+  /// 已读章节 id 集合：从历史按 book.key 筛出读过的章节，
+  /// 供章节列表 sheet「已读 ✓」角标；空集不标。
+  Set<String> _readIds = const {};
   Bookmark get _book => Bookmark(
         sourceId: widget.sourceId,
         comicId: widget.comicId,
@@ -431,7 +435,25 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
         widget.sourceId, widget.comicId, _activeChapterId,
         _horizontal ? _curPage : 0);
     if (mounted) setState(() {});
+    _loadReadIds(); // 已读角标数据，不阻塞首屏
     _load();
+  }
+
+  /// 重扫「已读」集合：历史里该作品（book.key）读过的章节 id。
+  /// 与详情页同款懒加载；读章/切章后重扫，刚读完的章节立即有 ✓。
+  Future<void> _loadReadIds() async {
+    List<HistoryEntry>? history;
+    try {
+      history = await LocalStore.history();
+    } catch (_) {
+      return; // 历史读取失败不阻塞阅读，角标不标
+    }
+    final ids = detailp.readChapterIds(
+      history: history,
+      sourceId: widget.sourceId,
+      comicId: widget.comicId,
+    );
+    if (mounted) setState(() => _readIds = ids);
   }
 
   /// 读取/切换到一个章节（用于章内切章节 / 沉浸式连读）。
@@ -507,6 +529,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
       });
       // 切章节后重新记录历史（页码以 target 为准）
       _recordHistory(chapterTitle: chapterTitle);
+      _loadReadIds(); // 刚读的章节立即标 ✓（再开目录即见）
       _prefetch(target);
       _prefetchNextChapter();
       _startAutoPage();
@@ -1532,6 +1555,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
       builder: (_) => _ChapterListSheet(
         chapters: widget.chapters,
         currentIndex: _chapterIndex,
+        readIds: _readIds,
         onSelect: (i) {
           Navigator.pop(context);
           if (_loading) return;
@@ -3169,10 +3193,15 @@ class _NextChapterFooter extends StatelessWidget {
 class _ChapterListSheet extends StatefulWidget {
   final List<Chapter> chapters;
   final int currentIndex;
+
+  /// 已读章节 id 集合（打开目录时快照）：读过的章节标 ✓，
+  /// 与详情页/全部章节 sheet 的已读勾选对称。空集不标。
+  final Set<String> readIds;
   final ValueChanged<int> onSelect;
   const _ChapterListSheet({
     required this.chapters,
     required this.currentIndex,
+    required this.readIds,
     required this.onSelect,
   });
 
@@ -3232,7 +3261,8 @@ class _ChapterListSheetState extends State<_ChapterListSheet> {
               ),
             ),
             const SizedBox(height: 14),
-            Text('章节列表 · 共 ${widget.chapters.length} 话',
+            Text('章节列表 · 共 ${widget.chapters.length} 话'
+                '${widget.readIds.isEmpty ? '' : ' · 已读 ${widget.readIds.length} 话'}',
                 style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
@@ -3293,6 +3323,8 @@ class _ChapterListSheetState extends State<_ChapterListSheet> {
                       itemBuilder: (_, v) {
                         final i = widget.chapters.indexOf(visible[v]);
                         final active = i == _activeIndex;
+                        final read = widget.readIds.contains(
+                            visible[v].id);
                         return InkWell(
                           onTap: () => widget.onSelect(i),
                           borderRadius: BorderRadius.circular(8),
@@ -3339,9 +3371,20 @@ class _ChapterListSheetState extends State<_ChapterListSheet> {
                                     ),
                                   ),
                                 ),
+                                // 当前章 check 优先；已读章标 ✓（淡入主色，
+                                // 与详情页/全部章节 sheet 的已读勾选一致）。
                                 if (active)
                                   Icon(Icons.check_rounded,
-                                      size: 16, color: Colors.white),
+                                      size: 16, color: Colors.white)
+                                else if (read)
+                                  Icon(
+                                    Icons.check_circle_rounded,
+                                    size: 16,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .primary
+                                        .withValues(alpha: 0.7),
+                                  ),
                               ],
                             ),
                           ),
