@@ -765,14 +765,17 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                     offset: 16,
                     child: ContextMenuWrapper(
                       items: () => _shelfCardMenu(item),
-                      child: _ShelfCard(
-                        item: item,
-                        editing: _editing,
-                        subtitle: _resumeTextOf(item),
-                        onTap: () => _editing
-                            ? _showCardAction(item)
-                            : _open(item),
-                      ),
+                        child: _ShelfCard(
+                          item: item,
+                          editing: _editing,
+                          subtitle: _resumeTextOf(item),
+                          onTap: () => _editing
+                              ? _showCardAction(item)
+                              : _open(item),
+                          onLongPress: _editing
+                              ? null
+                              : () => _showCardAction(item),
+                        ),
                     ),
                   ),
                 );
@@ -1581,18 +1584,21 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                       child: FadeSlideIn(
                         delay: Duration(milliseconds: 50 * (i % 12)),
                         offset: 16,
-                        child: _ShelfCard(
-                          item: item,
-                          editing: _editing,
-                          subtitle: _resumeTextOf(item),
-                          onTap: () => _editing
-                              ? _showCardAction(item)
-                              : _open(item),
-                        ),
+                      child: _ShelfCard(
+                        item: item,
+                        editing: _editing,
+                        subtitle: _resumeTextOf(item),
+                        onTap: () => _editing
+                            ? _showCardAction(item)
+                            : _open(item),
+                        onLongPress: _editing
+                            ? null
+                            : () => _showCardAction(item),
                       ),
-                    );
-                  },
-                  childCount: _filtered.length,
+                    ),
+                  );
+                },
+                childCount: _filtered.length,
                 ),
               ),
             ),
@@ -3077,6 +3083,10 @@ class _ShelfCard extends StatelessWidget {
   final bool editing;
   final VoidCallback onTap;
 
+  /// 长按操作菜单（非编辑态）：查看详情/移入分类/编辑标签/移出书架。
+  /// null = 不支持长按（编辑态下点选删除语义优先）。
+  final VoidCallback? onLongPress;
+
   /// 续读位置副标题（如「续读 第3话 · 第5页」）；空则不显示。
   /// 数据来自书架 State 的 `_recent`（历史记录聚合，按 book.key 查找）。
   final String? subtitle;
@@ -3084,6 +3094,7 @@ class _ShelfCard extends StatelessWidget {
     required this.item,
     required this.editing,
     required this.onTap,
+    this.onLongPress,
     this.subtitle,
   });
 
@@ -3162,6 +3173,7 @@ class _ShelfCard extends StatelessWidget {
           );
     return PressableScale(
       onTap: onTap,
+      onLongPress: onLongPress,
       scale: 0.96,
       focusable: true, // TV 遥控器 D-pad 焦点导航（书架条目卡）
       child: Column(
