@@ -525,6 +525,17 @@ class LocalStore {
   static Future<void> clearSearchHistory() async =>
       _write('search_history', <String>[]);
 
+  /// 删除单条搜索历史（搜错/陈旧的关键词清理，保留其余）。
+  static Future<void> removeSearchHistory(String kw) async {
+    final t = kw.trim();
+    if (t.isEmpty) return;
+    await _enqueue('search_history', () async {
+      final list = (await _read('search_history') as List?)?.whereType<String>().toList() ?? <String>[];
+      list.removeWhere((e) => e == t);
+      await _writeNow('search_history', list);
+    });
+  }
+
   static Future<bool> isFavorite(String key) async =>
       (await favorites()).any((b) => b.key == key);
 

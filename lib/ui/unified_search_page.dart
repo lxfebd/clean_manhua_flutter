@@ -79,6 +79,12 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
     if (mounted) setState(() => _history = h);
   }
 
+  /// 删除单条搜索历史（chip 右上角 ✕；不弹确认，误删可重搜找回）。
+  Future<void> _removeHistory(String kw) async {
+    await LocalStore.removeSearchHistory(kw);
+    if (mounted) setState(() => _history.removeWhere((e) => e == kw));
+  }
+
   @override
   void dispose() {
     _selectDebounce?.cancel();
@@ -430,6 +436,14 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
                     color: scheme.onSurface.withValues(alpha: 0.7),
                   ),
                 ),
+                const SizedBox(width: 6),
+                Text(
+                  '长按删除',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: scheme.onSurface.withValues(alpha: 0.35),
+                  ),
+                ),
                 const Spacer(),
                 InkWell(
                   onTap: () async {
@@ -478,17 +492,20 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
               runSpacing: 8,
               children: [
                 for (final h in _history)
-                  ActionChip(
-                    label: Text(h, style: const TextStyle(fontSize: 12.5)),
-                    avatar: Icon(
-                      Icons.history_rounded,
-                      size: 15,
-                      color: scheme.onSurface.withValues(alpha: 0.5),
+                  GestureDetector(
+                    onLongPress: () => _removeHistory(h),
+                    child: ActionChip(
+                      label: Text(h, style: const TextStyle(fontSize: 12.5)),
+                      avatar: Icon(
+                        Icons.history_rounded,
+                        size: 15,
+                        color: scheme.onSurface.withValues(alpha: 0.5),
+                      ),
+                      onPressed: () {
+                        _searchCtrl.text = h;
+                        _search();
+                      },
                     ),
-                    onPressed: () {
-                      _searchCtrl.text = h;
-                      _search();
-                    },
                   ),
               ],
             ),
