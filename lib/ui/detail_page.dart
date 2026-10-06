@@ -93,6 +93,9 @@ class _DetailPageState extends ConsumerState<DetailPage> {
   /// 正在打开章节（防止 await 历史记录期间连点并发 push 多个阅读器页）。
   bool _openingChapter = false;
 
+  /// 书架切换进行中（防连点并发翻转收藏态，与 _openingChapter 同款守卫）。
+  bool _shelfBusy = false;
+
   /// 该作品已读章节 id 集合（历史里出现过的章节；供章节列表「已读」角标）。
   /// 与 `_cachedChapters` 同款懒加载模式：首次进入页面查一次，阅读返回时
   /// 由 [_loadReadChapters] 重扫刷新。
@@ -958,7 +961,8 @@ class _DetailPageState extends ConsumerState<DetailPage> {
   }
 
   Future<void> _toggleSave() async {
-    if (_detail == null) return;
+    if (_detail == null || _shelfBusy) return;
+    _shelfBusy = true;
     HapticFeedback.lightImpact();
     final wasSaved = _saved;
     try {
@@ -970,6 +974,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
       if (mounted) {
         AppToast.error(context, '书架操作失败，请重试');
       }
+      _shelfBusy = false;
       return;
     }
     if (!mounted) return;
@@ -979,6 +984,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     // 只失效详情侧会导致「详情页收藏了、书架里却不出现」的跨页不同步。
     ref.invalidate(comicInShelfProvider((widget.sourceId, widget.comicId)));
     ref.invalidate(bookshelfDataProvider);
+    _shelfBusy = false;
     AppToast.info(context, wasSaved ? '已移出书架' : '已加入书架');
   }
 

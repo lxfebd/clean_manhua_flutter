@@ -140,6 +140,7 @@ const int prefetchCount = 20;
 class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
   bool _descExpanded = false; // 平板左侧窄面板长简介折叠
   bool _openingChapter = false; // 防连点：进入阅读器期间忽略重复点击
+  bool _shelfBusy = false; // 防连点：书架切换期间忽略重复点击
 
   /// 续读位：详情加载后查历史得到最后阅读章节（无记录为 null）。
   /// 查询在 initState 异步进行，就绪前「继续阅读」按钮不显示。
@@ -425,7 +426,8 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
 
   Future<void> _toggleSave() async {
     final s = SourceManager.novelById(widget.sourceId);
-    if (s == null || _detail == null) return;
+    if (s == null || _detail == null || _shelfBusy) return;
+    _shelfBusy = true;
     HapticFeedback.lightImpact();
     final wasSaved = _saved;
     try {
@@ -436,12 +438,14 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
       if (mounted) {
         AppToast.error(context, '书架操作失败，请重试');
       }
+      _shelfBusy = false;
       return;
     }
     if (!mounted) return;
     // 翻转书架状态：失效 provider 让下次读取重跑 isInBookshelf（异步，
     // UI 随 watch 重建自动反映新值）；toast 用本地捕获的旧值取反。
     ref.invalidate(detailp.novelInShelfProvider((widget.sourceId, widget.novelId)));
+    _shelfBusy = false;
     AppToast.info(
       context,
       wasSaved ? '已移出书架' : '已加入书架',
