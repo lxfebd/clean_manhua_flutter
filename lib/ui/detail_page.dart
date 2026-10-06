@@ -1099,6 +1099,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
       builder: (ctx) => _AllChaptersSheet(
         detail: detail,
         cachedIds: _cachedChapters,
+        readIds: _readChapters,
         onPick: (ch) {
           Navigator.pop(ctx);
           _openChapter(ch);
@@ -1922,11 +1923,15 @@ class _ErrorView extends StatelessWidget {
 class _AllChaptersSheet extends StatefulWidget {
   final ComicDetail detail;
   final Set<String> cachedIds;
+
+  /// 已读章节 id 集合（与 [cachedIds] 同款角标语义，列表项勾选标记）。
+  final Set<String> readIds;
   final ValueChanged<Chapter> onPick;
 
   const _AllChaptersSheet({
     required this.detail,
     required this.cachedIds,
+    required this.readIds,
     required this.onPick,
   });
 
@@ -1978,6 +1983,17 @@ class _AllChaptersSheetState extends State<_AllChaptersSheet> {
                         style: TextStyle(
                           fontSize: 11,
                           color: scheme.primary,
+                        ),
+                      ),
+                    ),
+                  if (widget.readIds.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Text(
+                        '已读 ${widget.readIds.length} 话',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: scheme.onSurface.withValues(alpha: 0.55),
                         ),
                       ),
                     ),
@@ -2073,9 +2089,19 @@ class _AllChaptersSheetState extends State<_AllChaptersSheet> {
                       itemBuilder: (_, i) {
                         final ch = visible[i];
                         final cached = widget.cachedIds.contains(ch.id);
+                        final read = widget.readIds.contains(ch.id);
                         return ListTile(
                           title: Row(
                             children: [
+                              if (read)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 6),
+                                  child: Icon(
+                                    Icons.check_circle_rounded,
+                                    size: 14,
+                                    color: scheme.primary.withValues(alpha: 0.7),
+                                  ),
+                                ),
                               if (cached)
                                 Padding(
                                   padding: const EdgeInsets.only(right: 6),
