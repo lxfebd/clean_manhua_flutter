@@ -1120,6 +1120,10 @@ class _DetailPageState extends ConsumerState<DetailPage> {
       );
     } finally {
       _openingChapter = false;
+      // 阅读器返回后重算续读位置：阅读过程可能已推进到新章节/新页，
+      // 「开始阅读」按钮与书架续读副标题要反映最新进度。
+      ref.invalidate(comicResumeProvider((widget.sourceId, widget.comicId)));
+      ref.invalidate(bookshelfDataProvider);
     }
   }
 
