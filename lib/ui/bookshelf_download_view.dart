@@ -77,6 +77,7 @@ class BookshelfDownloadView extends StatefulWidget {
     required this.animeDownloads,
     required this.onClearManga,
     required this.onRetryAllManga,
+    this.retryingAll = false,
     required this.onOpenMangaDetail,
     required this.onRetryManga,
     required this.onRemoveManga,
@@ -101,6 +102,9 @@ class BookshelfDownloadView extends StatefulWidget {
 
   /// 一键重试所有失败的漫画下载。
   final Future<void> Function() onRetryAllManga;
+
+  /// 一键重试进行中（进行中禁用按钮防重入，避免并发启动相同任务）。
+  final bool retryingAll;
 
   /// 打开漫画详情页。
   final void Function(Bookmark book) onOpenMangaDetail;
@@ -188,9 +192,18 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
                 trailing: _failedManga.isEmpty
                     ? null
                     : TextButton.icon(
-                        onPressed: widget.onRetryAllManga,
-                        icon: const Icon(Icons.refresh_rounded, size: 16),
-                        label: Text('重试 ${_failedManga.length}'),
+                        onPressed:
+                            widget.retryingAll ? null : widget.onRetryAllManga,
+                        icon: widget.retryingAll
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2),
+                              )
+                            : const Icon(Icons.refresh_rounded, size: 16),
+                        label: Text(
+                            widget.retryingAll ? '重试中…' : '重试 ${_failedManga.length}'),
                       )),
             const SizedBox(height: 8),
             if (manga.isEmpty)

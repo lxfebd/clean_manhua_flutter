@@ -156,6 +156,8 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
   bool _checkingUpdate = false;
   /// 用户主动取消本轮检查更新（转圈时再点一次按钮触发）。
   bool _cancelUpdateCheck = false;
+  /// 一键重试全部失败下载进行中（防重入：按钮转圈禁用）。
+  bool _retryingAll = false;
   /// 检查更新进度文案（'12/156'），转圈时展示。
   String _checkProgress = '';
   /// 手机端最近阅读是否已展开（截断 6 条时点击「查看全部」置位）。
@@ -642,6 +644,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
             animeDownloads: _animeDownloads,
             onClearManga: _confirmClearMangaAll,
             onRetryAllManga: _retryAllManga,
+            retryingAll: _retryingAll,
             onOpenMangaDetail: _openDownloadDetail,
             onRetryManga: _retryMangaDownload,
             onRemoveManga: _confirmRemoveManga,
@@ -1199,9 +1202,11 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
 
   /// 一键重试所有失败的漫画下载。
   Future<void> _retryAllManga() async {
+    if (_retryingAll) return; // 防重入：重试进行中忽略重复点击
     final failed = _failedManga;
     if (failed.isEmpty) return;
     if (!mounted) return;
+    setState(() => _retryingAll = true);
     AppToast.info(context, '正在重试 ${failed.length} 话…',
         duration: const Duration(seconds: 2));
     var ok = 0;
@@ -1226,6 +1231,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     }
     await reload();
     if (!mounted) return;
+    setState(() => _retryingAll = false);
     if (keep > 0) {
       AppToast.show(context, '重试完成：成功 $ok 话，$keep 话仍失败', error: true);
     } else {
@@ -1831,6 +1837,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
             animeDownloads: _animeDownloads,
             onClearManga: _confirmClearMangaAll,
             onRetryAllManga: _retryAllManga,
+            retryingAll: _retryingAll,
             onOpenMangaDetail: _openDownloadDetail,
             onRetryManga: _retryMangaDownload,
             onRemoveManga: _confirmRemoveManga,
