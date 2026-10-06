@@ -28,14 +28,15 @@ List<int> filterEpisodeDownloadIndexes(
 /// 动漫批量下载选集弹窗（对齐漫画 detail_batch_download_sheet 交互）：
 /// 多选集 → 逐集解析直链入队下载，含搜索过滤、全选未下载、反选、
 /// 当前集进度与取消本批（精确取消只针对本批已派发的任务）。
-void showEpisodeBatchDownloadSheet(
+/// 返回 sheet 关闭后的 Future：调用点 await 后刷新已下载角标。
+Future<void> showEpisodeBatchDownloadSheet(
   BuildContext context, {
   required VideoSource source,
   required VideoDetail detail,
 }) {
   final eps = detail.episodes;
-  if (eps.isEmpty) return;
-  showResponsiveBottomSheet<void>(
+  if (eps.isEmpty) return Future.value();
+  return showResponsiveBottomSheet<void>(
     context: context,
     backgroundColor: Theme.of(context).colorScheme.surface,
     isScrollControlled: true,
@@ -47,7 +48,7 @@ void showEpisodeBatchDownloadSheet(
       detail: detail,
       pageContext: context,
     ),
-  );
+  ).then((_) {});
 }
 
 class _EpisodeBatchSheetBody extends StatefulWidget {

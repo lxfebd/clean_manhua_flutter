@@ -668,9 +668,13 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                           ),
                         const SizedBox(width: 12),
                         GestureDetector(
-                          onTap: () =>
-                              showEpisodeBatchDownloadSheet(context,
-                                  source: widget.source, detail: d),
+                          onTap: () async {
+                            await showEpisodeBatchDownloadSheet(context,
+                                source: widget.source, detail: d);
+                            // sheet 关闭后刷新：新派发的下载任务要尽快反映
+                            // 到选集网格「已下载/进行中」角标。
+                            if (mounted) setState(() {});
+                          },
                           child: Row(children: [
                             Icon(Icons.download_rounded,
                                 size: 15, color: theme.colorScheme.primary),
