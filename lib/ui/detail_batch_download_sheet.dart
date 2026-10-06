@@ -44,8 +44,9 @@ Set<int> invertSelection(Set<int> selected, List<int> targets) {
 /// 多选章节 → 批量下载，含画质档位选择（原画/省空间）、下载进度、
 /// 取消本批（精确取消只针对本批已派发的章节任务）、全选未下载与
 /// 章节标题搜索过滤。弹窗内全部本地状态在 [BatchSheetBodyState]，
-/// 不依赖详情页 State。
-void showBatchDownloadSheet(
+/// 不依赖详情页 State。返回 sheet 关闭后的 Future：调用点 await 后
+/// 刷新章节列表「已缓存」标记。
+Future<void> showBatchDownloadSheet(
   BuildContext context, {
   required List<Chapter> chapters,
   required Set<String> cachedIds,
@@ -54,8 +55,8 @@ void showBatchDownloadSheet(
   required String comicName,
   required String? comicPic,
 }) {
-  if (chapters.isEmpty) return;
-  showResponsiveBottomSheet<void>(
+  if (chapters.isEmpty) return Future.value();
+  return showResponsiveBottomSheet<void>(
     context: context,
     backgroundColor: Theme.of(context).colorScheme.surface,
     isScrollControlled: true,
@@ -71,7 +72,7 @@ void showBatchDownloadSheet(
       comicPic: comicPic,
       pageContext: context,
     ),
-  );
+  ).then((_) {});
 }
 
 class _BatchSheetBody extends StatefulWidget {

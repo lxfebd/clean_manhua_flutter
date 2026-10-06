@@ -999,10 +999,10 @@ class _DetailPageState extends ConsumerState<DetailPage> {
   }
 
   /// 批量下载选章弹窗：逻辑已拆至 detail_batch_download_sheet.dart。
-  void _openBatchDownloadSheet() {
+  Future<void> _openBatchDownloadSheet() async {
     final detail = _detail;
     if (detail == null) return;
-    showBatchDownloadSheet(
+    await showBatchDownloadSheet(
       context,
       chapters: _sortedChapters(),
       cachedIds: _cachedChapters,
@@ -1011,6 +1011,9 @@ class _DetailPageState extends ConsumerState<DetailPage> {
       comicName: detail.name,
       comicPic: detail.pic,
     );
+    // sheet 关闭后重扫缓存标记：新派发的章节下载要尽快反映到
+    // 章节列表「已缓存」角标。
+    _loadCachedChapters();
   }
 
   /// 预加载所有章节的缓存状态（用于章节列表显示 ✓）。
