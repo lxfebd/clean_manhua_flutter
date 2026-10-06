@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -8,6 +9,7 @@ import '../sources/source_http.dart';
 import 'error_logger.dart';
 import 'http_client.dart';
 import 'local_store.dart';
+import 'update_notifier.dart';
 
 /// 章节下载画质档位。
 enum DownloadQuality {
@@ -207,6 +209,11 @@ class DownloadManager {
         localKey: key,
         error: writeError,
       ));
+      unawaited(UpdateNotifier.notifyDownloadResult(
+        title: '《${book.name}》下载失败',
+        text: '《$chapterTitle》：$writeError',
+        error: true,
+      ));
       return DownloadResult.fail(writeError);
     }
 
@@ -232,6 +239,21 @@ class DownloadManager {
           ? '已取消'
           : (ok ? null : '下载未完成：${urls.length - okCount} 页失败'),
     ));
+    // 收尾通知（与动漫侧对称）：完成/失败发系统通知，取消不发（用户主动行为）。
+    // 应用切后台或退出下载页时告知结果；桌面/Web 无原生通道时静默降级。
+    if (ok) {
+      unawaited(UpdateNotifier.notifyDownloadResult(
+        title: '《${book.name}》下载完成',
+        text: '《$chapterTitle》已缓存 ${urls.length} 页，可离线观看',
+        error: false,
+      ));
+    } else if (!cancelled) {
+      unawaited(UpdateNotifier.notifyDownloadResult(
+        title: '《${book.name}》下载失败',
+        text: '《$chapterTitle》：${urls.length - okCount} 页失败，请重试',
+        error: true,
+      ));
+    }
     return ok ? const DownloadResult.ok() : DownloadResult.fail(cancelled ? '已取消' : '下载未完成');
   }
 
