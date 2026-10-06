@@ -673,6 +673,10 @@ class LocalStore {
     });
   }
 
+  /// 清空全部动画观看记录。
+  static Future<void> clearVideoRecords() async =>
+      _write('video_records', []);
+
   // ---- 设置 ----
   static Future<bool> darkMode() async =>
       ((await _read('settings')) as Map?)?['dark'] as bool? ?? false;

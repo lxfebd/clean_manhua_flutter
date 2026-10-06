@@ -788,16 +788,44 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
         Responsive.pagePadding(context),
         110,
       ),
-      sliver: SliverList.separated(
-        itemCount: _videos.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
-        // 平板/大屏内容由主框架 MaxWidthContainer 统一收口（1200/1400），
-        // 此处不再叠加 600 二级限宽，避免两级限宽叠加冲突。
-        itemBuilder: (c, i) => _VideoRecordCard(
-          record: _videos[i],
-          onTap: () => _openVideoRecord(_videos[i]),
-          onDelete: () => _deleteVideoRecord(_videos[i]),
-        ),
+      sliver: SliverMainAxisGroup(
+        slivers: [
+          // 列表头：数量 + 清空入口（与最近阅读 Tab 同款）。
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  Text(
+                    '共 ${_videos.length} 部',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: T.color(scheme.onSurface, TextTier.low,
+                          brightness: scheme.brightness),
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton.icon(
+                    onPressed: _confirmClearVideos,
+                    icon: const Icon(Icons.delete_sweep_outlined, size: 16),
+                    label: const Text('清空'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SliverList.separated(
+            itemCount: _videos.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            // 平板/大屏内容由主框架 MaxWidthContainer 统一收口（1200/1400），
+            // 此处不再叠加 600 二级限宽，避免两级限宽叠加冲突。
+            itemBuilder: (c, i) => _VideoRecordCard(
+              record: _videos[i],
+              onTap: () => _openVideoRecord(_videos[i]),
+              onDelete: () => _deleteVideoRecord(_videos[i]),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1812,6 +1840,34 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     if (ok == true) {
       await LocalStore.removeVideoRecord(r.key);
       reload();
+    }
+  }
+
+  /// 清空全部动画观看记录（含确认；与最近阅读/下载 Tab 的清空入口对称）。
+  Future<void> _confirmClearVideos() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.sheet)),
+        title: const Text('清空动画记录'),
+        content: Text('确定清空全部 ${_videos.length} 条动画观看记录？此操作不可恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('清空'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await LocalStore.clearVideoRecords();
+      await reload();
+      if (!mounted) return;
+      AppToast.info(context, '已清空动画记录');
     }
   }
 
