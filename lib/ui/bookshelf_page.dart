@@ -2458,7 +2458,11 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
       setState(() => _checkingUpdate = false);
       if (updated == null) return;
       _updateCount = updated.length;
-      if (updated.isEmpty || _updateCount == 0) return;
+      if (updated.isEmpty) {
+        // 全部最新也给反馈：转圈结束不等于「没跑」，用户应明确知道已检查。
+        AppToast.info(context, '全部是最新版本');
+        return;
+      }
       AppToast.show(
         context,
         '${updated.length} 部作品有更新${_newNames(updated)}',
