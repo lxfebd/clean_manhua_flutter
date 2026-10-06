@@ -36,6 +36,26 @@ List<VideoDownloadTask> filterAnimeDownloads(
   ];
 }
 
+/// 漫画下载累计已缓存页数：所有记录已下载页数（done）之和。
+/// 进行中的任务只计入已下载部分，空表返回 0。纯函数便于单元测试。
+int totalMangaCachedPages(List<DownloadRecord> records) {
+  var total = 0;
+  for (final r in records) {
+    total += r.done;
+  }
+  return total;
+}
+
+/// 动漫下载累计已完成集数：仅统计 state == 'done' 的任务。
+/// 进行中/失败/取消不计入，空表返回 0。纯函数便于单元测试。
+int totalAnimeDoneEpisodes(List<VideoDownloadTask> tasks) {
+  var total = 0;
+  for (final t in tasks) {
+    if (t.state == 'done') total++;
+  }
+  return total;
+}
+
 /// 书架「下载」Tab 视图：漫画章节下载 + 已下载动漫，集中在此管理
 /// （下载本就属于「我的内容」，从工具箱挪到书架，工具箱回归纯工具）。
 ///
@@ -147,6 +167,7 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _searchField(context),
+            _summaryRow(context, totalManga, totalAnime),
             if (_filter.trim().isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(
@@ -242,6 +263,35 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
           borderRadius: BorderRadius.circular(R.control),
           borderSide: BorderSide.none,
         ),
+      ),
+    );
+  }
+
+  /// 总览统计行：漫画下载条目数 / 累计已缓存页数 / 动漫已完成集数。
+  /// 与分区徽标同为全量口径（不受搜索过滤影响），过滤态另由「匹配 N 条」提示。
+  Widget _summaryRow(BuildContext context, int totalManga, int totalAnime) {
+    final scheme = Theme.of(context).colorScheme;
+    final style = TextStyle(
+      fontSize: 12,
+      color: scheme.onSurface.withValues(alpha: 0.55),
+    );
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        children: [
+          Text('共 ${totalManga + totalAnime} 条下载', style: style),
+          if (totalManga > 0) ...[
+            const SizedBox(width: 8),
+            Text('· 漫画已缓存 ${totalMangaCachedPages(widget.mangaDownloads)} 页',
+                style: style),
+          ],
+          if (totalAnimeDoneEpisodes(widget.animeDownloads) > 0) ...[
+            const SizedBox(width: 8),
+            Text(
+                '· 动漫已完成 ${totalAnimeDoneEpisodes(widget.animeDownloads)} 集',
+                style: style),
+          ],
+        ],
       ),
     );
   }
