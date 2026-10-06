@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../net/error_logger.dart';
 import '../net/local_store.dart';
+import '../net/video_download_manager.dart';
 import '../sources/video_source.dart';
 import 'anime_player_page.dart' show animePlayerWebChannel;
 import 'episode_batch_download_sheet.dart';
@@ -840,6 +841,13 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                   !isHistory &&
                   _videoRecords.any((r) =>
                       r.season == ep.season && r.episode == ep.episode);
+              // 已下载标记：该集本地已存（下载任务 done + 文件在）。
+              // 与已看勾对称放右下，下载态一眼可辨（离线可看）。
+              final dl = VideoDownloadManager.instance.taskOf(
+                  '${widget.source.id}/${widget.detail.video.id}/${ep.season}-${ep.episode}');
+              final isDownloaded = dl != null &&
+                  dl.state == 'done' &&
+                  dl.localPath != null;
               final showTitle =
                   ep.title.isNotEmpty && !ep.title.startsWith('第');
               return Material(
@@ -870,6 +878,16 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                           Icons.check_circle_rounded,
                           size: 11,
                           color: scheme.primary.withValues(alpha: 0.7),
+                        ),
+                      ),
+                    if (isDownloaded)
+                      Positioned(
+                        bottom: 3,
+                        right: 4,
+                        child: Icon(
+                          Icons.download_done_rounded,
+                          size: 11,
+                          color: Colors.green.withValues(alpha: 0.85),
                         ),
                       ),
                     Center(
