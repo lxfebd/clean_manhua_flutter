@@ -1556,6 +1556,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
         chapters: widget.chapters,
         currentIndex: _chapterIndex,
         readIds: _readIds,
+        bookKey: _book.key,
         onSelect: (i) {
           Navigator.pop(context);
           if (_loading) return;
@@ -3197,11 +3198,15 @@ class _ChapterListSheet extends StatefulWidget {
   /// 已读章节 id 集合（打开目录时快照）：读过的章节标 ✓，
   /// 与详情页/全部章节 sheet 的已读勾选对称。空集不标。
   final Set<String> readIds;
+
+  /// 作品 key（`sourceId/comicId`）：自加载已下载章节 id 用。
+  final String bookKey;
   final ValueChanged<int> onSelect;
   const _ChapterListSheet({
     required this.chapters,
     required this.currentIndex,
     required this.readIds,
+    required this.bookKey,
     required this.onSelect,
   });
 
@@ -3212,6 +3217,30 @@ class _ChapterListSheet extends StatefulWidget {
 class _ChapterListSheetState extends State<_ChapterListSheet> {
   final _filterCtrl = TextEditingController();
   String _filter = '';
+
+  /// 已下载章节 id（懒加载：打开时读一次；本地已存章节标 offline_pin）。
+  Set<String> _downloadedIds = const {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDownloaded();
+  }
+
+  Future<void> _loadDownloaded() async {
+    try {
+      final all = await LocalStore.downloads();
+      if (!mounted) return;
+      setState(() {
+        _downloadedIds = {
+          for (final d in all)
+            if (d.finished && d.book.key == widget.bookKey) d.chapterId,
+        };
+      });
+    } catch (_) {
+      // 本地读取失败不阻塞目录（下载标记是附加信息）。
+    }
+  }
 
   @override
   void dispose() {
@@ -3372,7 +3401,9 @@ class _ChapterListSheetState extends State<_ChapterListSheet> {
                                   ),
                                 ),
                                 // 当前章 check 优先；已读章标 ✓（淡入主色，
-                                // 与详情页/全部章节 sheet 的已读勾选一致）。
+                                // 与详情页/全部章节 sheet 的已读勾选一致）；
+                                // 已下载章标 offline_pin（本地已存，与小说
+                                // 目录 sheet 的「已缓存」标记对称）。
                                 if (active)
                                   Icon(Icons.check_rounded,
                                       size: 16, color: Colors.white)
@@ -3384,6 +3415,14 @@ class _ChapterListSheetState extends State<_ChapterListSheet> {
                                         .colorScheme
                                         .primary
                                         .withValues(alpha: 0.7),
+                                  )
+                                else if (_downloadedIds.contains(
+                                    visible[v].id))
+                                  Icon(
+                                    Icons.offline_pin_rounded,
+                                    size: 16,
+                                    color: Colors.greenAccent
+                                        .withValues(alpha: 0.8),
                                   ),
                               ],
                             ),
