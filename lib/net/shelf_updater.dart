@@ -112,6 +112,9 @@ class ShelfUpdater {
     void Function(int done, int total)? onProgress,
     bool Function()? shouldCancel,
   }) async {
+    // 手动路径不经 checkInBackground：上一轮用户取消残留的 _isCancelled
+    // 必须清零，否则本轮 checkOne/checkNovel 全部短路（空跑不报更新）。
+    _isCancelled = false;
     final items = BookshelfStore.listAll();
     final novels = NovelShelfStore.listAll();
     final total = items.length + novels.length; // 进度总长（漫画+小说）
