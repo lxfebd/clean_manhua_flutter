@@ -28,6 +28,22 @@ import 'widgets/squircle.dart';
 import 'style_scope.dart';
 import 'style_tokens.dart';
 
+/// 网格书架卡的续读副标题文本：在 [recent]（按时间倒序）中找 `bookKey
+/// == key` 的最近一条历史。有页码 → 「续读 第N话 · 第M页」；无页码 →
+/// 只显示章节名（页面停在目录/顶部）；章节名为空 → 「已读」。找不到 → ''。
+/// 纯函数：书架 State 的 `_resumeTextOf` 是薄转发，便于单测。
+String resumeTextOf(String key, List<HistoryEntry> recent) {
+  for (final h in recent) {
+    if (h.book.key == key) {
+      final name = h.chapterTitle.isEmpty ? '已读' : '续读 ${h.chapterTitle}';
+      return h.hasPage && h.pageIndex >= 0
+          ? '$name · 第${h.pageIndex + 1}页'
+          : name;
+    }
+  }
+  return '';
+}
+
 /// 书架页：跨源聚合，按时间倒序。错峰入场。
 ///
 /// 平板布局（≥600dp）：
@@ -705,6 +721,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                       child: _ShelfCard(
                         item: item,
                         editing: _editing,
+                        subtitle: _resumeTextOf(item),
                         onTap: () => _editing
                             ? _showCardAction(item)
                             : _open(item),
@@ -1361,6 +1378,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                         child: _ShelfCard(
                           item: item,
                           editing: _editing,
+                          subtitle: _resumeTextOf(item),
                           onTap: () => _editing
                               ? _showCardAction(item)
                               : _open(item),
@@ -1426,6 +1444,16 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
   /// 由书架 chapters + 历史页码计算阅读进度。
   /// 章节索引 Map 在 [_items] 更新时重建一次，避免每本历史记录
   /// 都线性扫全书架（O(n×m) → O(n+m)）。
+  /// 网格书架卡的续读副标题：查该书的最近一条历史（按 book.key 聚合，
+  /// `_recent` 已按时间倒序，取首条即最新），有页码显示「续读 第N话 · 第M页」，
+  /// 无页码只显示章节名；无历史返回空串（卡片不渲染副标题）。
+  /// key 与 _ShelfCard.hasUpdate 同款：sourceId 优先自字段，缺失回退 store 反查。
+  String _resumeTextOf(ComicDetail item) {
+    final key =
+        '${item.sourceId ?? BookshelfStore.sourceIdOf(item.id) ?? ''}/${item.id}';
+    return resumeTextOf(key, _recent);
+  }
+
   double _progressOf(HistoryEntry h) {
     if (h.hasPage && h.chapterTotalPages > 0 && h.pageIndex >= 0) {
       return ((h.pageIndex + 1) / h.chapterTotalPages).clamp(0.0, 1.0);
@@ -2716,10 +2744,15 @@ class _ShelfCard extends StatelessWidget {
   final ComicDetail item;
   final bool editing;
   final VoidCallback onTap;
+
+  /// 续读位置副标题（如「续读 第3话 · 第5页」）；空则不显示。
+  /// 数据来自书架 State 的 `_recent`（历史记录聚合，按 book.key 查找）。
+  final String? subtitle;
   const _ShelfCard({
     required this.item,
     required this.editing,
     required this.onTap,
+    this.subtitle,
   });
 
   @override
@@ -2813,6 +2846,18 @@ class _ShelfCard extends StatelessWidget {
                   color: scheme.onSurface,
                 ),
           ),
+          if (subtitle != null && subtitle!.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              subtitle!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: T.color(scheme.onSurface, TextTier.low,
+                        brightness: scheme.brightness),
+                  ),
+            ),
+          ],
         ],
       ),
     );
