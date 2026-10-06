@@ -180,6 +180,9 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
         action: SnackBarAction(
           label: '查看',
           onPressed: () {
+            // 后台检查已把新章节数写入 store，但页面数据还是旧快照：
+            // 重读本地数据让卡片「更新」角标/更新数反映最新检查结果。
+            reload();
             setState(() {
               _tab = 1;
               _updateCount = names.length;
