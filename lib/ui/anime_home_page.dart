@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../net/error_logger.dart';
+import '../net/local_store.dart';
 import '../models/comic_item.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
@@ -20,6 +21,22 @@ import 'widgets/squircle.dart';
 import 'widgets/tap_target.dart';
 
 /// 动漫首页：搜索 + 分类胶囊 + 番剧网格。
+/// 已看集数解析：指定作品（sourceId+videoId）最后一次播放到的集数。
+/// 同一番剧多条记录时取最大集数；无记录返回 null（首页卡不标角标）。
+/// 纯函数便于单元测试，行为与观看记录数据契约解耦。
+int? watchedEpisodesOf(
+  List<VideoRecord> records,
+  String sourceId,
+  String videoId,
+) {
+  int? best;
+  for (final r in records) {
+    if (r.sourceId != sourceId || r.videoId != videoId) continue;
+    if (r.episode > (best ?? 0)) best = r.episode;
+  }
+  return best;
+}
+
 class AnimeHomePage extends StatefulWidget {
   /// 0=漫画 1=动漫（由外层 MangaAnimeTabs 驱动）
   final int type;
@@ -48,6 +65,10 @@ class AnimeHomePageState extends State<AnimeHomePage> {
   List<VideoSource> _sources = [];
   List<Category> _sourceCats = _cats;
 
+  /// 当前源的已看集数映射：videoId → 最后播到的集数（无记录不收录）。
+  /// 切换源时重载（按 sourceId 过滤），供首页卡「已看 N 集」角标。
+  Map<String, int> _watchedEpisodes = {};
+
   static final _cats = [
     Category('all-all-all-all-all-time-1', '推荐'),
     Category('all-all-all-all-jp-time-1', '日本'),
@@ -64,6 +85,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
     _source = _sources.first;
     _scrollCtrl.addListener(_onScroll);
     _loadSourceCats();
+    _loadWatchedEpisodes();
     _refresh();
     _loadSources();
   }
@@ -141,6 +163,23 @@ class AnimeHomePageState extends State<AnimeHomePage> {
     }
   }
 
+  /// 重载当前源的已看集数映射（源切换时调用；失败静默无角标）。
+  Future<void> _loadWatchedEpisodes() async {
+    try {
+      final records = await LocalStore.videoRecords();
+      if (!mounted) return;
+      final map = <String, int>{};
+      for (final r in records) {
+        if (r.sourceId != _source.id) continue;
+        final prev = map[r.videoId] ?? 0;
+        if (r.episode > prev) map[r.videoId] = r.episode;
+      }
+      setState(() => _watchedEpisodes = map);
+    } catch (e) {
+      ErrorLogger.instance.warn('loadWatchedEpisodes failed: $e');
+    }
+  }
+
   /// 切换视频源后刷新列表与分类。
   void _switchSource(VideoSource source) {
     if (source.id == _source.id) return;
@@ -149,6 +188,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
     _categoryId = '';
     _sourceCats = _cats;
     _loadSourceCats();
+    _loadWatchedEpisodes();
     _refresh();
   }
 
@@ -385,6 +425,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
                   child: _AnimeCard(
                     item: _items[i],
                     loading: _openingId == _items[i].id,
+                    watchedEpisodes: _watchedEpisodes[_items[i].id],
                     onTap: () => _openDetail(_items[i]),
                   ),
                 ),
@@ -987,10 +1028,14 @@ class _AnimeCard extends StatefulWidget {
   final VoidCallback onTap;
   /// 详情请求期间置 true：卡片覆盖半透明 spinner，提供点击反馈。
   final bool loading;
+
+  /// 该番剧已看集数（无观看记录为 null，不标角标）。
+  final int? watchedEpisodes;
   const _AnimeCard({
     required this.item,
     required this.onTap,
     this.loading = false,
+    this.watchedEpisodes,
   });
 
   @override
@@ -1114,6 +1159,27 @@ class _AnimeCardState extends State<_AnimeCard> {
                                 ),
                               ),
                             ],
+                          ),
+                        ),
+                      ),
+                    if (widget.watchedEpisodes != null)
+                      Positioned(
+                        right: 6,
+                        bottom: 6,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 5, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.65),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            '已看 ${widget.watchedEpisodes} 集',
+                            style: const TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                       ),
