@@ -563,6 +563,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
             onOpenMangaDetail: _openDownloadDetail,
             onRetryManga: _retryMangaDownload,
             onRemoveManga: _confirmRemoveManga,
+            onRemoveMangaBook: _confirmRemoveMangaBook,
             onClearAnime: _confirmClearAnimeAll,
             onOpenAnime: _openAnimeDownload,
             onRetryAnime: _retryAnimeDownload,
@@ -897,6 +898,37 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
         ],
       ),
     );
+  }
+
+  Future<void> _confirmRemoveMangaBook(Bookmark book) async {
+    final records = _mangaDownloads.where((d) => d.book.key == book.key).toList();
+    if (records.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.sheet)),
+        title: const Text('删除该书全部下载'),
+        content: Text('确定删除《${book.name}》的全部 ${records.length} 条下载记录和文件？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    for (final d in records) {
+      try {
+        await _removeMangaDownload(d);
+      } catch (e) {
+        ErrorLogger.instance.warn('remove manga book failed key=${d.localKey}: $e');
+      }
+    }
   }
 
   Future<void> _confirmClearMangaAll() async {
@@ -1343,6 +1375,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
             onOpenMangaDetail: _openDownloadDetail,
             onRetryManga: _retryMangaDownload,
             onRemoveManga: _confirmRemoveManga,
+            onRemoveMangaBook: _confirmRemoveMangaBook,
             onClearAnime: _confirmClearAnimeAll,
             onOpenAnime: _openAnimeDownload,
             onRetryAnime: _retryAnimeDownload,

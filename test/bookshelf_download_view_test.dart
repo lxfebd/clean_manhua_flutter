@@ -44,6 +44,7 @@ void main() {
                 onOpenMangaDetail: (_) {},
                 onRetryManga: (_) async {},
                 onRemoveManga: (_) {},
+                onRemoveMangaBook: (_) async {},
                 onClearAnime: () async {},
                 onOpenAnime: (_) {},
                 onRetryAnime: (_) async {},

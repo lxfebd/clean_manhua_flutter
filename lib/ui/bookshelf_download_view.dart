@@ -60,6 +60,7 @@ class BookshelfDownloadView extends StatefulWidget {
     required this.onOpenMangaDetail,
     required this.onRetryManga,
     required this.onRemoveManga,
+    required this.onRemoveMangaBook,
     required this.onClearAnime,
     required this.onOpenAnime,
     required this.onRetryAnime,
@@ -88,6 +89,9 @@ class BookshelfDownloadView extends StatefulWidget {
 
   /// 删除单条漫画下载（含确认对话框）。
   final void Function(DownloadRecord record) onRemoveManga;
+
+  /// 删除某本书的全部下载记录（含确认对话框；按 book 聚合）。
+  final Future<void> Function(Bookmark book) onRemoveMangaBook;
 
   /// 清空全部动漫下载（含确认对话框）。
   final Future<void> Function() onClearAnime;
@@ -306,6 +310,7 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
       ),
       child: InkWell(
         onTap: () => widget.onOpenMangaDetail(d.book),
+        onLongPress: () => _showMangaCardMenu(context, d),
         borderRadius: BorderRadius.circular(R.card),
         child: Row(
           children: [
@@ -428,6 +433,42 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
                       brightness: scheme.brightness)),
               tooltip: '删除',
               onPressed: () => widget.onRemoveManga(d),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 漫画下载卡长按菜单：删除单话 / 删除该书全部下载（按 book 聚合）。
+  void _showMangaCardMenu(BuildContext context, DownloadRecord d) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.delete_outline_rounded, size: 20),
+              title: Text('删除本话「${d.chapterTitle}」',
+                  style: const TextStyle(fontSize: 14)),
+              onTap: () {
+                Navigator.pop(ctx);
+                widget.onRemoveManga(d);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_sweep_outlined, size: 20),
+              title: Text('删除《${d.book.name}》全部下载',
+                  style: const TextStyle(fontSize: 14)),
+              onTap: () {
+                Navigator.pop(ctx);
+                widget.onRemoveMangaBook(d.book);
+              },
             ),
           ],
         ),
