@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xingmanxia/net/local_store.dart';
-import 'package:xingmanxia/ui/detail_page.dart';
+import 'package:xingmanxia/ui/detail_providers.dart';
 
 HistoryEntry _mkHistory(String sourceId, String comicId, String chapterId) {
   return HistoryEntry(

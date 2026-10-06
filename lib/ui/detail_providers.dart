@@ -6,6 +6,22 @@ import '../sources/comic_source.dart';
 import '../sources/novel_source.dart';
 import '../sources/source_manager.dart';
 
+/// 已读章节 id 集合：从历史里筛出指定作品（book.key）读过的章节。
+/// 供章节/章节目录列表「已读」角标与「续读」高亮使用；空历史返回空集。
+/// 漫画与小说共用（novelId 即 Bookmark.comicId）；纯函数便于单元测试。
+Set<String> readChapterIds({
+  required List<HistoryEntry> history,
+  required String sourceId,
+  required String comicId,
+}) {
+  final key =
+      Bookmark(sourceId: sourceId, comicId: comicId, name: '', pic: '').key;
+  return {
+    for (final h in history)
+      if (h.book.key == key) h.chapterId,
+  };
+}
+
 /// 解析「开始阅读」目标：从历史里找该作品最近读到的章节；无则返回 null
 /// （= 第 1 话）。纯函数便于单元测试，行为与历史/章节数据契约解耦。
 ///

@@ -51,22 +51,6 @@ String titleOfChapter(List<Chapter> chapters, Chapter c) {
   return c.title.isEmpty ? '第${idx + 1}话' : c.title;
 }
 
-/// 已读章节 id 集合：从历史里筛出指定作品（book.key）读过的章节。
-/// 供章节列表「已读」角标与「续读」高亮使用；空历史返回空集。
-/// 纯函数便于单元测试，行为与历史数据契约解耦。
-Set<String> readChapterIds({
-  required List<HistoryEntry> history,
-  required String sourceId,
-  required String comicId,
-}) {
-  final key =
-      Bookmark(sourceId: sourceId, comicId: comicId, name: '', pic: '').key;
-  return {
-    for (final h in history)
-      if (h.book.key == key) h.chapterId,
-  };
-}
-
 /// 漫画详情页：沉浸式 Hero 头 + 信息卡 + 章节网格。
 class DetailPage extends ConsumerStatefulWidget {
   final String sourceId;
@@ -1075,7 +1059,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     final detail = _detail;
     if (detail == null) return;
     final all = await LocalStore.history();
-    final set = readChapterIds(
+    final set = detailp.readChapterIds(
       history: all,
       sourceId: widget.sourceId,
       comicId: detail.id,
