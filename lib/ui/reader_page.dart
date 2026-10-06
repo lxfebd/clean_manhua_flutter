@@ -230,7 +230,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
 
   /// 桌面键盘处理：←/→/空格翻页（RTL 反转），Esc 切换工具栏。
   /// 扩展：+/- 缩放、0 复位、B 书签、G 目录、C 章节、S 设置、L 放大镜、
-  /// Home/End 首尾页。
+  /// [ / ] 上一章 / 下一章、Home/End 首尾页。
   bool _keyHandler(KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
     if (_loading || _pageAnimating) return false;
@@ -276,6 +276,12 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
         return true;
       case LogicalKeyboardKey.keyC:
         if (widget.chapters.isNotEmpty) _showChapterList();
+        return true;
+      case LogicalKeyboardKey.bracketLeft:
+        if (_chapterIndex > 0) _goPrevChapter();
+        return true;
+      case LogicalKeyboardKey.bracketRight:
+        if (_canContinue) _continueToNextChapter();
         return true;
       case LogicalKeyboardKey.keyS:
         _showReaderSettings();
