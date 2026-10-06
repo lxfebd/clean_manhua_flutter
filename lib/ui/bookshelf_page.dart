@@ -2652,7 +2652,14 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
       if (!mounted) return;
       setState(() => _checkingUpdate = false);
       if (updated == null) return;
-      _updateCount = updated.length;
+      // 手动检查同样把新章节数写入了 store（setLastSeenChapters），页面数据
+      // 还是旧快照：重读本地数据让卡片「更新」角标/角标计数反映最新结果
+      // （与后台横幅「查看」同款闭环，见 _onUpdatesFoundToast）。
+      reload();
+      setState(() {
+        _updateCount = updated.length;
+        _applyFilters();
+      });
       if (updated.isEmpty) {
         // 全部最新也给反馈：转圈结束不等于「没跑」，用户应明确知道已检查。
         AppToast.info(context, '全部是最新版本');
