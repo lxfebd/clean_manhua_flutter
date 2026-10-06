@@ -58,6 +58,17 @@ List<ComicBookmark> filterBookmarks(
   ];
 }
 
+/// 动画记录累计追番集数：所有记录「最后播放到的集数」之和。
+/// 每次播放推进/换剧都会刷新该集记录（按 sourceId/videoId 聚合），
+/// 累计值体现「追番投入」；空表返回 0。纯函数便于单测。
+int totalEpisodesWatched(List<VideoRecord> records) {
+  var total = 0;
+  for (final r in records) {
+    total += r.episode < 0 ? 0 : r.episode;
+  }
+  return total;
+}
+
 /// 书架页：跨源聚合，按时间倒序。错峰入场。
 ///
 /// 平板布局（≥600dp）：
@@ -811,7 +822,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
       ),
       sliver: SliverMainAxisGroup(
         slivers: [
-          // 列表头：数量 + 清空入口（与最近阅读 Tab 同款）。
+          // 列表头：数量 + 累计追番集数 + 清空入口（与最近阅读 Tab 同款）。
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.only(bottom: 8),
@@ -825,6 +836,17 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                           brightness: scheme.brightness),
                     ),
                   ),
+                  if (totalEpisodesWatched(_videos) > 0) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      '· 累计 ${totalEpisodesWatched(_videos)} 集',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: T.color(scheme.onSurface, TextTier.low,
+                            brightness: scheme.brightness),
+                      ),
+                    ),
+                  ],
                   const Spacer(),
                   TextButton.icon(
                     onPressed: _confirmClearVideos,
