@@ -44,6 +44,18 @@ String resumeTextOf(String key, List<HistoryEntry> recent) {
   return '';
 }
 
+/// 动画记录过滤纯函数：按片名匹配（空 = 原样返回）。
+/// 语义与书签/下载 Tab 过滤一致，独立便于单元测试。
+List<VideoRecord> filterVideoRecords(
+    List<VideoRecord> records, String filter) {
+  final f = filter.trim().toLowerCase();
+  if (f.isEmpty) return records;
+  return [
+    for (final r in records)
+      if (r.title.toLowerCase().contains(f)) r,
+  ];
+}
+
 /// 书签列表过滤纯函数：按书名/章节标题匹配（空 = 原样返回）。
 /// 语义与下载 Tab/批量下载过滤一致，独立便于单元测试。
 List<ComicBookmark> filterBookmarks(
@@ -117,6 +129,9 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
   // 书签 Tab 搜索（独立于收藏 Tab 搜索，各自持有输入态）。
   final _bookmarkFilterCtrl = TextEditingController();
   String _bookmarkFilter = '';
+  // 动画记录 Tab 搜索（番剧多了按标题定位；独立持有输入态）。
+  final _videoFilterCtrl = TextEditingController();
+  String _videoFilter = '';
   String? _statusFilter;
   List<String> _allStatuses = [];
   int _sortMode = 0; // 0=最近更新 1=最近收藏 2=名称
@@ -288,6 +303,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     ShelfUpdater.instance.onUpdatesFound = null;
     _searchCtrl.dispose();
     _bookmarkFilterCtrl.dispose();
+    _videoFilterCtrl.dispose();
     super.dispose();
   }
 
@@ -800,6 +816,50 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
   }
 
   /// 视频记录列表
+  /// 动画记录 Tab 搜索框（镜像书签/下载 Tab 搜索框样式；本地内存过滤）。
+  Widget _buildVideoSearchField(ColorScheme scheme) {
+    return TextField(
+      controller: _videoFilterCtrl,
+      onChanged: (v) => setState(() => _videoFilter = v),
+      style: TextStyle(fontSize: 13.5, color: scheme.onSurface),
+      decoration: InputDecoration(
+        isDense: true,
+        hintText: '搜索动画记录（片名）',
+        hintStyle: TextStyle(
+          fontSize: 13,
+          color: scheme.onSurface.withValues(alpha: 0.4),
+        ),
+        prefixIcon: Icon(
+          Icons.search_rounded,
+          size: 18,
+          color: scheme.onSurface.withValues(alpha: 0.5),
+        ),
+        suffixIcon: _videoFilter.isEmpty
+            ? null
+            : IconButton(
+                tooltip: '清除',
+                icon: const Icon(Icons.close_rounded, size: 16),
+                onPressed: () {
+                  _videoFilterCtrl.clear();
+                  setState(() => _videoFilter = '');
+                },
+              ),
+        filled: true,
+        fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(R.control),
+          borderSide: BorderSide.none,
+        ),
+      ),
+    );
+  }
+
+  /// 动画记录列表（搜索过滤后的可见条目；空过滤 = 全量）。
+  List<VideoRecord> get _visibleVideos =>
+      filterVideoRecords(_videos, _videoFilter);
+
+  /// 动画记录 Tab：标题搜索 + 列表（与收藏/书签 Tab 的搜索框对齐）。
   Widget _buildVideoList(ColorScheme scheme) {
     if (_videos.isEmpty) {
       return const SliverToBoxAdapter(
@@ -857,17 +917,41 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
               ),
             ),
           ),
-          SliverList.separated(
-            itemCount: _videos.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            // 平板/大屏内容由主框架 MaxWidthContainer 统一收口（1200/1400），
-            // 此处不再叠加 600 二级限宽，避免两级限宽叠加冲突。
-            itemBuilder: (c, i) => _VideoRecordCard(
-              record: _videos[i],
-              onTap: () => _openVideoRecord(_videos[i]),
-              onDelete: () => _deleteVideoRecord(_videos[i]),
+          // 动画记录搜索框：番剧多时按片名定位（不重复显示在清空行内）。
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _buildVideoSearchField(scheme),
             ),
           ),
+          // 无匹配空态（有别于完全无记录：搜索过滤后没有命中）。
+          if (_visibleVideos.isEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 48),
+                child: Center(
+                  child: Text(
+                    '没有匹配「${_videoFilter.trim()}」的动画记录',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: scheme.onSurface.withValues(alpha: 0.55),
+                    ),
+                  ),
+                ),
+              ),
+            )
+          else
+            SliverList.separated(
+              itemCount: _visibleVideos.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              // 平板/大屏内容由主框架 MaxWidthContainer 统一收口（1200/1400），
+              // 此处不再叠加 600 二级限宽，避免两级限宽叠加冲突。
+              itemBuilder: (c, i) => _VideoRecordCard(
+                record: _visibleVideos[i],
+                onTap: () => _openVideoRecord(_visibleVideos[i]),
+                onDelete: () => _deleteVideoRecord(_visibleVideos[i]),
+              ),
+            ),
         ],
       ),
     );
