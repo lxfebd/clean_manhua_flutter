@@ -134,6 +134,9 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
           _openingIndex = null;
         });
       }
+      // 播放器返回后刷新观看记录：播放过程可能已推进到新集/新进度，
+      // 「上次：第 N 集」与「继续观看」文案要反映最新状态。
+      await _loadHistory();
     }
   }
 
