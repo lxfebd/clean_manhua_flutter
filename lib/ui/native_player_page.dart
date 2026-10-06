@@ -1892,6 +1892,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         // 且没有新切集动作时才自动播下一集，否则作废。
         if (mounted && gen == _switchGen) _goRelative(1);
       });
+    } else {
+      _toast('已经是最后一集了'); // 无下一集时到边界给明确反馈（与阅读器末章提示对称）
     }
   }
 
