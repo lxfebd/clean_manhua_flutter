@@ -10,11 +10,37 @@ import 'responsive.dart';
 import 'tokens.dart';
 import 'widgets/app_toast.dart';
 
+/// 下载列表过滤纯函数（漫画/动漫共用搜索框；独立便于单元测试）。
+/// 漫画按书名/章节标题匹配，动漫按番剧名/集数匹配（空 = 原样返回）。
+List<DownloadRecord> filterMangaDownloads(
+    List<DownloadRecord> records, String filter) {
+  final f = filter.trim().toLowerCase();
+  if (f.isEmpty) return records;
+  return [
+    for (final d in records)
+      if (d.book.name.toLowerCase().contains(f) ||
+          d.chapterTitle.toLowerCase().contains(f))
+        d,
+  ];
+}
+
+List<VideoDownloadTask> filterAnimeDownloads(
+    List<VideoDownloadTask> tasks, String filter) {
+  final f = filter.trim().toLowerCase();
+  if (f.isEmpty) return tasks;
+  return [
+    for (final t in tasks)
+      if (t.title.toLowerCase().contains(f) ||
+          t.episode.toString().contains(f))
+        t,
+  ];
+}
+
 /// 书架「下载」Tab 视图：漫画章节下载 + 已下载动漫，集中在此管理
 /// （下载本就属于「我的内容」，从工具箱挪到书架，工具箱回归纯工具）。
 ///
 /// 纯渲染组件：列表数据与操作逻辑由 [BookshelfPageState] 通过构造参数传入
-/// （含清空/重试/删除/打开详情等回调），自身不持有业务状态。
+/// （含清空/重试/删除/打开详情等回调），自身只持搜索过滤态。
 /// 手机/平板两套布局共用本组件（两处 slivers 调用点均返回本 Widget）。
 ///
 /// 返回单个 Sliver（平板/手机外层 CustomScrollView 均已自带
@@ -23,7 +49,7 @@ import 'widgets/app_toast.dart';
 /// slivers 列表会让 Viewport 收到非法子组件，直接触发
 /// "RenderViewport expected a child of type RenderSliver but received a
 /// child of type RenderErrorBox"（书架页崩溃根因）。
-class BookshelfDownloadView extends StatelessWidget {
+class BookshelfDownloadView extends StatefulWidget {
   const BookshelfDownloadView({
     super.key,
     required this.scheme,
@@ -75,17 +101,34 @@ class BookshelfDownloadView extends StatelessWidget {
   /// 删除单条动漫下载（含确认对话框）。
   final void Function(VideoDownloadTask task) onRemoveAnime;
 
+  @override
+  State<BookshelfDownloadView> createState() => _BookshelfDownloadViewState();
+}
+
+class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
+  final _filterCtrl = TextEditingController();
+  String _filter = '';
+
+  @override
+  void dispose() {
+    _filterCtrl.dispose();
+    super.dispose();
+  }
+
   /// 已失败（非进行中）的漫画下载任务：未完成且计数到齐（无法完成的重试
   /// 之后中断），与卡片失败样式判定一致。进行中的任务（done < total）不算，
   /// 避免「重试 N」虚高与对进行中任务重复启动下载。
-  List<DownloadRecord> get _failedManga => mangaDownloads
+  List<DownloadRecord> get _failedManga => widget.mangaDownloads
       .where((d) => !d.finished && d.total > 0 && d.done >= d.total)
       .toList();
 
   @override
   Widget build(BuildContext context) {
-    final totalManga = mangaDownloads.length;
-    final totalAnime = animeDownloads.length;
+    final scheme = widget.scheme;
+    final manga = filterMangaDownloads(widget.mangaDownloads, _filter);
+    final anime = filterAnimeDownloads(widget.animeDownloads, _filter);
+    final totalManga = widget.mangaDownloads.length;
+    final totalAnime = widget.animeDownloads.length;
     final bottomPad = Responsive.isExpanded(context) ? 24.0 : 110.0;
     return SliverPadding(
       padding: EdgeInsets.fromLTRB(
@@ -95,39 +138,101 @@ class BookshelfDownloadView extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            _searchField(context),
+            if (_filter.trim().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                '匹配 ${manga.length + anime.length} 条下载',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.55),
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
             _sectionHeader(context, scheme, Icons.menu_book_rounded, '漫画下载',
                 totalManga,
-                mangaDownloads.isEmpty ? null : onClearManga,
+                manga.isEmpty ? null : widget.onClearManga,
                 trailing: _failedManga.isEmpty
                     ? null
                     : TextButton.icon(
-                        onPressed: onRetryAllManga,
+                        onPressed: widget.onRetryAllManga,
                         icon: const Icon(Icons.refresh_rounded, size: 16),
                         label: Text('重试 ${_failedManga.length}'),
                       )),
             const SizedBox(height: 8),
-            if (totalManga == 0)
-              const _TabEmpty(
+            if (manga.isEmpty)
+              _TabEmpty(
                   icon: Icons.download_done_rounded,
-                  text: '还没有漫画下载',
-                  subtitle: '在阅读页点击缓存，即可离线观看')
+                  text: _filter.trim().isEmpty
+                      ? '还没有漫画下载'
+                      : '没有匹配「$_filter」的漫画下载',
+                  subtitle: _filter.trim().isEmpty
+                      ? '在阅读页点击缓存，即可离线观看'
+                      : null)
             else
-              ...mangaDownloads.map((d) => _mangaDownloadCard(context, scheme, d)),
+              ...manga.map((d) => _mangaDownloadCard(context, scheme, d)),
             const SizedBox(height: 20),
             _sectionHeader(context, scheme,
                 Icons.ondemand_video_rounded,
                 '动漫下载',
                 totalAnime,
-                animeDownloads.isEmpty ? null : onClearAnime),
+                anime.isEmpty ? null : widget.onClearAnime),
             const SizedBox(height: 8),
-            if (totalAnime == 0)
-              const _TabEmpty(
+            if (anime.isEmpty)
+              _TabEmpty(
                   icon: Icons.video_library_outlined,
-                  text: '还没有下载的动漫',
-                  subtitle: '观看时点击缓存，即可离线观看')
+                  text: _filter.trim().isEmpty
+                      ? '还没有下载的动漫'
+                      : '没有匹配「$_filter」的动漫下载',
+                  subtitle: _filter.trim().isEmpty
+                      ? '观看时点击缓存，即可离线观看'
+                      : null)
             else
-              ...animeDownloads.map((t) => _animeDownloadCard(context, scheme, t)),
+              ...anime.map((t) => _animeDownloadCard(context, scheme, t)),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _searchField(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return TextField(
+      controller: _filterCtrl,
+      onChanged: (v) => setState(() => _filter = v),
+      style: TextStyle(fontSize: 13.5, color: scheme.onSurface),
+      decoration: InputDecoration(
+        isDense: true,
+        hintText: '搜索下载（书名 / 番剧名 / 集数）',
+        hintStyle: TextStyle(
+          fontSize: 13,
+          color: scheme.onSurface.withValues(alpha: 0.4),
+        ),
+        prefixIcon: Icon(
+          Icons.search_rounded,
+          size: 18,
+          color: scheme.onSurface.withValues(alpha: 0.5),
+        ),
+        suffixIcon: _filter.isEmpty
+            ? null
+            : IconButton(
+                tooltip: '清除',
+                icon: const Icon(Icons.close_rounded, size: 16),
+                onPressed: () {
+                  _filterCtrl.clear();
+                  setState(() => _filter = '');
+                },
+              ),
+        filled: true,
+        fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(R.control),
+          borderSide: BorderSide.none,
         ),
       ),
     );
@@ -200,7 +305,7 @@ class BookshelfDownloadView extends StatelessWidget {
                 brightness: scheme.brightness)),
       ),
       child: InkWell(
-        onTap: () => onOpenMangaDetail(d.book),
+        onTap: () => widget.onOpenMangaDetail(d.book),
         borderRadius: BorderRadius.circular(R.card),
         child: Row(
           children: [
@@ -315,14 +420,14 @@ class BookshelfDownloadView extends StatelessWidget {
                 icon: Icon(Icons.refresh_rounded,
                     color: scheme.primary.withValues(alpha: 0.8)),
                 tooltip: '重试',
-                onPressed: () => onRetryManga(d),
+                onPressed: () => widget.onRetryManga(d),
               ),
             IconButton(
               icon: Icon(Icons.close_rounded,
                   color: T.color(scheme.onSurface, TextTier.disabled,
                       brightness: scheme.brightness)),
               tooltip: '删除',
-              onPressed: () => onRemoveManga(d),
+              onPressed: () => widget.onRemoveManga(d),
             ),
           ],
         ),
@@ -374,7 +479,7 @@ class BookshelfDownloadView extends StatelessWidget {
                 brightness: scheme.brightness)),
       ),
       child: InkWell(
-        onTap: () => onOpenAnime(t),
+        onTap: () => widget.onOpenAnime(t),
         borderRadius: BorderRadius.circular(R.card),
         child: Row(
           children: [
@@ -454,14 +559,14 @@ class BookshelfDownloadView extends StatelessWidget {
                 icon: Icon(Icons.refresh_rounded,
                     color: scheme.primary.withValues(alpha: 0.8)),
                 tooltip: '重新下载',
-                onPressed: () => onRetryAnime(t),
+                onPressed: () => widget.onRetryAnime(t),
               ),
             IconButton(
               icon: Icon(Icons.close_rounded,
                   color: T.color(scheme.onSurface, TextTier.disabled,
                       brightness: scheme.brightness)),
               tooltip: '删除',
-              onPressed: () => onRemoveAnime(t),
+              onPressed: () => widget.onRemoveAnime(t),
             ),
           ],
         ),
