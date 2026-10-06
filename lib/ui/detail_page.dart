@@ -51,6 +51,22 @@ String titleOfChapter(List<Chapter> chapters, Chapter c) {
   return c.title.isEmpty ? '第${idx + 1}话' : c.title;
 }
 
+/// 已读章节 id 集合：从历史里筛出指定作品（book.key）读过的章节。
+/// 供章节列表「已读」角标与「续读」高亮使用；空历史返回空集。
+/// 纯函数便于单元测试，行为与历史数据契约解耦。
+Set<String> readChapterIds({
+  required List<HistoryEntry> history,
+  required String sourceId,
+  required String comicId,
+}) {
+  final key =
+      Bookmark(sourceId: sourceId, comicId: comicId, name: '', pic: '').key;
+  return {
+    for (final h in history)
+      if (h.book.key == key) h.chapterId,
+  };
+}
+
 /// 漫画详情页：沉浸式 Hero 头 + 信息卡 + 章节网格。
 class DetailPage extends ConsumerStatefulWidget {
   final String sourceId;
@@ -92,6 +108,11 @@ class _DetailPageState extends ConsumerState<DetailPage> {
 
   /// 正在打开章节（防止 await 历史记录期间连点并发 push 多个阅读器页）。
   bool _openingChapter = false;
+
+  /// 该作品已读章节 id 集合（历史里出现过的章节；供章节列表「已读」角标）。
+  /// 与 `_cachedChapters` 同款懒加载模式：首次进入页面查一次，阅读返回时
+  /// 由 [_loadReadChapters] 重扫刷新。
+  Set<String> _readChapters = {};
 
   static const double _heroHeight = 260;
 
@@ -154,6 +175,8 @@ class _DetailPageState extends ConsumerState<DetailPage> {
   void initState() {
     super.initState();
     _scrollCtrl.addListener(_onScroll);
+    // 首次进入查一次已读集合（与 _cachedChapters 同款懒加载）。
+    _loadReadChapters();
   }
 
   @override
@@ -345,6 +368,8 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                                     return _ChapterTile(
                                       index: i,
                                       chapter: ch,
+                                      read: _readChapters.contains(ch.id),
+                                      current: _resumeChapter?.id == ch.id,
                                       onTap: () => _openChapter(ch),
                                     );
                                   },
@@ -863,6 +888,8 @@ class _DetailPageState extends ConsumerState<DetailPage> {
             _ChapterTile(
               index: i,
               chapter: chapters[i],
+              read: _readChapters.contains(chapters[i].id),
+              current: _resumeChapter?.id == chapters[i].id,
               onTap: () => _openChapter(chapters[i]),
             ),
           ],
@@ -1041,6 +1068,21 @@ class _DetailPageState extends ConsumerState<DetailPage> {
 
   Set<String> _cachedChapters = {};
 
+  /// 重扫「已读」标记：该作品 book.key 开头的历史章节 id 集合。
+  /// 与 [_loadCachedChapters] 同样在阅读返回后调用（_openChapter finally），
+  /// 保证刚读完的章节立即有勾选态，无需整个页面重建。
+  Future<void> _loadReadChapters() async {
+    final detail = _detail;
+    if (detail == null) return;
+    final all = await LocalStore.history();
+    final set = readChapterIds(
+      history: all,
+      sourceId: widget.sourceId,
+      comicId: detail.id,
+    );
+    if (mounted) setState(() => _readChapters = set);
+  }
+
   void _showAllChaptersSheet() {
     final detail = _detail;
     if (detail == null) return;
@@ -1124,6 +1166,8 @@ class _DetailPageState extends ConsumerState<DetailPage> {
       // 「开始阅读」按钮与书架续读副标题要反映最新进度。
       ref.invalidate(comicResumeProvider((widget.sourceId, widget.comicId)));
       ref.invalidate(bookshelfDataProvider);
+      // 重扫已读集合：刚读过的章节立即有勾选态。
+      _loadReadChapters();
     }
   }
 
@@ -1690,10 +1734,18 @@ class _ChapterHeader extends StatelessWidget {
 class _ChapterTile extends StatefulWidget {
   final int index;
   final Chapter chapter;
+
+  /// 已读标记：历史里存在该章节（章节列表「已读 ✓」角标）。
+  final bool read;
+
+  /// 续读标记：该章节是「开始阅读」解析出的最近阅读章节。
+  final bool current;
   final VoidCallback onTap;
   const _ChapterTile({
     required this.index,
     required this.chapter,
+    required this.read,
+    required this.current,
     required this.onTap,
   });
 
@@ -1711,6 +1763,14 @@ class _ChapterTileState extends State<_ChapterTile> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
         child: Row(
           children: [
+            if (widget.read) ...[
+              Icon(
+                Icons.check_circle_rounded,
+                size: 15,
+                color: scheme.primary.withValues(alpha: 0.7),
+              ),
+              const SizedBox(width: 6),
+            ],
             Expanded(
               child: Text(
                 widget.chapter.title.isEmpty
@@ -1720,11 +1780,23 @@ class _ChapterTileState extends State<_ChapterTile> {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 13.5,
-                  fontWeight: FontWeight.w500,
+                  fontWeight:
+                      widget.current ? FontWeight.w700 : FontWeight.w500,
                   color: scheme.onSurface,
                 ),
               ),
             ),
+            if (widget.current) ...[
+              Text(
+                '续读',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: scheme.primary,
+                ),
+              ),
+              const SizedBox(width: 4),
+            ],
             Icon(
               Icons.chevron_right_rounded,
               size: 18,
