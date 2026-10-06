@@ -14,6 +14,7 @@ import '../sources/novel_source.dart';
 import '../sources/source_manager.dart';
 import '../utils/novel_summarizer.dart';
 import 'reader_prefs_providers.dart';
+import 'bookshelf_providers.dart' show bookshelfDataProvider;
 import 'responsive.dart';
 import 'style_tokens.dart';
 import 'widgets/app_toast.dart';
@@ -447,6 +448,8 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
         timestamp: DateTime.now().millisecondsSinceEpoch,
         scrollOffset: entry.scrollOffset,
       ));
+      // 落盘后刷新书架最近阅读：切章/滚动后返回书架，章节标题与位置要即时。
+      ref.invalidate(bookshelfDataProvider);
     });
   }
 
