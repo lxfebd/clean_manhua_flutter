@@ -1097,6 +1097,45 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     } catch (_) {}
   }
 
+  /// 离开播放页前的最终落盘：位置流每 5 秒才快照一次，退出瞬间的
+  /// 最后几秒进度可能还没到快照点。dispose 里无法 await，直接走
+  /// fire-and-forget（LocalStore 内部排队写，与小窗并发不互踩）。
+  /// 画中画移交时不调用：Player 已归小窗，进度由小窗继续写。
+  void _persistFinalPosition() {
+    if (_skipPlayerDispose) return;
+    final v = _stablePos > _pos ? _stablePos : _pos;
+    final sec = v.inSeconds;
+    if (sec < 5 || sec == _lastSavedSec) return;
+    _lastSavedSec = sec;
+    // 快看完了就清掉续播记录，避免下次进来提示"续播 最后 3 秒"
+    final done = _dur > Duration.zero && v >= _dur - const Duration(seconds: 15);
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final sourceId = widget.sourceId;
+    final videoId = widget.videoId;
+    if (sourceId != null && videoId != null && sourceId.isNotEmpty) {
+      LocalStore.recordVideo(VideoRecord(
+        sourceId: sourceId,
+        videoId: videoId,
+        title: widget.title,
+        cover: widget.cover,
+        season: _curSeason,
+        episode: _curEpisode,
+        totalEpisodes: _seasonEpisodeCount(_curSeason),
+        seconds: done ? _dur.inSeconds : sec,
+        duration: _dur.inSeconds,
+        timestamp: ts,
+      ));
+    }
+    () async {
+      try {
+        await LocalStore.setVideoProgress(_histKey, done ? null : sec);
+      } catch (e) {
+        // 与 _maybeSaveProgress 同口径：失败可观测，不静默吞掉。
+        ErrorLogger.instance.warn('save final video progress failed: $e');
+      }
+    }();
+  }
+
   void _maybeSaveProgress(Duration v) {
     final sec = v.inSeconds;
     if (sec == _lastSavedSec || sec % 5 != 0 || sec < 5) return;
@@ -2330,6 +2369,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     for (final s in _subs) {
       s.cancel();
     }
+    // 最后快照落盘：避免退出瞬间最后几秒进度丢失（见 _persistFinalPosition）。
+    _persistFinalPosition();
     // 还原系统音量提示与亮度，否则退出播放器后系统音量键没有原生提示。
     // showSystemUI 可能在 init 时已被关掉（即使后面插件失败 _volumeNative
     // 变 false），所以无论成败都恢复。
