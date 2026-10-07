@@ -161,6 +161,27 @@ void main() {
           r'C:\Users\31672\AppData\Local\Temp\rife_engine_pack\rife-engine-win.zip');
       if (prebuilt.existsSync()) {
         await prebuilt.copy(zip.path);
+      } else if (hasEngine) {
+        // 预置打包 zip 被系统临时目录清理时，现场打包完整引擎包
+        // （rife.exe + 模型目录），保证解压后断言不因缺失而误失败。
+        final packed = Directory('${dir.path}/_pack');
+        packed.createSync(recursive: true);
+        engineExe.copySync('${packed.path}/${AiFrameRifePlugin.engineExeName}');
+        // Directory 无 copySync：递归逐文件复制模型目录。
+        final modelOut = Directory(
+            '${packed.path}/${AiFrameRifePlugin.modelDirName}');
+        modelOut.createSync(recursive: true);
+        for (final f in modelDir.listSync(recursive: true)) {
+          if (f is File) {
+            final rel = f.path.substring(modelDir.path.length + 1);
+            f.copySync('${modelOut.path}/$rel');
+          }
+        }
+        final out = await Process.run('powershell', [
+          '-NoProfile', '-Command',
+          'Compress-Archive -Path "${packed.path}\\*" -DestinationPath "${zip.path}" -Force',
+        ]);
+        expect(out.exitCode, 0, reason: '打包引擎 zip 失败: ${out.stderr}');
       } else {
         await engineExe.copy(zip.path); // 兜底：至少 exe 能就绪
       }

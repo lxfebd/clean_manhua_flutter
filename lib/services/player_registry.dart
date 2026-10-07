@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 
+import '../net/error_logger.dart';
+import '../net/local_store.dart';
 import '../sources/video_source.dart';
 
 /// 画中画播放器全局登记：全屏播放器与迷你小窗之间的 Player 交接门户。
@@ -45,7 +47,9 @@ class PlayerRegistry {
   }
 
   /// 停声 + 释放当前登记的 Player（若存在）。先 pause 止血再 dispose，
-  /// 避免 dispose 前最后一帧仍输出音频。
+  /// 避免 dispose 前最后一帧仍输出音频。释放前补一次最终进度落盘：
+  /// 小窗的 5 秒快照（MiniPlayer._maybeSave）在关闭瞬间可能还没到点，
+  /// 直接读 Player 实时位置写回，避免用户最后几秒进度丢失。
   static void _stopAndRelease() {
     final handoff = notifier.value;
     if (handoff == null) return;
@@ -53,8 +57,51 @@ class PlayerRegistry {
     try {
       final p = handoff.player;
       if (p.state.playing) p.pause();
+      _persistFinal(handoff, p);
       p.dispose();
     } catch (_) {}
+  }
+
+  /// 关闭小窗前的最终进度写回（fire-and-forget，LocalStore 排队写与
+  /// 主播放器并发不互踩）。读完即清记录；位置 <5s 不写（无续播价值）。
+  static void _persistFinal(PlayerHandoff h, Player p) {
+    final pos = p.state.position;
+    if (pos.inSeconds < 5) return;
+    final done =
+        p.state.duration > Duration.zero &&
+        pos >= p.state.duration - const Duration(seconds: 15);
+    final sec = pos.inSeconds;
+    final sourceId = h.sourceId;
+    final videoId = h.videoId;
+    if (sourceId != null && videoId != null && sourceId.isNotEmpty) {
+      () async {
+        try {
+          await LocalStore.recordVideo(VideoRecord(
+            sourceId: sourceId,
+            videoId: videoId,
+            title: h.title,
+            cover: h.cover,
+            season: h.season,
+            episode: h.episode,
+            totalEpisodes: h.episodes.where((e) => e.season == h.season).length,
+            seconds: done ? p.state.duration.inSeconds : sec,
+            duration: p.state.duration.inSeconds,
+            timestamp: DateTime.now().millisecondsSinceEpoch,
+          ));
+        } catch (e) {
+          ErrorLogger.instance.warn('save registry video record failed: $e');
+        }
+      }();
+    }
+    if (h.historyKey != null) {
+      () async {
+        try {
+          await LocalStore.setVideoProgress(h.historyKey!, done ? null : sec);
+        } catch (e) {
+          ErrorLogger.instance.warn('save registry video progress failed: $e');
+        }
+      }();
+    }
   }
 }
 
