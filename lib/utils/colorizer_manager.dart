@@ -6,6 +6,7 @@ import 'dart:math' as math;
 
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
+import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 
 import 'colorizer.dart';
@@ -255,6 +256,49 @@ class ColorizerManager {
       }
     }
     return null;
+  }
+
+  /// 对整张 JPEG/PNG 字节执行上色：解码、剥离 alpha、推理、
+  /// 重编码（JPEG [quality]）全部在独立 Isolate 完成，
+  /// **主 isolate 只传字节收结果**——大图解码不再阻塞 UI
+  /// （老实现 decodeImage/encodeJpg 都在主 isolate，长条漫画单张十几 MB
+  /// 的完整解码会让界面卡帧）。
+  ///
+  /// 失败（未加载/解码失败/推理失败/超时）返回 null，调用方降级原图。
+  Future<Uint8List?> colorizeJpeg(
+    Uint8List bytes, {
+    int quality = 90,
+  }) async {
+    if (!_available || _backend == null) return null;
+    try {
+      final decoded = await Isolate.run(() {
+        final src = img.decodeImage(bytes);
+        if (src == null) return null;
+        return (
+          rgb: src.getBytes(order: img.ChannelOrder.rgb),
+          w: src.width,
+          h: src.height,
+        );
+      }).timeout(const Duration(minutes: 1), onTimeout: () => null);
+      if (decoded == null) return null;
+      final (rgb: rgb, w: w, h: h) = decoded;
+      // 推理走 _timedInfer：互斥锁 + skip 重试 + 超时降级，返回同尺寸 RGB。
+      final out = await _timedInfer(rgb, w, h);
+      if (out == null || out.length != w * h * 3) return null;
+      // 重编码同样在 Isolate：RGB 字节 → img.Image → JPEG。
+      return await Isolate.run(() {
+        final colored = img.Image.fromBytes(
+          width: w,
+          height: h,
+          bytes: out.buffer,
+          order: img.ChannelOrder.rgb,
+        );
+        return Uint8List.fromList(img.encodeJpg(colored, quality: quality));
+      }).timeout(const Duration(minutes: 1), onTimeout: () => Uint8List(0));
+    } catch (e) {
+      ErrorLogger.instance.warn('Colorizer colorizeJpeg 异常: $e');
+      return null;
+    }
   }
 
   /// 判断异常是否为 IsolateInterpreter skip（<100ms 快速返回，输出残留）。

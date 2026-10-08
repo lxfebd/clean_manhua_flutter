@@ -207,6 +207,90 @@ void main() {
     });
   });
 
+  group('detailMarksProvider（R1-2 派生集）', () {
+    test('下载+历史各读一次：派生已缓存集/已读集/历史快照', () async {
+      // 本作品：ch2 已下载完成、ch3 未完成；ch1 已读。他作品数据不混入。
+      await LocalStore.upsertDownload(DownloadRecord(
+        book: const Bookmark(
+            sourceId: 'testcomic', comicId: 'c1', name: '漫画c1', pic: ''),
+        chapterId: 'ch2',
+        chapterTitle: '第2话',
+        total: 1,
+        done: 1,
+        finished: true,
+        localKey: 'testcomic/c1/ch2',
+      ));
+      await LocalStore.upsertDownload(DownloadRecord(
+        book: const Bookmark(
+            sourceId: 'testcomic', comicId: 'c1', name: '漫画c1', pic: ''),
+        chapterId: 'ch3',
+        chapterTitle: '第3话',
+        total: 1,
+        done: 0,
+        finished: false,
+        localKey: 'testcomic/c1/ch3',
+        error: '下载未完成',
+      ));
+      await LocalStore.upsertDownload(DownloadRecord(
+        book: const Bookmark(
+            sourceId: 'testcomic', comicId: 'other', name: '他作', pic: ''),
+        chapterId: 'ch1',
+        chapterTitle: '第1话',
+        total: 1,
+        done: 1,
+        finished: true,
+        localKey: 'testcomic/other/ch1',
+      ));
+      await LocalStore.recordHistory(HistoryEntry(
+        book: const Bookmark(
+            sourceId: 'testcomic', comicId: 'c1', name: '漫画c1', pic: ''),
+        chapterId: 'ch1',
+        chapterTitle: '第1话',
+        timestamp: 100,
+      ));
+      await LocalStore.recordHistory(HistoryEntry(
+        book: const Bookmark(
+            sourceId: 'testcomic', comicId: 'other', name: '他作', pic: ''),
+        chapterId: 'ch9',
+        chapterTitle: '第9话',
+        timestamp: 200,
+      ));
+
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final marks = await container
+          .read(detailMarksProvider(('testcomic', 'c1')).future);
+      // 只收已完成下载：ch3 未完成不收；他作品不收。
+      expect(marks.cachedChapters, {'ch2'});
+      // 只收本作品已读。
+      expect(marks.readChapters, {'ch1'});
+      // 历史快照为全量（打开章节查续读位用）。
+      expect(marks.history, hasLength(2));
+    });
+
+    test('invalidate 后重读：新增下载/历史反映到派生集', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final key = ('testcomic', 'c1');
+      final m0 = await container.read(detailMarksProvider(key).future);
+      expect(m0.cachedChapters, isEmpty);
+
+      await LocalStore.upsertDownload(DownloadRecord(
+        book: const Bookmark(
+            sourceId: 'testcomic', comicId: 'c1', name: '漫画c1', pic: ''),
+        chapterId: 'ch2',
+        chapterTitle: '第2话',
+        total: 1,
+        done: 1,
+        finished: true,
+        localKey: 'testcomic/c1/ch2',
+      ));
+      container.invalidate(detailMarksProvider(key));
+      final m1 = await container.read(detailMarksProvider(key).future);
+      expect(m1.cachedChapters, {'ch2'});
+    });
+  });
+
   group('novelDetailProvider', () {
     test('加载小说详情', () async {
       final container = ProviderContainer();

@@ -22,6 +22,57 @@ Set<String> readChapterIds({
   };
 }
 
+/// 详情页本地图记：downloads/history 各读一次，派生「已缓存章节集 +
+/// 已读章节集 + 历史快照」三份视图（R1-2）。替代详情页 initState/打开
+/// 弹窗/阅读返回时各自全表重扫（原漫画侧 ≥3 遍、小说侧 2 遍历史全表读）。
+///
+/// 漫画与小说共用同一 provider（小说不消费 [cachedChapters]——离线标记
+/// 走 NovelChapterCache 目录扫描，与下载表无关）。comicId 用页面入参，
+/// 与 [comicResumeProvider] 同一约定：源 detail.id 与传入 id 一致。
+/// autoDispose：详情页退出即弃（重进重读，与「进入页面查一次」原语义
+/// 一致），且不长期滞留每部作品的历史快照副本。
+class DetailMarks {
+  /// 已下载完成的章节 id（downloads 表按 bookKey 前缀过滤）。
+  final Set<String> cachedChapters;
+
+  /// 历史里出现过的章节 id（供「已读」角标）。
+  final Set<String> readChapters;
+
+  /// 历史快照（打开章节时查续读位用，避免每次再读一次全表）。
+  final List<HistoryEntry> history;
+
+  const DetailMarks({
+    this.cachedChapters = const {},
+    this.readChapters = const {},
+    this.history = const [],
+  });
+}
+
+final detailMarksProvider =
+    FutureProvider.autoDispose.family<DetailMarks, (String, String)>(
+  (ref, args) async {
+    final (sourceId, comicId) = args;
+    final bookKey =
+        Bookmark(sourceId: sourceId, comicId: comicId, name: '', pic: '').key;
+    final prefix = '$bookKey/';
+    final downloads = await LocalStore.downloads();
+    final history = await LocalStore.history();
+    return DetailMarks(
+      cachedChapters: {
+        for (final d in downloads)
+          if (d.finished && d.key.startsWith(prefix))
+            d.key.substring(prefix.length),
+      },
+      readChapters: readChapterIds(
+        history: history,
+        sourceId: sourceId,
+        comicId: comicId,
+      ),
+      history: history,
+    );
+  },
+);
+
 /// 解析「开始阅读」目标：从历史里找该作品最近读到的章节；无则返回 null
 /// （= 第 1 话）。纯函数便于单元测试，行为与历史/章节数据契约解耦。
 ///

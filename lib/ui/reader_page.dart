@@ -9,7 +9,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-import 'package:image/image.dart' as img;
 
 import '../net/download_manager.dart';
 import '../net/error_logger.dart';
@@ -2609,30 +2608,19 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
   String _srKey() =>
       '${ImageDeg.normalizeUrl(widget.url)}|sr|${ImageSuperRes.algoVersion}';
 
-  /// 自动上色：解码 → 剥 alpha → 灰度推理 → 重编码。
-  /// 任何一步失败返回 null，调用方保留原图（不打断阅读）。
+  /// 自动上色：整图字节进 `Isolate.run` 解码/重编码（大图不阻塞 UI），
+  /// 推理走 ColorizerManager 的互斥锁 + 超时降级。任何一步失败返回 null，
+  /// 调用方保留原图（不打断阅读）。
   Future<Uint8List?> _tryColorize(Uint8List bytes) async {
     try {
       if (!ColorizerManager.instance.isAvailable) return null;
-      final src = img.decodeImage(bytes);
-      if (src == null) return null;
-      // 推理按整图尺寸做（模型内部缩放），这里直接传原尺寸避免二次缩放。
-      final rgb = src.getBytes(order: img.ChannelOrder.rgb);
-      final out = await ColorizerManager.instance
-          .colorize(rgb, src.width, src.height);
-      if (out == null || out.length != src.width * src.height * 3) {
+      final out = await ColorizerManager.instance.colorizeJpeg(bytes);
+      if (out == null) {
         _colorized = true; // 推理失败/超时降级，同页不重试
         return null;
       }
-      _colorized = true; // 成功也置位：同页不重复推理
-      // 推理成功才置位（模型就绪重建时重跑 _load 才能触发上色）
-      final colored = img.Image.fromBytes(
-        width: src.width,
-        height: src.height,
-        bytes: out.buffer,
-        order: img.ChannelOrder.rgb,
-      );
-      return Uint8List.fromList(img.encodeJpg(colored, quality: 90));
+      _colorized = true; // 成功也置位：同页不重复推理（模型就绪重建时重跑 _load 才能触发上色）
+      return out;
     } catch (e) {
       ErrorLogger.instance.warn('Colorizer _tryColorize 异常: $e');
       return null;

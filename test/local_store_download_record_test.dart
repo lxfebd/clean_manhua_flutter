@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -49,6 +50,21 @@ void main() {
         error: error,
       );
 
+  /// 隔离起点：重置静态状态并清掉旧的 downloads.json，保证本测试从
+  /// 空下载表开始（镜像跨测试常驻，不清理会串台）。
+  Future<void> freshDownloads() async {
+    LocalStore.resetForTest();
+    final f = File('${tmp.path}/data/downloads.json');
+    if (f.existsSync()) f.deleteSync();
+    await LocalStore.init();
+  }
+
+  Future<dynamic> readDiskJson(String name) async {
+    final f = File('${tmp.path}/data/$name.json');
+    if (!f.existsSync()) return null;
+    return jsonDecode(await f.readAsString());
+  }
+
   test('error 字段序列化往返：失败原因跨存储保留', () async {
     await LocalStore.init();
     final r = rec(comicId: 'c1', chapterId: '7', finished: true, error: '磁盘空间不足，请清理后重试');
@@ -72,7 +88,7 @@ void main() {
   });
 
   test('下载表超上限：优先裁剪已完成的最旧记录，保留失败/进行中', () async {
-    await LocalStore.init();
+    await freshDownloads();
     // 塞 205 条：200 条已完成 + 5 条失败（未 finished）。
     for (var i = 0; i < 200; i++) {
       await LocalStore.upsertDownload(
@@ -104,6 +120,69 @@ void main() {
         reason: '最旧已完成应被裁剪');
     expect(all.any((d) => d.book.comicId == 'extra9'), isTrue,
         reason: '最新记录应保留');
+  });
+
+  test('R1-1 镜像与磁盘一致：flush 后读盘内容与内存同', () async {
+    await freshDownloads();
+    final chapters = [
+      for (var i = 1; i <= 3; i++)
+        rec(comicId: 'm$i', chapterId: '1', finished: true),
+    ];
+    for (final c in chapters) {
+      await LocalStore.upsertDownload(c);
+    }
+    await LocalStore.flushAll();
+    final raw = await readDiskJson('downloads');
+    expect(raw, isA<List>());
+    expect((raw as List).length, 3);
+    for (final c in chapters) {
+      final got = await LocalStore.downloadOf(c.key);
+      expect(got, isNotNull, reason: '镜像应含 ${c.key}');
+      expect(got!.book.comicId, c.book.comicId);
+      expect(got.finished, isTrue);
+    }
+    // 删除同 key 再 flush：磁盘同步移除。
+    await LocalStore.removeDownload(chapters.first.key);
+    await LocalStore.flushAll();
+    final after = await readDiskJson('downloads');
+    expect((after as List).length, 2);
+    expect(await LocalStore.downloadOf(chapters.first.key), isNull);
+  });
+
+  test('R1-1 高频进度更新：内存权威、落盘只写最终态', () async {
+    await freshDownloads();
+    final base = rec(comicId: 'coalesce', chapterId: '1', finished: false);
+    for (var i = 1; i <= 100; i++) {
+      await LocalStore.upsertDownload(DownloadRecord(
+        book: base.book,
+        chapterId: base.chapterId,
+        chapterTitle: base.chapterTitle,
+        total: base.total,
+        done: i,
+        finished: false,
+        localKey: base.localKey,
+      ));
+    }
+    // 未 flush 前镜像已是最新进度（内存权威，读不落盘）。
+    expect((await LocalStore.downloads()).single.done, 100);
+
+    await LocalStore.flushAll();
+    final raw = await readDiskJson('downloads');
+    expect(raw, isA<List>());
+    expect((raw as List).length, 1);
+    expect((raw.first as Map<String, dynamic>)['done'], 100,
+        reason: '节流合并落盘只写最终进度，无逐页中间态残留');
+  });
+
+  test('R1-1 取消再下载同 key：镜像去重保持单条', () async {
+    await freshDownloads();
+    final r = rec(comicId: 'dedupe', chapterId: '3', finished: true);
+    await LocalStore.upsertDownload(r);
+    await LocalStore.upsertDownload(
+        rec(comicId: 'dedupe', chapterId: '3', finished: false, error: '已取消'));
+    final all = await LocalStore.downloads();
+    expect(all.where((d) => d.key == r.key).length, 1);
+    expect(all.first.error, '已取消');
   });
 }
 

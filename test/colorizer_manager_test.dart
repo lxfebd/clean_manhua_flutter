@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:xingmanxia/net/local_store.dart';
 import 'package:xingmanxia/utils/colorizer_backend.dart';
 import 'package:xingmanxia/utils/colorizer_manager.dart';
@@ -133,6 +134,45 @@ void main() {
       final m = ColorizerManager.instance;
       _installFakeBackend(m);
       final out = await m.colorize(Uint8List(5), 2, 2); // 长度错
+      expect(out, isNull);
+    });
+
+    test('colorizeJpeg 整图字节进：解码/重编码不占主 isolate，输出可解码且带色差', () async {
+      final m = ColorizerManager.instance;
+      _installFakeBackend(m);
+      // 生成一张 64×64 纯灰 PNG（灰度图：R=G=B）。
+      final w = 64, h = 64;
+      final im = img.Image(width: w, height: h);
+      for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) {
+          final v = (x + y) * 255 ~/ (w + h - 2);
+          im.setPixelRgb(x, y, v, v, v);
+        }
+      }
+      final bytes = Uint8List.fromList(img.encodePng(im));
+      final out = await m.colorizeJpeg(bytes);
+      expect(out, isNotNull);
+      // 输出应是可解码 JPEG，尺寸不变。
+      final dec = img.decodeImage(out!);
+      expect(dec, isNotNull);
+      expect(dec!.width, w);
+      expect(dec.height, h);
+      // fake ab=+1.0 → 应有明显红蓝差。
+      var maxDiff = 0;
+      for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) {
+          final p = dec.getPixel(x, y);
+          final d = (p.r.toInt() - p.b.toInt()).abs();
+          if (d > maxDiff) maxDiff = d;
+        }
+      }
+      expect(maxDiff, greaterThan(0), reason: 'ab≠0 时输出应带颜色');
+    });
+
+    test('colorizeJpeg 未加载 → 返回 null（不抛、不触发推理）', () async {
+      final m = ColorizerManager.instance;
+      await m.ensureLoaded(); // 无模型 → isAvailable false
+      final out = await m.colorizeJpeg(Uint8List.fromList([0, 1, 2]));
       expect(out, isNull);
     });
   });

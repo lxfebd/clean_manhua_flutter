@@ -8,7 +8,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
 import '../sources/source_result.dart';
-import '../net/download_manager.dart';
 import '../net/error_logger.dart';
 import '../net/http_client.dart';
 import '../net/local_store.dart';
@@ -96,10 +95,27 @@ class _DetailPageState extends ConsumerState<DetailPage> {
   /// 书架切换进行中（防连点并发翻转收藏态，与 _openingChapter 同款守卫）。
   bool _shelfBusy = false;
 
-  /// 该作品已读章节 id 集合（历史里出现过的章节；供章节列表「已读」角标）。
-  /// 与 `_cachedChapters` 同款懒加载模式：首次进入页面查一次，阅读返回时
-  /// 由 [_loadReadChapters] 重扫刷新。
-  Set<String> _readChapters = {};
+  /// 该作品本地图记（已缓存/已读/历史快照）：一次读 downloads/history
+  /// 派生（[detailMarksProvider]），替代原 initState/开弹窗/阅读返回时
+  /// 多次全表重扫。build 期 watch：角标随失效重建自动刷新。
+  DetailMarks get _marks {
+    final v = ref.watch(detailMarksProvider((widget.sourceId, widget.comicId)));
+    return v.when(
+      data: (m) => m,
+      loading: () => const DetailMarks(),
+      error: (_, __) => const DetailMarks(),
+    );
+  }
+
+  /// 事件期读取同一图记（build 外不能 watch：弹窗打开等场景取当前值）。
+  DetailMarks get _marksNow {
+    final v = ref.read(detailMarksProvider((widget.sourceId, widget.comicId)));
+    return v.when(
+      data: (m) => m,
+      loading: () => const DetailMarks(),
+      error: (_, __) => const DetailMarks(),
+    );
+  }
 
   static const double _heroHeight = 260;
 
@@ -162,8 +178,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
   void initState() {
     super.initState();
     _scrollCtrl.addListener(_onScroll);
-    // 首次进入查一次已读集合（与 _cachedChapters 同款懒加载）。
-    _loadReadChapters();
+    // 已读图记由 _marks（build 期 watch detailMarksProvider）首次读取即加载。
   }
 
   @override
@@ -355,7 +370,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                                     return _ChapterTile(
                                       index: i,
                                       chapter: ch,
-                                      read: _readChapters.contains(ch.id),
+                                      read: _marks.readChapters.contains(ch.id),
                                       current: _resumeChapter?.id == ch.id,
                                       onTap: () => _openChapter(ch),
                                     );
@@ -875,7 +890,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
             _ChapterTile(
               index: i,
               chapter: chapters[i],
-              read: _readChapters.contains(chapters[i].id),
+              read: _marks.readChapters.contains(chapters[i].id),
               current: _resumeChapter?.id == chapters[i].id,
               onTap: () => _openChapter(chapters[i]),
             ),
@@ -1001,7 +1016,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
   /// 完整章节列表底部弹窗。
   void _showAllChapters() {
     // 数据量下很快（一次读表），但先给即时反馈避免"点了没反应"。
-    _loadCachedChapters().then((_) {
+    _refreshMarks().then((_) {
       if (!mounted) return;
       _showAllChaptersSheet();
     });
@@ -1009,7 +1024,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
 
   /// 批量下载选章弹窗：多选章节 → 批量下载。
   void _showBatchDownload() {
-    _loadCachedChapters().then((_) {
+    _refreshMarks().then((_) {
       if (!mounted) return;
       _openBatchDownloadSheet();
     });
@@ -1022,56 +1037,25 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     await showBatchDownloadSheet(
       context,
       chapters: _sortedChapters(),
-      cachedIds: _cachedChapters,
-      readIds: _readChapters,
+      cachedIds: _marksNow.cachedChapters,
+      readIds: _marksNow.readChapters,
       sourceId: widget.sourceId,
       comicId: detail.id,
       comicName: detail.name,
       comicPic: detail.pic,
     );
-    // sheet 关闭后重扫缓存标记：新派发的章节下载要尽快反映到
-    // 章节列表「已缓存」角标。
-    _loadCachedChapters();
+    // sheet 关闭后失效图记：新派发的章节下载尽快反映到章节列表角标。
+    ref.invalidate(detailMarksProvider((widget.sourceId, widget.comicId)));
   }
 
-  /// 预加载所有章节的缓存状态（用于章节列表显示 ✓）。
-  /// 一次读取全表 + key 前缀过滤（逐章 isDownloaded 会 O(N²) 全表重扫，
-  /// 章节多时让"查看全部/批量下载"按钮像点了没反应）。
-  Future<void> _loadCachedChapters() async {
-    if (_chaptersBusy) return;
-    _chaptersBusy = true;
+  /// 失效并等图记重载完成（弹窗打开前强制刷新：下载派发/后台完成要反映
+  /// 到角标）。读失败保持空角标，不阻塞弹窗。
+  Future<void> _refreshMarks() async {
+    final p = detailMarksProvider((widget.sourceId, widget.comicId));
+    ref.invalidate(p);
     try {
-      final bookKey = DownloadManager.bookKeyOf(widget.sourceId, _detail!.id);
-      final prefix = '$bookKey/';
-      final all = await LocalStore.downloads();
-      final set = <String>{
-        for (final d in all)
-          if (d.finished == true && d.key.startsWith(prefix))
-            d.key.substring(prefix.length),
-      };
-      if (mounted) setState(() => _cachedChapters = set);
-    } finally {
-      _chaptersBusy = false;
-    }
-  }
-
-  bool _chaptersBusy = false;
-
-  Set<String> _cachedChapters = {};
-
-  /// 重扫「已读」标记：该作品 book.key 开头的历史章节 id 集合。
-  /// 与 [_loadCachedChapters] 同样在阅读返回后调用（_openChapter finally），
-  /// 保证刚读完的章节立即有勾选态，无需整个页面重建。
-  Future<void> _loadReadChapters() async {
-    final detail = _detail;
-    if (detail == null) return;
-    final all = await LocalStore.history();
-    final set = detailp.readChapterIds(
-      history: all,
-      sourceId: widget.sourceId,
-      comicId: detail.id,
-    );
-    if (mounted) setState(() => _readChapters = set);
+      await ref.read(p.future);
+    } catch (_) {}
   }
 
   void _showAllChaptersSheet() {
@@ -1089,8 +1073,8 @@ class _DetailPageState extends ConsumerState<DetailPage> {
       ),
       builder: (ctx) => _AllChaptersSheet(
         detail: detail,
-        cachedIds: _cachedChapters,
-        readIds: _readChapters,
+        cachedIds: _marksNow.cachedChapters,
+        readIds: _marksNow.readChapters,
         onPick: (ch) {
           Navigator.pop(ctx);
           _openChapter(ch);
@@ -1159,14 +1143,23 @@ class _DetailPageState extends ConsumerState<DetailPage> {
       ref.invalidate(comicResumeProvider((widget.sourceId, widget.comicId)));
       ref.invalidate(bookshelfDataProvider);
       // 重扫已读集合：刚读过的章节立即有勾选态。
-      _loadReadChapters();
+      ref.invalidate(detailMarksProvider((widget.sourceId, widget.comicId)));
     }
   }
 
   /// 从历史记录里查当前章节最后读到的位置（无则 pageIndex=-1 从第一页开始）。
   /// 返回完整条目以同时提供页码与纵向滚动偏移（像素级续读）。
+  /// 历史用图记快照（await future：阅读返回刚 invalidate 过 → 拿到重载后的
+  /// 最新历史；未失效时 future 已完成 → 直接命中缓存，不再全表读盘）。
   Future<HistoryEntry> _historyForChapter(Chapter ch) async {
-    final hist = await LocalStore.history();
+    DetailMarks marks;
+    try {
+      marks = await ref.read(
+          detailMarksProvider((widget.sourceId, widget.comicId)).future);
+    } catch (_) {
+      marks = const DetailMarks();
+    }
+    final hist = marks.history;
     final b = _detail!.bookmarkFor(widget.sourceId);
     final key = b.key;
     // 倒序找最新一条（同一章节可能被多次记录，页码取最近一次）。

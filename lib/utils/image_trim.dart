@@ -75,10 +75,16 @@ class _TrimArgs {
 TrimRect _computeTrimEntry(_TrimArgs args) {
   final src = img.decodeImage(args.bytes);
   if (src == null) return TrimRect.none;
+  return _computeTrimOf(src, args.maxTrim);
+}
+
+/// 对已解码的 [src] 扫描白边，返回四边裁剪比例（算法本体）。
+/// [computeTrimRect] 与 [trimAndCrop] 的 Isolate 入口共享此实现，
+/// 保证同一张图只解码一次、扫描复用同一份像素。
+TrimRect _computeTrimOf(img.Image src, double maxTrim) {
   final w = src.width;
   final h = src.height;
   if (w < 32 || h < 32) return TrimRect.none;
-  final maxTrim = args.maxTrim;
 
   // 逐行计算「白像素占比」，用于上下边判定。
   final rowWhite = List<double>.filled(h, 0);
@@ -207,7 +213,9 @@ Future<Uint8List> cropToContent(Uint8List bytes, TrimRect trim) async {
   }
 }
 
-/// 一步完成「扫描白边 + 裁剪」（只解码一次，比两步各解码一次省一半开销）。
+/// 一步完成「扫描白边 + 裁剪」：同一张 [img.Image] 先扫描后裁剪，
+/// 整条链路只解码一次、重编码一次（老实现扫描/裁剪各解码一次，
+/// 同字节两份全尺寸副本，大图内存翻倍）。
 /// 无白边/失败返回原图字节。
 Future<Uint8List> trimAndCrop(Uint8List bytes) async {
   try {
@@ -221,7 +229,18 @@ Future<Uint8List> trimAndCrop(Uint8List bytes) async {
 }
 
 Uint8List _trimAndCropEntry(Uint8List bytes) {
-  final trim = _computeTrimEntry(_TrimArgs(bytes, ImageTrim.maxTrim));
+  final src = img.decodeImage(bytes);
+  if (src == null) return bytes;
+  final trim = _computeTrimOf(src, ImageTrim.maxTrim);
   if (trim.isEmpty) return bytes;
-  return _cropEntry(_CropArgs(bytes, trim));
+  final w = src.width;
+  final h = src.height;
+  final x0 = (trim.left * w).round().clamp(0, w - 1);
+  final y0 = (trim.top * h).round().clamp(0, h - 1);
+  final x1 = (w - (trim.right * w).round()).clamp(x0 + 1, w);
+  final y1 = (h - (trim.bottom * h).round()).clamp(y0 + 1, h);
+  if (x1 - x0 >= w || y1 - y0 >= h) return bytes;
+  final cropped =
+      img.copyCrop(src, x: x0, y: y0, width: x1 - x0, height: y1 - y0);
+  return Uint8List.fromList(img.encodeJpg(cropped, quality: 88));
 }

@@ -123,8 +123,10 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
   List<VideoRecord> _videos = [];
   List<ComicBookmark> _bookmarks = [];
   // 下载（书架的「下载」Tab）：漫画章节下载 + 已下载完成的动漫。
+  // 仅供下载 Tab 壳首帧兜底与错误态判定（R1-3）：进度由下载 Tab 的
+  // provider 订阅独立驱动，书架主网格不再每 300ms 整页 setState。
   List<DownloadRecord> _mangaDownloads = [];
-  List<VideoDownloadTask> _animeDownloads = [];
+  final List<VideoDownloadTask> _animeDownloads = [];
   int _tab = 0;
   bool _loading = true;
   /// 本地数据读取失败原因：六组全败时置位（整页错误视图用）。
@@ -224,37 +226,9 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     // 首次加载由订阅触发（listenManual 激活 provider 即开始读取）：
     // 不在 initState 里直接调 reload()——后者经 ref.invalidate/ref.read 访问
     // ProviderScope 容器，initState 阶段依赖树尚未建立（框架断言）。
-    // 动漫下载任务单独订阅（bookshelfDataProvider 已不聚合下载，避免高频进度
-    // 重读拖累书架主列表）；progress 实时流入「下载」Tab。
-    ref.listenManual<AsyncValue<List<VideoDownloadTask>>>(
-      animeDownloadTasksProvider,
-      (prev, next) {
-        if (!mounted) return;
-        next.when(
-          data: (tasks) => setState(() => _animeDownloads = tasks),
-          error: (e, _) {
-            ErrorLogger.instance.warn('动漫下载任务读取失败: $e');
-          },
-          loading: () {},
-        );
-      },
-    );
-    // 漫画下载记录单独订阅（同动漫侧理由：bookshelfDataProvider 内嵌的
-    // downloads 组读一次就固化，进度不动；改用 mangaDownloadsProvider 的
-    // 版本号信号 + 300ms 合并窗口流式重读，进度条实时走动）。
-    ref.listenManual<AsyncValue<List<DownloadRecord>>>(
-      mangaDownloadsProvider,
-      (prev, next) {
-        if (!mounted) return;
-        next.when(
-          data: (records) => setState(() => _mangaDownloads = records),
-          error: (e, _) {
-            ErrorLogger.instance.warn('漫画下载记录读取失败: $e');
-          },
-          loading: () {},
-        );
-      },
-    );
+    // 动漫/漫画下载任务不再在此订阅（R1-3）：bookshelfDataProvider 不聚合
+    // 高频进度，下载 Tab 改为本地 ConsumerStatefulWidget 订阅高频 provider，
+    // 进度 tick 不再触发书架整页重建。
   }
 
   /// 把 provider 聚合快照灌入本地渲染字段（setState 已在调用方包好）。
@@ -279,7 +253,11 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     _recent = data.recent;
     _videos = data.videos;
     _bookmarks = data.bookmarks;
-    _mangaDownloads = data.mangaDownloads;
+    // 仅收首次聚合快照（徽标/错误态用）：下载进度不再经此刷新（R1-3，
+    // 下载 Tab 自行订阅高频 provider），避免每次快照全页重建。
+    // 动漫任务本就不在 bookshelfDataProvider 聚合（见 animeDownloadTasksProvider
+    // 注释：高频进度不入主数据流），由下载 Tab 壳直接订阅。
+    if (_mangaDownloads.isEmpty) _mangaDownloads = data.mangaDownloads;
     _loading = false;
     _loadError = data.totalError;
     _applyFilters();
@@ -289,8 +267,11 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
   /// 供下拉刷新、main_shell 与测试复用。
   Future<void> reload() async {
     if (mounted) {
-      setState(() =>
-          _loading = _items.isEmpty && _recent.isEmpty && _videos.isEmpty);
+      setState(() {
+        _loading = _items.isEmpty && _recent.isEmpty && _videos.isEmpty;
+        // 下载快照（下载 Tab 壳的帧一兜底）保持首读值不随重载清空——
+        // 进度数据由下载 provider 独立承载（R1-3），主数据重载不影响它。
+      });
     }
     // invalidate 使 provider 重跑（六组并行读取）；await future 等数据灌入，
     // 避免调用方（下拉刷新等）在数据落地前就收尾。
@@ -638,13 +619,13 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
         else if (_tab == 2)
           _buildVideoList(scheme)
         else if (_tab == 3)
-          BookshelfDownloadView(
+          _DownloadsTab(
             scheme: scheme,
-            mangaDownloads: _mangaDownloads,
-            animeDownloads: _animeDownloads,
+            initialMangaDownloads: _mangaDownloads,
+            initialAnimeDownloads: _animeDownloads,
+            retryingAll: _retryingAll,
             onClearManga: _confirmClearMangaAll,
             onRetryAllManga: _retryAllManga,
-            retryingAll: _retryingAll,
             onOpenMangaDetail: _openDownloadDetail,
             onRetryManga: _retryMangaDownload,
             onRemoveManga: _confirmRemoveManga,
@@ -1425,7 +1406,13 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
   }
 
   Future<void> _confirmRemoveAnimeTitle(VideoDownloadTask t) async {
-    final tasks = _animeDownloads.where((x) => x.title == t.title).toList();
+    // 实时读任务表（R1-3：页面不再持有随进度更新的动画下载快照）。
+    final tasks = ref
+        .read(animeDownloadTasksProvider)
+        .value
+        ?.where((x) => x.title == t.title)
+        .toList() ??
+        <VideoDownloadTask>[];
     if (tasks.isEmpty) return;
     final ok = await showDialog<bool>(
       context: context,
@@ -1477,7 +1464,9 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
       ),
     );
     if (ok == true) {
-      final keys = _animeDownloads.map((t) => t.key).toList();
+      final tasks =
+          ref.read(animeDownloadTasksProvider).value ?? const <VideoDownloadTask>[];
+      final keys = tasks.map((t) => t.key).toList();
       for (final k in keys) {
         await VideoDownloadManager.instance.remove(k);
       }
@@ -1831,13 +1820,13 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
             ),
           )
         else if (_tab == 3)
-          BookshelfDownloadView(
+          _DownloadsTab(
             scheme: scheme,
-            mangaDownloads: _mangaDownloads,
-            animeDownloads: _animeDownloads,
+            initialMangaDownloads: _mangaDownloads,
+            initialAnimeDownloads: _animeDownloads,
+            retryingAll: _retryingAll,
             onClearManga: _confirmClearMangaAll,
             onRetryAllManga: _retryAllManga,
-            retryingAll: _retryingAll,
             onOpenMangaDetail: _openDownloadDetail,
             onRetryManga: _retryMangaDownload,
             onRemoveManga: _confirmRemoveManga,
@@ -3627,6 +3616,72 @@ class _BookmarkCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 下载 Tab 隔离壳（R1-3）：订阅高频下载 provider（漫画 300ms 合并窗口
+/// 流式重读 / 动漫每次进度 tick 推送），把实时列表以构造参数喂给纯渲染
+/// [BookshelfDownloadView]。进度变化只重建本壳与视图子树，书架主网格
+/// 不再每 300ms 整页 setState。provider 未就绪时用页面首读快照兜底
+/// （首帧无空闪烁）。回调（清空/重试/删除/打开）透传给页面层实现。
+class _DownloadsTab extends ConsumerWidget {
+  final ColorScheme scheme;
+  final List<DownloadRecord> initialMangaDownloads;
+  final List<VideoDownloadTask> initialAnimeDownloads;
+  final bool retryingAll;
+  final Future<void> Function() onClearManga;
+  final Future<void> Function() onRetryAllManga;
+  final void Function(Bookmark book) onOpenMangaDetail;
+  final Future<void> Function(DownloadRecord record) onRetryManga;
+  final void Function(DownloadRecord record) onRemoveManga;
+  final Future<void> Function(Bookmark book) onRemoveMangaBook;
+  final Future<void> Function() onClearAnime;
+  final void Function(VideoDownloadTask task) onOpenAnime;
+  final Future<void> Function(VideoDownloadTask task) onRetryAnime;
+  final void Function(VideoDownloadTask task) onRemoveAnime;
+  final Future<void> Function(VideoDownloadTask task) onRemoveAnimeTitle;
+
+  const _DownloadsTab({
+    required this.scheme,
+    required this.initialMangaDownloads,
+    required this.initialAnimeDownloads,
+    required this.retryingAll,
+    required this.onClearManga,
+    required this.onRetryAllManga,
+    required this.onOpenMangaDetail,
+    required this.onRetryManga,
+    required this.onRemoveManga,
+    required this.onRemoveMangaBook,
+    required this.onClearAnime,
+    required this.onOpenAnime,
+    required this.onRetryAnime,
+    required this.onRemoveAnime,
+    required this.onRemoveAnimeTitle,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final manga =
+        ref.watch(mangaDownloadsProvider).value ?? initialMangaDownloads;
+    final anime =
+        ref.watch(animeDownloadTasksProvider).value ?? initialAnimeDownloads;
+    return BookshelfDownloadView(
+      scheme: scheme,
+      mangaDownloads: manga,
+      animeDownloads: anime,
+      retryingAll: retryingAll,
+      onClearManga: onClearManga,
+      onRetryAllManga: onRetryAllManga,
+      onOpenMangaDetail: onOpenMangaDetail,
+      onRetryManga: onRetryManga,
+      onRemoveManga: onRemoveManga,
+      onRemoveMangaBook: onRemoveMangaBook,
+      onClearAnime: onClearAnime,
+      onOpenAnime: onOpenAnime,
+      onRetryAnime: onRetryAnime,
+      onRemoveAnime: onRemoveAnime,
+      onRemoveAnimeTitle: onRemoveAnimeTitle,
     );
   }
 }

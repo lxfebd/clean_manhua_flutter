@@ -158,10 +158,21 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
   /// 断网时用户能一眼看出哪些章节可直接离线读。
   Set<String> _cachedIds = const {};
 
-  /// 已读章节 id 集合（历史里读过的章节；目录里标勾选标记）。
-  /// 与 [_cachedIds] 同款懒加载：首次进入查一次，阅读返回时重扫刷新，
-  /// 刚读完的章节立即有勾选态，无需整个页面重建。
-  Set<String> _readIds = const {};
+  /// 本地图记（已读集 + 历史快照）：历史一次读双视图派生（
+  /// [detailMarksProvider]），替代原 _loadReadIds/_loadResume 各自全表读。
+  /// build 期 watch：阅读返回失效后角标自动刷新。
+  detailp.DetailMarks get _marks {
+    final v =
+        ref.watch(detailp.detailMarksProvider((widget.sourceId, widget.novelId)));
+    return v.when(
+      data: (m) => m,
+      loading: () => const detailp.DetailMarks(),
+      error: (_, __) => const detailp.DetailMarks(),
+    );
+  }
+
+  /// 已读章节 id 集合（目录里标勾选标记；图记派生，与续读位同一份历史）。
+  Set<String> get _readIds => _marks.readChapters;
 
   /// 「缓存后续」预取状态：null = 空闲，否则正在预取（value = 已完成/总数）。
   /// 预取串行跑，可取消（置 true 后当前章结束后中断）。
@@ -257,8 +268,7 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
     // 详情就绪前就启动缓存扫描：阅读器返回时缓存可能新增，_openChapter
     // 返回后同样会重扫。
     _loadCachedIds();
-    // 同款懒加载已读集合：首次进入查一次，阅读返回时重扫。
-    _loadReadIds();
+    // 已读图记由 [_marks]（build 期 watch）首次读取即加载。
   }
 
   /// 扫描本小说已缓存章节（供目录离线标记）。失败静默（无标记不阻塞）。
@@ -268,19 +278,6 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
       widget.novelId,
     );
     if (mounted) setState(() => _cachedIds = ids);
-  }
-
-  /// 重扫「已读」标记：历史里该小说（book.key）读过的章节 id 集合。
-  /// 与 [_loadCachedIds] 同款懒加载 + 阅读返回后重扫（_openChapter finally），
-  /// 刚读完的章节立即有勾选态。
-  Future<void> _loadReadIds() async {
-    final all = await LocalStore.history();
-    final ids = detailp.readChapterIds(
-      history: all,
-      sourceId: widget.sourceId,
-      comicId: widget.novelId,
-    );
-    if (mounted) setState(() => _readIds = ids);
   }
 
   @override
@@ -375,7 +372,11 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
   /// 从历史记录解析续读位（复用纯函数 [resolveNovelResumeChapter]）。
   Future<void> _loadResume() async {
     try {
-      final hist = await LocalStore.history();
+      final hist = (await ref
+              .read(detailp.detailMarksProvider(
+                      (widget.sourceId, widget.novelId))
+                  .future))
+          .history;
       final d = _detail;
       if (d == null) return; // 详情未就绪时历史不落位（等下次进入）
       final r = detailp.resolveNovelResumeChapter(
@@ -501,9 +502,12 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
       // 让「继续阅读」按钮、目录高亮与定位按钮跟随最新进度；阅读器里
       // 也会新增章节缓存，重扫目录离线标记。
       if (mounted) {
+        // 失效图记（已读集/续读位同源）：_loadResume await future 读到重载
+        // 后的最新历史，_readIds 角标随 watch 重建自动刷新。
+        ref.invalidate(
+            detailp.detailMarksProvider((widget.sourceId, widget.novelId)));
         _loadResume();
         _loadCachedIds();
-        _loadReadIds();
       }
     } finally {
       _openingChapter = false;

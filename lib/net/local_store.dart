@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -306,6 +307,12 @@ class LocalStore {
   static void resetForTest() {
     _dir = null;
     _writeQueues.clear();
+    _downloadsFlushTimer?.cancel();
+    _downloadsFlushTimer = null;
+    _downloadsDirty = false;
+    _downloadsGen++;
+    _downloadsMem = null;
+    _downloadsLoad = null;
   }
 
   /// 迁移历史：index = 从版本 i 升到 i+1 的钩子，只记录变更过的版本。
@@ -445,6 +452,8 @@ class LocalStore {
   /// 自动更新的退出路径（Windows 静默安装前）必须调这个：否则排在队列里
   /// 还没执行的写盘会被 ExitProcess 直接砍掉，丢数据。
   static Future<void> flushAll() async {
+    // downloads 走节流定时器（不在队列里）：退出前先把未落盘镜像刷掉。
+    if (_downloadsDirty) await _flushDownloadsNow();
     if (kIsWeb) return;
     final pending = _writeQueues.values.toList(growable: false);
     for (final f in pending) {
@@ -1097,17 +1106,77 @@ class LocalStore {
 
   /// 下载记录变更版本号（书架「下载」Tab 实时刷新用，与
   /// [BookshelfStore.foldersVersion] 同构）。所有 downloads 集合写入点
-  /// （upsert/remove/clear/恢复导入）在落盘后自增，供
-  /// `mangaDownloadsProvider` 监听、以 ~300ms 合并重读书架下载列表。
+  /// （upsert/remove/clear/恢复导入）在内存镜像变更时自增（不等落盘），
+  /// 供 `mangaDownloadsProvider` 监听、以 ~300ms 合并重读书架下载列表。
   static final ValueNotifier<int> downloadsVersion = ValueNotifier(0);
+
+  /// downloads.json 的内存镜像（进程内权威）。首次读盘后常驻；进度变更
+  /// 只改内存，磁盘写按 [_downloadsFlushDelay] 节流合并——下载进度每页
+  /// 一条 upsert，整表读+整表写逐条做是纯 IO 浪费（100 页章节 = 100 次
+  /// 全量 encode/decode + 写盘）。
+  static List<Map<String, dynamic>>? _downloadsMem;
+  static Future<List<Map<String, dynamic>>>? _downloadsLoad;
+  static Timer? _downloadsFlushTimer;
+  static bool _downloadsDirty = false;
+  static const Duration _downloadsFlushDelay = Duration(milliseconds: 300);
+  static int _downloadsGen = 0;
+
+  /// 镜像键（与 [DownloadRecord.key] 同式）：`sourceId/comicId/chapterId`。
+  static String _downloadKeyOf(Map<String, dynamic> m) =>
+      '${m['sourceId']}/${m['comicId']}/${m['chapterId']}';
+
+  /// 取内存镜像；未加载时读盘一次（并发调用共享同一次读，经 memo 防双读）。
+  /// 恢复导入会作废镜像并递增代际：在途读盘回调发现代际不匹配即丢弃重读，
+  /// 避免旧盘数据回填覆盖恢复结果。
+  static Future<List<Map<String, dynamic>>> _downloadsList() {
+    final mem = _downloadsMem;
+    if (mem != null) return Future.value(mem);
+    final pending = _downloadsLoad;
+    if (pending != null) return pending;
+    final gen = _downloadsGen;
+    // async 闭包：await 读盘后校验代际（恢复导入可能在读盘期间作废镜像），
+    // 已作废则丢弃本次结果重新发起，杜绝旧盘数据回填覆盖恢复结果。
+    _downloadsLoad = () async {
+      final raw = await _read('downloads');
+      if (gen != _downloadsGen) {
+        _downloadsLoad = null;
+        return _downloadsList();
+      }
+      return _downloadsMem = raw is List
+          ? [for (final e in raw) Map<String, dynamic>.from(e as Map)]
+          : <Map<String, dynamic>>[];
+    }();
+    return _downloadsLoad!;
+  }
+
+  /// 镜像变更记账：标脏 + 节流重排落盘 + 版本自增（UI 流信号）。
+  /// 必须在 `_enqueue('downloads')` 内、镜像变更后调用；flush 内不得嵌套调。
+  static void _markDownloadsDirty() {
+    _downloadsDirty = true;
+    downloadsVersion.value++;
+    _downloadsFlushTimer?.cancel();
+    _downloadsFlushTimer = Timer(_downloadsFlushDelay, () {
+      _downloadsFlushTimer = null;
+      unawaited(_flushDownloadsNow());
+    });
+  }
+
+  /// 立即把镜像刷到磁盘（清空/退出前/备份前用）。可从任意非队列内部位置调用。
+  static Future<void> _flushDownloadsNow() async {
+    _downloadsFlushTimer?.cancel();
+    _downloadsFlushTimer = null;
+    await _enqueue('downloads', () async {
+      // 刷盘时可能已被恢复导入作废（脏标记清空）——跳过即可。
+      if (!_downloadsDirty || _downloadsMem == null) return;
+      _downloadsDirty = false;
+      await _writeNow('downloads', _downloadsMem!);
+    });
+  }
 
   static Future<List<DownloadRecord>> downloads() async {
     try {
-      final raw = await _read('downloads');
-      if (raw is! List) return [];
-      return raw
-          .map((e) => DownloadRecord.fromMap(e as Map<String, dynamic>))
-          .toList();
+      final list = await _downloadsList();
+      return [for (final m in list) DownloadRecord.fromMap(m)];
     } catch (e) {
       ErrorLogger.instance.warn('LocalStore.downloads() error: $e');
       return [];
@@ -1124,35 +1193,37 @@ class LocalStore {
   /// 单条下载记录写入（去重 + 保留全部待重试的失败/进行中任务）。
   ///
   /// 去重策略：同 key 只留最新一条；列表整体设上限，超出时优先丢弃
-  /// 已完成的最旧记录（保留失败/进行中项以便重试）。写入仍全量落盘，
-  /// 但列表有界后单条 O(n) 读改写的开销被钳制住。
+  /// 已完成的最 old 记录（保留失败/进行中项以便重试）。变更只改内存镜像，
+  /// 磁盘写由 [_markDownloadsDirty] 节流合并（300ms 窗口内多次进度更新
+  /// 只落一次盘），进度高频写不再逐条整表 decode/encode。
   static const int _downloadsMax = 200;
 
   static Future<void> upsertDownload(DownloadRecord d) async {
     await _enqueue('downloads', () async {
-      final list = (await downloads()).where((x) => x.key != d.key).toList();
-      list.add(d);
+      final list = await _downloadsList();
+      list.removeWhere((m) => _downloadKeyOf(m) == d.key);
+      list.add(d.toMap());
       if (list.length > _downloadsMax) {
         // 超限：丢弃「已完成」且最 old 的记录（finished 有界裁剪），
-        // 失败/进行中优先保留（可重试）。
-        final finished = list.where((x) => x.finished).toList()
-          ..sort((a, b) => a.localKey.compareTo(b.localKey));
+        // 失败/进行中优先保留（可重试）。排序键与原实现一致用 localKey。
+        final finished = [for (final m in list) if (m['finished'] == true) m]
+          ..sort((a, b) => (a['localKey'] as String)
+              .compareTo(b['localKey'] as String));
         var over = list.length - _downloadsMax;
         while (over > 0 && finished.isNotEmpty) {
           list.remove(finished.removeAt(0));
           over--;
         }
       }
-      await _writeNow('downloads', list.map((e) => e.toMap()).toList());
-      downloadsVersion.value++;
+      _markDownloadsDirty();
     });
   }
 
   static Future<void> removeDownload(String key) async {
     await _enqueue('downloads', () async {
-      final list = (await downloads()).where((d) => d.key != key).toList();
-      await _writeNow('downloads', list.map((e) => e.toMap()).toList());
-      downloadsVersion.value++;
+      final list = await _downloadsList();
+      list.removeWhere((m) => _downloadKeyOf(m) == key);
+      _markDownloadsDirty();
     });
   }
 
@@ -1181,24 +1252,33 @@ class LocalStore {
       // 文件删除失败仍写空列表，但需留痕——否则 UI 显示已清空而磁盘残留（孤儿文件）。
       ErrorLogger.instance.warn('clearDownloads file delete failed: $e');
     }
-    await _write('downloads', []);
-    downloadsVersion.value++;
+    await _enqueue('downloads', () async {
+      final list = await _downloadsList();
+      list.clear();
+      _markDownloadsDirty();
+    });
+    // 清空是离散操作（非高频进度流）：立即落盘，不走 300ms 节流窗口。
+    await _flushDownloadsNow();
   }
 
   /// 仅清理已完成的下载（文件 + 记录），保留进行中的任务。
   static Future<int> clearFinishedDownloads() async {
     // 读写整体排队：清文件期间新加入的下载记录不会被旧快照写回覆盖。
-    return _enqueue('downloads', () async {
-      final list = await downloads();
-      final finished = list.where((d) => d.finished).toList();
-      for (final d in finished) {
-        await removeDownloadFiles(d);
+    final count = await _enqueue('downloads', () async {
+      final list = await _downloadsList();
+      final doneMaps = <Map<String, dynamic>>[
+        for (final m in list)
+          if (m['finished'] == true) m
+      ];
+      for (final m in doneMaps) {
+        await removeDownloadFiles(DownloadRecord.fromMap(m));
       }
-      await _writeNow('downloads',
-          list.where((d) => !d.finished).map((e) => e.toMap()).toList());
-      downloadsVersion.value++;
-      return finished.length;
+      list.removeWhere((m) => m['finished'] == true);
+      if (doneMaps.isNotEmpty) _markDownloadsDirty();
+      return doneMaps.length;
     });
+    if (count > 0) await _flushDownloadsNow();
+    return count;
   }
 
   /// 删除单条下载记录对应的本地文件目录（章节目录），不删记录本身。
@@ -1261,7 +1341,7 @@ class LocalStore {
       'search_history': await _read('search_history'),
       'video_records': await _read('video_records'),
       'video_progress': await _read('video_progress'),
-      'downloads': await _read('downloads'),
+      'downloads': await _downloadsList(),
       'settings': await _read('settings'),
       'novel_read_settings': await _read('novel_read_settings'),
       'reading_stats': await _read('reading_stats'),
@@ -1299,7 +1379,16 @@ class LocalStore {
     // 旧备份的续播进度 key 仍是 `::` 分隔：恢复时统一改写为 `/`（P2-15）。
     await put('video_progress', _normalizeVideoProgress(data['video_progress']));
     await put('downloads', data['downloads']);
-    if (data['downloads'] != null) downloadsVersion.value++;
+    if (data['downloads'] != null) {
+      // 恢复导入绕过镜像直写磁盘：作废未落盘变更与在途读盘，下次读重建。
+      _downloadsFlushTimer?.cancel();
+      _downloadsFlushTimer = null;
+      _downloadsDirty = false;
+      _downloadsGen++;
+      _downloadsMem = null;
+      _downloadsLoad = null;
+      downloadsVersion.value++;
+    }
     await put('settings', data['settings']);
     await put('novel_read_settings', data['novel_read_settings']);
     await put('reading_stats', data['reading_stats']);
