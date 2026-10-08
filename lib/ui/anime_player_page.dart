@@ -37,7 +37,6 @@ class AnimePlayerPage extends StatefulWidget {
   final List<VideoEpisode> episodes;
   final int initialSeason;
   final int initialEpisode;
-  final ValueChanged<int>? onEpisodeChanged;
 
   /// 解析指定集的播放直链，传入后原生播放器可在内部切集/自动连播。
   final Future<String> Function(int season, int episode)? resolveUrl;
@@ -50,8 +49,8 @@ class AnimePlayerPage extends StatefulWidget {
   final String? videoId;
 
   /// 捕获到可直连媒体 URL 时交由外部处理（同一 Route 内切回 mpv 通道）。
-  /// 为 null 时保持旧行为：本页内 pushReplacement 到 NativePlayerPage。
-  /// 回调返回 true 表示外部接管成功（本页不再跳转）；false/null 走旧逻辑。
+  /// 内嵌模式（animePlayerWebChannel）下由宿主 NativePlayerPage 恒传入，
+  /// 回调返回 true 表示外部接管成功；null 时停留网页通道继续播放。
   final Future<bool> Function(String src)? onDirectUrl;
 
   const AnimePlayerPage({
@@ -63,7 +62,6 @@ class AnimePlayerPage extends StatefulWidget {
     this.episodes = const [],
     this.initialSeason = 1,
     this.initialEpisode = 1,
-    this.onEpisodeChanged,
     this.resolveUrl,
     this.sourceNames,
     this.sourceId,
@@ -478,50 +476,11 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       }
       return;
     }
-    // 取消解析定时器，防止 pushReplacement 后定时器触发 setState
-    _resolveTimer?.cancel();
-    _videoPollTimer?.cancel();
-    // 先杀掉网页播放器（暂停+清空 src+about:blank）并同步物理移除 WebView，
-    // 再切原生播放器。WebView 从视图树移除后不可能再渲染或出声，
-    // 转场期间与 WebView2 异步释放期间都不会残留网页音频（双音轨）。
-    await _killWebMedia();
-    // about:blank 导航会连带卸载整个文档树（含跨域 iframe 里的 <video>），
-    // 必须等导航真正完成再推原生播放器，否则转场期间网页音频仍在播放（双音轨）。
-    if (!(_pendingBlank?.isCompleted ?? true)) {
-      try {
-        await _pendingBlank!.future.timeout(const Duration(milliseconds: 900));
-      } catch (_) {}
-    }
-    if (!mounted) return;
-    // 用 pushReplacement 替换当前网页播放器，避免栈里叠两层播放器：
-    // 选集页 → 网页播放器 → 原生播放器。返回时直接回到选集页。
-    // 用纯淡入转场：当前页是黑屏 loading，切到同为黑底的原生播放器
-    // 时几乎无感，不出现"先跳一个页面再跳一个页面"的闪烁。
-    Navigator.of(context).pushReplacement(
-      PageRouteBuilder(
-        pageBuilder: (_, __, ___) => NativePlayerPage(
-          url: src,
-          title: widget.title,
-          cover: widget.cover,
-          episodes: widget.episodes,
-          season: _curSeason,
-          episode: _curEpisode,
-          resolveUrl: widget.resolveUrl,
-          sourceNames: widget.sourceNames,
-          sourceId: widget.sourceId,
-          videoId: widget.videoId,
-          historyKey: widget.sourceId != null && widget.videoId != null
-              ? '${widget.sourceId}/${widget.videoId}/$_curSeason-$_curEpisode'
-              : '${widget.title}/$_curSeason-$_curEpisode',
-          webChannelBuilder: animePlayerWebChannel,
-        ),
-        transitionDuration: context.uiStyle == UIStyle.minimalist
-            ? const Duration(milliseconds: 260)
-            : StyleTokens.transitionDuration(context),
-        transitionsBuilder: (_, anim, __, child) =>
-            FadeTransition(opacity: anim, child: child),
-      ),
-    );
+    // 独立播放器时代的兜底（pushReplacement 到 NativePlayerPage）已随
+    // 独立入口删除：本页现只以内嵌 WebView 通道存在，onDirectUrl 恒非空。
+    // 万一构造时漏传回调，宁可留在网页通道继续播放，也不再自行跳转。
+    assert(widget.onDirectUrl != null,
+        'animePlayerWebChannel 内嵌模式下 onDirectUrl 必须由宿主提供');
   }
 
   /// 监听 WebView 内 HTML5 video 的真实直链（m3u8/mp4/flv）。
