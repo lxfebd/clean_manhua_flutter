@@ -1,22 +1,10 @@
 import '../models/comic_item.dart';
 import '../net/bookshelf_store.dart';
 import '../net/local_store.dart';
-import 'source_config.dart';
+import 'source_base.dart';
 
 /// 漫画数据源统一接口（多源聚合核心契约）。
-abstract class ComicSource {
-  String get id;
-  String get name;
-
-  /// 是否需要登录（哔咔等）。默认 false，子类可覆盖。
-  bool get requiresLogin => false;
-
-  /// 是否启用（可由源管理页/配置控制）。默认 true。
-  bool get isEnabled => true;
-
-  /// 源优先级层级。默认 fallback。
-  SourceTier get tier => SourceTier.fallback;
-
+abstract class ComicSource extends AppSource {
   /// 分类列表。
   Future<List<Category>> categories();
 

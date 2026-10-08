@@ -1,23 +1,11 @@
 import '../models/comic_item.dart';
 import 'comic_source.dart';
-import 'source_config.dart';
+import 'source_base.dart';
 
 /// 视频（动漫/番剧）数据源统一接口。
 /// 与 ComicSource 不同：剧集返回 [VideoEpisode]，每个剧集对应一个播放 URL
 /// （可能是 m3u8、mp4，或一个 iframe 解析器链接）。
-abstract class VideoSource {
-  String get id;
-  String get name;
-
-  /// 是否需要登录。默认 false，子类可覆盖。
-  bool get requiresLogin => false;
-
-  /// 是否启用。默认 true。
-  bool get isEnabled => true;
-
-  /// 源优先级层级。默认 fallback。
-  SourceTier get tier => SourceTier.fallback;
-
+abstract class VideoSource extends AppSource {
   /// 一级分类 / 频道列表（如全部 / 日本 / 中国 / 剧场版 等）。
   Future<List<Category>> categories();
 

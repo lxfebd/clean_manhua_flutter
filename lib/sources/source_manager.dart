@@ -9,6 +9,7 @@ import 'jm_source.dart';
 import 'local_novel_source.dart';
 import 'mangadex_source.dart';
 import 'novel_source.dart';
+import 'source_base.dart';
 import 'source_config.dart';
 import 'source_plugin.dart';
 import 'tvtfun_video_source.dart';
@@ -60,22 +61,13 @@ class SourceManager {
   }
 
   /// 启用中的视频源列表（配置优先），按 tier（primary→fallback）排序后按注册顺序稳定。
-  static Future<List<VideoSource>> enabledVideoSources() async {
-    final cfgs = await SourceConfigStore.all();
-    final byId = <String, SourceConfig>{for (final c in cfgs) c.engineId: c};
-    final list = videoSources.where((s) {
-      final cfg = byId[s.id];
-      final enabled = cfg?.isEnabled ?? s.isEnabled;
-      final tier = cfg?.tier ?? s.tier;
-      return enabled && tier != SourceTier.disabled;
-    }).toList();
-    list.sort((a, b) {
-      final ta = byId[a.id]?.tier ?? a.tier;
-      final tb = byId[b.id]?.tier ?? b.tier;
-      return (_tierWeight[ta] ?? 1).compareTo(_tierWeight[tb] ?? 1);
-    });
-    return list;
-  }
+  static Future<List<VideoSource>> enabledVideoSources() =>
+      _enabledSorted(videoSources);
+
+  /// 启用中的源列表（配置优先），按 tier（primary→fallback）排序后按注册顺序稳定。
+  ///
+  /// 在源管理页改过启用/层级后，UI 应重新调用本方法刷新列表。
+  static Future<List<ComicSource>> enabledSources() => _enabledSorted(sources);
 
   /// 小说源：笔趣阁（tobiquge.com）+ 新笔趣阁（xbiquge.bz）+ 本地导入。
   /// 本地源放最后：不参与网络列表，仅在书架/导入入口展示。
@@ -103,26 +95,6 @@ class SourceManager {
 
   static ComicSource byId(String id) {
     return sources.firstWhere((s) => s.id == id, orElse: () => current);
-  }
-
-  /// 启用中的源列表（配置优先），按 tier（primary→fallback）排序后按注册顺序稳定。
-  ///
-  /// 在源管理页改过启用/层级后，UI 应重新调用本方法刷新列表。
-  static Future<List<ComicSource>> enabledSources() async {
-    final cfgs = await SourceConfigStore.all();
-    final byId = <String, SourceConfig>{for (final c in cfgs) c.engineId: c};
-    final list = sources.where((s) {
-      final cfg = byId[s.id];
-      final enabled = cfg?.isEnabled ?? s.isEnabled;
-      final tier = cfg?.tier ?? s.tier;
-      return enabled && tier != SourceTier.disabled;
-    }).toList();
-    list.sort((a, b) {
-      final ta = byId[a.id]?.tier ?? a.tier;
-      final tb = byId[b.id]?.tier ?? b.tier;
-      return (_tierWeight[ta] ?? 1).compareTo(_tierWeight[tb] ?? 1);
-    });
-    return list;
   }
 
   /// 若当前源被禁用/不存在，回退到第一个启用源。配置变更后调用。
@@ -158,9 +130,16 @@ class SourceManager {
   /// 启用中的小说源列表（配置优先），按 tier 排序。
   static Future<List<NovelSource>> enabledNovelSources() async {
     if (novelSources.isEmpty) return const [];
+    return _enabledSorted(novelSources);
+  }
+
+  /// 启用过滤 + tier 排序的共享实现（P2-2 收敛三份逐字相同的过滤函数）。
+  /// 配置优先：配置里显式的 enabled/tier 覆盖源默认值；disabled tier 不展示。
+  static Future<List<T>> _enabledSorted<T extends AppSource>(
+      List<T> all) async {
     final cfgs = await SourceConfigStore.all();
     final byId = <String, SourceConfig>{for (final c in cfgs) c.engineId: c};
-    final list = novelSources.where((s) {
+    final list = all.where((s) {
       final cfg = byId[s.id];
       final enabled = cfg?.isEnabled ?? s.isEnabled;
       final tier = cfg?.tier ?? s.tier;

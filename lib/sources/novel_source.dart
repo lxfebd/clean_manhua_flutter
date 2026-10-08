@@ -1,25 +1,13 @@
 import '../models/comic_item.dart';
 import '../net/novel_shelf_store.dart';
-import 'source_config.dart';
+import 'source_base.dart';
 
 /// 小说数据源统一接口（多源聚合核心契约）。
 ///
 /// 与 [ComicSource] 对齐：条目复用 [ComicItem]，详情/章节模型定义在同文件内。
 /// 唯一的语义差异是漫画按「图片页」阅读，小说按「文本段落」阅读，
 /// 因此 [chapterContent] 返回 [NovelContent]（段落列表 + 上下章导航）而非图片 URL。
-abstract class NovelSource {
-  String get id;
-  String get name;
-
-  /// 是否需要登录。默认 false，子类可覆盖。
-  bool get requiresLogin => false;
-
-  /// 是否启用。默认 true。
-  bool get isEnabled => true;
-
-  /// 源优先级层级。默认 fallback。
-  SourceTier get tier => SourceTier.fallback;
-
+abstract class NovelSource extends AppSource {
   /// 分类列表。
   Future<List<Category>> categories();
 
