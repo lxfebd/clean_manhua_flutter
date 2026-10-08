@@ -134,16 +134,16 @@ class CapabilityArtifactStore {
     String? platformKeyOverride,
   }) {
     if (sha256.isEmpty) return null;
-    final platformKey = platformKeyOverride ?? _currentPlatformKey();
+    final platformKey = platformKeyOverride ?? currentPlatformKey();
     // 优先精确 ABI key；未声明再退平台名；再退首值（单一 hash 兼容）。
     return sha256[_abiKeyForPlatform(platformKey)] ??
         sha256[platformKey] ??
         sha256.values.first;
   }
 
-  /// 平台键：与 [CapabilityRuntime._currentAbi] 语义一致（`windows` /
-  /// `macos` / `linux` / `android` / `web`）。
-  static String _currentPlatformKey() {
+  /// 平台键：`windows` / `macos` / `linux` / `android` / `web`（unknown 兜底）。
+  /// 能力侧唯一事实源（[CapabilityRuntime] 的 ABI 判定转调本方法，P1-8 收敛）。
+  static String currentPlatformKey() {
     if (kIsWeb) return 'web';
     if (Platform.isAndroid) return 'android';
     if (Platform.isWindows) return 'windows';

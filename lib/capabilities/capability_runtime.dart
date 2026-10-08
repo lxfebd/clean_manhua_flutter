@@ -1,9 +1,7 @@
 import 'dart:async' show FutureOr;
-import 'dart:io';
 import 'dart:isolate' show Isolate;
 
 import 'package:device_info_plus/device_info_plus.dart';
-import 'package:flutter/foundation.dart';
 
 import '../net/error_logger.dart';
 import 'capability_artifact_store.dart';
@@ -114,14 +112,8 @@ class CapabilityRuntime {
 
   /// 当前平台 ABI 判定（M2 桌面只区分 desktop/android；M3 Android 精确到
   /// arm64-v8a / armeabi-v7a / x86_64，与 release abiFilters 对齐）。
-  static String _currentAbi() {
-    if (kIsWeb) return 'web';
-    if (Platform.isAndroid) return 'android';
-    if (Platform.isWindows) return 'windows';
-    if (Platform.isMacOS) return 'macos';
-    if (Platform.isLinux) return 'linux';
-    return 'unknown';
-  }
+  /// 平台键唯一事实源在 [CapabilityArtifactStore.currentPlatformKey]（P1-8）。
+  static String _currentAbi() => CapabilityArtifactStore.currentPlatformKey();
 
   /// Android 当前 ABI（如 arm64-v8a / armeabi-v7a / x86_64），结果缓存。
   /// 读 DeviceInfoPlugin().androidInfo（需在 async 上下文 await）。
