@@ -1,4 +1,5 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 import '../models/comic_item.dart';
+import 'dsl/html_parser.dart' show firstCleanMatch, stripHtmlTags;
 import 'novel_source.dart';
 import 'source_config.dart';
 import 'source_http.dart';
@@ -39,7 +40,6 @@ class BiqugeNovelSource extends NovelSource {
   // 上一章：<a href="/bqg/{id}/{cid}.html" class="pageUp">上一章</a>
   static final RegExp _prevRe =
       RegExp(r'<a\s+href="[^"]*/bqg/(\d+)/(\d+)\.html"[^>]*class="pageUp"[^>]*>[^<]*上一章</a>');
-  static final RegExp _tagRe = RegExp(r'<[^>]+>');
   static final RegExp _brRe = RegExp(r'(<br\s*/?>|</p>|&nbsp;)',
       caseSensitive: false);
   static final RegExp _htmlCommentRe = RegExp(r'<!--[\s\S]*?-->');
@@ -98,9 +98,9 @@ class BiqugeNovelSource extends NovelSource {
   Future<NovelDetail> detail(String novelId) async {
     final body = await SourceHttp.get('biquge', '/bqg/$novelId/',
         fallbackHosts: _defaultHosts);
-    final name = _first(_ogTitleRe, body);
-    final cover = _first(_ogImgRe, body);
-    final desc = _first(_descRe, body);
+    final name = firstCleanMatch(_ogTitleRe, body);
+    final cover = firstCleanMatch(_ogImgRe, body);
+    final desc = firstCleanMatch(_descRe, body);
     final chapters = <NovelChapter>[];
     final seen = <String>{};
     var idx = 0;
@@ -111,7 +111,8 @@ class BiqugeNovelSource extends NovelSource {
       if (cid == '0') continue;
       if (nid != novelId || !seen.add(cid)) continue;
       chapters.add(
-          NovelChapter('$novelId|$cid', _clean(m.group(3)!), index: idx++));
+          NovelChapter('$novelId|$cid', stripHtmlTags(m.group(3)!),
+              index: idx++));
     }
     return NovelDetail(
       ComicItem(novelId, name, cover),
@@ -131,13 +132,13 @@ class BiqugeNovelSource extends NovelSource {
     final cid = chapterId.substring(sep + 1);
     final body = await SourceHttp.get('biquge', '/bqg/$novelId/$cid.html',
         fallbackHosts: _defaultHosts);
-    final title = _first(_h1Re, body);
+    final title = firstCleanMatch(_h1Re, body);
     final paragraphs = _parseContent(body);
     final prev = _firstGroup(_prevRe, body);
     final next = _firstGroup(_nextRe, body);
     return NovelContent(
       chapterId,
-      _clean(title),
+      stripHtmlTags(title),
       paragraphs,
       prevChapterId: prev != null ? '$novelId|$prev' : null,
       nextChapterId: next != null ? '$novelId|$next' : null,
@@ -150,7 +151,7 @@ class BiqugeNovelSource extends NovelSource {
     final raw = m.group(1)!
         .replaceAll(_htmlCommentRe, '')
         .replaceAll(_brRe, '\n')
-        .replaceAll(_tagRe, '')
+        .replaceAll(RegExp(r'<[^>]+>'), '')
         .replaceAll('&nbsp;', ' ')
         .replaceAll('&amp;', '&')
         .replaceAll('&quot;', '"')
@@ -167,22 +168,9 @@ class BiqugeNovelSource extends NovelSource {
     for (final m in _bookLinkRe.allMatches(html)) {
       final id = m.group(1)!;
       if (items.any((e) => e.id == id)) continue;
-      items.add(ComicItem(id, _clean(m.group(2)!), ''));
+      items.add(ComicItem(id, stripHtmlTags(m.group(2)!), ''));
     }
     return items;
-  }
-
-  static String _clean(String s) => s
-      .replaceAll(_tagRe, '')
-      .replaceAll('&nbsp;', ' ')
-      .replaceAll('&amp;', '&')
-      .replaceAll('&quot;', '"')
-      .replaceAll('&#39;', "'")
-      .trim();
-
-  static String _first(RegExp re, String s) {
-    final m = re.firstMatch(s);
-    return m == null ? '' : _clean(m.group(1) ?? '');
   }
 
   static String? _firstGroup(RegExp re, String s) =>

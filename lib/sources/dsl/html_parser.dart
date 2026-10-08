@@ -345,3 +345,24 @@ String htmlUnescape(String s) {
     return v ?? m.group(0)!;
   });
 }
+
+final RegExp _tagStripRe = RegExp(r'<[^>]+>');
+
+/// 去标签 + 高频 HTML 实体解码 + 收尾空白，供列表标题/详情字段等取可读文本。
+///
+/// 语义与 biquge/xbiquge 两家旧私有 _clean 逐字一致（&nbsp;→空格、
+/// &amp;/&quot;/&#39; 解码、去 <br> 等标签后 trim），收敛为一份。
+String stripHtmlTags(String s) => s
+    .replaceAll(_tagStripRe, '')
+    .replaceAll('&nbsp;', ' ')
+    .replaceAll('&amp;', '&')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#39;', "'")
+    .trim();
+
+/// 首个正则捕获组去标签取可读文本；无匹配返回空串。
+/// 收敛 biquge/xbiquge 两家重复的私有 _first。
+String firstCleanMatch(RegExp re, String s) {
+  final m = re.firstMatch(s);
+  return m == null ? '' : stripHtmlTags(m.group(1) ?? '');
+}

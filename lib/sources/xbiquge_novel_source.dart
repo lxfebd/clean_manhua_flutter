@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../models/comic_item.dart';
+import 'dsl/html_parser.dart' show firstCleanMatch, stripHtmlTags;
 import 'novel_source.dart';
 import 'source_config.dart';
 import 'source_http.dart';
@@ -47,7 +48,6 @@ class XbiqugeNovelSource extends NovelSource {
   // 正文：document.writeln(qsbs.bb('BASE64'));
   static final RegExp _bbRe =
       RegExp(r"qsbs\.bb\('([^']+)'\)", caseSensitive: false);
-  static final RegExp _tagRe = RegExp(r'<[^>]+>');
   static final RegExp _pageSuffixRe = RegExp(r'（第\d+页）$');
   // 列表块：<div class="item">...</dl></div>（桌面版分类页，带封面）
   static final RegExp _itemRe =
@@ -112,10 +112,10 @@ class XbiqugeNovelSource extends NovelSource {
   Future<NovelDetail> detail(String novelId) async {
     final body = await SourceHttp.get('xbiquge', '/books_$novelId/',
         fallbackHosts: _defaultHosts);
-    final name = _first(_ogTitleRe, body);
-    final cover = _abs(_first(_ogImgRe, body));
-    final author = _first(_ogAuthorRe, body);
-    final status = _first(_ogStatusRe, body);
+    final name = firstCleanMatch(_ogTitleRe, body);
+    final cover = _abs(firstCleanMatch(_ogImgRe, body));
+    final author = firstCleanMatch(_ogAuthorRe, body);
+    final status = firstCleanMatch(_ogStatusRe, body);
     final chapters = <NovelChapter>[];
     final seen = <String>{};
     var idx = 0;
@@ -123,7 +123,7 @@ class XbiqugeNovelSource extends NovelSource {
       final nid = m.group(1)!;
       final cid = m.group(2)!;
       if (nid != novelId || !seen.add(cid)) continue;
-      final title = _clean(m.group(3)!);
+      final title = stripHtmlTags(m.group(3)!);
       // 跳过"开始阅读"等导航按钮（其标题非章节名）
       if (title.isEmpty || _navTitleLabels.contains(title)) continue;
       chapters.add(NovelChapter('$novelId|$cid', title, index: idx++));
@@ -159,8 +159,8 @@ class XbiqugeNovelSource extends NovelSource {
           fallbackHosts: _defaultHosts);
       if (page == 0) {
         // 标题在 <h1>（h3 兜底），去掉"（第N页）"后缀
-        title = _first(_h1Re, body);
-        if (title.isEmpty) title = _first(_h3Re, body);
+        title = firstCleanMatch(_h1Re, body);
+        if (title.isEmpty) title = firstCleanMatch(_h3Re, body);
         title = title.replaceAll(_pageSuffixRe, '');
         prevChapterId = _resolveChapter(_jsNavPrev(body), novelId, currentCid);
       }
@@ -230,13 +230,7 @@ class XbiqugeNovelSource extends NovelSource {
       if (decoded.isEmpty) continue;
       // 解码结果是 <p>...</p> 拼接，按 <p> 切分
       for (final seg in decoded.split(RegExp(r'</?\s*p[^>]*>'))) {
-        final clean = seg
-            .replaceAll(_tagRe, '')
-            .replaceAll('&nbsp;', ' ')
-            .replaceAll('&amp;', '&')
-            .replaceAll('&quot;', '"')
-            .replaceAll('&#39;', "'")
-            .trim();
+        final clean = stripHtmlTags(seg);
         if (clean.isNotEmpty) paras.add(clean);
       }
     }
@@ -272,12 +266,12 @@ class XbiqugeNovelSource extends NovelSource {
       final idM = _bookIdRe.firstMatch(block);
       if (idM == null) continue;
       final id = idM.group(1)!;
-      var title = _first(_imgAltRe, block);
+      var title = firstCleanMatch(_imgAltRe, block);
       if (title.isEmpty) {
         final dt = _dtRe.firstMatch(block);
-        title = dt == null ? '' : _clean(dt.group(1) ?? '');
+        title = dt == null ? '' : stripHtmlTags(dt.group(1) ?? '');
       }
-      add(ComicItem(id, title, _abs(_first(_imgRe, block))));
+      add(ComicItem(id, title, _abs(firstCleanMatch(_imgRe, block))));
     }
 
     for (final m in _recFocusRe.allMatches(html)) {
@@ -285,11 +279,11 @@ class XbiqugeNovelSource extends NovelSource {
       final idM = _bookIdRe.firstMatch(block);
       if (idM == null) continue;
       add(ComicItem(idM.group(1)!,
-          _first(_imgAltRe, block), _abs(_first(_imgRe, block))));
+          firstCleanMatch(_imgAltRe, block), _abs(firstCleanMatch(_imgRe, block))));
     }
 
     for (final m in _sortItemRe.allMatches(html)) {
-      add(ComicItem(m.group(1)!, _clean(m.group(2)!), ''));
+      add(ComicItem(m.group(1)!, stripHtmlTags(m.group(2)!), ''));
     }
     return items;
   }
@@ -298,18 +292,5 @@ class XbiqugeNovelSource extends NovelSource {
   String _abs(String url) {
     if (url.isEmpty || url.startsWith('http')) return url;
     return '${_defaultHosts[0]}$url';
-  }
-
-  static String _clean(String s) => s
-      .replaceAll(_tagRe, '')
-      .replaceAll('&nbsp;', ' ')
-      .replaceAll('&amp;', '&')
-      .replaceAll('&quot;', '"')
-      .replaceAll('&#39;', "'")
-      .trim();
-
-  static String _first(RegExp re, String s) {
-    final m = re.firstMatch(s);
-    return m == null ? '' : _clean(m.group(1) ?? '');
   }
 }
