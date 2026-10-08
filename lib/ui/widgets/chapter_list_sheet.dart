@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../sources/comic_source.dart';
 import '../tokens.dart';
 
 /// 通用章节目录底部弹窗（P1-3：detail_allChapters / reader_chapterList /
@@ -487,3 +488,14 @@ double tocTargetOffset(int idx, double viewport, double maxExtent) {
   final target = idx * 56 - viewport * 0.4;
   return target.clamp(0.0, maxExtent);
 }
+/// 章节显示标题：空标题用「第N话」占位（下标按原始顺序）。
+///
+/// P1-22：detail 页旧 [titleOfChapter]（内部 indexOf）与 reader 页
+/// [chapterFilterTitle]（显式传下标）同义，统一为显式下标版（O(1)，
+/// 且过滤/倒序后无需还原原始下标）。
+String chapterFilterTitle(
+  List<Chapter> chapters,
+  Chapter c,
+  int index,
+) =>
+    c.title.isEmpty ? '第${index + 1}话' : c.title;

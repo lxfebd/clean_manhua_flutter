@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xingmanxia/sources/comic_source.dart';
 import 'package:xingmanxia/ui/reader_page.dart';
+import 'package:xingmanxia/ui/widgets/chapter_list_sheet.dart';
 
 /// 回归：第30轮 阅读器章节列表搜索（纯函数覆盖标题占位）。
 void main() {

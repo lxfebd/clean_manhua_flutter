@@ -10,6 +10,7 @@ import 'episode_grouping.dart';
 import 'native_player_page.dart';
 import 'responsive.dart';
 import 'widgets/app_toast.dart';
+import 'widgets/back_circle_button.dart';
 
 /// 选集过滤纯函数（选集搜索框用；独立便于单元测试）。
 /// [filter] 按剧集标题模糊匹配，也支持直接输集数（如「12」匹配第 12 集）；
@@ -222,7 +223,7 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const _BackButton(),
+                const BackCircleButton(size: 36),
                 const SizedBox(height: 10),
                 Expanded(
                   child: ClipRRect(
@@ -1040,27 +1041,6 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
             color: disabled
                 ? theme.colorScheme.onSurface.withValues(alpha: 0.25)
                 : theme.colorScheme.onSurface),
-      ),
-    );
-  }
-}
-
-/// 平板分栏左上角返回按钮。
-class _BackButton extends StatelessWidget {
-  const _BackButton();
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => Navigator.maybePop(context),
-      child: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.35),
-          shape: BoxShape.circle,
-        ),
-        child: const Icon(Icons.arrow_back_rounded,
-            color: Colors.white, size: 20),
       ),
     );
   }

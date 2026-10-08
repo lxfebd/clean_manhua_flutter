@@ -20,6 +20,7 @@ import 'style_scope.dart';
 import 'style_tokens.dart';
 import 'tokens.dart';
 import 'widgets/app_toast.dart';
+import 'widgets/back_circle_button.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/chapter_list_sheet.dart';
 import 'widgets/motion.dart';
@@ -40,15 +41,16 @@ List<Chapter> filterChapters(
   if (f.isEmpty) return sorted;
   return [
     for (var i = 0; i < sorted.length; i++)
-      if (titleOfChapter(chapters, sorted[i]).toLowerCase().contains(f))
+      // 空标题占位按原始顺序话数（倒序后 i 是逆序下标，需换算回原始）。
+      if (chapterFilterTitle(
+            chapters,
+            sorted[i],
+            descending ? chapters.length - 1 - i : i,
+          )
+          .toLowerCase()
+          .contains(f))
         sorted[i],
   ];
-}
-
-/// 章节显示标题：空标题用「第N话」占位（下标按原始顺序计算）。
-String titleOfChapter(List<Chapter> chapters, Chapter c) {
-  final idx = chapters.indexOf(c);
-  return c.title.isEmpty ? '第${idx + 1}话' : c.title;
 }
 
 /// 漫画详情页：沉浸式 Hero 头 + 信息卡 + 章节网格。
@@ -519,7 +521,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     child: Row(
                       children: [
-                        const _BackButton(),
+                        const BackCircleButton(),
                         const Spacer(),
                         // 标题（滚动后显示）
                         if (collapseProgress > 0.6)
@@ -611,7 +613,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const _BackButton(),
+                const BackCircleButton(),
                 const SizedBox(height: 10),
                 // 封面保持 2:3 比例并限高，避免大屏（左栏随视口高度拉伸）
                 // 把封面拉成全列高的竖长条、BoxFit.cover 裁切到只剩中缝。
@@ -1065,7 +1067,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
         chapters: detail.chapters,
         title: '全部章节 · ${detail.chapters.length} 话',
         titleOf: (ch, {required int index}) =>
-            titleOfChapter(detail.chapters, ch),
+            chapterFilterTitle(detail.chapters, ch, index),
         idOf: (ch) => ch.id,
         readIds: _marksNow.readChapters,
         cachedIds: _marksNow.cachedChapters,
@@ -1338,40 +1340,6 @@ class _Hero extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _BackButton extends StatelessWidget {
-  const _BackButton();
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final isTablet = Responsive.isTablet(context);
-
-    return Padding(
-      padding: const EdgeInsets.only(left: 8),
-      child: Material(
-        color:
-            isTablet
-                ? scheme.surface.withValues(alpha: 0.9)
-                : Colors.black.withValues(alpha: 0.45),
-        shape: const CircleBorder(),
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: () => Navigator.maybePop(context),
-          child: SizedBox(
-            width: 40,
-            height: 40,
-            child: Icon(
-              Icons.arrow_back_rounded,
-              color: isTablet ? scheme.onSurface : Colors.white,
-              size: 20,
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

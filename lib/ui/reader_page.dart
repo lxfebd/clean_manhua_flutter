@@ -3221,7 +3221,3 @@ class _NextChapterFooter extends StatelessWidget {
     );
   }
 }
-
-/// 章节显示标题：空标题用「第N话」占位（下标按原始顺序）。
-String chapterFilterTitle(List<Chapter> chapters, Chapter c, int index) =>
-    c.title.isEmpty ? '第${index + 1}话' : c.title;

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xingmanxia/sources/comic_source.dart';
 import 'package:xingmanxia/ui/detail_page.dart';
+import 'package:xingmanxia/ui/widgets/chapter_list_sheet.dart';
 
 /// 回归：第28轮 全部章节 sheet 章节搜索过滤 + 倒序（纯函数覆盖）。
 ///
@@ -51,7 +52,7 @@ void main() {
   });
 
   test('titleOfChapter：空标题给话数占位，非空标题原样', () {
-    expect(titleOfChapter(chapters, chapters[2]), '第3话');
-    expect(titleOfChapter(chapters, chapters[0]), '第1话 初识');
+    expect(chapterFilterTitle(chapters, chapters[2], 2), '第3话');
+    expect(chapterFilterTitle(chapters, chapters[0], 0), '第1话 初识');
   });
 }
