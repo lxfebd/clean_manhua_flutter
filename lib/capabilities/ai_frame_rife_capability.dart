@@ -143,30 +143,28 @@ class AiFrameRifePlugin extends CapabilityPlugin {
       // 子进程：超时兜底（RIFE 推理慢于 60s 视为异常，防挂死）。
       // RIFE_GPUID 不显式设置：默认 0 = GPU（Vulkan），无 Vulkan 设备时
       // 引擎内部自动 CPU 兜底，不 crash。
-      final proc = await Process.start(exe.path, [
-        modelDir.path,
-        '$w',
-        '$h',
-        '4', // threads
-        '${tmp.path}/mid',
-        f0.path,
-        f1.path,
-      ]);
-      // 排空 stdout/stderr：不 drain 会让管道缓冲填满，阻塞子进程直接卡死。
-      final drain = Future.wait([
-        proc.stdout.drain<void>().catchError((_) {}),
-        proc.stderr.drain<void>().catchError((_) {}),
-      ]);
-      final int code;
+      // drain 变体：插帧输出是二进制大字节，只排空 stdout/stderr 不收集
+      // （不 drain 会让管道缓冲填满阻塞子进程）。
+      final ProcessResult r;
       try {
-        code = await proc.exitCode.timeout(inferTimeout);
+        r = await runProcessWithTimeoutDrained(
+          exe.path,
+          [
+            modelDir.path,
+            '$w',
+            '$h',
+            '4', // threads
+            '${tmp.path}/mid',
+            f0.path,
+            f1.path,
+          ],
+          inferTimeout,
+        );
       } on TimeoutException {
-        // 超时兜底：必须杀进程树并等其回收，否则 rife 僵尸常驻、tmp 删不掉。
-        await killProcessTree(proc);
+        // 超时兜底（drain 变体内部已杀进程树）：rife 僵尸常驻、tmp 删不掉。
         return const CapabilityFailure(id, '插帧超时（已终止进程）');
-      } finally {
-        await drain;
       }
+      final code = r.exitCode;
       if (code != 0) {
         return CapabilityFailure(id, '插帧进程退出码 $code');
       }

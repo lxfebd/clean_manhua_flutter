@@ -5,6 +5,8 @@ import 'package:path_provider/path_provider.dart';
 
 import '../sources/novel_source.dart';
 
+import 'prune_directory.dart';
+
 /// 在线小说章节磁盘缓存（断网兜底）：网络失败时阅读器可读已缓存章节。
 ///
 /// - 目录：`<appSupport>/novel_cache/<sourceId>/<novelId>/<chapterId>.json`；
@@ -155,36 +157,9 @@ class NovelChapterCache {
   /// 配额清理（公开以便测试注入小配额）：删除 [root] 下修改时间最旧的
   /// 文件，直到总大小 ≤ [maxBytes]，返回删除的文件数。
   /// 文件 mtime ≈ 最近一次写入/读取，即 LRU 序。
-  static Future<int> pruneDirectory(Directory root, int maxBytes) async {
-    try {
-      if (!await root.exists()) return 0;
-      final files = <File>[];
-      await for (final e in root.list(recursive: true)) {
-        if (e is File) files.add(e);
-      }
-      if (files.isEmpty) return 0;
-      var total = 0;
-      for (final f in files) {
-        total += await f.length();
-      }
-      if (total <= maxBytes) return 0;
-      // 最旧优先删，直到回到配额内（或删光）。
-      files.sort((a, b) =>
-          a.statSync().modified.compareTo(b.statSync().modified));
-      var removed = 0;
-      for (final f in files) {
-        if (total <= maxBytes) break;
-        final len = await f.length();
-        await f.delete();
-        total -= len;
-        removed++;
-      }
-      return removed;
-    } catch (_) {
-      // 目录不存在/权限失败静默：清理失败不影响本次阅读。
-      return 0;
-    }
-  }
+  /// 实现收敛到共享原语 [pruneLruDirectory]（P1-15）。
+  static Future<int> pruneDirectory(Directory root, int maxBytes) =>
+      pruneLruDirectory(root, maxBytes);
 
   /// 写缓存后的常规配额巡检：超限即按 LRU 清理。参数是缓存根目录
   /// （write 侧传入 `f.parent.parent.parent`）。

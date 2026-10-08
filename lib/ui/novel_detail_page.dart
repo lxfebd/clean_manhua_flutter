@@ -114,21 +114,6 @@ class NovelDetailPage extends ConsumerStatefulWidget {
     this.pic,
   });
 
-  /// 解析「继续阅读」目标：历史里该小说最近读到的章节；无则 null（按钮不
-  /// 显示）。转发到 detail_providers 层（与漫画 [DetailPage.resolveResumeChapter]
-  /// 同模式），纯函数便于单元测试。
-  static ({NovelChapter chapter, double offset})? resolveNovelResumeChapter({
-    required List<HistoryEntry> history,
-    required List<NovelChapter> chapters,
-    required String sourceId,
-    required String novelId,
-  }) => detailp.resolveNovelResumeChapter(
-    history: history,
-    chapters: chapters,
-    sourceId: sourceId,
-    novelId: novelId,
-  );
-
   @override
   ConsumerState<NovelDetailPage> createState() => _NovelDetailPageState();
 }

@@ -123,27 +123,12 @@ class CapabilityMarket {
       }
       // id 会拼进落盘路径：拒绝含 `../` 等非法字符的条目，防目录穿越。
       if (!CapabilityArtifactStore.isValidId(id)) continue;
-      final weights = <CapabilityWeight>[];
-      final wl = m['weights'];
-      if (wl is List) {
-        for (final w in wl) {
-          if (w is! Map) continue;
-          final wn = w['name'];
-          final wu = w['url'];
-          if (wn is! String || wn.isEmpty || wu is! String || wu.isEmpty) {
-            continue;
-          }
-          // 权重 name 直接拼进 .model_cache/<id>/<name> 落盘路径：
-          // 拒绝含 `../` 等非法字符的条目，防目录穿越（store 侧还有第二道闸）。
-          if (!CapabilityArtifactStore.isValidFileName(wn)) continue;
-          weights.add(CapabilityWeight(
-            name: wn,
-            url: wu,
-            sizeBytes: (w['sizeBytes'] as num?)?.toInt() ?? 0,
-            sha256: (w['sha256'] as String?) ?? '',
-          ));
-        }
-      }
+      // 权重 name 直接拼进 .model_cache/<id>/<name> 落盘路径（完全远端可控）：
+      // parseWeight 内过白名单拒绝 `../`/斜杠等非法条目（store 侧还有第二道闸）。
+      final weights = <CapabilityWeight>[
+        for (final w in m['weights'] is List ? m['weights'] as List : const [])
+          if (CapabilityPlugin.parseWeight(w) case final cw?) cw,
+      ];
       out.add(MarketCapabilityEntry(
         id: id,
         name: name,

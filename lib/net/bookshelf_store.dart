@@ -9,15 +9,19 @@ import 'local_store.dart';
 import 'shelf_store_base.dart';
 
 /// 通用本地书架：所有漫画源统一保存在一个 JSON 文件中，
-/// 按 sourceId 维度分组。存储机制（装载/写盘/损坏恢复/章节更新计数）
-/// 由 [ShelfStoreBase] 提供，本类扩展书架分类、标签、id→sourceId 索引。
+/// 按 sourceId 维度分组。存储机制（装载/写盘/损坏恢复/章节更新计数/排序）
+/// 由泛型 [ShelfStore] 提供，本类扩展书架分类、标签、id→sourceId 索引。
 class BookshelfStore {
   BookshelfStore._();
 
-  static final ShelfStoreBase _base = ShelfStoreBase(
+  /// 条目强类型 = [ComicDetail]（序列化差异经 fromMap 钩子注入）。
+  static final ShelfStore<ComicDetail> _base = ShelfStore<ComicDetail>(
     webKey: 'bookshelf',
     fileName: 'bookshelf',
     debugName: 'bookshelf',
+    fromMap: _fromMap,
+    idOf: (d) => d.id,
+    sourceIdOf: (d) => d.sourceId ?? '',
   );
 
   /// comicId → sourceId 索引（统一书架视图反查源用，随 add/remove/import 维护）。
@@ -225,19 +229,11 @@ class BookshelfStore {
   }
 
   /// 列出某个源的书架。
-  static List<ComicDetail> listBySource(String sourceId) {
-    return _base.rawBySource(sourceId).map(_fromMap).toList()
-      ..sort((a, b) {
-        final ma = _readAddedAt(a, defaultSourceId: sourceId);
-        final mb = _readAddedAt(b, defaultSourceId: sourceId);
-        return mb.compareTo(ma);
-      });
-  }
+  static List<ComicDetail> listBySource(String sourceId) =>
+      _base.listBySource(sourceId);
 
   /// 列出全部书架（用于统一书架视图）。
-  static List<ComicDetail> listAll() {
-    return _base.rawAll().map(_fromMap).toList();
-  }
+  static List<ComicDetail> listAll() => _base.listAll();
 
   static void _rebuildIndex() {
     _idIndex = {};
@@ -248,18 +244,6 @@ class BookshelfStore {
         if (id is String && sid is String) _idIndex[id] = sid;
       }
     }
-  }
-
-  static int _readAddedAt(ComicDetail d, {String? defaultSourceId}) {
-    final sid = defaultSourceId ??
-        (_base.exportData().values
-            .cast<Map<String, dynamic>>()
-            .firstWhere(
-              (m) => m['id'] == d.id,
-              orElse: () => {'addedAt': 0},
-            ))['sourceId'] as String? ??
-        '';
-    return (_base.field(sid, d.id, 'addedAt') as int?) ?? 0;
   }
 
   /// 导出原始数据（用于备份）。
@@ -361,8 +345,5 @@ class BookshelfStore {
   }
 
   /// 读取某本书的收藏时间（addedAt），无记录返回 0。
-  static int addedAtOf(ComicDetail d) {
-    final sid = d.sourceId ?? '';
-    return (_base.field(sid, d.id, 'addedAt') as int?) ?? 0;
-  }
+  static int addedAtOf(ComicDetail d) => _base.addedAtOf(d);
 }

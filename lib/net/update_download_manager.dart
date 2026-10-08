@@ -2,12 +2,13 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 
 import 'error_logger.dart';
+import 'download_utils.dart';
 import 'local_store.dart';
 import 'update_checker.dart';
 import 'http_client.dart';
+import 'update_notifier.dart';
 
 /// 后台更新下载状态。
 class UpdateDownloadState {
@@ -35,7 +36,7 @@ class UpdateDownloadManager {
   UpdateDownloadManager._();
   static final UpdateDownloadManager instance = UpdateDownloadManager._();
 
-  static const _channel = MethodChannel('xingmanxia/update_notification');
+  // 原生通知统一走 UpdateNotifier（P1-7：通道唯一事实源）。
 
   final _stateCtrl = StreamController<UpdateDownloadState>.broadcast();
   Stream<UpdateDownloadState> get stateStream => _stateCtrl.stream;
@@ -229,7 +230,7 @@ class UpdateDownloadManager {
       // 停滞守护（与视频下载同一原语）：相邻数据块间隔超 45s 视为悬挂，
       // 抛超时让外层切下一个镜像——避免「头已返回但 body 悬挂」的下载
       // 永远卡住（Range 续传 + 镜像回退保证悬挂后能续上）。
-      await for (final chunk in _stallGuarded(res, stall: const Duration(seconds: 45))) {
+      await for (final chunk in stallGuarded(res, stall: const Duration(seconds: 45))) {
         if (_cancelled) {
           await sink.close();
           throw Exception('已取消');
@@ -285,15 +286,6 @@ class UpdateDownloadManager {
   /// 解析 Content-Range 的完整总大小（斜杠后的值），解析失败返回 0。
   static int _contentRangeTotal(String cr) => contentRangeTotal(cr);
 
-  /// 带停滞超时的分块流：相邻两个块间隔超过 [stall] 即抛超时
-  /// （与 [VideoDownloadManager] 同一原语，避免悬挂流永远卡住）。
-  Stream<List<int>> _stallGuarded(HttpClientResponse resp,
-      {Duration stall = const Duration(seconds: 20)}) async* {
-    await for (final chunk in resp.timeout(stall)) {
-      yield chunk;
-    }
-  }
-
   /// 单个镜像失败 → 可上屏的短摘要（≤80 字符）：截异常首行、剥掉
   /// 长 URL（`https://...` 整段替换为省略号），保留 HTTP 状态码/超时等关键信息。
   static String _mirrorFailSummary(Object e) {
@@ -303,10 +295,8 @@ class UpdateDownloadManager {
     return s;
   }
 
-  /// 通过 MethodChannel 调用原生通知（进度条）。
-  /// 进度通知节流：更新下载每秒可达多次分块，通知栏 500ms 刷新一次太频繁
-  /// （闪烁/卡顿），进度类通知（done=false）至少间隔 [_notifyMinInterval]；
-  /// 首次与完成通知不节流。
+  /// 更新下载进度通知（节流仍在本类：下载每秒多次分块，通知栏 2s 刷新一次
+  /// 太频繁；首次与完成通知不节流）。原生通道统一走 [UpdateNotifier]。
   static const Duration _notifyMinInterval = Duration(seconds: 2);
   DateTime? _lastNotifyAt;
   Future<void> _notify(
@@ -322,43 +312,31 @@ class UpdateDownloadManager {
       if (last != null && now.difference(last) < _notifyMinInterval) return;
       _lastNotifyAt = now;
     }
-    try {
-      await _channel.invokeMethod('showProgress', {
-        'title': title,
-        'text': text,
-        'received': received,
-        'total': total,
-        'done': done,
-      });
-    } catch (_) {}
+    await UpdateNotifier.notifyProgress(
+      title: title,
+      text: text,
+      received: received,
+      total: total,
+      done: done,
+    );
   }
 
-  Future<void> _notifyDone() async {
-    try {
-      await _channel.invokeMethod('showDone', {
-        'title': '更新下载完成',
-        'text': '点击安装新版本',
-        'path': _downloadedPath ?? '',
-      });
-    } catch (_) {}
-  }
+  Future<void> _notifyDone() =>
+      UpdateNotifier.notifyResult(
+        title: '更新下载完成',
+        text: '点击安装新版本',
+        error: false,
+        path: _downloadedPath ?? '',
+      );
 
-  Future<void> _notifyError() async {
-    try {
-      await _channel.invokeMethod('showError', {
-        'title': '更新下载失败',
-        'text': '所有镜像均失败，请稍后重试或手动下载',
-      });
-    } catch (e) {
-      ErrorLogger.instance.warn('更新下载失败通知发送失败: $e');
-    }
-  }
+  Future<void> _notifyError() =>
+      UpdateNotifier.notifyResult(
+        title: '更新下载失败',
+        text: '所有镜像均失败，请稍后重试或手动下载',
+        error: true,
+      );
 
-  Future<void> _cancelNotif() async {
-    try {
-      await _channel.invokeMethod('cancel');
-    } catch (_) {}
-  }
+  Future<void> _cancelNotif() => UpdateNotifier.cancel();
 
   Future<void> _triggerInstall() async {
     final path = _downloadedPath;
@@ -377,7 +355,7 @@ class UpdateDownloadManager {
   /// 发送可点击安装的通知（自动安装失败时备用）。
   Future<void> _notifyInstall(String path) async {
     try {
-      await _channel.invokeMethod('showInstall', {'path': path});
+      await UpdateNotifier.notifyInstall(path);
     } catch (e) {
       ErrorLogger.instance.warn('更新安装引导通知发送失败: $e');
     }

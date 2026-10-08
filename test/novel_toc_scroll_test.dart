@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:xingmanxia/ui/novel_reader_page.dart';
+import 'package:xingmanxia/ui/widgets/chapter_list_sheet.dart';
 
 /// 回归：迭代轮10 小说章节目录打开后自动定位到当前章。
 ///

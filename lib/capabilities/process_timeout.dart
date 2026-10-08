@@ -65,6 +65,34 @@ Future<void> killProcessTree(Process proc) async {
   } catch (_) {}
 }
 
+/// [runProcessWithTimeout] 的 drain 变体（P1-14）：只排空 stdout/stderr 不收集。
+///
+/// 收集输出的版本（[runProcessWithTimeout]）适用于输出量小的场景（解压报错、
+/// zip 等）；插帧这类每帧都有大体积二进制的进程**必须**只 drain——不 drain
+/// 会让管道缓冲填满，阻塞子进程直接卡死。返回的 [ProcessResult] 携带退出码，
+/// out/err 为空（进程输出已丢弃）。
+Future<ProcessResult> runProcessWithTimeoutDrained(
+  String executable,
+  List<String> arguments,
+  Duration timeout,
+) async {
+  final proc = await Process.start(executable, arguments);
+  final drain = Future.wait([
+    proc.stdout.drain<void>().catchError((_) {}),
+    proc.stderr.drain<void>().catchError((_) {}),
+  ]);
+  try {
+    final code = await proc.exitCode.timeout(timeout);
+    await drain;
+    return ProcessResult(proc.pid, code, const <int>[], const <int>[]);
+  } on TimeoutException {
+    // 超时：杀**进程树**并等回收，避免僵尸/半解压残留。
+    await killProcessTree(proc);
+    await drain;
+    rethrow;
+  }
+}
+
 /// 从 [ProcessResult.stderr] 提取可读文本（二进制/编码异常时容错）。
 String processStderrText(ProcessResult r) {
   final e = r.stderr;

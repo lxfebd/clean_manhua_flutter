@@ -19,6 +19,7 @@ import 'detail_providers.dart' as detailp;
 import 'responsive.dart';
 import 'style_tokens.dart';
 import 'widgets/app_toast.dart';
+import 'widgets/chapter_list_sheet.dart';
 
 /// 快照构造器：把「章号 + 滚动偏移 + 书目」打包成 HistoryEntry。
 /// 抽成纯函数以便单测（无需拉起 Widget tree 就能验证快照语义）。
@@ -54,14 +55,6 @@ HistoryEntry snapshotHistoryEntry({
 double chapterProgress(double offset, double maxScrollExtent) {
   if (maxScrollExtent <= 0) return 1.0;
   return (offset / maxScrollExtent).clamp(0.0, 1.0);
-}
-
-/// 章节目录「定位到当前章」的目标偏移：让第 idx 项滚到可视区中间偏上
-/// （上方留上下文，能看到上一章在滚走的边缘）。每项高按 dense ListTile
-/// 约 56px 估算，clamp 到 [0, maxScrollExtent]。纯函数便于单测。
-double tocTargetOffset(int idx, double viewport, double maxExtent) {
-  final target = idx * 56.0 - viewport * 0.4;
-  return target.clamp(0.0, maxExtent);
 }
 
 /// 小说阅读器：渲染章节正文（段落列表），支持上下章导航与阅读进度记录。
@@ -242,16 +235,24 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (ctx) => _TocSheet(
-        load: () => s.detail(widget.novelId)
-            .timeout(const Duration(seconds: 15)),
-        currentChapterId: _curChapterId,
+      builder: (ctx) => ChapterListSheet<NovelChapter>(
+        load: () => s
+            .detail(widget.novelId)
+            .timeout(const Duration(seconds: 15))
+            .then((d) => d.chapters),
+        title: '章节目录',
+        titleOf: (ch, {required int index}) => ch.title,
+        idOf: (ch) => ch.id,
+        currentId: _curChapterId,
         cachedIds: cached,
         readIds: readIds,
-        onPick: (id) {
+        onTap: (ch) {
           Navigator.pop(ctx);
-          _go(id);
+          _go(ch.id);
         },
+        sortable: false,
+        scrollToCurrent: true,
+        onClose: () => Navigator.pop(ctx),
       ),
     );
   }
@@ -1545,254 +1546,3 @@ class _SummarySheet extends StatelessWidget {
   }
 }
 
-/// 章节目录底部弹窗：加载中/失败重试/列表三态。
-class _TocSheet extends StatefulWidget {
-  final Future<NovelDetail> Function() load;
-  final String currentChapterId;
-
-  /// 已离线缓存的章节 id 集合（打开目录时快照；断网标记用）。
-  final Set<String> cachedIds;
-
-  /// 已读章节 id 集合（打开目录时快照）：读过的章节标 ✓，
-  /// 与详情页目录/漫画目录的已读勾选对称。
-  final Set<String> readIds;
-  final ValueChanged<String> onPick;
-
-  const _TocSheet({
-    required this.load,
-    required this.currentChapterId,
-    required this.cachedIds,
-    required this.readIds,
-    required this.onPick,
-  });
-
-  @override
-  State<_TocSheet> createState() => _TocSheetState();
-}
-
-class _TocSheetState extends State<_TocSheet> {
-  List<NovelChapter>? _chapters;
-  bool _failed = false;
-  final ScrollController _ctrl = ScrollController();
-  final TextEditingController _filterCtrl = TextEditingController();
-  String _filter = '';
-
-  @override
-  void initState() {
-    super.initState();
-    _fetch();
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    _filterCtrl.dispose();
-    super.dispose();
-  }
-
-  /// 过滤后的可见章节（标题模糊匹配；空 = 全量）。
-  List<NovelChapter> get _visible {
-    final all = _chapters;
-    if (all == null) return const [];
-    final f = _filter.trim().toLowerCase();
-    if (f.isEmpty) return all;
-    return [
-      for (final c in all)
-        if (c.title.toLowerCase().contains(f)) c,
-    ];
-  }
-
-  Future<void> _fetch() async {
-    setState(() {
-      _chapters = null;
-      _failed = false;
-    });
-    try {
-      final d = await widget.load();
-      if (mounted) setState(() => _chapters = d.chapters);
-      if (mounted) _scrollToCurrent();
-    } catch (_) {
-      if (mounted) setState(() => _failed = true);
-    }
-  }
-
-  /// 目录加载后定位到当前章：长篇（几十上百章）打开目录时当前章可能
-  /// 在屏幕外，高亮章需要自动滚进可视区。post-frame 等 ListView 挂载。
-  void _scrollToCurrent() {
-    final chapters = _chapters;
-    if (chapters == null || chapters.isEmpty) return;
-    final idx = chapters.indexWhere((c) => c.id == widget.currentChapterId);
-    if (idx < 0) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_ctrl.hasClients) return;
-      // 定位到可视区中间偏上，四周留上下文（当前章上下各约 2 屏）。
-      final target = tocTargetOffset(
-        idx,
-        MediaQuery.of(context).size.height,
-        _ctrl.position.maxScrollExtent,
-      );
-      _ctrl.jumpTo(target);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return SizedBox(
-      height: MediaQuery.of(context).size.height * 0.7,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
-            child: Row(
-              children: [
-                Text('章节目录', style: Theme.of(context).textTheme.titleMedium),
-                const Spacer(),
-                IconButton(
-                  tooltip: '关闭',
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close_rounded, size: 20),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          Expanded(child: _buildBody(scheme)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBody(ColorScheme scheme) {
-    final chapters = _chapters;
-    if (_failed) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.cloud_off_rounded,
-                size: 38, color: scheme.onSurface.withValues(alpha: 0.35)),
-            const SizedBox(height: 10),
-            const Text('目录加载失败，请重试'),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: _fetch,
-              icon: const Icon(Icons.refresh_rounded, size: 16),
-              label: const Text('重试'),
-            ),
-          ],
-        ),
-      );
-    }
-    if (chapters == null) {
-      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-    }
-    if (chapters.isEmpty) {
-      return const Center(child: Text('暂无目录'));
-    }
-    final visible = _visible;
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-          child: TextField(
-            controller: _filterCtrl,
-            onChanged: (v) => setState(() => _filter = v),
-            style: const TextStyle(fontSize: 13.5),
-            decoration: InputDecoration(
-              isDense: true,
-              hintText: '搜索章节标题',
-              hintStyle: TextStyle(
-                fontSize: 13,
-                color: scheme.onSurface.withValues(alpha: 0.4),
-              ),
-              prefixIcon: Icon(
-                Icons.search_rounded,
-                size: 18,
-                color: scheme.onSurface.withValues(alpha: 0.5),
-              ),
-              suffixIcon: _filter.isEmpty
-                  ? null
-                  : IconButton(
-                      tooltip: '清除',
-                      icon: const Icon(Icons.close_rounded, size: 16),
-                      onPressed: () {
-                        _filterCtrl.clear();
-                        setState(() => _filter = '');
-                      },
-                    ),
-              filled: true,
-              fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide.none,
-              ),
-            ),
-          ),
-        ),
-        Expanded(
-          child: visible.isEmpty
-              ? Center(
-                  child: Text(
-                    '没有匹配「$_filter」的章节',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: scheme.onSurface.withValues(alpha: 0.55),
-                    ),
-                  ),
-                )
-              : ListView.builder(
-                  controller: _ctrl,
-                  itemCount: visible.length,
-                  itemBuilder: (ctx, i) {
-                    final ch = visible[i];
-                    final cur = ch.id == widget.currentChapterId;
-                    final cached = widget.cachedIds.contains(ch.id);
-                    final read = widget.readIds.contains(ch.id);
-                    return ListTile(
-                      dense: true,
-                      selected: cur,
-                      title: Text(
-                        ch.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13.5,
-                          color: cur ? Theme.of(ctx).colorScheme.primary : null,
-                        ),
-                      ),
-                      // 当前章高亮优先；其次已读 ✓（看过比离线可读信息更重）；
-                      // 再其次已缓存离线小图标（断网可读）。
-                      trailing: cur
-                          ? null
-                          : read
-                              ? Icon(
-                                  Icons.check_circle_rounded,
-                                  size: 16,
-                                  color: Theme.of(ctx)
-                                      .colorScheme
-                                      .primary
-                                      .withValues(alpha: 0.7),
-                                )
-                              : cached
-                                  ? Icon(
-                                      Icons.offline_pin_rounded,
-                                      size: 15,
-                                      color: Theme.of(ctx)
-                                          .colorScheme
-                                          .primary
-                                          .withValues(alpha: 0.6),
-                                    )
-                                  : null,
-                      onTap: () => widget.onPick(ch.id),
-                    );
-                  },
-                ),
-        ),
-      ],
-    );
-  }
-}

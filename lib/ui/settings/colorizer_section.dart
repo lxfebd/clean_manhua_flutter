@@ -7,6 +7,7 @@ import '../../utils/colorizer_manager.dart';
 import '../widgets/app_toast.dart';
 import '../widgets/motion.dart';
 import '../widgets/row_separator.dart';
+import '../widgets/settings_row.dart';
 import 'settings_widgets.dart';
 
 /// 漫画上色设置区（本地 AI）：开关 + 模型导入/卸载。
@@ -129,7 +130,7 @@ class ColorizerSectionState extends State<ColorizerSection> {
           const SizedBox(height: 6),
           SettingsCard(
             children: [
-              SettingsTile(
+              SettingsRow(
                 icon: Icons.palette_rounded,
                 title: '灰度漫画自动上色',
                 subtitle: _subtitle ?? '检测模型…',
@@ -140,7 +141,7 @@ class ColorizerSectionState extends State<ColorizerSection> {
               ),
               if (canManage) ...[
                 RowSeparator(),
-                SettingsTile(
+                SettingsRow(
                   icon: Icons.file_download_rounded,
                   title: '导入上色模型',
                   subtitle:
@@ -152,7 +153,7 @@ class ColorizerSectionState extends State<ColorizerSection> {
                 ),
                 if (_m.modelPath != null) ...[
                   RowSeparator(),
-                  SettingsTile(
+                  SettingsRow(
                     icon: Icons.delete_forever_rounded,
                     title: '卸载模型',
                     subtitle: '释放内存并禁用上色',

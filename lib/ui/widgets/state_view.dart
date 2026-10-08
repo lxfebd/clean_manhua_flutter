@@ -32,9 +32,13 @@ class StateView extends StatelessWidget {
     this.onRetry,
     this.retryLabel = '重试',
     this.icon,
+    this.subtitle,
+    this.action,
   }) : assert(
-          kind == StateViewKind.loading || onRetry != null,
-          'StateView: $kind 状态必须提供 onRetry（空/错/离线态要给用户出路）',
+          kind == StateViewKind.loading ||
+              onRetry != null ||
+              action != null,
+          'StateView: $kind 状态必须提供 onRetry 或 action（空/错/离线态要给用户出路）',
         );
 
   final StateViewKind kind;
@@ -44,6 +48,12 @@ class StateView extends StatelessWidget {
 
   /// 覆盖默认图标。
   final IconData? icon;
+
+  /// 主文案下的引导副文案（可选）。
+  final String? subtitle;
+
+  /// 图标与文案之下的可选操作按钮（如导入入口），与 [retryLabel] 按钮并存。
+  final Widget? action;
 
   static IconData _iconFor(StateViewKind kind) => switch (kind) {
         StateViewKind.loading => Icons.hourglass_top_rounded,
@@ -80,6 +90,21 @@ class StateView extends StatelessWidget {
               textAlign: TextAlign.center,
               style: text.bodyMedium?.copyWith(color: low),
             ),
+            if (subtitle != null) ...[
+              const SizedBox(height: S.x8),
+              Text(
+                subtitle!,
+                textAlign: TextAlign.center,
+                style: text.bodySmall?.copyWith(
+                  color: low,
+                  height: 1.5,
+                ),
+              ),
+            ],
+            if (action != null) ...[
+              const SizedBox(height: S.x16),
+              action!,
+            ],
             if (kind != StateViewKind.loading) ...[
               const SizedBox(height: S.x16),
               SizedBox(

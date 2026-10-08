@@ -5,7 +5,7 @@ import 'dart:typed_data';
 
 import '../../net/aes_cbc.dart';
 import '../../net/error_logger.dart';
-import '../../net/http_client.dart';
+import '../source_http.dart';
 import '../source_result.dart';
 import 'custom_source_def.dart';
 import 'html_parser.dart';
@@ -23,6 +23,10 @@ mixin DslEngineMixin {
   /// 抓取并按 [decrypt] 解码页面文本。统一出口：所有网络都在这里，失败抛 SourceError。
   ///
   /// [tag] 是日志标签（如 `dsl-comic`），区分三源。
+  ///
+  /// R3（P1-16）：统一走 [SourceHttp.getUrl]——完整 URL + 配置（hostsFor/
+  /// 单源代理）+ 熔断 + 瞬时失败重试都不再绕过。内部 [Net.getCronet] 的
+  /// Cronet 优先逻辑保留在 Net 层（代理场景自动跳 dart:io）。
   Future<String> fetchHtml(
     String url,
     String? page,
@@ -32,16 +36,17 @@ mixin DslEngineMixin {
   ) async {
     final u = url.replaceAll('{id}', id).replaceAll('{page}', page ?? '1');
     try {
-      // 优先 Cronet（Android 上 Chromium 网络栈，指纹类浏览器），
-      // 规避部分站点对 dart:io HttpClient 指纹的 Cloudflare 质询 403；
-      // 非 Android / Cronet 不可用时会自动回退 dart:io。
-      final html = await Net.getCronet(u, headers: def.headers);
+      final html = await SourceHttp.getUrl(
+        def.id,
+        u,
+        headers: def.headers,
+      );
       if (decrypt == null || decrypt.isEmpty) return html;
       return DslDecrypt.apply(decrypt, html);
     } on SourceError {
       rethrow;
     } catch (e) {
-      // 统一归约为结构化错误（对齐 runCatching 的语义），原错进日志。
+      // 统一归约为结构化错误（与 [withCircuit] 同语义），原错进日志。
       ErrorLogger.instance.warn('[$tag] fetch failed ($id): $e');
       if (e is SocketException || e is TimeoutException) {
         throw SourceError.network('网络请求失败，请检查网络后重试');

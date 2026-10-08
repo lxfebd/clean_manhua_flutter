@@ -1,11 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xingmanxia/net/local_store.dart';
 import 'package:xingmanxia/sources/comic_source.dart';
-import 'package:xingmanxia/ui/detail_page.dart';
+import 'package:xingmanxia/ui/detail_providers.dart';
 
 /// 回归：第8轮 P1-4 详情页「开始阅读」改为续读上次章节（commit 8eb54e3）。
 ///
-/// 覆盖 [DetailPage.resolveResumeChapter] 纯函数：
+/// 覆盖 [resolveResumeChapter]（detail_providers 层，R3 删页面转发壳） 纯函数：
 /// - 有该作品历史 → 返回历史章节（从章节列表里匹配）；
 /// - 历史章节已从源移除 → 用历史条目构造兜底章节；
 /// - 无该作品历史 → null（= 回退第 1 话）；
@@ -34,7 +34,7 @@ void main() {
       );
 
   test('有历史：返回章节列表里的目标章节', () {
-    final r = DetailPage.resolveResumeChapter(
+    final r = resolveResumeChapter(
       history: [
         hist(
             sourceId: 'src',
@@ -53,7 +53,7 @@ void main() {
   });
 
   test('历史章节已从源移除：用历史条目构造兜底', () {
-    final r = DetailPage.resolveResumeChapter(
+    final r = resolveResumeChapter(
       history: [
         hist(
             sourceId: 'src',
@@ -72,7 +72,7 @@ void main() {
   });
 
   test('无该作品历史：返回 null（回退第 1 话）', () {
-    final r = DetailPage.resolveResumeChapter(
+    final r = resolveResumeChapter(
       history: [
         hist(
             sourceId: 'other',
@@ -89,7 +89,7 @@ void main() {
   });
 
   test('多部作品历史：取本作品最近一次（按时间倒序）', () {
-    final r = DetailPage.resolveResumeChapter(
+    final r = resolveResumeChapter(
       history: [
         // 其他作品更新
         hist(
@@ -122,7 +122,7 @@ void main() {
   });
 
   test('同作品多条历史（同章节重复记录）：取倒序第一条命中', () {
-    final r = DetailPage.resolveResumeChapter(
+    final r = resolveResumeChapter(
       history: [
         hist(
             sourceId: 'src',

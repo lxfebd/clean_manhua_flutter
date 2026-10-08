@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'novel_detail_page.dart';
 import 'novel_import_page.dart';
 import 'responsive.dart';
+import 'widgets/state_view.dart';
 
 import '../models/comic_item.dart';
 import '../net/error_logger.dart';
@@ -102,6 +103,13 @@ class NovelHomePageState extends State<NovelHomePage> {
       _localBooks = LocalNovelSource.store.listAll();
     });
     _loadHistory();
+  }
+
+  /// 空态重试：回到加载态重新拉取列表。
+  void _reloadNovels() {
+    if (!mounted) return;
+    setState(() => _loading = true);
+    _loadNovels();
   }
 
   /// 主壳 Ctrl+R 刷新入口。
@@ -329,20 +337,18 @@ class NovelHomePageState extends State<NovelHomePage> {
         child: Padding(
           padding: EdgeInsets.symmetric(
               horizontal: Responsive.pagePadding(context), vertical: 8),
-          child: EmptyStateView(
-            icon: Icons.menu_book_outlined,
-            title: '书架还是空的',
+          child: StateView(
+            kind: StateViewKind.empty,
+            message: '书架还是空的',
             subtitle: '去添加喜欢的小说，或导入本地 TXT/EPUB 吧～',
-            action: OutlinedButton.icon(
-              onPressed: () async {
-                // 导入完成返回后立刻刷新，避免"导入成功但书架不显示"的错觉。
-                await Navigator.push(
-                    context, MaterialPageRoute(builder: (_) => const NovelImportPage()));
-                _refreshShelf();
-              },
-              icon: const Icon(Icons.file_open_outlined, size: 18),
-              label: const Text('本地导入'),
-            ),
+            icon: Icons.menu_book_outlined,
+            onRetry: () async {
+              // 导入完成返回后立刻刷新，避免"导入成功但书架不显示"的错觉。
+              await Navigator.push(
+                  context, MaterialPageRoute(builder: (_) => const NovelImportPage()));
+              _refreshShelf();
+            },
+            retryLabel: '本地导入',
           ),
         ),
       );
@@ -394,8 +400,10 @@ class NovelHomePageState extends State<NovelHomePage> {
       return SliverToBoxAdapter(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: ErrorStateView(
+          child: StateView(
+            kind: StateViewKind.error,
             message: _error!,
+            icon: Icons.error_outline_rounded,
             onRetry: () {
               setState(() => _loading = true);
               _loadNovels();
@@ -409,14 +417,18 @@ class NovelHomePageState extends State<NovelHomePage> {
       final kw = _keyword.trim();
       return SliverToBoxAdapter(
         child: kw.isEmpty
-            ? const EmptyStateView(
+            ? StateView(
+                kind: StateViewKind.empty,
+                message: '暂无内容',
                 icon: Icons.article_outlined,
-                title: '暂无内容',
+                onRetry: _reloadNovels,
               )
-            : EmptyStateView(
-                icon: Icons.search_off_rounded,
-                title: '没有找到「$kw」',
+            : StateView(
+                kind: StateViewKind.empty,
+                message: '没有找到「$kw」',
                 subtitle: '换个关键词，或点击下方源标签切换站点搜索',
+                icon: Icons.search_off_rounded,
+                onRetry: _reloadNovels,
               ),
       );
     }
@@ -795,13 +807,18 @@ class _EmptySource extends StatelessWidget {
   Widget build(BuildContext context) {
     return const Padding(
       padding: EdgeInsets.all(32),
-      child: EmptyStateView(
-        icon: Icons.menu_book_rounded,
-        title: '小说源即将接入',
+      child: StateView(
+        kind: StateViewKind.empty,
+        message: '小说源即将接入',
         subtitle: '具体小说源（笔趣阁类等）随后接入，书架已就绪。',
+        icon: Icons.menu_book_rounded,
+        onRetry: _noop,
       ),
     );
   }
+
+  /// 纯信息态：源列表稍后自动到位，重试按钮仅保证操作闭环，不做额外动作。
+  static void _noop() {}
 }
 
 /// 本地导入书卡片：数据来自 LocalNovelStore（无封面图，用图标占位）。

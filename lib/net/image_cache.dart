@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'http_client.dart';
 import 'image_deg.dart';
+import 'prune_directory.dart';
 import '../utils/image_super_res.dart';
 
 class ImageCacheManager {
@@ -419,36 +420,16 @@ class ImageCacheManager {
   /// 在写盘后按需清理：磁盘缓存超出上限时删除最旧文件。
   /// 每次写入后才检查（异步执行，不阻塞写盘路径），避免启动时全量扫描拖慢首帧。
   /// [sr] 为 true 时清理超分导数目录（配额取 [_maxSrDiskBytes]）。
+  /// 实现收敛到共享原语 [pruneLruDirectory]（P1-15，覆盖文件数上限）。
   static Future<void> _maybeTrimDisk({bool sr = false}) async {
     try {
       final d = sr ? _srDir : _dir;
       if (d == null || !d.existsSync()) return;
-      // 异步枚举 + 只读 stat（每文件一次），避免在 UI 线程做全同步扫描。
-      final files = await d
-          .list(followLinks: false)
-          .where((f) => f is File)
-          .cast<File>()
-          .toList();
-      final budget = sr ? _maxSrDiskBytes : _maxDiskBytes;
-      if (files.length <= _maxDiskCount &&
-          files.fold<int>(0, (s, f) => s + f.lengthSync()) <= budget) {
-        return;
-      }
-      // 修改时间懒读取：仅在确实需要裁剪时才 stat，命中上限直接跳过。
-      files.sort((a, b) => a
-          .statSync()
-          .modified
-          .compareTo(b.statSync().modified));
-      var total = files.fold<int>(0, (s, f) => s + f.lengthSync());
-      var i = 0;
-      while (i < files.length &&
-          (total > budget || files.length - i > _maxDiskCount)) {
-        total -= files[i].lengthSync();
-        try {
-          files[i].deleteSync();
-        } catch (_) {}
-        i++;
-      }
+      await pruneLruDirectory(
+        d,
+        sr ? _maxSrDiskBytes : _maxDiskBytes,
+        maxCount: _maxDiskCount,
+      );
     } catch (_) {}
   }
 

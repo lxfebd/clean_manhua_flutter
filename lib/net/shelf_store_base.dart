@@ -10,18 +10,36 @@ import 'web_persist.dart';
 
 /// 通用本地书架存储：漫画（bookshelf.json）与小说（novel_shelf.json）共用一套
 /// 条目级存储机制——按 `sourceId|id` 键分组的 JSON Map、防抖串行写盘、
-/// 损坏文件备份恢复、web/io 双端装载。两类的差异（条目序列化、标签、分类）
-/// 由各自子类扩展，镜像方法不再重复。
-class ShelfStoreBase {
-  ShelfStoreBase({
+/// 损坏文件备份恢复、web/io 双端装载。
+///
+/// 两类的差异（条目序列化、id 提取、sourceId 提取）通过 [fromMap]/[idOf]/
+/// [sourceIdOf] 三个钩子注入，子类（BookshelfStore / NovelShelfStore）只保留
+/// 各自领域语义（漫画分类、小说条目），存储机制不再重复。
+///
+/// 排序契约：条目写入时带 addedAt，[listBySource]/[listAll] 统一按 addedAt
+/// 降序返回（rawAll 已排好序，listBySource 不再用 O(n) 扫描比较器）。
+class ShelfStore<T> {
+  ShelfStore({
     required this.webKey,
     required this.fileName,
     required this.debugName,
+    required this.fromMap,
+    required this.idOf,
+    required this.sourceIdOf,
   });
 
   final String webKey;
   final String fileName;
   final String debugName;
+
+  /// 原始 Map → 强类型条目（子类序列化差异）。
+  final T Function(Map<String, dynamic> map) fromMap;
+
+  /// 条目 id 提取（字段读取，用于 key 拼接与 addedAt 查询）。
+  final String Function(T entry) idOf;
+
+  /// 条目所属源 id 提取（条目自带 sourceId；用于 addedAt 查询）。
+  final String Function(T entry) sourceIdOf;
 
   File? _file;
   Map<String, dynamic> _cache = {};
@@ -132,6 +150,24 @@ class ShelfStoreBase {
     return list;
   }
 
+  /// 列出某个源的书架（强类型），按 addedAt 降序。
+  ///
+  /// 排序直接用 [rawBySource] 的 addedAt 字段一次比较，不进入 O(n) 扫描比较器。
+  List<T> listBySource(String sourceId) {
+    _ensureLoaded();
+    final list = rawBySource(sourceId)
+        .map(fromMap)
+        .toList()
+      ..sort((a, b) => addedAtOf(b).compareTo(addedAtOf(a)));
+    return list;
+  }
+
+  /// 列出全部书架（强类型），按 addedAt 降序（rawAll 已排好序）。
+  List<T> listAll() {
+    _ensureLoaded();
+    return rawAll().map(fromMap).toList();
+  }
+
   /// 读取某条目的字段值（无则返回 null）。
   dynamic field(String sourceId, String id, String field) {
     _ensureLoaded();
@@ -183,4 +219,11 @@ class ShelfStoreBase {
     final diff = currentChapters - last;
     return diff > 0 ? diff : 0;
   }
+
+  /// 读取某条目的收藏时间（addedAt），无记录返回 0。
+  ///
+  /// 直接按条目 id+sourceId 查字段，不扫描全表（原 _readAddedAt 在排序
+  /// 比较器里 O(n) 扫描 = O(n² log n)，这里 O(1)）。
+  int addedAtOf(T entry) =>
+      (_cache[_key(sourceIdOf(entry), idOf(entry))]?['addedAt'] as int?) ?? 0;
 }

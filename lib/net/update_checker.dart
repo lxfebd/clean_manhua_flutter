@@ -190,26 +190,20 @@ class UpdateChecker {
   /// 镜像前缀拼在 github.com URL 前（如 `https://ghproxy.net/https://github.com/...`），
   /// 镜像对 `/releases/latest` 返回 302 → 跟随重定向到具体 tag 页，附件链接
   /// 均可在结果 HTML 中解析。全部失败抛最后一条异常（含 HTTP 状态码/超时）。
+  /// 复用 [Net.getBytesMirrors] 的顺序尝试/限流/失败透传，不再手写镜像循环。
   static Future<String> _fetchHtmlViaMirrors(Duration timeout) async {
-    Object? lastErr;
-    for (var i = 0; i < githubMirrors.length; i++) {
-      final m = githubMirrors[i];
-      final url =
-          m.isEmpty
-              ? 'https://github.com/$repo/releases/latest'
-              : '${m}https://github.com/$repo/releases/latest';
-      try {
-        return await Net.get(
-          url,
-          headers: {'User-Agent': 'xingmanxia-android'},
-          timeout: timeout,
-        );
-      } on Exception catch (e) {
-        lastErr = e;
-        ErrorLogger.instance.warn('更新检查 HTML 镜像$i 失败: $e');
-      }
-    }
-    throw lastErr ?? const FormatException('release 页面抓取失败');
+    final urls = [
+      for (final m in githubMirrors)
+        m.isEmpty
+            ? 'https://github.com/$repo/releases/latest'
+            : '${m}https://github.com/$repo/releases/latest',
+    ];
+    final bytes = await Net.getBytesMirrors(
+      urls,
+      headers: {'User-Agent': 'xingmanxia-android'},
+      timeout: timeout,
+    );
+    return utf8.decode(bytes);
   }
 
   /// 从 GitHub releases 网页 HTML 中提取附件列表（name + browser_download_url），

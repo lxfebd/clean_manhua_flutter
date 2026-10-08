@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../net/local_store.dart';
 import 'responsive.dart';
 import 'tokens.dart';
+import 'widgets/state_view.dart';
 import 'keyboard_shortcuts.dart';
 
 /// 年度阅读报告全屏可视化页。
@@ -108,7 +109,12 @@ class _YearReportPageState extends State<YearReportPage> {
                         child: CircularProgressIndicator(strokeWidth: 2.5),
                       )
                       : _loadError
-                      ? _ErrorState(onRetry: _load)
+                      ? StateView(
+                          kind: StateViewKind.error,
+                          message: '报告数据加载失败',
+                          subtitle: '读取本地阅读数据时出错',
+                          onRetry: _load,
+                        )
                       : _buildBody(context, scheme, text),
             ),
           ),
@@ -118,7 +124,16 @@ class _YearReportPageState extends State<YearReportPage> {
   }
 
   Widget _buildBody(BuildContext context, ColorScheme scheme, TextTheme text) {
-    if (_totalSeconds <= 0) return _EmptyState(year: _year, onRetry: _load);
+    if (_totalSeconds <= 0) {
+      return StateView(
+        kind: StateViewKind.empty,
+        message: '$_year 年还没有阅读记录',
+        subtitle: '开始阅读后，这里会生成你的年度报告',
+        icon: Icons.auto_stories_rounded,
+        onRetry: _load,
+        retryLabel: '刷新',
+      );
+    }
     return ListView(
       padding: EdgeInsets.fromLTRB(
         Responsive.pagePadding(context),
@@ -540,95 +555,6 @@ class _HighlightCard extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// 空态：该年无阅读记录。
-class _EmptyState extends StatelessWidget {
-  final int year;
-  final VoidCallback onRetry;
-  const _EmptyState({required this.year, required this.onRetry});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(S.x24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.auto_stories_rounded,
-              size: 48,
-              color: scheme.onSurface.withValues(alpha: 0.25),
-            ),
-            const SizedBox(height: S.x12),
-            Text('$year 年还没有阅读记录', style: text.titleMedium),
-            const SizedBox(height: S.x8),
-            Text(
-              '开始阅读后，这里会生成你的年度报告',
-              style: text.bodySmall?.copyWith(
-                color: T.color(
-                  scheme.onSurface,
-                  TextTier.low,
-                  brightness: scheme.brightness,
-                ),
-              ),
-            ),
-            const SizedBox(height: S.x16),
-            FilledButton.tonal(onPressed: onRetry, child: const Text('刷新')),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// 错误态：本地数据读取失败，可重试。
-class _ErrorState extends StatelessWidget {
-  final VoidCallback onRetry;
-  const _ErrorState({required this.onRetry});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(S.x24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.error_outline_rounded,
-              size: 48,
-              color: scheme.onSurface.withValues(alpha: 0.3),
-            ),
-            const SizedBox(height: S.x12),
-            Text('报告数据加载失败', style: text.titleMedium),
-            const SizedBox(height: S.x8),
-            Text(
-              '读取本地阅读数据时出错',
-              style: text.bodySmall?.copyWith(
-                color: T.color(
-                  scheme.onSurface,
-                  TextTier.low,
-                  brightness: scheme.brightness,
-                ),
-              ),
-            ),
-            const SizedBox(height: S.x16),
-            FilledButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh_rounded, size: 18),
-              label: const Text('重试'),
-            ),
-          ],
-        ),
       ),
     );
   }

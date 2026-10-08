@@ -1,11 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xingmanxia/net/local_store.dart';
 import 'package:xingmanxia/sources/novel_source.dart';
-import 'package:xingmanxia/ui/novel_detail_page.dart';
+import 'package:xingmanxia/ui/detail_providers.dart';
 
 /// 回归：迭代轮7 小说详情页「继续阅读」续读入口（对齐漫画详情页）。
 ///
-/// 覆盖 [NovelDetailPage.resolveNovelResumeChapter] 纯函数：
+/// 覆盖 [resolveNovelResumeChapter]（detail_providers 层，R3 删页面转发壳） 纯函数：
 /// - 有该小说历史 → 返回历史章节（从章节列表里匹配）+ 滚动偏移；
 /// - 历史章节已从源移除 → 用历史条目构造兜底章节；
 /// - 无该小说历史 → null（「继续阅读」按钮不显示）；
@@ -36,7 +36,7 @@ void main() {
       );
 
   test('有历史：返回章节列表里的目标章节 + 偏移', () {
-    final r = NovelDetailPage.resolveNovelResumeChapter(
+    final r = resolveNovelResumeChapter(
       history: [
         hist(
             sourceId: 'src',
@@ -57,7 +57,7 @@ void main() {
   });
 
   test('历史章节已从源移除：用历史条目构造兜底', () {
-    final r = NovelDetailPage.resolveNovelResumeChapter(
+    final r = resolveNovelResumeChapter(
       history: [
         hist(
             sourceId: 'src',
@@ -76,7 +76,7 @@ void main() {
   });
 
   test('无该小说历史：返回 null（不显示按钮）', () {
-    final r = NovelDetailPage.resolveNovelResumeChapter(
+    final r = resolveNovelResumeChapter(
       history: [
         hist(
             sourceId: 'other',
@@ -93,7 +93,7 @@ void main() {
   });
 
   test('多部作品历史：取本作品最近一次（按时间倒序）', () {
-    final r = NovelDetailPage.resolveNovelResumeChapter(
+    final r = resolveNovelResumeChapter(
       history: [
         // 其他作品更新
         hist(
@@ -128,7 +128,7 @@ void main() {
   });
 
   test('同作品多条历史（同章节重复记录）：取倒序第一条命中', () {
-    final r = NovelDetailPage.resolveNovelResumeChapter(
+    final r = resolveNovelResumeChapter(
       history: [
         hist(
             sourceId: 'src',

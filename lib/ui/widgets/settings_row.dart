@@ -12,18 +12,6 @@ import 'squircle.dart';
 /// 各的）。阶段 2 起入口行一律本组件：图标底块 + 标题 + 可选副标题 +
 /// trailing（开关/箭头/文字），整行 ≥44 高，自带可选分隔线。
 class SettingsRow extends StatelessWidget {
-  const SettingsRow({
-    super.key,
-    required this.icon,
-    required this.title,
-    this.subtitle,
-    this.trailing,
-    this.onTap,
-    this.iconColor,
-    this.showDivider = false,
-    this.danger = false,
-  });
-
   final IconData icon;
   final String title;
   final String? subtitle;
@@ -40,6 +28,22 @@ class SettingsRow extends StatelessWidget {
 
   /// 危险操作：文字/图标转 error 色。
   final bool danger;
+
+  /// 平台不可用（如 web 上的本地文件功能）时禁用并降饱和提示。
+  final bool enabled;
+
+  const SettingsRow({
+    super.key,
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    this.trailing,
+    this.onTap,
+    this.iconColor,
+    this.showDivider = false,
+    this.danger = false,
+    this.enabled = true,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -62,9 +66,11 @@ class SettingsRow extends StatelessWidget {
     final tileDeco = context.uiStyle == UIStyle.xiaomi
         ? ShapeDecoration(color: tileColor, shape: SquircleBorder(radius: iconRadius))
         : BoxDecoration(color: tileColor, borderRadius: BorderRadius.circular(iconRadius));
-    return InkWell(
-      onTap: onTap,
-      child: ConstrainedBox(
+    return Opacity(
+      opacity: enabled ? 1 : 0.5,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        child: ConstrainedBox(
         constraints: const BoxConstraints(minHeight: 44),
         child: Column(
           children: [
@@ -125,6 +131,7 @@ class SettingsRow extends StatelessWidget {
             ),
           ],
         ),
+      ),
       ),
     );
   }

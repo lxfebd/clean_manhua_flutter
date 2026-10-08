@@ -213,60 +213,15 @@ class CapabilityArtifactStore {
     if (dir == null || artifact.url == null) return null;
     final url = artifact.url!;
     final target = File('${dir.path}/${artifactFileName(id, url)}');
-    if (!isInside(dir, target)) {
-      _lastError = '构件文件名非法，已拒绝落盘';
-      ErrorLogger.instance.warn('[capability] artifact path escapes dir ($id)');
-      return null;
-    }
-
-    // 已存在且 SHA256 匹配 → 直接复用（幂等，避免重复下载）。
-    // 按当前平台选期望 hash：远端索引可能按 arm 在前 / win 在后排列，
-    // 直接取 values.first 会在桌面机误取手机 ABI 的 hash 导致校验必失败。
     final expected = expectedSha256ForCurrentPlatform(artifact.sha256);
-    if (await target.exists()) {
-      final cur = await sha256Of(target);
-      if (expected == null || cur == expected) {
-        return target;
-      }
-      // 校验失败 → 删除损坏文件，重新下载。
-      try {
-        await target.delete();
-      } catch (_) {}
-    }
-
-    // 下载（Net.getBytesAuto：优先 Cronet；proxy 覆盖时走 dart:io）。
-    final List<int> bytes;
-    try {
-      bytes = await Net.getBytesAuto(url, proxy: proxy);
-    } catch (e) {
-      _lastError = '构件下载失败，请检查网络后重试';
-      ErrorLogger.instance.warn('[capability] artifact download failed ($id): $e');
-      return null;
-    }
-    if (expected != null) {
-      final got = sha256.convert(bytes).toString();
-      if (got != expected) {
-        _lastError =
-            '构件 SHA256 校验失败（期望 $expected，实际 $got），已拒绝使用';
-        return null;
-      }
-    }
-    // 校验完成 → 原子落盘（先写 .tmp 再 rename，避免崩溃留下半截构件；
-    // 与权重落盘同套路）。tmp 与目标同目录保证 rename 原子性。
-    final tmp = File('${target.path}.tmp');
-    try {
-      await tmp.writeAsBytes(bytes, flush: true);
-      if (await target.exists()) await target.delete();
-      await tmp.rename(target.path);
-      return target;
-    } catch (e) {
-      _lastError = '构件写入本地失败，请检查存储空间与权限';
-      ErrorLogger.instance.warn('[capability] artifact write failed ($id): $e');
-      try {
-        if (await tmp.exists()) await tmp.delete();
-      } catch (_) {}
-      return null;
-    }
+    return _ensureDownloaded(
+      id: id,
+      dir: dir,
+      target: target,
+      expectedSha: expected,
+      kind: '构件',
+      fetch: () => Net.getBytesAuto(url, proxy: proxy),
+    );
   }
 
   /// 下载/就绪单个权重（[CapabilityWeight]），返回本地文件。
@@ -303,18 +258,6 @@ class CapabilityArtifactStore {
       return null;
     }
 
-    // 幂等：已存在且哈希匹配直接复用。
-    if (await target.exists()) {
-      final cur = await sha256Of(target);
-      if (weight.sha256.isEmpty || cur == weight.sha256) {
-        return target;
-      }
-      // 校验失败 → 删除损坏文件，重新下载。
-      try {
-        await target.delete();
-      } catch (_) {}
-    }
-
     // 下载。权重可达数百 MB，必须给足超时（Net 默认 15s 会必超时失败）。
     // 走带进度回调的分块下载（io 端）：边收边报进度；SHA256 在落盘前对
     // 全量字节校验（与旧路径语义一致）。web 端回落无进度路径——
@@ -324,32 +267,67 @@ class CapabilityArtifactStore {
     // 再回退 dart:io，白耗 6s；dart:io 路径按块超时（单块 15s）无整体限制，
     // 大文件反而更稳。上限放宽到 512MB：权重是可信的远端索引文件，不属于
     // "异常超大响应"防御范围（通用下载仍是 256MB）。
-    final List<int> bytes;
-    try {
-      bytes = await Net.downloadBytes(weight.url,
+    return _ensureDownloaded(
+      id: id,
+      dir: dir,
+      target: target,
+      expectedSha: weight.sha256.isEmpty ? null : weight.sha256,
+      kind: '权重',
+      fetch: () => Net.downloadBytes(weight.url,
           proxy: proxy,
           timeout: const Duration(minutes: 10),
           maxBytes: 512 * 1024 * 1024,
-          onProgress: onProgress);
-    } catch (e) {
-      _lastError = '权重下载失败，请检查网络后重试';
-      ErrorLogger.instance.warn('[capability] weight download failed ($id): $e');
+          onProgress: onProgress),
+    );
+  }
+
+  /// 下载 → SHA256 校验 → 原子落盘的公共原语（P1-9：artifact 与权重共用）。
+  ///
+  /// - 已存在且 SHA256 匹配（或未声明期望值）→ 直接复用（幂等）。
+  /// - 校验失败 → 删除损坏文件重下；下载/校验/写入失败置 [lastError] 返 null。
+  /// - 写完先落 `.tmp` 再 rename：临时文件与目标同目录保证 rename 原子性
+  ///   （跨目录 rename 在 Windows 上可能因文件系统不同而失败），崩溃后不会
+  ///   留下半截文件被误复用（幂等分支只认 hash，hash 必不匹配，安全）。
+  Future<File?> _ensureDownloaded({
+    required String id,
+    required Directory dir,
+    required File target,
+    required String? expectedSha,
+    required String kind,
+    required Future<List<int>> Function() fetch,
+  }) async {
+    if (!isInside(dir, target)) {
+      _lastError = '$kind文件名非法，已拒绝落盘';
+      ErrorLogger.instance.warn('[capability] $kind path escapes dir ($id)');
       return null;
     }
-    if (weight.sha256.isNotEmpty) {
+    if (await target.exists()) {
+      final cur = await sha256Of(target);
+      if (expectedSha == null || cur == expectedSha) {
+        return target;
+      }
+      // 校验失败 → 删除损坏文件，重新下载。
+      try {
+        await target.delete();
+      } catch (_) {}
+    }
+
+    final List<int> bytes;
+    try {
+      bytes = await fetch();
+    } catch (e) {
+      _lastError = '$kind下载失败，请检查网络后重试';
+      ErrorLogger.instance.warn('[capability] $kind download failed ($id): $e');
+      return null;
+    }
+    if (expectedSha != null) {
       final got = sha256.convert(bytes).toString();
-      if (got != weight.sha256) {
+      if (got != expectedSha) {
         _lastError =
-            '权重 SHA256 校验失败（期望 ${weight.sha256}，实际 $got），已拒绝使用';
+            '$kind SHA256 校验失败（期望 $expectedSha，实际 $got），已拒绝使用';
         return null;
       }
     }
-    // 校验完成 → 原子落盘：先写 `.tmp` 再 rename。直接 writeAsBytes 时
-    // 若中途崩溃/断电，目标文件是半截内容——下次运行 sha256 不匹配会重新
-    // 下载（浪费几百 MB），更糟的是被误读成"已存在"直接复用（幂等分支
-    // 只认 hash 不认完整性以外的任何信息，此路径 hash 必不匹配，安全）。
-    // tmp 文件名 = 目标名 + .tmp 后缀：同目录保证 rename 原子性（跨目录
-    // rename 在 Windows 上可能因文件系统不同而失败）。
     final tmp = File('${target.path}.tmp');
     try {
       await tmp.writeAsBytes(bytes, flush: true);
@@ -357,8 +335,8 @@ class CapabilityArtifactStore {
       await tmp.rename(target.path);
       return target;
     } catch (e) {
-      _lastError = '权重写入本地失败，请检查存储空间与权限';
-      ErrorLogger.instance.warn('[capability] weight write failed ($id): $e');
+      _lastError = '$kind写入本地失败，请检查存储空间与权限';
+      ErrorLogger.instance.warn('[capability] $kind write failed ($id): $e');
       try {
         if (await tmp.exists()) await tmp.delete();
       } catch (_) {}

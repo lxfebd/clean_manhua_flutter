@@ -108,6 +108,27 @@ class CapabilityPlugin {
           },
       };
 
+  /// 解析单个权重声明（市场索引与本地快照共用，P1-10）。
+  ///
+  /// 权重 name 直接拼进 `.model_cache/<id>/<name>` 落盘路径（完全远端可控），
+  /// 必须过 [isValidPathSegment] 白名单——拒绝含 `../`、斜杠、`.`/`..` 等
+  /// 非法条目的权重（store 侧还有第二道包含校验闸）。缺 name/url 返回 null。
+  static CapabilityWeight? parseWeight(dynamic w) {
+    if (w is! Map) return null;
+    final wn = w['name'];
+    final wu = w['url'];
+    if (wn is! String || wn.isEmpty || wu is! String || wu.isEmpty) {
+      return null;
+    }
+    if (!isValidPathSegment(wn)) return null;
+    return CapabilityWeight(
+      name: wn,
+      url: wu,
+      sizeBytes: (w['sizeBytes'] as num?)?.toInt() ?? 0,
+      sha256: (w['sha256'] as String?) ?? '',
+    );
+  }
+
   /// 从元数据快照重建市场能力实例（[CapabilityPluginManager.restore] 用）。
   /// 快照损坏/缺关键字段返回 null（跳过该条目，不阻断恢复）。
   static CapabilityPlugin? fromJson(Map<String, dynamic> json) {
@@ -116,29 +137,11 @@ class CapabilityPlugin {
     if (id is! String || id.isEmpty || name is! String || name.isEmpty) {
       return null;
     }
-    CapabilityWeight? weightFromJson(dynamic w) {
-      if (w is! Map) return null;
-      final wn = w['name'];
-      final wu = w['url'];
-      if (wn is! String || wn.isEmpty || wu is! String || wu.isEmpty) {
-        return null;
-      }
-      // 快照同索引一样把 name 拼进落盘路径：拒绝含 `../` 等非法字符的条目
-      // （本地快照被改/由旧版恶意索引写入时兜底，store 侧还有第二道闸）。
-      if (!isValidPathSegment(wn)) return null;
-      return CapabilityWeight(
-        name: wn,
-        url: wu,
-        sizeBytes: (w['sizeBytes'] as num?)?.toInt() ?? 0,
-        sha256: (w['sha256'] as String?) ?? '',
-      );
-    }
-
     final weights = <CapabilityWeight>[];
     final wl = json['weights'];
     if (wl is List) {
       for (final w in wl) {
-        final cw = weightFromJson(w);
+        final cw = parseWeight(w);
         if (cw != null) weights.add(cw);
       }
     }

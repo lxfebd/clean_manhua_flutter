@@ -34,6 +34,7 @@ import '../utils/image_super_res.dart';
 import '../utils/image_trim.dart';
 import '../utils/colorizer_manager.dart';
 import 'widgets/app_toast.dart';
+import 'widgets/chapter_list_sheet.dart';
 import 'widgets/jm_scramble_image.dart';
 
 /// 是否可连读到下一话：当前章节在章节列表中且不是最后一话。
@@ -1568,20 +1569,36 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
     showResponsiveBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (_) => _ChapterListSheet(
+      builder: (_) => ChapterListSheet<Chapter>(
         chapters: widget.chapters,
-        currentIndex: _chapterIndex,
+        title: '章节列表 · 共 ${widget.chapters.length} 话'
+            '${_readIds.isEmpty ? '' : ' · 已读 ${_readIds.length} 话'}',
+        titleOf: (ch, {required int index}) =>
+            chapterFilterTitle(widget.chapters, ch, index),
+        idOf: (ch) => ch.id,
+        currentId: widget.chapters[_chapterIndex].id,
         readIds: _readIds,
-        bookKey: _book.key,
-        onSelect: (i) {
+        loadDownloaded: () async {
+          final all = await LocalStore.downloads();
+          return {
+            for (final d in all)
+              if (d.finished && d.book.key == _book.key) d.chapterId,
+          };
+        },
+        onTap: (ch) {
           Navigator.pop(context);
           if (_loading) return;
-          final ch = widget.chapters[i];
+          final i = widget.chapters.indexOf(ch);
           _chapterIndex = i;
           _indexOffsetCache.clear();
           _layoutHeights.clear();
           _openChapter(ch.id, ch.title);
         },
+        dark: true,
+        showNumberPrefix: true,
+        showHandle: true,
+        sortable: false,
+        onClose: () => Navigator.pop(context),
       ),
     );
   }
@@ -3197,254 +3214,6 @@ class _NextChapterFooter extends StatelessWidget {
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// 全作品章节列表底部弹窗（章内切换章节）。
-class _ChapterListSheet extends StatefulWidget {
-  final List<Chapter> chapters;
-  final int currentIndex;
-
-  /// 已读章节 id 集合（打开目录时快照）：读过的章节标 ✓，
-  /// 与详情页/全部章节 sheet 的已读勾选对称。空集不标。
-  final Set<String> readIds;
-
-  /// 作品 key（`sourceId/comicId`）：自加载已下载章节 id 用。
-  final String bookKey;
-  final ValueChanged<int> onSelect;
-  const _ChapterListSheet({
-    required this.chapters,
-    required this.currentIndex,
-    required this.readIds,
-    required this.bookKey,
-    required this.onSelect,
-  });
-
-  @override
-  State<_ChapterListSheet> createState() => _ChapterListSheetState();
-}
-
-class _ChapterListSheetState extends State<_ChapterListSheet> {
-  final _filterCtrl = TextEditingController();
-  String _filter = '';
-
-  /// 已下载章节 id（懒加载：打开时读一次；本地已存章节标 offline_pin）。
-  Set<String> _downloadedIds = const {};
-
-  @override
-  void initState() {
-    super.initState();
-    _loadDownloaded();
-  }
-
-  Future<void> _loadDownloaded() async {
-    try {
-      final all = await LocalStore.downloads();
-      if (!mounted) return;
-      setState(() {
-        _downloadedIds = {
-          for (final d in all)
-            if (d.finished && d.book.key == widget.bookKey) d.chapterId,
-        };
-      });
-    } catch (_) {
-      // 本地读取失败不阻塞目录（下载标记是附加信息）。
-    }
-  }
-
-  @override
-  void dispose() {
-    _filterCtrl.dispose();
-    super.dispose();
-  }
-
-  /// 当前选中章在过滤后列表里的下标（未过滤 = 原下标）。
-  int get _activeIndex => widget.currentIndex;
-
-  /// 过滤后的章节（标题模糊匹配；空 = 原列表）。
-  List<Chapter> get _visible {
-    final all = widget.chapters;
-    final f = _filter.trim().toLowerCase();
-    if (f.isEmpty) return all;
-    return [
-      for (var i = 0; i < all.length; i++)
-        if (chapterFilterTitle(all, all[i], i).toLowerCase().contains(f))
-          all[i],
-    ];
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final visible = _visible;
-    return SafeArea(
-      child: Container(
-        margin: const EdgeInsets.all(12),
-        padding: EdgeInsets.fromLTRB(Responsive.pagePadding(context), 16, Responsive.pagePadding(context), 20),
-        decoration: BoxDecoration(
-          // 固定深色背景，避免浅色主题下白底白字（与设置弹窗一致）
-        color: const Color(0xFF1C1B1F),
-          borderRadius: const BorderRadius.all(Radius.circular(24)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            Text('章节列表 · 共 ${widget.chapters.length} 话'
-                '${widget.readIds.isEmpty ? '' : ' · 已读 ${widget.readIds.length} 话'}',
-                style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white)),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _filterCtrl,
-              onChanged: (v) => setState(() => _filter = v),
-              style: const TextStyle(fontSize: 13.5, color: Colors.white),
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: '搜索章节标题',
-                hintStyle: TextStyle(
-                  fontSize: 13,
-                  color: Colors.white.withValues(alpha: 0.4),
-                ),
-                prefixIcon: Icon(
-                  Icons.search_rounded,
-                  size: 18,
-                  color: Colors.white.withValues(alpha: 0.5),
-                ),
-                suffixIcon: _filter.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: '清除',
-                        icon: const Icon(Icons.close_rounded,
-                            size: 16, color: Colors.white70),
-                        onPressed: () {
-                          _filterCtrl.clear();
-                          setState(() => _filter = '');
-                        },
-                      ),
-                filled: true,
-                fillColor: Colors.white.withValues(alpha: 0.08),
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Flexible(
-              child: visible.isEmpty
-                  ? Center(
-                      child: Text(
-                        '没有匹配「$_filter」的章节',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.white.withValues(alpha: 0.5),
-                        ),
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: visible.length,
-                      // 过滤后原下标偏移：选中章不在过滤结果里时不高亮任何项。
-                      itemBuilder: (_, v) {
-                        final i = widget.chapters.indexOf(visible[v]);
-                        final active = i == _activeIndex;
-                        final read = widget.readIds.contains(
-                            visible[v].id);
-                        return InkWell(
-                          onTap: () => widget.onSelect(i),
-                          borderRadius: BorderRadius.circular(8),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 11),
-                            margin: const EdgeInsets.only(bottom: 2),
-                            decoration: BoxDecoration(
-                              color: active
-                                  ? Theme.of(context).colorScheme.primary
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              children: [
-                                Text(
-                                  '${i + 1}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: active
-                                        ? Colors.white
-                                        : Colors.white.withValues(alpha: 0.45),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    chapterFilterTitle(
-                                        widget.chapters,
-                                        visible[v],
-                                        i),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: active
-                                          ? FontWeight.w700
-                                          : FontWeight.w500,
-                                      color: active
-                                          ? Colors.white
-                                          : Colors.white
-                                              .withValues(alpha: 0.75),
-                                    ),
-                                  ),
-                                ),
-                                // 当前章 check 优先；已读章标 ✓（淡入主色，
-                                // 与详情页/全部章节 sheet 的已读勾选一致）；
-                                // 已下载章标 offline_pin（本地已存，与小说
-                                // 目录 sheet 的「已缓存」标记对称）。
-                                if (active)
-                                  Icon(Icons.check_rounded,
-                                      size: 16, color: Colors.white)
-                                else if (read)
-                                  Icon(
-                                    Icons.check_circle_rounded,
-                                    size: 16,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .primary
-                                        .withValues(alpha: 0.7),
-                                  )
-                                else if (_downloadedIds.contains(
-                                    visible[v].id))
-                                  Icon(
-                                    Icons.offline_pin_rounded,
-                                    size: 16,
-                                    color: Colors.greenAccent
-                                        .withValues(alpha: 0.8),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
             ),
           ],
         ),

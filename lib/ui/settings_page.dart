@@ -28,6 +28,7 @@ import 'theme_controller.dart';
 import 'source_manage_page.dart';
 import 'keyboard_shortcuts.dart';
 import 'widgets/app_toast.dart';
+import 'widgets/settings_row.dart';
 import 'widgets/update_download_dialog.dart';
 import 'widgets/motion.dart';
 import 'widgets/row_separator.dart';
@@ -220,7 +221,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     delay: const Duration(milliseconds: 140),
                     child: SettingsCard(
                       children: [
-                        SettingsTile(
+                        SettingsRow(
                           icon: Icons.dark_mode_outlined,
                           title: '深色模式',
                           subtitle: '夜间阅读更护眼',
@@ -270,7 +271,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     delay: const Duration(milliseconds: 280),
                     child: SettingsCard(
                       children: [
-                        SettingsTile(
+                        SettingsRow(
                           icon: Icons.public_rounded,
                           title: '数据源管理',
                           subtitle: '启停各源、编辑域名/代理，免发版换域名',
@@ -296,7 +297,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     delay: const Duration(milliseconds: 280),
                     child: SettingsCard(
                       children: [
-                        SettingsTile(
+                        SettingsRow(
                           icon: Icons.swipe_right_alt_rounded,
                           title: '翻页模式',
                           subtitle:
@@ -327,7 +328,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           ),
                         ),
                         RowSeparator(),
-                        SettingsTile(
+                        SettingsRow(
                           icon: Icons.arrow_back_ios_new_rounded,
                           title: 'RTL 反向翻页（日漫）',
                           subtitle: _rtl ? '从右往左' : '从左往右',
@@ -342,7 +343,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           ),
                         ),
                         RowSeparator(),
-                        SettingsTile(
+                        SettingsRow(
                           icon: Icons.touch_app_rounded,
                           title: '手势配置',
                           subtitle: '自定义点击区域操作',
@@ -373,7 +374,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     delay: const Duration(milliseconds: 280),
                     child: SettingsCard(
                       children: [
-                        SettingsTile(
+                        SettingsRow(
                           icon: Icons.subtitles_rounded,
                           title: '弹幕',
                           subtitle:
@@ -447,7 +448,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     delay: const Duration(milliseconds: 280),
                     child: SettingsCard(
                       children: [
-                        SettingsTile(
+                        SettingsRow(
                           icon: Icons.system_update_alt_rounded,
                           title: '检查更新',
                           subtitle: '从 GitHub Releases 获取最新版本',
@@ -464,7 +465,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           onTap: _checkUpdate,
                         ),
                         RowSeparator(),
-                        SettingsTile(
+                        SettingsRow(
                           icon: Icons.notifications_active_outlined,
                           title: '收藏更新提醒',
                           subtitle: _updateFreqLabel,
@@ -478,7 +479,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                         // 且系统通知语义不存在，直接隐藏该项（收藏更新提醒的应用内横幅仍可用）。
                         if (!kIsWeb) ...[
                           RowSeparator(),
-                          SettingsTile(
+                          SettingsRow(
                             icon: Icons.notifications_outlined,
                             title: '系统通知',
                             subtitle:
@@ -503,7 +504,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     delay: const Duration(milliseconds: 280),
                     child: SettingsCard(
                       children: [
-                        SettingsTile(
+                        SettingsRow(
                           icon: Icons.verified_user_outlined,
                           title: '信任自签证书',
                           subtitle:
@@ -530,7 +531,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     delay: const Duration(milliseconds: 280),
                     child: SettingsCard(
                       children: [
-                        SettingsTile(
+                        SettingsRow(
                           icon: Icons.backup_rounded,
                           title: '导出备份',
                           subtitle:
@@ -541,7 +542,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           onTap: _exportBackup,
                         ),
                         RowSeparator(),
-                        SettingsTile(
+                        SettingsRow(
                           icon: Icons.restore_rounded,
                           title: '导入备份',
                           subtitle: kIsWeb ? 'Web 端不支持' : '从 JSON 文件恢复数据',
@@ -549,7 +550,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           onTap: _importBackup,
                         ),
                         RowSeparator(),
-                        SettingsTile(
+                        SettingsRow(
                           icon: Icons.cloud_sync_rounded,
                           title: 'WebDAV 同步',
                           subtitle:
@@ -562,7 +563,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           onTap: _openWebDav,
                         ),
                         RowSeparator(),
-                        SettingsTile(
+                        SettingsRow(
                           icon: Icons.download_outlined,
                           title: '清空全部下载',
                           subtitle: '删除已下载的章节图片，释放空间',
@@ -577,7 +578,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                               ),
                         ),
                         RowSeparator(),
-                        SettingsTile(
+                        SettingsRow(
                           icon: Icons.history_rounded,
                           title: '清空阅读历史',
                           subtitle: '清除所有阅读记录',
@@ -592,7 +593,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                               ),
                         ),
                         RowSeparator(),
-                        SettingsTile(
+                        SettingsRow(
                           icon: Icons.manage_search_rounded,
                           title: '清空搜索历史',
                           subtitle: '清除搜索框的历史关键词',
@@ -607,7 +608,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                               ),
                         ),
                         RowSeparator(),
-                        SettingsTile(
+                        SettingsRow(
                           icon: Icons.cleaning_services_outlined,
                           title: '清除小说缓存',
                           subtitle: '删除离线缓存的章节正文（断网兜底用）',
@@ -639,7 +640,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     delay: const Duration(milliseconds: 280),
                     child: SettingsCard(
                       children: [
-                        SettingsTile(
+                        SettingsRow(
                           icon: Icons.keyboard_alt_rounded,
                           title: '键盘快捷键',
                           subtitle: '全局 / 漫画阅读器 / 小说阅读器 / 视频播放器',
@@ -655,21 +656,21 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                               ),
                         ),
                         RowSeparator(),
-                        SettingsTile(
+                        SettingsRow(
                           icon: Icons.article_outlined,
                           title: '免责声明',
                           subtitle: '内容来源与版权说明',
                           onTap: _showDisclaimer,
                         ),
                         RowSeparator(),
-                        SettingsTile(
+                        SettingsRow(
                           icon: Icons.privacy_tip_outlined,
                           title: '隐私说明',
                           subtitle: '本地存储与网络请求',
                           onTap: _showPrivacy,
                         ),
                         RowSeparator(),
-                        SettingsTile(
+                        SettingsRow(
                           icon: Icons.bug_report_outlined,
                           title: '导出错误日志',
                           subtitle:
@@ -1688,7 +1689,7 @@ class _NovelReaderPrefsCard extends ConsumerWidget {
               notifier.update(paragraphGap: v.round()),
         ),
         RowSeparator(),
-        SettingsTile(
+        SettingsRow(
           icon: Icons.format_indent_increase_rounded,
           title: '首行缩进',
           subtitle: prefs.firstIndent ? '每段首行缩进两字' : '顶格排版',
@@ -1710,7 +1711,7 @@ class _NovelReaderPrefsCard extends ConsumerWidget {
               notifier.update(colorTemp: v.round()),
         ),
         RowSeparator(),
-        SettingsTile(
+        SettingsRow(
           icon: Icons.palette_outlined,
           title: '纸色主题',
           subtitle: switch (prefs.theme) {

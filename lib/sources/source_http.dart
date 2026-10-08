@@ -7,7 +7,6 @@ import '../net/circuit_breaker.dart';
 import '../net/error_logger.dart';
 import '../net/http_client.dart';
 import 'source_config.dart';
-import 'source_result.dart';
 
 /// 带「配置 + 熔断 + 瞬时失败重试」的源 HTTP 助手（对齐 Ani 的声明式配置 + Mangayomi 的源调用流）。
 ///
@@ -16,7 +15,8 @@ import 'source_result.dart';
 /// - 网络层瞬时失败（连接被重置/超时/CDN 5xx/429）自动重试一次，再判失败，
 ///   避免"时通时断"的源（如 xbiquge）偶发超时直接判失败影响整页体验；
 ///   拿到响应后的解析错误不会重试。
-/// - 失败时抛 [Exception]（携带结构化错误信息），兼容现有源 try/catch 与 UI 错误态。
+/// - 失败时抛类型化 [SourceError]（[SourceNetwork]/[SourceService]/[SourceParse]…），
+///   UI 按具体子类型给出可操作反馈。
 class SourceHttp {
   /// 读取某源的第一个可用 host（无配置/为空时回退 [fallback]）。
   static Future<String> pickHost(String engineId, List<String> fallback) async {
@@ -45,10 +45,10 @@ class SourceHttp {
     List<String> fallbackHosts = const [],
     Map<String, String>? headers,
   }) async {
-    return _unwrap(await withCircuit(engineId, () => withTransientRetry(() async {
+    return withCircuit(engineId, () => withTransientRetry(() async {
       final host = await pickHost(engineId, fallbackHosts);
       return Net.get('$host$path', headers: headers, proxy: await proxyFor(engineId));
-    })));
+    }));
   }
 
   /// POST：host 由配置决定，path 拼接在 host 之后。
@@ -59,11 +59,11 @@ class SourceHttp {
     Map<String, String>? headers,
     String? body,
   }) async {
-    return _unwrap(await withCircuit(engineId, () => withTransientRetry(() async {
+    return withCircuit(engineId, () => withTransientRetry(() async {
       final host = await pickHost(engineId, fallbackHosts);
       return Net.post('$host$path',
           headers: headers, body: body, proxy: await proxyFor(engineId));
-    })));
+    }));
   }
 
   /// GET 完整 URL（已拼好 host + 查询串的场景）。
@@ -72,9 +72,9 @@ class SourceHttp {
     String url, {
     Map<String, String>? headers,
   }) async {
-    return _unwrap(await withCircuit(engineId,
+    return withCircuit(engineId,
         () => withTransientRetry(() async =>
-            Net.get(url, headers: headers, proxy: await proxyFor(engineId)))));
+            Net.get(url, headers: headers, proxy: await proxyFor(engineId))));
   }
 
   /// POST 完整 URL。
@@ -84,15 +84,9 @@ class SourceHttp {
     Map<String, String>? headers,
     String? body,
   }) async {
-    return _unwrap(await withCircuit(engineId,
+    return withCircuit(engineId,
         () => withTransientRetry(() async => Net.post(url,
-            headers: headers, body: body, proxy: await proxyFor(engineId)))));
-  }
-
-  static T _unwrap<T>(SourceResult<T> r) {
-    if (r is SourceOk<T>) return r.data;
-    if (r is SourceErr<T>) throw Exception(r.error.toString());
-    throw Exception('数据为空');
+            headers: headers, body: body, proxy: await proxyFor(engineId))));
   }
 
   /// 网络瞬时失败的最大尝试次数（1 次初始 + 1 次重试）。

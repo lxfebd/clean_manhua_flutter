@@ -5,15 +5,19 @@ import '../sources/novel_source.dart';
 import 'shelf_store_base.dart';
 
 /// 小说本地书架：与漫画 [BookshelfStore] 分离，独立 JSON 文件，避免与漫画条目混淆。
-/// 存储机制（装载/写盘/损坏恢复/章节更新计数）由 [ShelfStoreBase] 提供，
+/// 存储机制（装载/写盘/损坏恢复/章节更新计数/排序）由泛型 [ShelfStore] 提供，
 /// 本类只保留小说条目的序列化差异。
 class NovelShelfStore {
   NovelShelfStore._();
 
-  static final ShelfStoreBase _base = ShelfStoreBase(
+  /// 条目强类型 = [NovelDetail]（序列化差异经 fromMap 钩子注入）。
+  static final ShelfStore<NovelDetail> _base = ShelfStore<NovelDetail>(
     webKey: 'novel_shelf',
     fileName: 'novel_shelf',
     debugName: 'novel_shelf',
+    fromMap: _fromMap,
+    idOf: (d) => d.id,
+    sourceIdOf: (d) => d.sourceId ?? '',
   );
 
   /// 注入写盘失败 UI 钩子（main 启动时接线，勿在构造期依赖 UI 层）。
@@ -45,31 +49,11 @@ class NovelShelfStore {
       _base.contains(sourceId, novelId);
 
   /// 列出某个源的书架。
-  static List<NovelDetail> listBySource(String sourceId) {
-    return _base.rawBySource(sourceId).map(_fromMap).toList()
-      ..sort((a, b) {
-        final ma = _readAddedAt(a, defaultSourceId: sourceId);
-        final mb = _readAddedAt(b, defaultSourceId: sourceId);
-        return mb.compareTo(ma);
-      });
-  }
+  static List<NovelDetail> listBySource(String sourceId) =>
+      _base.listBySource(sourceId);
 
   /// 列出全部书架（用于统一书架视图）。
-  static List<NovelDetail> listAll() {
-    return _base.rawAll().map(_fromMap).toList();
-  }
-
-  static int _readAddedAt(NovelDetail d, {String? defaultSourceId}) {
-    final sid = defaultSourceId ??
-        (_base.exportData().values
-            .cast<Map<String, dynamic>>()
-            .firstWhere(
-              (m) => m['id'] == d.id,
-              orElse: () => {'addedAt': 0},
-            ))['sourceId'] as String? ??
-        '';
-    return (_base.field(sid, d.id, 'addedAt') as int?) ?? 0;
-  }
+  static List<NovelDetail> listAll() => _base.listAll();
 
   /// 导出原始数据（用于备份）。
   static Map<String, dynamic> exportData() => _base.exportData();

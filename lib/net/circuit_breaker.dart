@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import '../sources/source_result.dart';
 
@@ -86,22 +87,37 @@ class CircuitBreakerRegistry {
 
 /// 带熔断保护的源调用：先查熔断器，再执行，最后回写成功/失败。
 ///
-/// 返回 [SourceResult]，调用方无需关心熔断细节。
-Future<SourceResult<T>> withCircuit<T>(
+/// 成功时直接返回结果；失败时抛 [SourceError]（已是类型化错误则原样透传，
+/// 其余异常归约为 network/parse/service/unknown），调用方按类型 catch。
+Future<T> withCircuit<T>(
   String key,
   Future<T> Function() fn,
 ) async {
   final cb = CircuitBreakerRegistry.forHost(key);
   if (!cb.allowRequest()) {
-    return SourceResult.err(SourceError.service(
+    throw SourceError.service(
       '源「$key」连续失败已进入熔断冷却，稍后自动恢复（可检查网络/代理或更换域名）',
-    ));
+    );
   }
-  final r = await runCatching(fn);
-  if (r is SourceErr) {
-    cb.recordFailure();
-  } else {
+  try {
+    final r = await fn();
     cb.recordSuccess();
+    return r;
+  } catch (e) {
+    cb.recordFailure();
+    if (e is SourceError) rethrow;
+    if (e is FormatException) {
+      throw SourceError.parse(e.message);
+    }
+    if (e is TimeoutException) {
+      throw SourceError.network(e.message);
+    }
+    if (e is SocketException) {
+      throw SourceError.network(e.message);
+    }
+    if (e is HttpException) {
+      throw SourceError.service(e.message);
+    }
+    throw SourceError.unknown(e.toString());
   }
-  return r;
 }

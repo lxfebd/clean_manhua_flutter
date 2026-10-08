@@ -18,6 +18,7 @@ import 'widgets/frosted_glass.dart';
 import 'widgets/motion.dart';
 import 'widgets/skeleton.dart';
 import 'widgets/squircle.dart';
+import 'widgets/state_view.dart';
 import 'widgets/tap_target.dart';
 
 /// 动漫首页：搜索 + 分类胶囊 + 番剧网格。
@@ -371,7 +372,12 @@ class AnimeHomePageState extends State<AnimeHomePage> {
   List<Widget> _buildContentSlivers(ThemeData theme) {
     if (_error != null) {
       return [
-        _fillRemaining(_ErrorView(message: _error!, onRetry: _refresh)),
+        _fillRemaining(StateView(
+          kind: StateViewKind.error,
+          message: _error!,
+          icon: Icons.cloud_off_outlined,
+          onRetry: _refresh,
+        )),
       ];
     }
     if (_items.isEmpty) {
@@ -380,7 +386,13 @@ class AnimeHomePageState extends State<AnimeHomePage> {
       return [
         _fillRemaining(_loading
             ? const HomeGridSkeleton()
-            : _EmptyView(onRetry: _refresh)),
+            : StateView(
+                kind: StateViewKind.empty,
+                message: '暂无内容',
+                subtitle: '源没有返回内容，试试换个分类或下拉刷新',
+                icon: Icons.movie_filter_outlined,
+                onRetry: _refresh,
+              )),
       ];
     }
     final isDesktop = DesktopUi.isDesktopPlatform;
@@ -1388,129 +1400,6 @@ class _LetterCover extends StatelessWidget {
                 ],
               ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 空态引导：加载完成但源没有返回内容时展示，风格对齐 bookshelf 的 _TabEmpty
-/// （渐变圆环图标 + 标题 + 引导副文案 + 行动按钮），自包含不依赖其它文件。
-class _EmptyView extends StatelessWidget {
-  final VoidCallback onRetry;
-  const _EmptyView({required this.onRetry});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 88,
-            height: 88,
-            padding: const EdgeInsets.all(5),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  scheme.primary.withValues(alpha: isDark ? 0.22 : 0.16),
-                  scheme.primary.withValues(alpha: 0.03),
-                ],
-              ),
-            ),
-            child: Container(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: scheme.primary.withValues(alpha: isDark ? 0.16 : 0.10),
-              ),
-              child: Icon(Icons.movie_filter_outlined,
-                  size: 36, color: scheme.primary),
-            ),
-          ),
-          const SizedBox(height: 18),
-          Text(
-            '暂无内容',
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: scheme.onSurface,
-                ),
-          ),
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Text(
-              '源没有返回内容，试试换个分类或下拉刷新',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    height: 1.5,
-                    color: scheme.onSurface.withValues(alpha: 0.5),
-                  ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: onRetry,
-            icon: const Icon(Icons.refresh_rounded, size: 18),
-            label: const Text('刷新'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ErrorView extends StatelessWidget {
-  final String message;
-  final VoidCallback onRetry;
-  const _ErrorView({required this.message, required this.onRetry});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0, end: 1),
-            duration: const Duration(milliseconds: 600),
-            curve: Curves.easeOutBack,
-            builder: (_, v, child) => Transform.scale(scale: v, child: child),
-            child: Container(
-              width: 84,
-              height: 84,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: scheme.error.withValues(alpha: 0.10),
-              ),
-              child: Icon(Icons.cloud_off_outlined,
-                  size: 44, color: scheme.error),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 40),
-            child: Text(
-              message,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: scheme.onSurface.withValues(alpha: 0.7),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: onRetry,
-            icon: const Icon(Icons.refresh_rounded, size: 18),
-            label: const Text('重试'),
           ),
         ],
       ),

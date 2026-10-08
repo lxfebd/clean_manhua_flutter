@@ -125,4 +125,57 @@ class UpdateNotifier {
       // 原生通道不可用（桌面/Web）静默降级
     }
   }
+
+  /// 下载进度通知（更新包下载用）：进度条类通知节流由调用方控制
+  /// （下载每秒多次分块，此处不重复实现节流）。done 为 true 时通知栏转
+  /// 「可点击」完成态。
+  static Future<void> notifyProgress({
+    required String title,
+    required String text,
+    required int received,
+    required int total,
+    required bool done,
+  }) async {
+    try {
+      await _channel.invokeMethod('showProgress', {
+        'title': title,
+        'text': text,
+        'received': received,
+        'total': total,
+        'done': done,
+      });
+    } catch (_) {}
+  }
+
+  /// 取消/移除当前进度通知（下载取消或结束时清理通知栏）。
+  static Future<void> cancel() async {
+    try {
+      await _channel.invokeMethod('cancel');
+    } catch (_) {}
+  }
+
+  /// 更新包下载结果通知（无开关门闸：用户主动触发下载，完成/失败必须告知，
+  /// 不受书架推送开关影响）。[error] 为 true 走 showError（红标错误图标），
+  /// 否则 showDone。带 [path]（安装包本地路径，通知点击拉起安装）。
+  static Future<void> notifyResult({
+    required String title,
+    required String text,
+    required bool error,
+    String path = '',
+  }) async {
+    try {
+      await _channel.invokeMethod(error ? 'showError' : 'showDone', {
+        'title': title,
+        'text': text,
+        'path': path,
+      });
+    } catch (_) {}
+  }
+
+  /// 安装器启动通知（Android 系统安装器 / Windows NSIS 静默安装时提示）。
+  static Future<void> notifyInstall(String path) async {
+    try {
+      await _channel.invokeMethod('showInstall', {'path': path});
+    } catch (_) {}
+  }
 }

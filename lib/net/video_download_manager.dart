@@ -4,8 +4,9 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
-import 'package:pointycastle/export.dart';
 
+import 'aes_cbc.dart';
+import 'download_utils.dart';
 import 'error_logger.dart';
 import 'http_client.dart';
 import 'local_store.dart';
@@ -412,7 +413,7 @@ class VideoDownloadManager {
       try {
         // 分块停滞超时：单文件直链下载期间源站中途挂死时，等待下一块
         // 20 秒无数据即放弃本任务（可重试），不无限悬挂。
-        await for (final chunk in _stallGuarded(resp, stall: const Duration(seconds: 45))) {
+        await for (final chunk in stallGuarded(resp, stall: const Duration(seconds: 45))) {
           if (_canceled.contains(t.key)) {
             resp.drain<void>();
             throw HttpException('已取消');
@@ -470,7 +471,8 @@ class VideoDownloadManager {
         if (_stalled.contains(t.key)) throw HttpException('下载停滞');
         var data = await _fetchBytesWith(client, pl.segments[i], t.headers);
         if (keyBytes != null) {
-          data = _aesDecrypt(data, keyBytes, _segIv(pl.keyIvHex, pl.mediaSeq + i));
+          data = AesCbc.decryptCbcRaw(
+              data, keyBytes, AesCbc.segmentIv(pl.keyIvHex, pl.mediaSeq + i));
         }
         sink.writeFromSync(data);
         t.segmentsDone = i + 1;
@@ -539,49 +541,6 @@ class VideoDownloadManager {
     return _M3u8Playlist(segments, keyUri, keyIvHex, mediaSeq, initSegment);
   }
 
-  /// 计算分片 IV。m3u8 协议规定：IV 不足 16 字节时右侧补零（RFC 8216）。
-  /// 早前实现直接截取前 16 字节，缩短 IV 时解密会错位，这里先解析后补零。
-  Uint8List _segIv(String? hex, int mediaSeq) {
-    if (hex != null && hex.isNotEmpty) {
-      final iv = <int>[];
-      for (var i = 0; i + 1 < hex.length; i += 2) {
-        iv.add(int.tryParse(hex.substring(i, i + 2), radix: 16) ?? 0);
-        if (iv.length == 16) break; // 只要前 16 字节
-      }
-      while (iv.length < 16) {
-        iv.add(0); // 右侧补零对齐 16 字节
-      }
-      return Uint8List.fromList(iv);
-    }
-    // 默认 IV = 媒体序号 big-endian 128 位（序号占低 64 位，与 ffmpeg AV_WB64 一致）
-    final iv = Uint8List(16);
-    var seq = mediaSeq;
-    for (var i = 15; i >= 8; i--) {
-      iv[i] = seq & 0xff;
-      seq >>= 8;
-    }
-    return iv;
-  }
-
-  Uint8List _aesDecrypt(Uint8List data, Uint8List key, Uint8List iv) {
-    final cipher = CBCBlockCipher(AESEngine())..init(false,
-        ParametersWithIV<KeyParameter>(KeyParameter(key), iv));
-    final out = Uint8List(data.length);
-    var offset = 0;
-    // CBC 解密（不剥离 padding，m3u8 分片拼接时保留原始字节）
-    final blocks = data.length ~/ 16;
-    for (var i = 0; i < blocks; i++) {
-      offset += cipher.processBlock(
-          data, i * 16, out, offset);
-    }
-    final tail = data.length - blocks * 16;
-    if (tail > 0) {
-      out.setRange(offset, offset + tail, data, blocks * 16);
-      offset += tail;
-    }
-    return Uint8List.sublistView(out, 0, offset);
-  }
-
   // ---------------- 通用 ----------------
 
   void _applyHeaders(HttpClientRequest req, Map<String, String> headers) {
@@ -631,20 +590,12 @@ class VideoDownloadManager {
     }
     final builder = BytesBuilder(copy: false);
     // 每块都带停滞超时：body 中途长时间不吐数据（源站挂死）不能无限等。
-    await for (final chunk in _stallGuarded(resp)) {
+    await for (final chunk in stallGuarded(resp)) {
       builder.add(chunk);
     }
     return builder.takeBytes();
   }
 
-  /// 带停滞超时的分块流：相邻两个块间隔超过 [stall] 即抛超时，
-  /// 避免「头已返回但 body 悬挂」的下载永远卡住。
-  Stream<List<int>> _stallGuarded(HttpClientResponse resp,
-      {Duration stall = const Duration(seconds: 20)}) async* {
-    await for (final chunk in resp.timeout(stall)) {
-      yield chunk;
-    }
-  }
 
   void _notifyThrottled() {
     final now = DateTime.now().millisecondsSinceEpoch;

@@ -12,7 +12,6 @@ import '../net/error_logger.dart';
 import '../net/http_client.dart';
 import '../net/local_store.dart';
 import 'detail_providers.dart';
-import 'detail_providers.dart' as detailp;
 import 'bookshelf_providers.dart' show bookshelfDataProvider;
 import 'reader_page.dart';
 import 'responsive.dart';
@@ -22,7 +21,9 @@ import 'style_tokens.dart';
 import 'tokens.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/cached_image.dart';
+import 'widgets/chapter_list_sheet.dart';
 import 'widgets/motion.dart';
+import 'widgets/state_view.dart';
 import 'keyboard_shortcuts.dart';
 
 /// 章节列表过滤+排序纯函数（全部章节 sheet 用；独立便于单元测试）。
@@ -63,21 +64,6 @@ class DetailPage extends ConsumerStatefulWidget {
     this.name,
     this.pic,
   });
-
-  /// 解析「开始阅读」目标：查历史里该作品最近读到的章节；无则返回 null（= 第 1 话）。
-  /// 转发到 detail_providers 层（provider 依赖此逻辑，提级避免循环导入）；
-  /// 行为与历史/章节数据契约解耦，纯函数便于单元测试。
-  static Chapter? resolveResumeChapter({
-    required List<HistoryEntry> history,
-    required List<Chapter> chapters,
-    required String sourceId,
-    required String comicId,
-  }) => detailp.resolveResumeChapter(
-    history: history,
-    chapters: chapters,
-    sourceId: sourceId,
-    comicId: comicId,
-  );
 
   @override
   ConsumerState<DetailPage> createState() => _DetailPageState();
@@ -196,8 +182,8 @@ class _DetailPageState extends ConsumerState<DetailPage> {
   }
 
   /// 按异常类型分档错误文案：网络类提示重试、解析类提示稍后、鉴权类提示登录，
-  /// 其余沿用通用文案（SourceHttp._unwrap 会把 SourceErr 重包装成 Exception，
-  /// 手写源只能走 toString 兜底，故兜底分支保留原措辞）。
+  /// 其余沿用通用文案。源失败直接抛类型化 [SourceError]，此处按子类型分支；
+  /// 手写源未归约的裸异常走 toString 兜底，故兜底分支保留原措辞。
   static String _detailErrorMessage(Object e) {
     if (e is TimeoutException) return '网络超时，请重试';
     if (e is SocketException) return '网络连接失败，请检查网络后重试';
@@ -266,8 +252,10 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                     )
                   else if (_error != null)
                     SliverToBoxAdapter(
-                      child: _ErrorView(
-                        error: _error!,
+                      child: StateView(
+                        kind: StateViewKind.error,
+                        message: _error!,
+                        icon: Icons.cloud_off_outlined,
                         onRetry: () => ref.invalidate(
                           comicDetailProvider((widget.sourceId, widget.comicId)),
                         ),
@@ -687,8 +675,10 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                       )
                     else if (_error != null)
                       SliverToBoxAdapter(
-                        child: _ErrorView(
-                          error: _error!,
+                        child: StateView(
+                          kind: StateViewKind.error,
+                          message: _error!,
+                          icon: Icons.cloud_off_outlined,
                           onRetry: () => ref.invalidate(
                             comicDetailProvider(
                               (widget.sourceId, widget.comicId),
@@ -1071,11 +1061,15 @@ class _DetailPageState extends ConsumerState<DetailPage> {
           ),
         ),
       ),
-      builder: (ctx) => _AllChaptersSheet(
-        detail: detail,
-        cachedIds: _marksNow.cachedChapters,
+      builder: (ctx) => ChapterListSheet<Chapter>(
+        chapters: detail.chapters,
+        title: '全部章节 · ${detail.chapters.length} 话',
+        titleOf: (ch, {required int index}) =>
+            titleOfChapter(detail.chapters, ch),
+        idOf: (ch) => ch.id,
         readIds: _marksNow.readChapters,
-        onPick: (ch) {
+        cachedIds: _marksNow.cachedChapters,
+        onTap: (ch) {
           Navigator.pop(ctx);
           _openChapter(ch);
         },
@@ -1845,277 +1839,4 @@ class _LoadingViewState extends State<_LoadingView>
   }
 }
 
-class _ErrorView extends StatelessWidget {
-  final String error;
-  final VoidCallback onRetry;
-  const _ErrorView({required this.error, required this.onRetry});
 
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0, end: 1),
-              duration: const Duration(milliseconds: 600),
-              curve: Curves.easeOutBack,
-              builder: (_, v, child) => Transform.scale(scale: v, child: child),
-              child: Container(
-                width: 84,
-                height: 84,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: scheme.error.withValues(alpha: 0.10),
-                ),
-                child: Icon(
-                  Icons.cloud_off_outlined,
-                  size: 44,
-                  color: scheme.error,
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              error,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: scheme.onSurface.withValues(alpha: 0.7),
-              ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh_rounded, size: 18),
-              label: const Text('重试'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// 「全部章节」底部弹窗：独立 StatefulWidget，自带倒序/正序切换与标题
-/// 搜索过滤（数百话漫画按关键词定位章节）。状态在组件内，切换即时
-/// 重建列表——比挂在父页 State 上可靠（modal 是独立 route，父 setState
-/// 不会重绘 sheet 内容）。
-class _AllChaptersSheet extends StatefulWidget {
-  final ComicDetail detail;
-  final Set<String> cachedIds;
-
-  /// 已读章节 id 集合（与 [cachedIds] 同款角标语义，列表项勾选标记）。
-  final Set<String> readIds;
-  final ValueChanged<Chapter> onPick;
-
-  const _AllChaptersSheet({
-    required this.detail,
-    required this.cachedIds,
-    required this.readIds,
-    required this.onPick,
-  });
-
-  @override
-  State<_AllChaptersSheet> createState() => _AllChaptersSheetState();
-}
-
-class _AllChaptersSheetState extends State<_AllChaptersSheet> {
-  final _filterCtrl = TextEditingController();
-  String _filter = '';
-  bool _descending = false;
-
-  @override
-  void dispose() {
-    _filterCtrl.dispose();
-    super.dispose();
-  }
-
-  List<Chapter> get _visible =>
-      filterChapters(widget.detail.chapters, _filter, descending: _descending);
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final visible = _visible;
-    return SafeArea(
-      child: SizedBox(
-        height: MediaQuery.of(context).size.height * 0.6,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-              child: Row(
-                children: [
-                  Text(
-                    '全部章节 · ${widget.detail.chapters.length} 话',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 15,
-                      color: scheme.onSurface,
-                    ),
-                  ),
-                  if (widget.cachedIds.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 8),
-                      child: Text(
-                        '已缓存 ${widget.cachedIds.length} 话',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: scheme.primary,
-                        ),
-                      ),
-                    ),
-                  if (widget.readIds.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 8),
-                      child: Text(
-                        '已读 ${widget.readIds.length} 话',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: scheme.onSurface.withValues(alpha: 0.55),
-                        ),
-                      ),
-                    ),
-                  const Spacer(),
-                  TextButton.icon(
-                    onPressed: () {
-                      setState(() => _descending = !_descending);
-                    },
-                    icon: Icon(
-                      _descending
-                          ? Icons.arrow_upward_rounded
-                          : Icons.arrow_downward_rounded,
-                      size: 16,
-                    ),
-                    label: Text(_descending ? '倒序' : '正序'),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
-              child: TextField(
-                controller: _filterCtrl,
-                onChanged: (v) => setState(() => _filter = v),
-                style: const TextStyle(fontSize: 13.5),
-                decoration: InputDecoration(
-                  isDense: true,
-                  hintText: '搜索章节标题 / 话数',
-                  hintStyle: TextStyle(
-                    fontSize: 13,
-                    color: scheme.onSurface.withValues(alpha: 0.4),
-                  ),
-                  prefixIcon: Icon(
-                    Icons.search_rounded,
-                    size: 18,
-                    color: scheme.onSurface.withValues(alpha: 0.5),
-                  ),
-                  suffixIcon: _filter.isEmpty
-                      ? null
-                      : IconButton(
-                          tooltip: '清除',
-                          icon: const Icon(Icons.close_rounded, size: 16),
-                          onPressed: () {
-                            _filterCtrl.clear();
-                            setState(() => _filter = '');
-                          },
-                        ),
-                  filled: true,
-                  fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(R.control),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
-            ),
-            Divider(
-              height: 0.5,
-              indent: StyleTokens.separatorIndent(context, 0),
-              endIndent: StyleTokens.separatorEndIndent(context, 0),
-              color: context.uiStyle == UIStyle.minimalist
-                  ? null
-                  : StyleTokens.rowSeparatorColor(context),
-            ),
-            Expanded(
-              child: visible.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.search_off_rounded,
-                            size: 36,
-                            color: scheme.onSurface.withValues(alpha: 0.3),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            _filter.trim().isEmpty ? '暂无章节' : '没有匹配「$_filter」的章节',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: scheme.onSurface.withValues(alpha: 0.55),
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: visible.length,
-                      itemBuilder: (_, i) {
-                        final ch = visible[i];
-                        final cached = widget.cachedIds.contains(ch.id);
-                        final read = widget.readIds.contains(ch.id);
-                        return ListTile(
-                          title: Row(
-                            children: [
-                              if (read)
-                                Padding(
-                                  padding: const EdgeInsets.only(right: 6),
-                                  child: Icon(
-                                    Icons.check_circle_rounded,
-                                    size: 14,
-                                    color: scheme.primary.withValues(alpha: 0.7),
-                                  ),
-                                ),
-                              if (cached)
-                                Padding(
-                                  padding: const EdgeInsets.only(right: 6),
-                                  child: Icon(
-                                    Icons.download_done_rounded,
-                                    size: 14,
-                                    color: scheme.primary,
-                                  ),
-                                ),
-                              Flexible(
-                                child: Text(
-                                  titleOfChapter(widget.detail.chapters, ch),
-                                  style: const TextStyle(fontSize: 13.5),
-                                ),
-                              ),
-                            ],
-                          ),
-                          trailing: Icon(
-                            Icons.chevron_right_rounded,
-                            size: 18,
-                            color: scheme.onSurface.withValues(alpha: 0.3),
-                          ),
-                          onTap: () => widget.onPick(ch),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

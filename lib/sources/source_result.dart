@@ -1,34 +1,9 @@
-import 'dart:async';
-import 'dart:io';
-
-/// 源请求的统一返回类型。
-///
-/// 对齐 Mihon 的 `SourceResult` / Ani 的 `ApiFailure` 设计：
-/// 任何源调用都不再抛"裸异常"污染 UI，而是返回结构化结果，UI 据此给出可操作的反馈
-/// （换源 / 去登录 / 重试 / 提示不可用），不白屏、不长时间转圈。
-sealed class SourceResult<T> {
-  const SourceResult();
-
-  const factory SourceResult.ok(T data) = SourceOk<T>;
-  const factory SourceResult.empty() = SourceEmpty<T>;
-  const factory SourceResult.err(SourceError error) = SourceErr<T>;
-}
-
-final class SourceOk<T> extends SourceResult<T> {
-  final T data;
-  const SourceOk(this.data);
-}
-
-final class SourceEmpty<T> extends SourceResult<T> {
-  const SourceEmpty();
-}
-
-final class SourceErr<T> extends SourceResult<T> {
-  final SourceError error;
-  const SourceErr(this.error);
-}
-
 /// 源错误类型。对齐 Mihon/Mangayomi 的结构化异常与 Ani 的 `BlockedException(BlockReason)`。
+///
+/// 源接口失败时**直接 throw** 具体子类型（网络/服务/鉴权/风控/解析/未知），
+/// UI 按类型给出可操作反馈（换源 / 去登录 / 重试 / 提示不可用），
+/// 不白屏、不长时间转圈。由 [SourceHttp] 与 DSL 源的统一网络出口负责归约，
+/// 其余代码不再经过「包上 SourceResult → 立刻拆开」的中间层。
 sealed class SourceError {
   const SourceError();
 
@@ -87,28 +62,3 @@ final class SourceUnknown extends SourceError {
 
 /// 拦截原因（对应 Ani 的 `BlockReason`）。
 enum BlockReason { captcha, rateLimited, notFound }
-
-/// 运行一个源调用并自动归约为 [SourceResult]。
-///
-/// 常见异常会被映射到对应的错误类型，避免每个源都手写 try/catch：
-/// - [SocketException]/[TimeoutException] → network
-/// - [FormatException] → parse
-/// - [HttpException] → service
-/// - 已抛出的 [SourceError] → 直接透传
-Future<SourceResult<T>> runCatching<T>(Future<T> Function() fn) async {
-  try {
-    return SourceResult.ok(await fn());
-  } on SourceError catch (e) {
-    return SourceResult.err(e);
-  } on FormatException catch (e) {
-    return SourceResult.err(SourceError.parse(e.message));
-  } on TimeoutException catch (e) {
-    return SourceResult.err(SourceError.network(e.message));
-  } on SocketException catch (e) {
-    return SourceResult.err(SourceError.network(e.message));
-  } on HttpException catch (e) {
-    return SourceResult.err(SourceError.service(e.message));
-  } catch (e) {
-    return SourceResult.err(SourceError.unknown(e.toString()));
-  }
-}
