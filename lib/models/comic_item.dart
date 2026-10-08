@@ -54,3 +54,10 @@ class ComicItem {
           'picFallback': picFallback,
       };
 }
+
+/// 通用分类（漫画/动漫/小说三源共用结构）。
+class Category {
+  final String id;
+  final String name;
+  Category(this.id, this.name);
+}

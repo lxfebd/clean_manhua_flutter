@@ -65,7 +65,7 @@ class FakeNovelSource extends novel.NovelSource {
   String get name => 'fake-novel-$id0';
 
   @override
-  Future<List<novel.Category>> categories() async => const [];
+  Future<List<Category>> categories() async => const [];
   @override
   Future<List<ComicItem>> listByCategory(String categoryId, int page) async =>
       const [];

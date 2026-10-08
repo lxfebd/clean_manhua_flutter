@@ -37,11 +37,6 @@ abstract class ComicSource extends AppSource {
   Future<bool> isInBookshelf(String comicId) async =>
       BookshelfStore.contains(id, comicId);
 }
-class Category {
-  final String id;
-  final String name;
-  Category(this.id, this.name);
-}
 
 class Chapter {
   final String id;

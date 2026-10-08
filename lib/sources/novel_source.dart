@@ -41,13 +41,6 @@ abstract class NovelSource extends AppSource {
       NovelShelfStore.contains(id, novelId);
 }
 
-/// 通用分类（与漫画源共用结构）。
-class Category {
-  final String id;
-  final String name;
-  Category(this.id, this.name);
-}
-
 /// 小说章节（id 由具体源定义，通常是章节序号或 slug）。
 class NovelChapter {
   final String id;
