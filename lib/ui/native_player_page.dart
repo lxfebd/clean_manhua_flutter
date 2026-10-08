@@ -428,10 +428,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         currentEpisode: _curEpisode,
       );
 
-  bool get _hasPrev => _curIndex > 0 && widget.resolveUrl != null;
+  bool get _hasPrev => hasPrevEpisode(_curIndex) && widget.resolveUrl != null;
   bool get _hasNext =>
-      _curIndex >= 0 &&
-      _curIndex < widget.episodes.length - 1 &&
+      hasNextEpisode(_curIndex, widget.episodes.length) &&
       widget.resolveUrl != null;
 
   @override

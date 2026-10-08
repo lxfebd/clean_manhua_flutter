@@ -1,5 +1,14 @@
 import '../sources/video_source.dart';
 
+/// 判断扁平剧集列表中下标为 [index] 的剧集是否有下一集（非末集）。
+/// 与阅读器 [canContinueChapter]/[hasPrevChapter] 同款边界谓词：
+/// 空/越界下标一律视为无下一集（返回 false）。
+bool hasNextEpisode(int index, int count) =>
+    index >= 0 && index < count - 1;
+
+/// 判断扁平剧集列表中的 [index] 是否有上一集（非首集）。
+bool hasPrevEpisode(int index) => index > 0;
+
 /// 把扁平的剧集按 [VideoEpisode.season]（播放源/线路）分组，保持源的顺序。
 /// 返回每组：源名（带「第N源」兜底）+ 该源下的剧集。仅当存在多个源时才
 /// 展示分组头。抽自播放器主 State，供选集面板/快捷面板复用。

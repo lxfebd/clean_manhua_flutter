@@ -2983,13 +2983,13 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     if (eps.isEmpty) return false;
     final idx =
         eps.indexWhere((e) => e.season == _curSeason && e.episode == _curEpisode);
-    return idx > 0;
+    return hasPrevEpisode(idx);
   }
 
   bool get _hasNext {
     final eps = widget.episodes;
     if (eps.isEmpty) return false;
-    return _nextIndex >= 0;
+    return hasNextEpisode(_currentIndex, eps.length);
   }
 
   /// 全屏控制浮层：缺进度条/时间/播放暂停控件，且永不自动隐藏遮挡画面。

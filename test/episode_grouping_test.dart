@@ -54,4 +54,28 @@ void main() {
           reason: '保持传入顺序，不做内部排序');
     });
   });
+
+  group('hasNextEpisode / hasPrevEpisode 边界谓词（播放器切集门）', () {
+    test('hasNextEpisode：中间集有下一集', () {
+      expect(hasNextEpisode(1, 3), isTrue);
+    });
+
+    test('hasNextEpisode：首集/末集/空列表/越界均无下一集', () {
+      expect(hasNextEpisode(0, 3), isTrue, reason: '首集非末集，有下一集');
+      expect(hasNextEpisode(2, 3), isFalse, reason: '末集无下一集');
+      expect(hasNextEpisode(0, 0), isFalse, reason: '空列表');
+      expect(hasNextEpisode(3, 3), isFalse, reason: '越界下标');
+      expect(hasNextEpisode(-1, 3), isFalse, reason: '负下标');
+    });
+
+    test('hasPrevEpisode：非首集有上一集', () {
+      expect(hasPrevEpisode(1), isTrue);
+      expect(hasPrevEpisode(2), isTrue);
+    });
+
+    test('hasPrevEpisode：首集/负下标无上一集', () {
+      expect(hasPrevEpisode(0), isFalse);
+      expect(hasPrevEpisode(-1), isFalse);
+    });
+  });
 }

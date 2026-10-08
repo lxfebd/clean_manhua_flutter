@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xingmanxia/net/local_store.dart';
 import 'package:xingmanxia/net/video_download_manager.dart';
 import 'package:xingmanxia/ui/bookshelf_download_view.dart';
 
@@ -29,7 +30,8 @@ void main() {
       ..segmentsTotal = segmentsTotal
       ..segmentsDone = segmentsDone;
 
-  Widget wrap(List<VideoDownloadTask> anime) {
+  Widget wrap(List<VideoDownloadTask> anime,
+      {List<DownloadRecord> manga = const [], bool retryingAll = false}) {
     return MaterialApp(
       home: Scaffold(
         body: Builder(
@@ -37,8 +39,9 @@ void main() {
             slivers: [
               BookshelfDownloadView(
                 scheme: Theme.of(context).colorScheme,
-                mangaDownloads: const [],
+                mangaDownloads: manga,
                 animeDownloads: anime,
+                retryingAll: retryingAll,
                 onClearManga: () async {},
                 onRetryAllManga: () async {},
                 onOpenMangaDetail: (_) {},
@@ -113,5 +116,53 @@ void main() {
     expect(find.textContaining('文件缺失'), findsOneWidget);
     // 缺失态提供重新下载入口
     expect(find.byIcon(Icons.refresh_rounded), findsOneWidget);
+  });
+
+  DownloadRecord failedManga() => DownloadRecord(
+        book: const Bookmark(sourceId: 's', comicId: 'c', name: '咒术', pic: ''),
+        chapterId: 'ch1',
+        chapterTitle: '第 1 话',
+        total: 2,
+        done: 2, // 计数到齐但未 finished → 判定为失败任务
+        finished: false,
+        localKey: 'k',
+        error: '磁盘写入失败',
+      );
+
+  testWidgets('漫画下载：失败任务显示「重试 N」入口（未在重试中）', (WidgetTester tester) async {
+    await tester.pumpWidget(wrap([], manga: [failedManga()]));
+    expect(find.text('咒术'), findsOneWidget);
+    expect(find.textContaining('磁盘写入失败'), findsOneWidget);
+    expect(find.text('重试 1'), findsOneWidget);
+    // 未重试中 → 按钮可点，无 spinner
+    final btn = tester.widget<TextButton>(
+        find.widgetWithText(TextButton, '重试 1'));
+    expect(btn.onPressed, isNotNull);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
+  testWidgets('漫画下载：retryingAll 时重试按钮禁用 + spinner + 「重试中…」', (WidgetTester tester) async {
+    // 进行中的任务（done < total）不计入 _failedManga；两个失败任务 → 计数 2
+    final inProgress = DownloadRecord(
+        book: const Bookmark(sourceId: 's', comicId: 'c2', name: '进行中', pic: ''),
+        chapterId: 'ch1',
+        chapterTitle: '第 1 话',
+        total: 5,
+        done: 2,
+        finished: false,
+        localKey: 'k2');
+    await tester.pumpWidget(wrap([],
+        manga: [failedManga(), failedManga(), inProgress], retryingAll: true));
+    expect(find.text('重试中…'), findsOneWidget);
+    // 重试中：头部按钮禁用（onPressed null）+ spinner
+    final btn = tester.widget<TextButton>(
+        find.widgetWithText(TextButton, '重试中…'));
+    expect(btn.onPressed, isNull);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    // 头部刷新图标被 spinner 替换；卡片级重试按钮不随批量重试隐藏
+    // （3 张未完成卡片：2 失败 + 1 进行中，每张各有一个 refresh）
+    expect(find.byIcon(Icons.refresh_rounded), findsNWidgets(3));
+    // 头部「重试 N」计数消失（被「重试中…」取代）
+    expect(find.text('重试 2'), findsNothing);
   });
 }
