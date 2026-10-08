@@ -37,6 +37,14 @@ import '../utils/colorizer_manager.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/jm_scramble_image.dart';
 
+/// 是否可连读到下一话：当前章节在章节列表中且不是最后一话。
+/// 纯函数：供键盘 [ ] / 底栏按钮 / 章末自动连读 / 预取 共用边界判定。
+bool canContinueChapter(int chapterIndex, int chapterCount) =>
+    chapterIndex >= 0 && chapterIndex < chapterCount - 1;
+
+/// 是否有上一话可回退（索引 > 0）。
+bool hasPrevChapter(int chapterIndex) => chapterIndex > 0;
+
 /// 阅读器（对齐 UI_v2 S5/S6）：沉浸式黑底 + 顶部返回/标题/菜单 +
 /// 底部悬浮玻璃工具栏（亮度/目录/翻页模式/下载）+ 底部居中页码。
 class ReaderPage extends ConsumerStatefulWidget {
@@ -278,7 +286,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
         if (widget.chapters.isNotEmpty) _showChapterList();
         return true;
       case LogicalKeyboardKey.bracketLeft:
-        if (_chapterIndex > 0) _goPrevChapter();
+        if (hasPrevChapter(_chapterIndex)) _goPrevChapter();
         return true;
       case LogicalKeyboardKey.bracketRight:
         if (_canContinue) _continueToNextChapter();
@@ -973,7 +981,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
           onDownload: _downloading ? null : _download,
           // 底部「上一章 / 下一章」：直接跳上一话/下一话，无需翻到章节
           // 末尾或靠手势。边界（首章/末章）传 null，按钮自动隐藏。
-          onPrevChapter: _chapterIndex > 0 ? _goPrevChapter : null,
+          onPrevChapter: hasPrevChapter(_chapterIndex) ? _goPrevChapter : null,
           // 底部新增「下一章」：直接跳下一话，无需翻到章节末尾。
           // 最后一章时传 null，按钮自动隐藏。
           onNextChapter: _canContinue ? _continueToNextChapter : null,
@@ -1050,7 +1058,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
         // 边缘上滑 → 下一话（连读方向与翻页一致）
         _vGestureStart = 0;
         _continueToNextChapter();
-      } else if (_chapterIndex > 0 && _vGestureStart >= _vSlop) {
+      } else if (hasPrevChapter(_chapterIndex) && _vGestureStart >= _vSlop) {
         // 边缘下滑 → 上一话
         _vGestureStart = 0;
         _goPrevChapter();
@@ -2188,7 +2196,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
   }
 
   /// 是否可连读：当前章节在章节列表中且不是最后一话。
-  bool get _canContinue => _chapterIndex >= 0 && _chapterIndex < widget.chapters.length - 1;
+  bool get _canContinue => canContinueChapter(_chapterIndex, widget.chapters.length);
 
   Chapter? _nextChapter() =>
       _canContinue ? widget.chapters[_chapterIndex + 1] : null;
