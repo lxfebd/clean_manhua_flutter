@@ -6,7 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 
 import 'aes_cbc.dart';
-import 'download_utils.dart';
+import 'download_engine.dart';
 import 'error_logger.dart';
 import 'http_client.dart';
 import 'local_store.dart';
@@ -68,17 +68,17 @@ class VideoDownloadTask {
   int get secondsSinceStart => DateTime.now().difference(startedAt).inSeconds;
 
   Map<String, dynamic> toJson() => {
-        'sourceId': sourceId,
-        'videoId': videoId,
-        'title': title,
-        'season': season,
-        'episode': episode,
-        'url': url,
-        'headers': headers,
-        'state': state,
-        'localPath': localPath,
-        'error': error,
-      };
+    'sourceId': sourceId,
+    'videoId': videoId,
+    'title': title,
+    'season': season,
+    'episode': episode,
+    'url': url,
+    'headers': headers,
+    'state': state,
+    'localPath': localPath,
+    'error': error,
+  };
 
   factory VideoDownloadTask.fromJson(Map<String, dynamic> m) {
     final t = VideoDownloadTask(
@@ -89,7 +89,8 @@ class VideoDownloadTask {
       episode: (m['episode'] as num?)?.toInt() ?? 1,
       url: (m['url'] as String?) ?? '',
       headers: Map<String, String>.from(
-          (m['headers'] as Map?)?.cast<String, dynamic>() ?? const {}),
+        (m['headers'] as Map?)?.cast<String, dynamic>() ?? const {},
+      ),
     );
     // 恢复持久化状态：否则重启后已完成任务（done + localPath）退化为默认
     // downloading → init() 误标 failed，已下载内容既不可见也打不开。
@@ -107,14 +108,28 @@ class _M3u8Playlist {
   final String? keyIvHex;
   final int mediaSeq;
   final String? initSegment;
-  _M3u8Playlist(this.segments, this.keyUri, this.keyIvHex, this.mediaSeq,
-      this.initSegment);
+  _M3u8Playlist(
+    this.segments,
+    this.keyUri,
+    this.keyIvHex,
+    this.mediaSeq,
+    this.initSegment,
+  );
 }
 
 /// 视频下载管理器：mp4 直链流式下载 / m3u8 分片下载合并（含 AES-128 解密）。
 /// 文件存放：应用私有目录 data/downloads/videos/{番名}/S{季}E{集}.{ext}
 class VideoDownloadManager {
-  VideoDownloadManager._();
+  VideoDownloadManager._() {
+    _queue = TaskQueue<String>(
+      maxConcurrent: _maxConcurrent,
+      run: (key) => _run(_tasks[key]!),
+    );
+    _persistDebounced = DebouncedPersist(
+      debounce: const Duration(milliseconds: 500),
+      write: _writeIndex,
+    );
+  }
 
   static final VideoDownloadManager instance = VideoDownloadManager._();
 
@@ -123,22 +138,33 @@ class VideoDownloadManager {
       '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
   final Map<String, VideoDownloadTask> _tasks = {};
-  final Set<String> _canceled = {};
 
-  /// 总进度看门狗触发集：[_run] 的周期检查发现任务在途 90 秒零字节
-  /// 增长时加入；下载循环在分片边界检查并中止（与 [_canceled] 并列）。
-  /// 分片级 stall 守卫只防「单块之间断流」，挡不住「一直在吐但几乎不涨」
-  /// 的涓流（每块间隔 <45s、每块几百字节可无限续命），这层是整体兜底。
-  final Set<String> _stalled = {};
-
-  final ValueNotifier<Map<String, VideoDownloadTask>> notifier =
-      ValueNotifier(const {});
+  /// 取消 token（P0-1 引擎共享）：per-key 单任务取消，与历史 [_canceled]
+  /// 集合语义一致（任务开始/重试/删除后重新下载时清除标记）。
+  final CancelToken _cancel = CancelToken();
 
   /// 同时进行的下载任务数上限：低端机多任务并发会耗尽磁盘 IO 与带宽，
   /// 导致下载互相拖慢、进度跳动。超过上限的任务排队等待。
   static const int _maxConcurrent = 2;
-  final Set<String> _queue = {};
-  final Set<String> _running = {};
+
+  /// 有界任务队列（P0-1 引擎共享）：并发上限 2，超出排队，完成自动补位。
+  late final TaskQueue<String> _queue;
+
+  /// 总进度看门狗：[_run] 周期采样发现任务在途 90 秒零字节增长时中止
+  /// （与分片级 stall 守卫并列，防「一直在吐但几乎不涨」的涓流）。
+  final Set<String> _stalled = {};
+
+  final ValueNotifier<Map<String, VideoDownloadTask>> notifier = ValueNotifier(
+    const {},
+  );
+
+  /// 进度通知节流（P0-1 引擎共享）：每 300ms 合并一次 ValueNotifier 通知。
+  final ProgressThrottle _notifyThrottle = ProgressThrottle(
+    const Duration(milliseconds: 300),
+  );
+
+  /// 索引防抖持久化（P0-1 引擎共享）：批量状态更新合并到 500ms 窗口末尾。
+  late final DebouncedPersist _persistDebounced;
 
   File _indexFile = File('');
   bool _ready = false;
@@ -163,7 +189,8 @@ class VideoDownloadManager {
         if (list is List) {
           for (final e in list) {
             final t = VideoDownloadTask.fromJson(
-                Map<String, dynamic>.from(e as Map));
+              Map<String, dynamic>.from(e as Map),
+            );
             if (t.state == 'downloading') {
               // 进程中断导致的悬挂任务标记为失败
               t.state = 'failed';
@@ -212,52 +239,24 @@ class VideoDownloadManager {
     final existing = _tasks[task.key];
     if (existing != null) {
       if (existing.isRunning || existing.state == 'done') return existing;
-      _canceled.remove(task.key);
+      _cancel.clearTaskCancel(task.key);
       _tasks[task.key] = task;
     } else {
       // 新建任务分支同样清理取消标记：删除任务后重新 start 同一集时，
       // 若此前 cancel() 留下的标记未清，新任务会被误判为已取消（缺陷修复）。
-      _canceled.remove(task.key);
+      _cancel.clearTaskCancel(task.key);
       _tasks[task.key] = task;
     }
     _notify();
     _persist();
-    _schedule(task);
+    _queue.submit(task.key);
     return task;
   }
 
-  /// 排队调度：在途任务未达上限则立即运行，否则进入等待队列。
-  /// 任务完成后由 [_run] 末尾的 [_drain] 拉起下一个排队任务。
-  void _schedule(VideoDownloadTask t) {
-    if (_running.length < _maxConcurrent) {
-      _running.add(t.key);
-      unawaited(_run(t));
-    } else {
-      _queue.add(t.key);
-    }
-  }
-
-  /// 任务结束时释放槽位，并启动下一个排队任务。
-  void _drain() {
-    if (_queue.isEmpty) return;
-    for (final k in _queue.toList()) {
-      if (_running.length >= _maxConcurrent) break;
-      if (_canceled.contains(k)) {
-        // 排队期间被取消：跳过，任务状态已在 cancel() 处理
-        _queue.remove(k);
-        continue;
-      }
-      _queue.remove(k);
-      _running.add(k);
-      final t = _tasks[k];
-      if (t != null) unawaited(_run(t));
-    }
-  }
-
   void cancel(String key) {
-    _canceled.add(key);
+    _cancel.cancelTask(key);
     // 排队中的任务直接标记取消态（还未开始下载）
-    if (_queue.remove(key)) {
+    if (_queue.removePending(key)) {
       final t = _tasks[key];
       if (t != null) {
         t.state = 'canceled';
@@ -265,7 +264,7 @@ class VideoDownloadManager {
         _persist();
       }
     }
-    _drain();
+    _queue.drain();
   }
 
   /// 重试一个失败/已取消的任务。返回是否真的启动了重试。
@@ -277,7 +276,7 @@ class VideoDownloadManager {
     final t = _tasks[key];
     if (t == null) return false;
     if (t.isRunning || t.state == 'done') return false;
-    _canceled.remove(key);
+    _cancel.clearTaskCancel(key);
     t.state = 'downloading';
     t.error = null;
     t.doneBytes = 0;
@@ -286,7 +285,7 @@ class VideoDownloadManager {
     t.segmentsTotal = 0;
     t.localPath = null;
     _notify();
-    _schedule(t);
+    _queue.submit(key);
     return true;
   }
 
@@ -295,9 +294,9 @@ class VideoDownloadManager {
     final t = _tasks.remove(key);
     if (t == null) return false;
     // 从队列/在途集合移除，清理取消标记避免与后续重试同名任务串扰
-    _queue.remove(key);
-    _running.remove(key);
-    _canceled.remove(key);
+    _queue.removePending(key);
+    _queue.release(key);
+    _cancel.clearTaskCancel(key);
     if (t.localPath != null) {
       try {
         final f = File(t.localPath!);
@@ -306,35 +305,28 @@ class VideoDownloadManager {
         ErrorLogger.instance.warn('删除下载文件失败 ${t.localPath}: $e');
       }
     }
-    _drain();
+    _queue.drain();
     _notify();
     _persist();
     return true;
   }
 
   Future<void> _run(VideoDownloadTask t) async {
-    // 总进度看门狗：每 15s 拍一次 doneBytes，连续 6 拍（90s）零增长 →
-    // 标记停滞，循环在下一个分片/数据块边界中止任务。慢速但持续增长的
-    // 合法下载不受影响（任一拍有增长即清零计数）。
-    var lastBytes = t.doneBytes;
-    var stallTicks = 0;
-    final watchdog = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (t.state != 'downloading') return;
-      if (t.doneBytes == lastBytes) {
-        stallTicks++;
-        if (stallTicks >= 6) _stalled.add(t.key);
-      } else {
-        stallTicks = 0;
-        lastBytes = t.doneBytes;
-      }
-    });
+    // 总进度看门狗（P0-1 引擎共享）：每 15s 拍一次 doneBytes，连续 6 拍
+    // （90s）零增长 → 标记停滞，循环在下一个分片/数据块边界中止任务。
+    // 慢速但持续增长的合法下载不受影响（任一拍有增长即清零计数）。
+    final watchdog = StallWatchdog(
+      bytesOf: () => t.doneBytes,
+      onStalled: () => _stalled.add(t.key),
+      isActive: () => t.state == 'downloading',
+    )..start();
     try {
       if (t.isM3u8) {
         await _downloadM3u8(t);
       } else {
         await _downloadMp4(t);
       }
-      if (_canceled.contains(t.key)) {
+      if (_cancel.isTaskCancelled(t.key)) {
         t.state = 'canceled';
         _cleanupPartFile(t);
       } else if (_stalled.contains(t.key)) {
@@ -348,31 +340,34 @@ class VideoDownloadManager {
       // 原始异常（SocketException/HttpException）进日志；UI 展示用固定中文文案。
       ErrorLogger.instance.logError('[video-dl] FAIL key=${t.key} err=$e');
       t.error = e is HttpException ? e.message : '下载失败，请重试';
-      t.state = _canceled.contains(t.key) ? 'canceled' : 'failed';
+      t.state = _cancel.isTaskCancelled(t.key) ? 'canceled' : 'failed';
       _cleanupPartFile(t);
     } finally {
-      watchdog.cancel();
+      watchdog.stop();
       _stalled.remove(t.key);
     }
-    _running.remove(t.key);
     // 单集收尾：完成/失败发系统通知（应用切后台或退出下载页时告知结果）。
     // 已取消不发（用户主动行为，无需提醒）。
     if (t.state == 'done') {
-      unawaited(UpdateNotifier.notifyDownloadResult(
-        title: '《${t.title}》下载完成',
-        text: '第 ${t.episode} 集已缓存，可离线观看',
-        error: false,
-      ));
+      unawaited(
+        UpdateNotifier.notifyDownloadResult(
+          title: '《${t.title}》下载完成',
+          text: '第 ${t.episode} 集已缓存，可离线观看',
+          error: false,
+        ),
+      );
     } else if (t.state == 'failed') {
-      unawaited(UpdateNotifier.notifyDownloadResult(
-        title: '《${t.title}》下载失败',
-        text: '第 ${t.episode} 集：${t.error ?? '请重试'}',
-        error: true,
-      ));
+      unawaited(
+        UpdateNotifier.notifyDownloadResult(
+          title: '《${t.title}》下载失败',
+          text: '第 ${t.episode} 集：${t.error ?? '请重试'}',
+          error: true,
+        ),
+      );
     }
     _notify();
     _persist();
-    _drain();
+    // 运行槽位释放 + 拉起排队任务由 TaskQueue._wrap 的 complete 收尾。
   }
 
   // ---------------- mp4 直链 ----------------
@@ -402,8 +397,9 @@ class VideoDownloadManager {
     final client = Net.clientForRequest(Uri.parse(t.url).host)
       ..idleTimeout = const Duration(seconds: 30);
     try {
-      final req = await client.getUrl(Uri.parse(t.url)).timeout(
-          const Duration(seconds: 30));
+      final req = await client
+          .getUrl(Uri.parse(t.url))
+          .timeout(const Duration(seconds: 30));
       _applyHeaders(req, t.headers);
       final resp = await req.close().timeout(const Duration(seconds: 30));
       if (resp.statusCode != 200 && resp.statusCode != 206) {
@@ -413,8 +409,11 @@ class VideoDownloadManager {
       try {
         // 分块停滞超时：单文件直链下载期间源站中途挂死时，等待下一块
         // 20 秒无数据即放弃本任务（可重试），不无限悬挂。
-        await for (final chunk in stallGuarded(resp, stall: const Duration(seconds: 45))) {
-          if (_canceled.contains(t.key)) {
+        await for (final chunk in stallGuarded(
+          resp,
+          stall: const Duration(seconds: 45),
+        )) {
+          if (_cancel.isTaskCancelled(t.key)) {
             resp.drain<void>();
             throw HttpException('已取消');
           }
@@ -450,7 +449,7 @@ class VideoDownloadManager {
 
     // 密钥下载失败直接抛出，避免把密文当明文写入产出不可播文件
     Uint8List? keyBytes;
-    if (pl.keyUri != null && !_canceled.contains(t.key)) {
+    if (pl.keyUri != null && !_cancel.isTaskCancelled(t.key)) {
       keyBytes = await _fetchBytes(pl.keyUri!, t.headers);
     }
 
@@ -467,12 +466,15 @@ class VideoDownloadManager {
         t.doneBytes += init.length;
       }
       for (var i = 0; i < pl.segments.length; i++) {
-        if (_canceled.contains(t.key)) throw HttpException('已取消');
+        if (_cancel.isTaskCancelled(t.key)) throw HttpException('已取消');
         if (_stalled.contains(t.key)) throw HttpException('下载停滞');
         var data = await _fetchBytesWith(client, pl.segments[i], t.headers);
         if (keyBytes != null) {
           data = AesCbc.decryptCbcRaw(
-              data, keyBytes, AesCbc.segmentIv(pl.keyIvHex, pl.mediaSeq + i));
+            data,
+            keyBytes,
+            AesCbc.segmentIv(pl.keyIvHex, pl.mediaSeq + i),
+          );
         }
         sink.writeFromSync(data);
         t.segmentsDone = i + 1;
@@ -490,7 +492,9 @@ class VideoDownloadManager {
   /// 解析 m3u8 播放列表。master playlist（含 #EXT-X-STREAM-INF）取最高码率
   /// 变体递归解析其媒体播放列表；媒体列表返回分片、密钥、初始化段（均已转为绝对 URL）。
   Future<_M3u8Playlist> _resolveMediaPlaylist(
-      String url, Map<String, String> headers) async {
+    String url,
+    Map<String, String> headers,
+  ) async {
     final text = await _fetchText(url, headers);
     var mediaSeq = 0;
     String? keyUri;
@@ -504,12 +508,15 @@ class VideoDownloadManager {
       if (line.isEmpty) continue;
       if (line.startsWith('#')) {
         if (line.startsWith('#EXT-X-MEDIA-SEQUENCE:')) {
-          mediaSeq = int.tryParse(
-                  line.substring('#EXT-X-MEDIA-SEQUENCE:'.length).trim()) ??
+          mediaSeq =
+              int.tryParse(
+                line.substring('#EXT-X-MEDIA-SEQUENCE:'.length).trim(),
+              ) ??
               0;
         } else if (line.startsWith('#EXT-X-KEY:')) {
-          final method =
-              RegExp(r'METHOD=([A-Z0-9-]+)').firstMatch(line)?.group(1);
+          final method = RegExp(
+            r'METHOD=([A-Z0-9-]+)',
+          ).firstMatch(line)?.group(1);
           final rawUri = RegExp(r'URI="([^"]+)"').firstMatch(line)?.group(1);
           keyIvHex = RegExp(r'IV=0x([0-9a-fA-F]+)').firstMatch(line)?.group(1);
           if (method == null || method == 'NONE' || rawUri == null) {
@@ -579,8 +586,12 @@ class VideoDownloadManager {
   }
 
   Future<Uint8List> _fetchBytesWith(
-      HttpClient client, String url, Map<String, String> headers) async {
-    final req = await client.getUrl(Uri.parse(url))
+    HttpClient client,
+    String url,
+    Map<String, String> headers,
+  ) async {
+    final req = await client
+        .getUrl(Uri.parse(url))
         .timeout(const Duration(seconds: 20));
     _applyHeaders(req, headers);
     final resp = await req.close().timeout(const Duration(seconds: 20));
@@ -596,16 +607,9 @@ class VideoDownloadManager {
     return builder.takeBytes();
   }
 
-
   void _notifyThrottled() {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastNotify >= 300) {
-      _lastNotify = now;
-      _notify();
-    }
+    if (_notifyThrottle.allow()) _notify();
   }
-
-  int _lastNotify = 0;
 
   void _notify() {
     notifier.value = Map.of(_tasks);
@@ -623,7 +627,8 @@ class VideoDownloadManager {
   @visibleForTesting
   Future<void> resetForTest() async {
     _tasks.clear();
-    _canceled.clear();
+    _queue.clearPending();
+    _cancel.cancelAll();
     _notify();
     try {
       if (_indexFile.path.isNotEmpty && _indexFile.existsSync()) {
@@ -638,29 +643,17 @@ class VideoDownloadManager {
       final part = File('${dir.path}/S${t.season}E${t.episode}.mp4.part');
       if (part.existsSync()) part.deleteSync();
     } catch (e) {
-      ErrorLogger.instance.warn('[video-dl] cleanup part failed key=${t.key}: $e');
+      ErrorLogger.instance.warn(
+        '[video-dl] cleanup part failed key=${t.key}: $e',
+      );
     }
   }
 
-  /// 防抖定时器：批量状态更新时合并写盘（如批量添加/排队期间连续 _persist），
-  /// 上次调用后 [_persistDebounce] 内仅下一次写。
-  Timer? _persistTimer;
-  static const Duration _persistDebounce = Duration(milliseconds: 500);
-
-  void _persist() {
-    _persistTimer?.cancel();
-    _persistTimer = Timer(_persistDebounce, () {
-      _persistTimer = null;
-      unawaited(_writeIndex());
-    });
-  }
+  /// 索引写盘（P0-1 引擎防抖持久化合并调用，批量状态更新 500ms 内仅写一次）。
+  void _persist() => _persistDebounced.request();
 
   /// 立即写盘（供防抖合并窗口之外的关键路径显式调用，如应用切后台/退出前）。
-  void flushPersist() {
-    _persistTimer?.cancel();
-    _persistTimer = null;
-    unawaited(_writeIndex());
-  }
+  void flushPersist() => _persistDebounced.flush();
 
   Future<void> _writeIndex() async {
     try {

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image/image.dart' as img;
 
 import '../sources/source_http.dart';
+import 'download_engine.dart';
 import 'error_logger.dart';
 import 'http_client.dart';
 import 'local_store.dart';
@@ -39,37 +40,28 @@ class DownloadManager {
   /// 省空间档位的最大宽边（逻辑像素；源图超过则等比缩到该宽度）。
   static const int compactMaxWidth = 1080;
 
-  /// 全局取消代际 token。取消是全局的：用户显式调用 [cancelAll] 递增
-  /// token，使所有已派发批次失效；[beginBatch] 只快照当前代号，供批次内
-  /// 循环用 [isCancelled(gen)] 查询——**不递增**，否则新任务一启动就把
-  /// 在途旧任务误判为已取消（原 bool 方案的串扰会换一种形式复现）。
-  static int _cancelGen = 0;
-
-  /// 单任务取消标记：key（`sourceId/comicId/chapterId`）→ 已请求取消。
-  /// 供 UI 跨页面取消在途下载（如书架取消详情页发起的批量任务），
-  /// 不干扰其它任务。新任务开始时消费（remove）本 key 的旧标记，
-  /// 不继承旧的取消状态。
-  static final Map<String, int> _taskCancels = {};
+  /// 取消 token（P0-1 引擎共享）：承载批次代际 + 单任务 per-key 标记两套
+  /// 语义。代际快照供批次内轮询、per-key 标记供跨页面单任务取消；语义与
+  /// 历史实现一致（[cancelAll] 递增代号使已派发批次失效并清空 per-key，
+  /// 任务开始消费旧标记不继承）。
+  static final CancelToken _cancel = CancelToken();
 
   /// 快照当前取消代号作为本次批次的代号。新任务开始不会影响在途任务；
   /// 只有 [cancelAll] 递增代号才使所有已派发批次失效。
-  static int beginBatch() => _cancelGen;
+  static int beginBatch() => _cancel.snapshot();
 
   /// 是否已请求取消（本批次内）。传入暂停时快照的代号。
-  static bool isCancelled(int gen) => gen != _cancelGen;
+  static bool isCancelled(int gen) => _cancel.isBatchCancelled(gen);
 
   /// 该任务是否已被 [cancelTask] 请求取消。下载循环每张图轮询一次。
-  static bool isTaskCancelled(String key) => _taskCancels.containsKey(key);
+  static bool isTaskCancelled(String key) => _cancel.isTaskCancelled(key);
 
   /// 取消单个下载任务（[downloadChapter] 的 key）。只影响该 key 的在途
   /// 下载，不干扰其它任务。无在途下载时留一个未来标记，任务开始时消费。
-  static void cancelTask(String key) => _taskCancels[key] = _cancelGen + 1;
+  static void cancelTask(String key) => _cancel.cancelTask(key);
 
   /// 取消所有进行中的下载任务（使所有已派发批次失效）。
-  static void cancelAll() {
-    _cancelGen++;
-    _taskCancels.clear(); // 全局取消同时清掉单任务标记，避免误取消新任务
-  }
+  static void cancelAll() => _cancel.cancelAll();
 
   /// 下载某个章节的全部图片（带并发与超时）。
   /// [batchGen] 为本逻辑任务的取消代号（[beginBatch] 返回值）；取消时
@@ -90,7 +82,7 @@ class DownloadManager {
     final key = '${book.sourceId}/${book.comicId}/$chapterId';
     // 消费单任务取消标记：任务开始前被取消（书架取消按钮抢先按下）→
     // 不落开始记录直接返回；否则清除旧标记，新任务不继承取消状态。
-    final preCancelled = _taskCancels.remove(key) != null;
+    final preCancelled = _cancel.consumeTaskCancel(key);
     final record = DownloadRecord(
       book: book,
       chapterId: chapterId,
@@ -103,16 +95,18 @@ class DownloadManager {
     await LocalStore.upsertDownload(record);
 
     if (preCancelled) {
-      await LocalStore.upsertDownload(DownloadRecord(
-        book: book,
-        chapterId: chapterId,
-        chapterTitle: chapterTitle,
-        total: urls.length,
-        done: 0,
-        finished: false,
-        localKey: key,
-        error: '已取消',
-      ));
+      await LocalStore.upsertDownload(
+        DownloadRecord(
+          book: book,
+          chapterId: chapterId,
+          chapterTitle: chapterTitle,
+          total: urls.length,
+          done: 0,
+          finished: false,
+          localKey: key,
+          error: '已取消',
+        ),
+      );
       return const DownloadResult.fail('已取消');
     }
 
@@ -138,16 +132,21 @@ class DownloadManager {
         final path = await LocalStore.localImagePath(key, i);
         if (!File(path).existsSync()) {
           // 单源代理：图片下载与源同代理；无配置（null）走全局代理/直连
-          final proxy = book.sourceId.isEmpty
-              ? null
-              : await SourceHttp.proxyFor(book.sourceId);
-          final bytes = Uint8List.fromList(await Net.getBytesAuto(urls[i],
-                  proxy: proxy)
-              .timeout(_imageTimeout));
+          final proxy =
+              book.sourceId.isEmpty
+                  ? null
+                  : await SourceHttp.proxyFor(book.sourceId);
+          final bytes = Uint8List.fromList(
+            await Net.getBytesAuto(
+              urls[i],
+              proxy: proxy,
+            ).timeout(_imageTimeout),
+          );
           try {
             if (quality == DownloadQuality.compact) {
-              await File(path).writeAsBytes(
-                  _compactBytes(bytes, compactMaxWidth));
+              await File(
+                path,
+              ).writeAsBytes(_compactBytes(bytes, compactMaxWidth));
             } else {
               await File(path).writeAsBytes(bytes);
             }
@@ -156,7 +155,8 @@ class DownloadManager {
             // 章，避免继续下载产生更多失败页（用户看不到原因）。
             writeError = _describeWriteError(e);
             ErrorLogger.instance.logError(
-                '[download] write FAIL chapter=$chapterId idx=$i err=$e');
+              '[download] write FAIL chapter=$chapterId idx=$i err=$e',
+            );
             return;
           }
         }
@@ -164,33 +164,41 @@ class DownloadManager {
       } catch (e) {
         // 单张图拉取失败不中断整章（尽量多下），但要留痕——
         // 否则 UI 只看到「下载未完成」无法区分网络失败与写盘失败。
-        ErrorLogger.instance.warn('[download] img FAIL chapter=$chapterId idx=$i err=$e');
+        ErrorLogger.instance.warn(
+          '[download] img FAIL chapter=$chapterId idx=$i err=$e',
+        );
       }
       done++;
       onProgress?.call(done, urls.length);
-      await LocalStore.upsertDownload(DownloadRecord(
-        book: book,
-        chapterId: chapterId,
-        chapterTitle: chapterTitle,
-        total: urls.length,
-        done: done,
-        finished: false,
-        localKey: key,
-      ));
+      await LocalStore.upsertDownload(
+        DownloadRecord(
+          book: book,
+          chapterId: chapterId,
+          chapterTitle: chapterTitle,
+          total: urls.length,
+          done: done,
+          finished: false,
+          localKey: key,
+        ),
+      );
     }
 
     // 分批并发：每批最多 _concurrency 张，全部超时可控。
-    for (var start = 0;
-        start < urls.length &&
-            !isCancelled(batchGen) &&
-            !isTaskCancelled(key) &&
-            writeError == null;
-        start += _concurrency) {
+    for (
+      var start = 0;
+      start < urls.length &&
+          !isCancelled(batchGen) &&
+          !isTaskCancelled(key) &&
+          writeError == null;
+      start += _concurrency
+    ) {
       final end = (start + _concurrency).clamp(0, urls.length);
       final batch = <Future<void>>[];
       for (var i = start; i < end; i++) {
-        if (await LocalStore.localImagePath(key, i).then(
-                (p) => File(p).existsSync())) {
+        if (await LocalStore.localImagePath(
+          key,
+          i,
+        ).then((p) => File(p).existsSync())) {
           continue;
         }
         batch.add(downloadOne(i));
@@ -199,21 +207,25 @@ class DownloadManager {
     }
 
     if (writeError != null) {
-      await LocalStore.upsertDownload(DownloadRecord(
-        book: book,
-        chapterId: chapterId,
-        chapterTitle: chapterTitle,
-        total: urls.length,
-        done: done,
-        finished: false,
-        localKey: key,
-        error: writeError,
-      ));
-      unawaited(UpdateNotifier.notifyDownloadResult(
-        title: '《${book.name}》下载失败',
-        text: '《$chapterTitle》：$writeError',
-        error: true,
-      ));
+      await LocalStore.upsertDownload(
+        DownloadRecord(
+          book: book,
+          chapterId: chapterId,
+          chapterTitle: chapterTitle,
+          total: urls.length,
+          done: done,
+          finished: false,
+          localKey: key,
+          error: writeError,
+        ),
+      );
+      unawaited(
+        UpdateNotifier.notifyDownloadResult(
+          title: '《${book.name}》下载失败',
+          text: '《$chapterTitle》：$writeError',
+          error: true,
+        ),
+      );
       return DownloadResult.fail(writeError);
     }
 
@@ -224,37 +236,46 @@ class DownloadManager {
     final cancelled =
         (isCancelled(batchGen) || taskCancelled) && done < urls.length;
     final ok = !cancelled && done == urls.length && okCount == urls.length;
-    await LocalStore.upsertDownload(DownloadRecord(
-      book: book,
-      chapterId: chapterId,
-      chapterTitle: chapterTitle,
-      total: urls.length,
-      done: done,
-      finished: ok,
-      localKey: key,
-      // 中断原因落盘：用户取消 / 网络失败（缺页）也能在下载列表看到具体原因。
-      // 失败页数用 okCount（实际落盘页）反推：done 含「任务取消/跳到已存在
-      // 文件」等未真正拉取的页，用它算会让「N 页失败」恒为 0。
-      error: cancelled
-          ? '已取消'
-          : (ok ? null : '下载未完成：${urls.length - okCount} 页失败'),
-    ));
+    await LocalStore.upsertDownload(
+      DownloadRecord(
+        book: book,
+        chapterId: chapterId,
+        chapterTitle: chapterTitle,
+        total: urls.length,
+        done: done,
+        finished: ok,
+        localKey: key,
+        // 中断原因落盘：用户取消 / 网络失败（缺页）也能在下载列表看到具体原因。
+        // 失败页数用 okCount（实际落盘页）反推：done 含「任务取消/跳到已存在
+        // 文件」等未真正拉取的页，用它算会让「N 页失败」恒为 0。
+        error:
+            cancelled
+                ? '已取消'
+                : (ok ? null : '下载未完成：${urls.length - okCount} 页失败'),
+      ),
+    );
     // 收尾通知（与动漫侧对称）：完成/失败发系统通知，取消不发（用户主动行为）。
     // 应用切后台或退出下载页时告知结果；桌面/Web 无原生通道时静默降级。
     if (ok) {
-      unawaited(UpdateNotifier.notifyDownloadResult(
-        title: '《${book.name}》下载完成',
-        text: '《$chapterTitle》已缓存 ${urls.length} 页，可离线观看',
-        error: false,
-      ));
+      unawaited(
+        UpdateNotifier.notifyDownloadResult(
+          title: '《${book.name}》下载完成',
+          text: '《$chapterTitle》已缓存 ${urls.length} 页，可离线观看',
+          error: false,
+        ),
+      );
     } else if (!cancelled) {
-      unawaited(UpdateNotifier.notifyDownloadResult(
-        title: '《${book.name}》下载失败',
-        text: '《$chapterTitle》：${urls.length - okCount} 页失败，请重试',
-        error: true,
-      ));
+      unawaited(
+        UpdateNotifier.notifyDownloadResult(
+          title: '《${book.name}》下载失败',
+          text: '《$chapterTitle》：${urls.length - okCount} 页失败，请重试',
+          error: true,
+        ),
+      );
     }
-    return ok ? const DownloadResult.ok() : DownloadResult.fail(cancelled ? '已取消' : '下载未完成');
+    return ok
+        ? const DownloadResult.ok()
+        : DownloadResult.fail(cancelled ? '已取消' : '下载未完成');
   }
 
   /// 把写盘异常翻译成用户可读的原因（磁盘满/只读/权限等）。
@@ -264,7 +285,8 @@ class DownloadManager {
     if (msg.contains('no space') || msg.contains('磁盘空间')) {
       return '磁盘空间不足，请清理后重试';
     }
-    if (msg.contains('permission') || msg.contains('denied') ||
+    if (msg.contains('permission') ||
+        msg.contains('denied') ||
         msg.contains('access')) {
       return '没有写入权限，请检查存储目录权限';
     }
@@ -331,7 +353,10 @@ class DownloadManager {
 
   /// 读取本地已下载的图片路径；未下载则返回 null。web 端无本地文件，恒为 null。
   static Future<String?> localUrlIfExists(
-      String bookKey, String chapterId, int index) async {
+    String bookKey,
+    String chapterId,
+    int index,
+  ) async {
     if (kIsWeb) return null;
     final key = '$bookKey/$chapterId';
     final p = await LocalStore.localImagePath(key, index);

@@ -3,8 +3,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import 'download_engine.dart';
 import 'error_logger.dart';
-import 'download_utils.dart';
 import 'local_store.dart';
 import 'update_checker.dart';
 import 'http_client.dart';
@@ -54,7 +54,16 @@ class UpdateDownloadManager {
   }
 
   bool _running = false;
-  bool _cancelled = false;
+
+  /// 取消 token（P0-1 引擎共享）：更新下载是单实例全局开关语义，
+  /// 用 [CancelToken] 的 cancel/reset/isCancelled 三态（等价原 bool）。
+  final CancelToken _cancel = CancelToken();
+
+  /// 进度通知节流（P0-1 引擎共享）：更新进度 2s 刷一次通知栏。
+  final ProgressThrottle _notifyThrottle = ProgressThrottle(
+    const Duration(seconds: 2),
+  );
+
   String? _downloadedPath;
   String? _dlPath;
   String _fileName = 'xingmanxia_update.apk';
@@ -73,7 +82,7 @@ class UpdateDownloadManager {
   Future<void> start(String apkUrl, {String? fileName}) async {
     if (_running) return;
     _running = true;
-    _cancelled = false;
+    _cancel.reset();
     _downloadedPath = null;
     _totalSize = 0;
     // 附件名缺失时兜底：后缀从下载 URL 推断（.exe/.zip/.apk…），
@@ -99,7 +108,7 @@ class UpdateDownloadManager {
 
   /// 取消下载。
   void cancel() {
-    _cancelled = true;
+    _cancel.cancel();
     _running = false;
     _state = const UpdateDownloadState(error: '已取消');
     _stateCtrl.add(_state);
@@ -124,10 +133,10 @@ class UpdateDownloadManager {
   Future<void> _downloadWithMirrors(String originalUrl) async {
     _mirrorFailures.clear();
     for (final c in mirrorCandidates(originalUrl)) {
-      if (_cancelled) break;
+      if (_cancel.isCancelled) break;
       try {
         final path = await _downloadOne(c.url, label: c.label);
-        if (_cancelled) return;
+        if (_cancel.isCancelled) return;
         _downloadedPath = path;
         _state = UpdateDownloadState(
           received: _totalSize > 0 ? _totalSize : await File(path).length(),
@@ -152,13 +161,11 @@ class UpdateDownloadManager {
         _mirrorFailures.add(_mirrorFailSummary(e));
       }
     }
-    if (_cancelled) return;
+    if (_cancel.isCancelled) return;
     // 把最后一条镜像的具体失败原因带上屏：用户需要知道是「直连超时」
     // 还是「镜像证书失败」才能决定是否换网络/换时间重试。原始异常本体
     // （可能带 URL/长堆栈）不进 UI，只取中文前缀与关键状态码。
-    final lastErr = _mirrorFailures.isNotEmpty
-        ? _mirrorFailures.last
-        : '未知错误';
+    final lastErr = _mirrorFailures.isNotEmpty ? _mirrorFailures.last : '未知错误';
     _state = UpdateDownloadState(error: '全部镜像下载失败（$lastErr），请稍后重试');
     _stateCtrl.add(_state);
     _notifyError();
@@ -202,7 +209,10 @@ class UpdateDownloadManager {
       // 中段字节，直接追加会让新文件以错误偏移开头，必须让下一个镜像从头下。
       final cr = res.headers.value('content-range');
       final crStart = cr != null ? _contentRangeStart(cr) : -1;
-      if (res.statusCode == 206 && crStart >= 0 && received > 0 && crStart != received) {
+      if (res.statusCode == 206 &&
+          crStart >= 0 &&
+          received > 0 &&
+          crStart != received) {
         if (file.existsSync()) await file.delete();
         throw Exception('续传位置与本地文件不一致，重新下载 ($label)');
       }
@@ -211,9 +221,7 @@ class UpdateDownloadManager {
       final respTotal =
           res.contentLength > 0
               ? received + res.contentLength
-              : (cr != null
-                  ? _contentRangeTotal(cr)
-                  : 0);
+              : (cr != null ? _contentRangeTotal(cr) : 0);
       if (respTotal > 0 && _totalSize == 0) {
         _totalSize = respTotal;
       }
@@ -230,8 +238,11 @@ class UpdateDownloadManager {
       // 停滞守护（与视频下载同一原语）：相邻数据块间隔超 45s 视为悬挂，
       // 抛超时让外层切下一个镜像——避免「头已返回但 body 悬挂」的下载
       // 永远卡住（Range 续传 + 镜像回退保证悬挂后能续上）。
-      await for (final chunk in stallGuarded(res, stall: const Duration(seconds: 45))) {
-        if (_cancelled) {
+      await for (final chunk in stallGuarded(
+        res,
+        stall: const Duration(seconds: 45),
+      )) {
+        if (_cancel.isCancelled) {
           await sink.close();
           throw Exception('已取消');
         }
@@ -295,10 +306,9 @@ class UpdateDownloadManager {
     return s;
   }
 
-  /// 更新下载进度通知（节流仍在本类：下载每秒多次分块，通知栏 2s 刷新一次
-  /// 太频繁；首次与完成通知不节流）。原生通道统一走 [UpdateNotifier]。
-  static const Duration _notifyMinInterval = Duration(seconds: 2);
-  DateTime? _lastNotifyAt;
+  /// 更新下载进度通知（节流在 P0-1 引擎 [ProgressThrottle]：下载每秒多次
+  /// 分块，通知栏 2s 刷一次太频繁；完成通知不节流且不占计时点）。
+  /// 原生通道统一走 [UpdateNotifier]。
   Future<void> _notify(
     String title,
     String text,
@@ -306,12 +316,7 @@ class UpdateDownloadManager {
     int total,
     bool done,
   ) async {
-    if (!done) {
-      final now = DateTime.now();
-      final last = _lastNotifyAt;
-      if (last != null && now.difference(last) < _notifyMinInterval) return;
-      _lastNotifyAt = now;
-    }
+    if (!done && !_notifyThrottle.allow()) return;
     await UpdateNotifier.notifyProgress(
       title: title,
       text: text,
@@ -321,20 +326,18 @@ class UpdateDownloadManager {
     );
   }
 
-  Future<void> _notifyDone() =>
-      UpdateNotifier.notifyResult(
-        title: '更新下载完成',
-        text: '点击安装新版本',
-        error: false,
-        path: _downloadedPath ?? '',
-      );
+  Future<void> _notifyDone() => UpdateNotifier.notifyResult(
+    title: '更新下载完成',
+    text: '点击安装新版本',
+    error: false,
+    path: _downloadedPath ?? '',
+  );
 
-  Future<void> _notifyError() =>
-      UpdateNotifier.notifyResult(
-        title: '更新下载失败',
-        text: '所有镜像均失败，请稍后重试或手动下载',
-        error: true,
-      );
+  Future<void> _notifyError() => UpdateNotifier.notifyResult(
+    title: '更新下载失败',
+    text: '所有镜像均失败，请稍后重试或手动下载',
+    error: true,
+  );
 
   Future<void> _cancelNotif() => UpdateNotifier.cancel();
 
@@ -481,9 +484,10 @@ List<({String url, String label})> mirrorCandidates(String originalUrl) {
   return [
     for (var i = 0; i < UpdateChecker.githubMirrors.length; i++)
       (
-        url: UpdateChecker.githubMirrors[i].isEmpty
-            ? originalUrl
-            : UpdateChecker.githubMirrors[i] + originalUrl,
+        url:
+            UpdateChecker.githubMirrors[i].isEmpty
+                ? originalUrl
+                : UpdateChecker.githubMirrors[i] + originalUrl,
         label: UpdateChecker.githubMirrors[i].isEmpty ? '直连' : '镜像$i',
       ),
   ];
