@@ -1,5 +1,3 @@
-import 'dart:typed_data' show Uint8List;
-
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../ui/responsive.dart' show DesktopUi;
@@ -7,7 +5,6 @@ import '../utils/colorizer_manager.dart' show ColorizerManager;
 import 'capability_artifact_store.dart';
 import 'capability_plugin.dart';
 import 'capability_plugin_manager.dart';
-import 'capability_runtime.dart';
 
 /// AI 漫画上色能力（M4 契约落地：metadata shell，只读对接 colorizer）。
 ///
@@ -104,41 +101,8 @@ class AiColorizePlugin extends CapabilityPlugin {
     return ok ? null : '模型载入失败（文件可能损坏或非 DDColor 格式）';
   }
 
-  /// 上色调用入口：**主 isolate 直调 ColorizerManager**。
-  ///
-  /// 返回 [CapabilityOk.data.result] == null 时表示降级原图（colorizer 失败
-  /// 语义），调用方照常显示原图。失败原因经 [CapabilityFailure.reason] 给出，
-  /// 禁止静默降级。
-  static Future<CapabilityResult> colorize(
-    Uint8List rgb,
-    int w,
-    int h,
-  ) async {
-    const id = 'ai.colorize.ddcolor';
-
-    // 1. 平台门闸：与 reader_page 现有 `_colorizeEnabled` 对齐——
-    //    DesktopUi.isDesktopPlatform（不含 Android 真机），web 恒不可用。
-    if (kIsWeb || !DesktopUi.isDesktopPlatform) {
-      return const CapabilityFailure(id, 'AI 上色仅支持桌面端（Windows/macOS/Linux）');
-    }
-
-    // 2. 注册 + 启用开关：probe 不查开关（本能力无 artifact，纯注册校验），
-    //    这里显式收口（与能力中心 UI 开关一致）。
-    final p = await CapabilityRuntime.instance.probe(id);
-    if (p is CapabilityFailure) return p;
-    if (!CapabilityPluginManager.instance.isEnabledSync(id)) {
-      return const CapabilityFailure(id, '能力未启用，请在能力中心打开');
-    }
-
-    // 3. 模型就绪：isAvailable = 模型存在 + loadAsync 就绪。
-    final m = ColorizerManager.instance;
-    if (!m.isAvailable) {
-      return const CapabilityFailure(id, '上色模型未就绪（需导入 .tflite 模型）');
-    }
-
-    // 4. 主 isolate 直调：colorizer 自带锁 + 超时 + 降级，此处不引入第二把锁。
-    //    null = 降级原图，原样透传（调用方照常显示原图）。
-    final out = await m.colorize(rgb, w, h);
-    return CapabilityOk(id, data: <String, dynamic>{'result': out});
-  }
+  /// 上色调用已收敛：能力壳不再提供 colorize 转发（R2 死代码清理）。
+  /// 阅读器直调 [ColorizerManager.colorize]，平台门闸/启用校验/模型就绪
+  /// 由调用侧各自完成；本类只保留能力生命周期两件事——[isModelReady]
+  /// （能力中心展示模型状态）与 [ensureModel]（权重下载 + 载入）。
 }

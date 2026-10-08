@@ -39,12 +39,10 @@ void main() {
       final data = (r as CapabilityOk).data as Map<String, dynamic>;
       expect(data['chars'], greaterThan(0));
 
-      // 禁用 → acquire 失败带原因
+      // 禁用 → isEnabledSync false（启用态由 Manager 单一事实源判定）
       await mgr.setEnabled(p.id, false);
       expect(mgr.isEnabledSync(p.id), isFalse);
-      final acq = await CapabilityRuntime.instance.acquire(p.id);
-      expect(acq, isA<CapabilityFailure>());
-      expect((acq as CapabilityFailure).reason, contains('未启用'));
+      expect(CapabilityRuntime.instance.isEnabled(p.id), isFalse);
 
       // 卸载（自定义可卸）
       final removed = await mgr.uninstall(p.id);
@@ -80,17 +78,17 @@ void main() {
       expect((r as CapabilityFailure).reason, contains('执行失败'));
     });
 
-    test('acquire 未启用 → 失败；启用 → 成功', () async {
+    test('probe 纯 Dart 能力直接 ok；禁用后启用态反映到 runtime', () async {
       final mgr = CapabilityPluginManager.instance;
       await CapabilityPluginManager.instance.registerBuiltinCapabilities();
-      final ok = await CapabilityRuntime.instance.acquire('utility.stats');
+      final ok = await CapabilityRuntime.instance.probe('utility.stats');
       expect(ok, isA<CapabilityOk>());
 
       await mgr.setEnabled('utility.stats', false);
-      final fail = await CapabilityRuntime.instance.acquire('utility.stats');
-      expect(fail, isA<CapabilityFailure>());
+      expect(CapabilityRuntime.instance.isEnabled('utility.stats'), isFalse);
       // 还原
       await mgr.setEnabled('utility.stats', true);
+      expect(CapabilityRuntime.instance.isEnabled('utility.stats'), isTrue);
     });
   });
 

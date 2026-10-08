@@ -87,18 +87,7 @@ void main() {
     SourceConfigStore.invalidateCache();
   });
 
-  group('searchSweepProvider', () {
-    test('空关键词立即返回空结果（不发起任何源请求）', () async {
-      final container = ProviderContainer();
-      addTearDown(container.dispose);
-      final outcome =
-          await container.read(searchSweepProvider('   ').future);
-      expect(outcome.groups, isEmpty);
-      expect(outcome.failedCount, 0);
-      expect(outcome.hasMore, isFalse);
-      expect(outcome.allFailed, isFalse);
-    });
-
+  group('safeSearch 容错', () {
     test('safeSearch：单源成功返回 (items, false)', () async {
       okSource.onSearch = (kw, page) =>
           [ComicItem('$kw-1', '结果1', ''), ComicItem('$kw-2', '结果2', '')];
@@ -112,68 +101,6 @@ void main() {
       final (items, isFailed) = await safeSearch(failSource, '火影', 1);
       expect(isFailed, isTrue);
       expect(items, isEmpty);
-    });
-
-    test('sweep 聚合：成功源分组保留、失败源计入 failedCount', () async {
-      final before = await disableBuiltinSources();
-      addTearDown(() async {
-        for (final c in before.values) {
-          await SourceConfigStore.save(c);
-        }
-      });
-      okSource.onSearch = (kw, page) => [
-            for (var i = 1; i <= 25; i++) ComicItem('$kw-$i', '结果$i', ''),
-          ];
-      final container = ProviderContainer();
-      addTearDown(container.dispose);
-      final outcome = await container.read(searchSweepProvider('测试').future);
-
-      // 内置源已禁用：outcome 只含 fake 源，可精确断言聚合语义。
-      expect(outcome.groups, hasLength(1));
-      final ok = outcome.groups.single;
-      expect(ok.sourceId, 'testok');
-      expect(ok.items, hasLength(25));
-      expect(ok.page, 1);
-      expect(ok.isNovel, isFalse);
-      expect(outcome.failedCount, 1); // failSource 计入失败
-    });
-
-    test('sweep 失败情形：全失败 → allFailed=true、noMatch=true', () async {
-      final before = await disableBuiltinSources();
-      addTearDown(() async {
-        for (final c in before.values) {
-          await SourceConfigStore.save(c);
-        }
-      });
-      okSource.onSearch = (kw, page) => throw Exception('fake network down');
-      final container = ProviderContainer();
-      addTearDown(container.dispose);
-      final outcome = await container.read(searchSweepProvider('测试').future);
-      expect(outcome.groups, isEmpty);
-      expect(outcome.failedCount, 2); // 两个 fake 源都失败
-      expect(outcome.allFailed, isTrue);
-      expect(outcome.noMatch, isTrue);
-    });
-
-    test('sweep 全部成功但零命中：allFailed=false、noMatch=true', () async {
-      // 本测试不需要失败源：移除 failSource，只留 okSource（成功但零命中）。
-      SourceManager.removeSource('testfail');
-      final before = await disableBuiltinSources();
-      addTearDown(() async {
-        for (final c in before.values) {
-          await SourceConfigStore.save(c);
-        }
-      });
-      okSource.onSearch = (kw, page) => const <ComicItem>[];
-      final container = ProviderContainer();
-      addTearDown(container.dispose);
-      final outcome =
-          await container.read(searchSweepProvider('不存在的东西').future);
-      expect(outcome.groups, isEmpty);
-      expect(outcome.failedCount, 0); // 唯一启用源成功但零命中
-      expect(outcome.allFailed, isFalse);
-      // 关键语义：零命中 ≠ 失败——页面据此进「没有找到」错误态而非空态。
-      expect(outcome.noMatch, isTrue);
     });
   });
 

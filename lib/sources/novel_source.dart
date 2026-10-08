@@ -1,7 +1,6 @@
 import '../models/comic_item.dart';
 import '../net/novel_shelf_store.dart';
 import 'source_config.dart';
-import 'source_result.dart';
 
 /// 小说数据源统一接口（多源聚合核心契约）。
 ///
@@ -20,9 +19,6 @@ abstract class NovelSource {
 
   /// 源优先级层级。默认 fallback。
   SourceTier get tier => SourceTier.fallback;
-
-  /// 轻量连通性探测。默认 unknown。
-  Future<ConnectionStatus> health() async => ConnectionStatus.unknown;
 
   /// 分类列表。
   Future<List<Category>> categories();

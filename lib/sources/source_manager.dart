@@ -125,15 +125,6 @@ class SourceManager {
     return list;
   }
 
-  /// 当前源是否已启用（配置优先）。
-  static Future<bool> isEnabledOf(String id) async {
-    final cfgs = await SourceConfigStore.all();
-    for (final c in cfgs) {
-      if (c.engineId == id) return c.isEnabled && c.tier != SourceTier.disabled;
-    }
-    return true;
-  }
-
   /// 若当前源被禁用/不存在，回退到第一个启用源。配置变更后调用。
   static Future<void> ensureEnabledCurrent() async {
     final enabled = await enabledSources();

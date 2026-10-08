@@ -499,14 +499,7 @@ class LocalStore {
   static Future<dynamic> readJson(String name) => _read(name);
   static Future<void> writeJson(String name, Object data) => _write(name, data);
 
-  // ---- 收藏 ----
-  static Future<List<Bookmark>> favorites() async {
-    final list = (await _read('favorites') as List?) ?? [];
-    return list
-        .map((e) => Bookmark.fromMap(e as Map<String, dynamic>))
-        .toList();
-  }
-
+  // ---- 历史 ----
   /// 搜索历史（最近 10 条，去重保留最新）。空列表表示无历史。
   static const int _searchHistoryMax = 10;
   static Future<List<String>> searchHistory() async {
@@ -542,32 +535,6 @@ class LocalStore {
       final list = (await _read('search_history') as List?)?.whereType<String>().toList() ?? <String>[];
       list.removeWhere((e) => e == t);
       await _writeNow('search_history', list);
-    });
-  }
-
-  static Future<bool> isFavorite(String key) async =>
-      (await favorites()).any((b) => b.key == key);
-
-  static Future<void> toggleFavorite(Bookmark b) async {
-    await _enqueue('favorites', () async {
-      final list = (await _read('favorites') as List?) ?? [];
-      final items = list.map((e) => Bookmark.fromMap(e as Map<String, dynamic>)).toList();
-      final idx = items.indexWhere((x) => x.key == b.key);
-      if (idx >= 0) {
-        items.removeAt(idx);
-      } else {
-        items.insert(0, b);
-      }
-      await _writeNow('favorites', items.map((e) => e.toMap()).toList());
-    });
-  }
-
-  static Future<void> removeFavorite(String key) async {
-    await _enqueue('favorites', () async {
-      final list = (await _read('favorites') as List?) ?? [];
-      final items = list.map((e) => Bookmark.fromMap(e as Map<String, dynamic>)).toList();
-      final out = items.where((b) => b.key != key).toList();
-      await _writeNow('favorites', out.map((e) => e.toMap()).toList());
     });
   }
 

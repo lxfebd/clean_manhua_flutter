@@ -36,23 +36,6 @@ class CapabilityRuntime {
   bool isEnabled(String id) =>
       CapabilityPluginManager.instance.isEnabledSync(id);
 
-  /// 申请能力句柄：校验启用 + 构件已加载 + 权重已就绪。
-  /// 任一不满足返回带原因的失败（不抛异常，调用方据此给用户明确提示）。
-  ///
-  /// M1：纯 Dart 能力无构件/权重，仅校验启用。
-  /// M2+：带 artifact 的能力额外校验 artifact 已落盘（probe 已通过）。
-  Future<CapabilityResult> acquire(String id) async {
-    if (!isEnabled(id)) {
-      return CapabilityFailure(id, '能力未启用，请在能力中心打开');
-    }
-    final plugin = CapabilityPluginManager.instance.byId(id);
-    if (plugin != null && plugin.artifact != null) {
-      final pr = await probe(id);
-      if (pr is CapabilityFailure) return pr;
-    }
-    return CapabilityOk(id);
-  }
-
   /// 隔离调用：任务跑在独立 Isolate，超时/异常包装成 [CapabilityResult]。
   /// 连续失败计数由调用方（能力中心/设置页）驱动禁用，本类不隐式改状态，
   /// 保持单一事实源在 Manager。

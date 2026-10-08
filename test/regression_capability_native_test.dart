@@ -206,7 +206,7 @@ void main() {
   // ⚠️ 顺序约束：Windows 上 DynamicLibrary.open 会锁住 DLL，之后无法删除/
   // 覆盖（errno=5/32）。故所有「文件写/删」用例必须排在 FFI 加载用例之前，
   // runNative 加载用例固定放最后。
-  group('acquire 对带 artifact 能力的校验', () {
+  group('probe 对带 artifact 能力的校验', () {
     test('启用 + artifact 就绪 → ok', () async {
       final store = CapabilityArtifactStore.instance;
       final dir = await store.artifactDir('utility.native');
@@ -214,16 +214,14 @@ void main() {
         '${dir!.path}/demo_math.dll',
       ).writeAsBytes(await demoDll.readAsBytes());
 
-      final r = await CapabilityRuntime.instance.acquire('utility.native');
+      final r = await CapabilityRuntime.instance.probe('utility.native');
       expect(r, isA<CapabilityOk>());
     });
 
-    test('未启用 → 失败（先于 artifact 校验）', () async {
+    test('未启用 → runtime.isEnabled 反映 Manager 开关', () async {
       final mgr = CapabilityPluginManager.instance;
       await mgr.setEnabled('utility.native', false);
-      final r = await CapabilityRuntime.instance.acquire('utility.native');
-      expect(r, isA<CapabilityFailure>());
-      expect((r as CapabilityFailure).reason, contains('未启用'));
+      expect(CapabilityRuntime.instance.isEnabled('utility.native'), isFalse);
       await mgr.setEnabled('utility.native', true);
     });
   });

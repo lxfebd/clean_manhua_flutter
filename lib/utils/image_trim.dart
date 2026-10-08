@@ -64,24 +64,10 @@ class TrimRect {
       );
 }
 
-/// compute() 入口参数（顶层函数避免闭包序列化问题）。
-class _TrimArgs {
-  final Uint8List bytes;
-  final double maxTrim;
-  const _TrimArgs(this.bytes, this.maxTrim);
-}
-
-/// Isolate 内执行：解码 → 逐行/列扫描 → 返回 TrimRect。
-TrimRect _computeTrimEntry(_TrimArgs args) {
-  final src = img.decodeImage(args.bytes);
-  if (src == null) return TrimRect.none;
-  return _computeTrimOf(src, args.maxTrim);
-}
-
 /// 对已解码的 [src] 扫描白边，返回四边裁剪比例（算法本体）。
-/// [computeTrimRect] 与 [trimAndCrop] 的 Isolate 入口共享此实现，
-/// 保证同一张图只解码一次、扫描复用同一份像素。
-TrimRect _computeTrimOf(img.Image src, double maxTrim) {
+/// [trimAndCrop] 的 Isolate 入口在单次解码内复用此实现，保证同一张图
+/// 只解码一次、扫描复用同一份像素。
+TrimRect computeTrimOf(img.Image src, double maxTrim) {
   final w = src.width;
   final h = src.height;
   if (w < 32 || h < 32) return TrimRect.none;
@@ -168,51 +154,6 @@ TrimRect _computeTrimOf(img.Image src, double maxTrim) {
   return q;
 }
 
-/// 在 Isolate 中计算裁边参数（不阻塞 UI）。失败/无收益返回 [TrimRect.none]。
-Future<TrimRect> computeTrimRect(Uint8List bytes) async {
-  try {
-    final ok = await ImageTrim.isWorthTrimming(bytes);
-    if (!ok) return TrimRect.none;
-    return await compute(_computeTrimEntry, _TrimArgs(bytes, ImageTrim.maxTrim))
-        .timeout(const Duration(seconds: 10), onTimeout: () => TrimRect.none);
-  } catch (_) {
-    return TrimRect.none;
-  }
-}
-
-/// Isolate 内执行：按 [TrimRect] 把图片内容区裁出来重编码（JPEG 88）。
-Uint8List _cropEntry(_CropArgs args) {
-  final src = img.decodeImage(args.bytes);
-  if (src == null) return args.bytes;
-  final w = src.width;
-  final h = src.height;
-  final t = args.trim;
-  final x0 = (t.left * w).round().clamp(0, w - 1);
-  final y0 = (t.top * h).round().clamp(0, h - 1);
-  final x1 = (w - (t.right * w).round()).clamp(x0 + 1, w);
-  final y1 = (h - (t.bottom * h).round()).clamp(y0 + 1, h);
-  if (x1 - x0 >= w || y1 - y0 >= h) return args.bytes;
-  final cropped = img.copyCrop(src, x: x0, y: y0, width: x1 - x0, height: y1 - y0);
-  return Uint8List.fromList(img.encodeJpg(cropped, quality: 88));
-}
-
-class _CropArgs {
-  final Uint8List bytes;
-  final TrimRect trim;
-  const _CropArgs(this.bytes, this.trim);
-}
-
-/// 在 Isolate 中按 [trim] 裁剪字节。失败返回原图字节（不放大、不报错）。
-Future<Uint8List> cropToContent(Uint8List bytes, TrimRect trim) async {
-  if (trim.isEmpty) return bytes;
-  try {
-    return await compute(_cropEntry, _CropArgs(bytes, trim))
-        .timeout(const Duration(seconds: 15), onTimeout: () => bytes);
-  } catch (_) {
-    return bytes;
-  }
-}
-
 /// 一步完成「扫描白边 + 裁剪」：同一张 [img.Image] 先扫描后裁剪，
 /// 整条链路只解码一次、重编码一次（老实现扫描/裁剪各解码一次，
 /// 同字节两份全尺寸副本，大图内存翻倍）。
@@ -231,7 +172,7 @@ Future<Uint8List> trimAndCrop(Uint8List bytes) async {
 Uint8List _trimAndCropEntry(Uint8List bytes) {
   final src = img.decodeImage(bytes);
   if (src == null) return bytes;
-  final trim = _computeTrimOf(src, ImageTrim.maxTrim);
+  final trim = computeTrimOf(src, ImageTrim.maxTrim);
   if (trim.isEmpty) return bytes;
   final w = src.width;
   final h = src.height;

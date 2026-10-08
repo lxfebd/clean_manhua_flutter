@@ -88,9 +88,6 @@ final class SourceUnknown extends SourceError {
 /// 拦截原因（对应 Ani 的 `BlockReason`）。
 enum BlockReason { captcha, rateLimited, notFound }
 
-/// 源健康状态（对应 Ani 的 `ConnectionStatus`）。
-enum ConnectionStatus { success, failed, unknown }
-
 /// 运行一个源调用并自动归约为 [SourceResult]。
 ///
 /// 常见异常会被映射到对应的错误类型，避免每个源都手写 try/catch：
