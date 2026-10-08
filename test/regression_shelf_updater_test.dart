@@ -41,4 +41,28 @@ void main() {
       expect(UpdateFreq.daily.interval, const Duration(days: 1));
     });
   });
+
+  group('checkNow 取消/清零语义', () {
+    test('空书架：立即返回空列表（无源调用不阻塞、不短路）', () async {
+      // 书架为空：checkNow 应直接返回 []，不因任何残留标记返回 null。
+      final updated = await ShelfUpdater.checkNow();
+      expect(updated, isEmpty, reason: '空书架无更新');
+    });
+
+    test('空书架 + shouldCancel 恒真：取消未触发仍返回空列表', () async {
+      // 空书架无条目可查，取消回调不会被调用；应返回 []（无更新的语义），
+      // 而非 null（null 是「检查中途被取消」的专属信号）。
+      final updated = await ShelfUpdater.checkNow(shouldCancel: () => true);
+      expect(updated, isEmpty, reason: '空书架取消回调不触发，返回空列表');
+    });
+
+    test('连续两轮 checkNow 不被上一轮取消残留短路', () async {
+      // 第一轮取消（shouldCancel 恒真），第二轮正常检查：
+      // checkNow 开头清残留标记，第二轮必须能正常返回空列表而非 null。
+      await ShelfUpdater.checkNow(shouldCancel: () => true);
+      final second = await ShelfUpdater.checkNow();
+      expect(second, isNotNull, reason: '第二轮不应被上一轮取消残留短路');
+      expect(second, isEmpty);
+    });
+  });
 }
