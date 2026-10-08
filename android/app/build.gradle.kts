@@ -58,8 +58,8 @@ android {
 
     packaging {
         jniLibs {
-            // F4：librife_cpu.so / libffmpeg.so 是**可执行程序**（以 lib*.so 名义
-            // 打包），必须让 PM 把它们抽取到 nativeLibraryDir —— Android 10+
+            // libdemo_math.so 是**可执行程序**（以 lib*.so 名义打包，能力插件框架
+            // 的原生可执行验证用），必须让 PM 把它抽取到 nativeLibraryDir —— Android 10+
             // 禁止 exec 应用可写目录里的文件，nativeLibraryDir 是唯一可靠
             // exec 路径。extractNativeLibs=false（默认：未压缩直载，PM 不落盘，
             // 目录为空、无法 exec），故强制 useLegacyPackaging。
