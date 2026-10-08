@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:xingmanxia/sources/local_novel_source.dart';
 
 /// 本地小说导入解析回归（gitignored，不入库）：
@@ -160,7 +161,7 @@ void main() {
       expect(store.chapterBody(id, 0), contains('你好世界'));
     });
 
-    test('rename 空名/不存在/空白返回 null 且不改原名', () async {
+test('rename 空名/不存在/空白返回 null 且不改原名', () async {
       final store = LocalNovelStore(dir: tmp.path);
       final parsed = parseTxt(
           utf8.encode('第1章 初见\n\n你好世界。\n'), 't3.txt');
@@ -168,7 +169,51 @@ void main() {
       expect(await store.rename(id, '   '), isNull);
       expect(await store.rename('no-such-book', '名字'), isNull);
       final meta = store.metaOf(id);
-      expect(meta!['name'], 't3'); // 原名未变
+      expect(meta!['name'], 't3'); // 原名未改
+    });
+  });
+
+  group('章节边界（prev/next 门，阅读器置灰判定根）', () {
+    test('首章 prevChapterId 为 null、中间章两向都有、末章 nextChapterId 为 null', () async {
+      final src = LocalNovelSource();
+      LocalNovelSource.setStoreDir(tmp.path);
+      addTearDown(() => LocalNovelSource.setStoreDir(
+          p.join(Directory.systemTemp.path, 'novel_imports'))); // 还原兜底，避免污染后续
+      final parsed = parseTxt(
+          utf8.encode('第1章 初见\n\n你好。\n第2章 再见\n\n再见。\n第3章 终章\n\n完。\n'),
+          'boundary.txt');
+      final id = await LocalNovelSource.store.import(parsed, sourceName: '本地');
+      expect(id, isNotEmpty);
+
+      final first = await src.chapterContent('$id|0');
+      expect(first.prevChapterId, isNull, reason: '首章无上一章');
+      expect(first.nextChapterId, '$id|1');
+
+      final mid = await src.chapterContent('$id|1');
+      expect(mid.prevChapterId, '$id|0');
+      expect(mid.nextChapterId, '$id|2');
+
+      final last = await src.chapterContent('$id|2');
+      expect(last.prevChapterId, '$id|1');
+      expect(last.nextChapterId, isNull, reason: '末章无下一章');
+    });
+
+    test('越界章节 id：next 为 null、prev 指向真实前章且不抛异常（空正文兜底）', () async {
+      final src = LocalNovelSource();
+      LocalNovelSource.setStoreDir(tmp.path);
+      addTearDown(() => LocalNovelSource.setStoreDir(
+          p.join(Directory.systemTemp.path, 'novel_imports')));
+      final parsed = parseTxt(
+          utf8.encode('第1章 初见\n\n你好。\n'), 'oob.txt');
+      final id = await LocalNovelSource.store.import(parsed, sourceName: '本地');
+      expect(id, isNotEmpty);
+
+      final oob = await src.chapterContent('$id|5');
+      expect(oob.chapterId, '$id|5');
+      // 越界下标：prev 是「seq - 1」即真实存在的最后一章（可导航回），
+      // next 才为空（seq + 1 已在章表外，阅读器不会据 null 置灰下一章）
+      expect(oob.prevChapterId, '$id|4');
+      expect(oob.nextChapterId, isNull);
     });
   });
 }
