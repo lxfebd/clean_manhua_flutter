@@ -17,9 +17,9 @@ import 'reader_prefs_providers.dart';
 import 'bookshelf_providers.dart' show bookshelfDataProvider;
 import 'detail_providers.dart' as detailp;
 import 'responsive.dart';
-import 'style_tokens.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/chapter_list_sheet.dart';
+import 'widgets/reader_settings_sheet.dart';
 
 /// 快照构造器：把「章号 + 滚动偏移 + 书目」打包成 HistoryEntry。
 /// 抽成纯函数以便单测（无需拉起 Widget tree 就能验证快照语义）。
@@ -1297,41 +1297,11 @@ class _NovelReaderSettingsSheetState
   }
 
   Widget _opt(String label, bool active, VoidCallback onTap) {
-    return InkWell(
+    return ReaderSettingsChip(
+      label: label,
+      active: active,
       onTap: onTap,
-      borderRadius: BorderRadius.circular(
-          StyleTokens.controlRadiusOr(context, 8)),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-        decoration: BoxDecoration(
-          color: active
-              ? Theme.of(context).colorScheme.primary
-              : Theme.of(context)
-                  .colorScheme
-                  .onSurface
-                  .withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(
-              StyleTokens.controlRadiusOr(context, 8)),
-          border: Border.all(
-            color: active
-                ? Theme.of(context).colorScheme.primary
-                : Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.1),
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-            color: active
-                ? Theme.of(context).colorScheme.onPrimary
-                : Theme.of(context).colorScheme.onSurface,
-          ),
-        ),
-      ),
+      dark: false,
     );
   }
 }

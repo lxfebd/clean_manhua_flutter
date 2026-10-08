@@ -8,6 +8,7 @@ import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
 import '../sources/video_source.dart';
 import 'episode_list_page.dart';
+import 'home_feed_paging.dart';
 import 'responsive.dart';
 import 'style_scope.dart';
 import 'style_tokens.dart';
@@ -15,6 +16,7 @@ import 'tokens.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/frosted_glass.dart';
+import 'widgets/home_header.dart';
 import 'widgets/motion.dart';
 import 'widgets/skeleton.dart';
 import 'widgets/squircle.dart';
@@ -202,8 +204,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
 
   void _onScroll() {
     if (_noMore) return;
-    if (_scrollCtrl.position.pixels >
-        _scrollCtrl.position.maxScrollExtent - 400) {
+    if (HomeFeedPaging.nearBottom(_scrollCtrl)) {
       _loadMore();
     }
   }
@@ -240,7 +241,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
           // 注意：必须先构造合并结果再一次性替换 —— 若先 clear() 再合并，
           // 展开的 _items 已是空列表，后加载的页会把之前所有页"顶掉"，
           // 表现为滚动到底后整页重刷（列表只剩加载页数据、滚动位置丢失）。
-          final merged = _dedup([..._items, ...r]);
+          final merged = HomeFeedPaging.dedupById([..._items, ...r]);
           _items
             ..clear()
             ..addAll(merged);
@@ -268,26 +269,16 @@ class AnimeHomePageState extends State<AnimeHomePage> {
     _refresh();
   }
 
-  /// 源站分页偶发返回重复条目（同一作品跨页重复）：按 id 去重后渲染。
-  static List<ComicItem> _dedup(List<ComicItem> items) {
-    final seen = <String>{};
-    return [for (final it in items) if (it.id.isNotEmpty && seen.add(it.id)) it];
-  }
+  /// 去重逻辑已收敛为 [HomeFeedPaging.dedupById]（home/anime 同用一份）。
 
-  /// 内容不满一屏时自动续页，避免首屏太短时滚动分页不触发导致"很快到底"的错觉。
-  /// 最多续 3 页：封面加载慢/失败导致网格高度不足时，避免无限循环狂拉分页
-  /// 把请求队列打满（每页 20 张图并发加载 + 源站限流会明显卡顿）。
-  int _autoLoadCount = 0;
+  /// 内容不满一屏时自动续页（逻辑在 [AutoLoadMore]：额度 3 次，post-frame 判定）。
+  final AutoLoadMore _autoLoad = AutoLoadMore();
   void _maybeAutoLoadMore() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _loading || _noMore) return;
-      if (_scrollCtrl.hasClients &&
-          _scrollCtrl.position.maxScrollExtent <= 0) {
-        if (_autoLoadCount >= 3) return;
-        _autoLoadCount++;
-        _loadMore();
-      }
-    });
+    _autoLoad.schedule(
+      canLoad: () => mounted && !_loading && !_noMore,
+      scrollCtrl: _scrollCtrl,
+      onLoad: _loadMore,
+    );
   }
 
   /// 加载代际：切源/切分类/刷新时自增，使在途旧请求的结果作废，
@@ -306,7 +297,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
     _error = null;
     _noMore = false;
     _loadMoreError = false;
-    _autoLoadCount = 0;
+    _autoLoad.reset();
     setState(() {});
     return _loadMore();
   }
@@ -532,7 +523,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
     final collapsed = kToolbarHeight + topPad;
     return SliverPersistentHeader(
       pinned: true,
-      delegate: _AnimeHeaderDelegate(
+      delegate: HomeHeaderDelegate(
         minExtent: collapsed,
         maxExtent: expanded,
         builder: (context, shrinkOffset, overlapsContent) {
@@ -1408,42 +1399,5 @@ class _LetterCover extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 动漫页滚动收起头部 delegate
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// 动漫页头部的 SliverPersistentHeader delegate：展开为完整头部，收起为单行
-/// 精简栏。shrinkOffset 由滚动位置驱动，build 返回随收缩变化的过渡层，
-/// 动画连续跟随滚动 —— 与 home_page 的 _HomeHeaderDelegate 同构。
-class _AnimeHeaderDelegate extends SliverPersistentHeaderDelegate {
-  const _AnimeHeaderDelegate({
-    required double minExtent,
-    required double maxExtent,
-    required this.builder,
-  })  : _minExtent = minExtent,
-        _maxExtent = maxExtent;
-
-  final double _minExtent;
-  final double _maxExtent;
-
-  /// (context, shrinkOffset, overlapsContent) → 当前头部视图。
-  final Widget Function(BuildContext, double, bool) builder;
-
-  @override
-  double get minExtent => _minExtent;
-
-  @override
-  double get maxExtent => _maxExtent;
-
-  @override
-  Widget build(
-      BuildContext context, double shrinkOffset, bool overlapsContent) {
-    return builder(context, shrinkOffset, overlapsContent);
-  }
-
-  @override
-  bool shouldRebuild(covariant _AnimeHeaderDelegate oldDelegate) {
-    return oldDelegate._minExtent != _minExtent ||
-        oldDelegate._maxExtent != _maxExtent ||
-        oldDelegate.builder != builder;
-  }
-}
+// 动漫页滚动收起头部：委托已收敛为 shared [HomeHeaderDelegate]
+// （widgets/home_header.dart），与 home_page 同用一份。

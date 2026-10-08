@@ -13,6 +13,7 @@ import '../net/http_client.dart';
 import '../net/local_store.dart';
 import '../sources/video_source.dart';
 import '../utils/desktop_fullscreen.dart';
+import '../utils/player_fullscreen.dart';
 import '../utils/tv_platform.dart';
 import 'desktop_webview.dart';
 import 'episode_grouping.dart';
@@ -2371,10 +2372,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     _fsShowControls();
     _startFsPoll();
     // 桌面端把系统窗口本体切到真全屏（占满屏幕），移动端保持沉浸+横屏。
-    DesktopFullscreen.set(true);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    SystemChrome.setPreferredOrientations(
-        [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
+    PlayerFullscreen.enter();
   }
 
   void _exitFullscreen() {
@@ -2382,9 +2380,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     setState(() => _fullscreen = false);
     _fsHideTimer?.cancel();
     _fsPollTimer?.cancel();
-    DesktopFullscreen.set(false);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    _unlockOrientation();
+    PlayerFullscreen.exit();
   }
 
   // ══ 竖屏下方面板（与原生播放器 _belowPanel 对齐） ══════════════

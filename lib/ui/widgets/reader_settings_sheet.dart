@@ -2,6 +2,71 @@ import 'package:flutter/material.dart';
 
 import '../reader_mode_geometry.dart';
 import '../responsive.dart';
+import '../style_tokens.dart';
+
+/// 阅读设置抽屉共用的选项按钮（chip）：active 高亮、inactive 弱化。
+///
+/// 漫画阅读器（[ReaderSettingsSheet]）与小说阅读器（_NovelReaderSettingsSheet）
+/// 共用同一份样式；[dark] 区分两种抽屉的配色：
+/// - dark = true（漫画）：抽屉固定深色底，前景恒白，防浅色主题白底白字；
+/// - dark = false（小说）：前景跟随主题色。
+class ReaderSettingsChip extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+  final bool dark;
+  final double fontSize;
+  final double paddingV;
+
+  const ReaderSettingsChip({
+    super.key,
+    required this.label,
+    required this.active,
+    required this.onTap,
+    this.dark = true,
+    this.fontSize = 12,
+    this.paddingV = 10,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final Color fg, fgWeak, border, activeFg;
+    if (dark) {
+      // 深色抽屉：固定白色前景（同 ReaderSettingsSheet 的历史修复——浅色主题
+      // 下用 scheme.surface 会白底白字完全看不见，必须恒白）。
+      fg = Colors.white;
+      fgWeak = Colors.white70;
+      border = Colors.white.withValues(alpha: 0.1);
+      activeFg = Colors.white;
+    } else {
+      fg = scheme.onSurface;
+      fgWeak = scheme.onSurface.withValues(alpha: 0.85);
+      border = scheme.onSurface.withValues(alpha: 0.1);
+      activeFg = scheme.onPrimary;
+    }
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(StyleTokens.controlRadiusOr(context, 8)),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: paddingV),
+        decoration: BoxDecoration(
+          color: active ? scheme.primary : (dark ? Colors.white.withValues(alpha: 0.06) : fgWeak.withValues(alpha: 0.06)),
+          borderRadius: BorderRadius.circular(StyleTokens.controlRadiusOr(context, 8)),
+          border: Border.all(color: active ? scheme.primary : border),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: fontSize,
+            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+            color: active ? activeFg : (dark ? fgWeak : fg),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 /// 阅读设置抽屉（S6）：亮度滑块 + 翻页模式 + 画质 + 自动翻页 + 目录/章节/下载。
 class ReaderSettingsSheet extends StatefulWidget {
@@ -324,66 +389,25 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
   }
 
   Widget _layoutOption(String label, bool active, VoidCallback onTap) {
-    final scheme = Theme.of(context).colorScheme;
     return Expanded(
-      child: InkWell(
+      child: ReaderSettingsChip(
+        label: label,
+        active: active,
         onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 11),
-          decoration: BoxDecoration(
-            color: active
-                ? scheme.primary
-                : Colors.white.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: active
-                  ? scheme.primary
-                  : Colors.white.withValues(alpha: 0.1),
-            ),
-          ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-              color: active ? Colors.white : Colors.white70,
-            ),
-          ),
-        ),
+        dark: true,
+        fontSize: 13,
+        paddingV: 11,
       ),
     );
   }
 
   Widget _resOption(String label, int value, int current, VoidCallback onTap) {
-    final active = value == current;
-    final scheme = Theme.of(context).colorScheme;
     return Expanded(
-      child: InkWell(
+      child: ReaderSettingsChip(
+        label: label,
+        active: value == current,
         onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: active
-                ? scheme.primary
-                : Colors.white.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: active
-                  ? scheme.primary
-                  : Colors.white.withValues(alpha: 0.1),
-            ),
-          ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-              color: active ? Colors.white : Colors.white70,
-            ),
-          ),
-        ),
+        dark: true,
       ),
     );
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'novel_detail_page.dart';
 import 'novel_import_page.dart';
+import 'home_feed_paging.dart';
 import 'responsive.dart';
 import 'widgets/state_view.dart';
 
@@ -130,27 +131,19 @@ class NovelHomePageState extends State<NovelHomePage> {
   /// 滚动触底（距底部 400px 内）加载下一页；正在加载/已到底/暂无源时不触发。
   void _onScroll() {
     if (_noMore || _loading || _sourceId == null) return;
-    if (!_scrollCtrl.hasClients) return;
-    if (_scrollCtrl.position.pixels >
-        _scrollCtrl.position.maxScrollExtent - 400) {
+    if (HomeFeedPaging.nearBottom(_scrollCtrl)) {
       _loadNovels(page: _page);
     }
   }
 
-  /// 内容不满一屏时自动续页，避免首屏太短时滚动分页不触发导致"很快到底"的错觉。
-  /// 最多续 3 页：封面加载慢/失败导致网格高度不足时，避免无限循环狂拉分页
-  /// 把请求队列打满（每页 20 张图并发加载 + 源站限流会明显卡顿）。
-  int _autoLoadCount = 0;
+  /// 内容不满一屏时自动续页（逻辑在 [AutoLoadMore]：额度 3 次，post-frame 判定）。
+  final AutoLoadMore _autoLoad = AutoLoadMore();
   void _maybeAutoLoadMore() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _loading || _noMore || _sourceId == null) return;
-      if (_scrollCtrl.hasClients &&
-          _scrollCtrl.position.maxScrollExtent <= 0) {
-        if (_autoLoadCount >= 3) return;
-        _autoLoadCount++;
-        _loadNovels(page: _page);
-      }
-    });
+    _autoLoad.schedule(
+      canLoad: () => mounted && !_loading && !_noMore && _sourceId != null,
+      scrollCtrl: _scrollCtrl,
+      onLoad: () => _loadNovels(page: _page),
+    );
   }
 
   Future<void> _loadNovels({int? page}) async {
@@ -545,7 +538,7 @@ class NovelHomePageState extends State<NovelHomePage> {
                       _searchCtrl.clear();
                     }
                     setState(() => _sourceId = s.id);
-                    _autoLoadCount = 0; // 新源续页额度重新计算
+                    _autoLoad.reset(); // 新源续页额度重新计算
                     _loadNovels();
                   },
                 ))
@@ -562,14 +555,14 @@ class NovelHomePageState extends State<NovelHomePage> {
         final kw = v.trim();
         if (kw == _keyword) return;
         _keyword = kw;
-        _autoLoadCount = 0; // 搜索/回榜单新列表，续页额度重算
+        _autoLoad.reset(); // 搜索/回榜单新列表，续页额度重算
         _loadNovels();
       },
       onChanged: (v) {
         // 清空即退出搜索模式回榜单（输入中不实时搜，避免每键打源）。
         if (v.trim().isEmpty && _keyword.isNotEmpty) {
           _keyword = '';
-          _autoLoadCount = 0;
+          _autoLoad.reset();
           _loadNovels();
         }
       },

@@ -9,6 +9,7 @@ import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
 import '../utils/local_recommender.dart';
 import 'detail_page.dart';
+import 'home_feed_paging.dart';
 import 'responsive.dart';
 import 'style_scope.dart';
 import 'style_tokens.dart';
@@ -17,6 +18,7 @@ import 'unified_search_page.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/frosted_glass.dart';
+import 'widgets/home_header.dart';
 import 'widgets/motion.dart';
 import 'widgets/skeleton.dart';
 import 'widgets/squircle.dart';
@@ -117,7 +119,7 @@ class HomePageState extends State<HomePage> {
     _done = false;
     _loadMoreFailed = false;
     _noMore = false;
-    _autoLoadCount = 0; // 新一轮续页额度重新计算
+    _autoLoad.reset(); // 新一轮续页额度重新计算
     _loadGen++; // 作废在途旧请求
     // 记录旧列表与滚动偏移：成功后替换数据并把滚动位置跳回原位。
     final restoreOffset =
@@ -144,7 +146,7 @@ class HomePageState extends State<HomePage> {
       final key = _snapshotKey;
       final raw = await LocalStore.readJson(key);
       if (raw is List && raw.isNotEmpty) {
-        final items = _dedup(raw
+        final items = HomeFeedPaging.dedupById(raw
             .whereType<Map>()
             .map((m) => ComicItem.fromMap(Map<String, dynamic>.from(m)))
             .toList());
@@ -163,17 +165,13 @@ class HomePageState extends State<HomePage> {
   }
 
   /// 源站榜单偶发返回重复条目（同一作品多次出现）：
-  /// 去重后渲染，避免网格内多个同 tag Hero 触发「multiple heroes」崩溃。
-  static List<ComicItem> _dedup(List<ComicItem> items) {
-    final seen = <String>{};
-    return [for (final it in items) if (it.id.isNotEmpty && seen.add(it.id)) it];
-  }
+  /// 去重逻辑已收敛为 [HomeFeedPaging.dedupById]（home/anime 同用一份）。
 
   /// 网络拉取成功后将首页数据落盘，供下次启动打底。
   Future<void> _saveSnapshot(List<ComicItem> items) async {
     try {
       await LocalStore.writeJson(
-          _snapshotKey, _dedup(items).map((e) => e.toMap()).toList());
+          _snapshotKey, HomeFeedPaging.dedupById(items).map((e) => e.toMap()).toList());
     } catch (e) {
       // 写快照失败不影响主流程
       ErrorLogger.instance.warn('saveSnapshot failed: $e');
@@ -194,26 +192,19 @@ class HomePageState extends State<HomePage> {
 
   void _onScroll() {
     if (_noMore || _loading) return;
-    if (_scrollCtrl.position.pixels >
-        _scrollCtrl.position.maxScrollExtent - 400) {
+    if (HomeFeedPaging.nearBottom(_scrollCtrl)) {
       _loadMore();
     }
   }
 
-  /// 内容不满一屏时自动续页，避免首屏太短时滚动分页不触发导致"很快到底"的错觉。
-  /// 最多续 3 页：封面加载慢/失败导致网格高度不足时，避免无限循环狂拉分页
-  /// 把请求队列打满（每页 20 张图并发加载 + 源站限流会明显卡顿）。
-  int _autoLoadCount = 0;
+  /// 内容不满一屏时自动续页（逻辑在 [AutoLoadMore]：额度 3 次，post-frame 判定）。
+  final AutoLoadMore _autoLoad = AutoLoadMore();
   void _maybeAutoLoadMore() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _loading || _noMore) return;
-      if (_scrollCtrl.hasClients &&
-          _scrollCtrl.position.maxScrollExtent <= 0) {
-        if (_autoLoadCount >= 3) return;
-        _autoLoadCount++;
-        _loadMore();
-      }
-    });
+    _autoLoad.schedule(
+      canLoad: () => mounted && !_loading && !_noMore,
+      scrollCtrl: _scrollCtrl,
+      onLoad: _loadMore,
+    );
   }
 
   Future<void> _loadMore(
@@ -251,7 +242,7 @@ class HomePageState extends State<HomePage> {
         setState(() {
           _items
             ..clear()
-            ..addAll(_dedup(r));
+            ..addAll(HomeFeedPaging.dedupById(r));
           _page = 2;
           _error = null;
           _loadMoreFailed = false;
@@ -261,7 +252,7 @@ class HomePageState extends State<HomePage> {
           // 源站榜单粘页时同一作品可能跨页重复，合并后整体去重。
           // 必须先构造合并结果再一次性替换——先 clear() 再展开 _items
           // 得到的是空列表，会把之前所有页顶掉（整页重刷、滚动位置丢失）。
-          final merged = _dedup([..._items, ...r]);
+          final merged = HomeFeedPaging.dedupById([..._items, ...r]);
           _items
             ..clear()
             ..addAll(merged);
@@ -564,7 +555,7 @@ class HomePageState extends State<HomePage> {
     final collapsed = kToolbarHeight + topPad;
     return SliverPersistentHeader(
       pinned: true,
-      delegate: _HomeHeaderDelegate(
+      delegate: HomeHeaderDelegate(
         minExtent: collapsed,
         maxExtent: expanded,
         builder: (context, shrinkOffset, overlapsContent) {
@@ -1819,43 +1810,8 @@ class _SourceSwitchSheet extends StatelessWidget {
 // 首页滚动收起头部 delegate
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// 首页头部的 SliverPersistentHeader delegate：展开为完整头部，收起为单行
-/// 精简栏。shrinkOffset 由滚动位置驱动，build 返回随收缩变化的过渡层，
-/// 动画连续跟随滚动（对比 SliverAppBar：其 toolbar 区被不透明背景占用且
-/// title 常显，放不下展开/收起两套布局）。
-class _HomeHeaderDelegate extends SliverPersistentHeaderDelegate {
-  const _HomeHeaderDelegate({
-    required double minExtent,
-    required double maxExtent,
-    required this.builder,
-  })  : _minExtent = minExtent,
-        _maxExtent = maxExtent;
-
-  final double _minExtent;
-  final double _maxExtent;
-
-  /// (context, shrinkOffset, overlapsContent) → 当前头部视图。
-  final Widget Function(BuildContext, double, bool) builder;
-
-  @override
-  double get minExtent => _minExtent;
-
-  @override
-  double get maxExtent => _maxExtent;
-
-  @override
-  Widget build(
-      BuildContext context, double shrinkOffset, bool overlapsContent) {
-    return builder(context, shrinkOffset, overlapsContent);
-  }
-
-  @override
-  bool shouldRebuild(covariant _HomeHeaderDelegate oldDelegate) {
-    return oldDelegate._minExtent != _minExtent ||
-        oldDelegate._maxExtent != _maxExtent ||
-        oldDelegate.builder != builder;
-  }
-}
+/// 首页头部的折叠委托已收敛为 shared [HomeHeaderDelegate]（widgets/home_header.dart），
+/// anime_home_page 同用一份。
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 加载 & 错误态

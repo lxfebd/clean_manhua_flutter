@@ -21,6 +21,7 @@ import '../sources/video_source.dart';
 import '../utils/anime4k.dart';
 import '../utils/danmaku.dart';
 import '../utils/desktop_fullscreen.dart';
+import '../utils/player_fullscreen.dart';
 import '../utils/player_sync_guard.dart';
 import '../utils/pip_channel.dart';
 import '../utils/tv_platform.dart';
@@ -2143,15 +2144,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     setState(() => _fullscreen = !_fullscreen);
     if (_fullscreen) {
       // 桌面端把系统窗口本体切到真全屏（占满屏幕），移动端保持沉浸+横屏。
-      DesktopFullscreen.set(true);
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-      SystemChrome.setPreferredOrientations(
-          [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
+      PlayerFullscreen.enter();
     } else {
       _locked = false;
-      DesktopFullscreen.set(false);
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-      _unlockOrientation();
+      PlayerFullscreen.exit();
     }
     _bumpControls();
   }
@@ -2205,9 +2201,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     // 全屏 → 竖屏回主界面悬停小窗
     if (_fullscreen) {
       _fullscreen = false;
-      DesktopFullscreen.set(false);
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-      _unlockOrientation();
+      PlayerFullscreen.exit();
     }
     Navigator.of(context, rootNavigator: true).maybePop();
   }
