@@ -1,5 +1,4 @@
 import '../models/comic_item.dart';
-import 'comic_source.dart';
 import 'source_base.dart';
 
 /// 视频（动漫/番剧）数据源统一接口。

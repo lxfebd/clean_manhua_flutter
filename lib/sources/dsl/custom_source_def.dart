@@ -131,10 +131,15 @@ class CustomSourceDef {
   /// 校验：返回错误列表（空 = 通过）。
   List<String> validate() {
     final errs = <String>[];
-    if (id.isEmpty) errs.add('缺少 id');
-    if (name.isEmpty) errs.add('缺少 name');
-    if (baseUrl.isEmpty) errs.add('缺少 baseUrl');
-    else {
+    if (id.isEmpty) {
+      errs.add('缺少 id');
+    }
+    if (name.isEmpty) {
+      errs.add('缺少 name');
+    }
+    if (baseUrl.isEmpty) {
+      errs.add('缺少 baseUrl');
+    } else {
       // 必须 http(s) + 拒绝本机/内网/组播地址（P1 SSRF）
       if (!(baseUrl.startsWith('http://') || baseUrl.startsWith('https://'))) {
         errs.add('baseUrl 必须以 http(s):// 开头');
@@ -172,7 +177,7 @@ const int _maxRegexLen = 2000;
 /// 校验一段 DSL 正则：长度 + 可编译性（任一失败则向 [errs] 追加一条）。
 /// 附带字段名，便于用户定位问题字段。
 void _checkRegex(String pattern, List<String> errs, {String? field}) {
-  final tag = field != null ? '${field}=' : '';
+  final tag = field != null ? '$field=' : '';
   if (pattern.length > _maxRegexLen) {
     errs.add('正则过长（${pattern.length} > $_maxRegexLen 字符）：$tag${_clip(pattern)}');
     return;

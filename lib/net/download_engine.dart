@@ -100,7 +100,7 @@ class StallWatchdog {
     _stallTicks = 0;
     _timer?.cancel();
     _timer = Timer.periodic(tick, (_) {
-      if (_isActive != null && !_isActive!()) return;
+      if (_isActive != null && !_isActive()) return;
       final b = bytesOf();
       if (b == _lastBytes) {
         _stallTicks++;

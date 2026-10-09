@@ -7,7 +7,6 @@ import 'package:crypto/crypto.dart' show md5;
 import '../../models/comic_item.dart';
 import '../../net/error_logger.dart';
 import '../../net/local_store.dart';
-import '../comic_source.dart' show Category;
 import '../source_result.dart';
 import '../video_source.dart';
 import 'custom_source_def.dart';

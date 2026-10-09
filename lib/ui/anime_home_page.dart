@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import '../models/comic_item.dart';
-import '../sources/comic_source.dart';
 import '../sources/source_manager.dart';
 import '../sources/video_source.dart';
 import 'episode_list_page.dart';

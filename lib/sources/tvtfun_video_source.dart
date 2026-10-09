@@ -1,7 +1,6 @@
 import 'dart:convert';
 import '../models/comic_item.dart';
 import '../net/http_client.dart';
-import 'comic_source.dart';
 import 'dsl/html_parser.dart';
 import 'video_source.dart';
 
