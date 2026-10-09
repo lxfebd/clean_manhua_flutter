@@ -4,11 +4,15 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
-import 'http_client.dart' show Net, HttpStatusException, ResponseTooLargeException;
+// 只依赖连接/读取原语库（P0-2：此前反向 import 编排层 http_client.dart 借
+// Net.clientForRequest/readLimited，形成 platform_http_io → http_client 的
+// 循环 import；原语下沉 NetConn 后，平台层不再依赖编排层）。
+import 'net_conn.dart'
+    show NetConn, HttpStatusException, ResponseTooLargeException;
 
 /// io 端线上实现：真实 dart:io HttpClient（含代理 / 优选 IP connectionFactory /
-/// gzip 解压），构造逻辑复用 [Net._client]（不重复实现代理与优选 IP）。
-/// 语义与旧 `Net._getOnce/_postOnce` 完全一致，编排层（重试/回退）仍在 [Net]。
+/// gzip 解压），构造逻辑复用 [NetConn.clientForRequest]（不重复实现代理与优选 IP）。
+/// 语义与旧 `Net._getOnce/_postOnce` 完全一致，编排层（重试/回退）仍在 Net。
 class PlatformHttp {
   /// 单次 GET：返回字节。非 2xx 抛 [HttpStatusException]。
   /// [maxBytes] 为响应体字节上限（默认由调用方 Net 层确定）。
@@ -19,8 +23,8 @@ class PlatformHttp {
     String? proxy,
     int maxBytes,
   ) async {
-    final client =
-        IOClient(Net.clientForRequest(Uri.parse(urlStr).host, proxy: proxy));
+    final client = IOClient(
+        NetConn.clientForRequest(Uri.parse(urlStr).host, proxy: proxy));
     try {
       final req = http.Request('GET', Uri.parse(urlStr));
       _applyHeaders(req, headers);
@@ -40,8 +44,8 @@ class PlatformHttp {
     String? proxy,
     int maxBytes,
   ) async {
-    final client =
-        IOClient(Net.clientForRequest(Uri.parse(urlStr).host, proxy: proxy));
+    final client = IOClient(
+        NetConn.clientForRequest(Uri.parse(urlStr).host, proxy: proxy));
     try {
       final req = http.Request('POST', Uri.parse(urlStr));
       _applyHeaders(req, headers);
@@ -54,10 +58,10 @@ class PlatformHttp {
   }
 
   /// 当前是否配置了任何代理（全局或单源）；web 端恒 false，io 端透传。
-  static bool get proxyConfigured => Net.proxyEnabled;
+  static bool get proxyConfigured => NetConn.proxyEnabled;
 
   static void _applyHeaders(http.Request req, Map<String, String>? headers) {
-    req.headers['User-Agent'] = Net.defaultUA;
+    req.headers['User-Agent'] = NetConn.defaultUA;
     req.headers['Accept'] = '*/*';
     final h = <String, String>{...?headers};
     if (req.method == 'POST' &&
@@ -68,23 +72,22 @@ class PlatformHttp {
     h.forEach((k, v) => req.headers[k] = v);
   }
 
-  /// 读取响应字节，自动处理 gzip/deflate 压缩（与旧 [Net._readBytes] 一致）；
-  /// 非 2xx 时顺带做优选 IP 轮换（与旧 [Net._onDone] 一致）。
-  /// [maxBytes] 为响应体字节上限：分块累计，超过即抛 [ResponseTooLargeException]，
-  /// 防止异常超大响应（如超长骗页）在内存中无限增长。
+  /// 读取响应字节，自动处理 gzip/deflate 压缩（与旧实现一致）；
+  /// 非 2xx 时顺带做优选 IP 轮换。
+  /// [maxBytes] 为响应体字节上限：分块累计，超过即抛 [ResponseTooLargeException]。
   static Future<List<int>> _readBytes(
       http.StreamedResponse res, Duration t, String urlStr, int maxBytes) async {
     if (res.statusCode < 200 || res.statusCode >= 300) {
       // 服务器错误/限流 → 切换下一个候选 IP（避免反复打到故障节点）
       if (res.statusCode >= 500 || res.statusCode == 429) {
-        Net.rotateIpIndex(Uri.parse(urlStr).host);
+        NetConn.rotateIpIndex(Uri.parse(urlStr).host);
       }
-      final errBytes = await Net.readLimited(res.stream, maxBytes, t);
+      final errBytes = await NetConn.readLimited(res.stream, maxBytes, t);
       throw HttpStatusException(
           res.statusCode, utf8.decode(errBytes, allowMalformed: true));
     }
     final enc = res.headers['content-encoding'] ?? '';
-    final bytes = await Net.readLimited(res.stream, maxBytes, t);
+    final bytes = await NetConn.readLimited(res.stream, maxBytes, t);
     if (enc.contains('gzip')) {
       return gzip.decode(bytes);
     }

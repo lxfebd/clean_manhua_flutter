@@ -8,25 +8,14 @@ import 'package:http/http.dart' as http;
 
 import 'cronet_conditional.dart';
 import 'local_store.dart';
+import 'net_conn.dart';
 import 'platform_http.dart';
 
-/// 带状态码的 HTTP 异常：让重试逻辑能区分 5xx/429（可重试）与 4xx（不可重试）。
-class HttpStatusException implements Exception {
-  final int statusCode;
-  final String body;
-  HttpStatusException(this.statusCode, this.body);
-  @override
-  String toString() => 'HTTP $statusCode: $body';
-}
-
-/// 响应体超过字节上限（[Net.maxTextBytes]/[Net.maxDownloadBytes] 或调用方覆盖值）。
-/// 属确定性失败，不再重试：源头是超大/异常响应，重拉只会再次超限。
-class ResponseTooLargeException implements Exception {
-  final int limitBytes;
-  ResponseTooLargeException(this.limitBytes);
-  @override
-  String toString() => '响应体超过上限（$limitBytes 字节），已拒绝读取';
-}
+/// 连接/读取原语与两个 HTTP 异常已下沉到 [net_conn.dart]（P0-2：解除
+/// `platform_http_io.dart → http_client.dart` 的循环 import——平台层此前
+/// 反向 import 编排层只为借 [Net.readLimited]/[Net.clientForRequest]）。
+/// 这里转出，`show HttpStatusException` 之类的既有 import 无需改动。
+export 'net_conn.dart' show HttpStatusException, ResponseTooLargeException;
 
 /// 每域名令牌桶限流：控制对源站的请求频率与并发，避免对源站造成过大压力，
 /// 降低 IP 被封风险（爬虫礼仪）。默认每域名 3 req/s、并发 ≤5。
@@ -163,21 +152,19 @@ class _Bucket {
 /// 零第三方依赖 HTTP 客户端（基于 dart:io HttpClient）。
 /// 注意：类名用 Net，避免与 dart:io 的 HttpClient 冲突。
 class Net {
-  static const Duration _timeout = Duration(seconds: 15);
+  /// 连接/读取原语（超时 / 上限 / 连接构造 / 优选 IP / 代理 / 自签信任）已下沉
+  /// [NetConn]（P0-2：平台层不再反向依赖编排层）。此处全部转口，既有 36 处
+  /// 外部调用点零改动。
+  static const Duration _timeout = NetConn.timeout;
 
   /// 文本类请求（[get]/[getCronet]/[post]）响应体字节上限。
-  /// 与 [html_parser.kDefaultMaxHtmlBytes]（8MB）对齐：parse 前的网络层就收口，
-  /// 恶意/异常超大的页面在拉满内存前被拦截。
-  static const int maxTextBytes = 8 * 1024 * 1024;
+  static const int maxTextBytes = NetConn.maxTextBytes;
 
   /// 字节类下载（[downloadBytes]/[getBytesCronet]/[getBytesAuto]/[getBytesMirrors]）
-  /// 的响应体上限。图片/超分单张远小于此；最大场景——能力权重(225MB)——也放行。
-  /// 需要更大体量或更紧约束的调用点用 [maxBytes] 显式覆盖。
-  static const int maxDownloadBytes = 256 * 1024 * 1024;
+  /// 的响应体上限。
+  static const int maxDownloadBytes = NetConn.maxDownloadBytes;
 
-  /// 单个候选 IP 的连接超时（用于优选 IP 轮询/自愈）。
-  /// 比总超时更短，避免全部 IP 不可达时长时间挂起。
-  static const Duration _ipTryTimeout = Duration(seconds: 6);
+  /// 单个候选 IP 的连接超时（连接构造已下沉 [NetConn.clientForRequest]）。
 
   /// 测试辅助：统计真实出网尝试次数（验证重试层数收敛为 1，P0-2 回归守护）。
   @visibleForTesting
@@ -187,74 +174,28 @@ class Net {
   @visibleForTesting
   static int debugIoGetAttempts = 0;
 
-  static const String defaultUA =
-      'Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile';
+  static const String defaultUA = NetConn.defaultUA;
 
   /// 需要强制走特定 IP 的域名 -> 候选 IP 列表（Cloudflare 优选 IP 加速）。
-  /// 用于部分源官方 DNS 解析到不可达 IP（被墙/超时），而优选 IP 可连通。
-  /// 通过 connectionFactory 强制直连候选 IP，同时保留 Host/SNI 走 HTTPS。
-  static final Map<String, List<String>> preferredHostIps = {
-    // TvTFun（Cloudflare CDN）：部分网络环境下系统 DNS 解析失败/被限，
-    // 直连 Cloudflare 任一节点 IP + SNI 即可访问。
-    'www.tvtfun.net': [
-      '104.16.150.186',
-      '104.16.151.210',
-      '104.16.150.96',
-      '104.16.151.161',
-      '104.16.150.33',
-      '104.16.151.88',
-    ],
-    // lain.bgm.tv（Bangumi 图片 CDN，Cloudflare 托管）：部分网络下系统 DNS
-    // 被污染解析到 Facebook 段 IP 导致封面加载超时；直连真实 Cloudflare 节点
-    // IP + SNI（host=lain.bgm.tv）绕过 DNS 污染。真实 IP 由 doh.pub 解析所得。
-    'lain.bgm.tv': [
-      '104.26.8.23',
-      '104.26.9.23',
-      '172.67.73.67',
-    ],
-  };
+  static Map<String, List<String>> get preferredHostIps =>
+      NetConn.preferredHostIps;
 
   /// 全局代理（`socks5://host:port` / `http://host:port` / `https://host:port`）。
-  /// 空串/null 表示直连。仅对 dart:io 路径生效；配置代理后 Cronet 路径自动跳过
-  /// （Cronet 默认引擎不读代理配置，避免 Android 上代理被绕过）。
-  static String? proxy;
-
-  /// 将代理解析为 dart:io findProxy 返回的 PAC 风格指令；null 表示直连。
-  /// 仅支持 host:port（不带 scheme）时按 http 代理处理。
-  static String? _proxyDirective(String? p) {
-    if (p == null || p.trim().isEmpty) return null;
-    final s = p.trim();
-    var scheme = 'http';
-    var rest = s;
-    final i = s.indexOf('://');
-    if (i > 0) {
-      scheme = s.substring(0, i).toLowerCase();
-      rest = s.substring(i + 3);
-    }
-    switch (scheme) {
-      case 'socks5':
-      case 'socks5h':
-        return 'SOCKS5 $rest';
-      case 'socks4':
-        return 'SOCKS4 $rest';
-      default:
-        return 'PROXY $rest';
-    }
-  }
+  static String? get proxy => NetConn.proxy;
+  static set proxy(String? v) => NetConn.proxy = v;
 
   /// 单次请求是否走代理：proxy=null 走全局代理/直连；proxy='' 强制直连；
   /// proxy=具体串 强制走该代理（单源代理覆盖全局）。
 
-  /// 是否信任自签证书（默认 false）。开启后 [clientForRequest] 与优选 IP 直连
-  /// 的 `onBadCertificate` 放行，用于兼容自签 HTTPS 的源/家庭 NAS/自建服务器。
-  /// 由设置页「信任自签证书」开关控制，[restoreTrustSelfSigned] 启动时恢复。
-  static bool trustSelfSigned = false;
+  /// 是否信任自签证书（默认 false）。转口 [NetConn.trustSelfSigned]。
+  static bool get trustSelfSigned => NetConn.trustSelfSigned;
+  static set trustSelfSigned(bool v) => NetConn.trustSelfSigned = v;
 
   /// 从本地持久化恢复「信任自签证书」开关。应用启动时调用一次。
   static Future<void> restoreTrustSelfSigned() async {
     try {
       final v = await LocalStore.readJson('trust_self_signed');
-      trustSelfSigned = v == true;
+      NetConn.trustSelfSigned = v == true;
     } catch (_) {
       // 恢复失败保持默认（不信任）
     }
@@ -262,79 +203,20 @@ class Net {
 
   /// 设置并持久化「信任自签证书」开关。
   static Future<void> setTrustSelfSigned(bool on) async {
-    trustSelfSigned = on;
+    NetConn.trustSelfSigned = on;
     await LocalStore.writeJson('trust_self_signed', on);
   }
 
-  /// 构造 HttpClient；若该 host 配置了优选 IP，则通过 connectionFactory 强制直连。
-  /// 优选 IP 全部失败时，自动回退到系统 DNS 解析，避免整源因写死 IP 失效而挂死。
-  /// 代理启用时优先走代理（findProxy 自动处理 CONNECT 隧道），
-  /// 与 connectionFactory 互斥——代理模式下不设 connectionFactory。
-  /// 供 platform_http_io.dart 复用同一套连接策略（代理/优选 IP）。
-  static HttpClient clientForRequest(String host, {String? proxy}) {
-    final client = HttpClient()
-      ..connectionTimeout = _timeout
-      ..autoUncompress = false;
-    // 默认校验证书（防 MITM）；仅用户显式开启「信任自签」才放行
-    if (trustSelfSigned) {
-      client.badCertificateCallback = (cert, h, port) => true;
-    }
-    // 单源代理（proxy != null 且非空）> 全局代理（_effectiveProxy）；空串表示直连
-    final p = (proxy == null) ? _effectiveProxy : (proxy.isEmpty ? null : proxy);
-    if (p != null) {
-      final directive = _proxyDirective(p);
-      if (directive != null) {
-        client.findProxy = (url) => directive;
-        return client;
-      }
-    }
-    final ips = preferredHostIps[host];
-    if (ips != null && ips.isNotEmpty) {
-      client.connectionFactory = (url, proxyHost, proxyPort) async {
-        final port = url.hasPort
-            ? url.port
-            : (url.scheme == 'https' ? 443 : 80);
-        // 依次尝试每个候选 IP
-        for (int attempt = 0; attempt < ips.length; attempt++) {
-          final idx = ((_ipIndex[host] ?? 0) + attempt) % ips.length;
-          final ip = ips[idx];
-          try {
-            final socket =
-                await Socket.connect(ip, port, timeout: _ipTryTimeout);
-            final secure = await SecureSocket.secure(socket,
-                host: url.host,
-                onBadCertificate: trustSelfSigned ? (_) => true : null);
-            return ConnectionTask.fromSocket<SecureSocket>(
-                Future.value(secure), () {});
-          } catch (_) {
-            // 该 IP 不可用，尝试下一个
-          }
-        }
-        // 全部优选 IP 失败 → 回退系统 DNS
-        try {
-          final addr = (await InternetAddress.lookup(url.host)).first;
-          final socket =
-              await Socket.connect(addr, port, timeout: _ipTryTimeout);
-          final secure = await SecureSocket.secure(socket,
-              host: url.host,
-              onBadCertificate: trustSelfSigned ? (_) => true : null);
-          return ConnectionTask.fromSocket<SecureSocket>(
-              Future.value(secure), () {});
-        } catch (_) {
-          // 回退也失败，抛出由上层捕获
-          rethrow;
-        }
-      };
-    }
-    return client;
-  }
+  /// 构造 HttpClient（代理 / 优选 IP / 信任自签）。转口 [NetConn.clientForRequest]。
+  static HttpClient clientForRequest(String host, {String? proxy}) =>
+      NetConn.clientForRequest(host, proxy: proxy);
 
   /// 带代理失败回退的 GET：先用代理（若有），连接层异常/超时后自动换直连重试一次。
   /// 避免代理节点故障导致整源不可用。
   static Future<String> _getWithFallback(String urlStr,
       Map<String, String>? headers, Duration? timeout, String? proxy,
       [int? maxBytes]) async {
-    if (proxy == null && _effectiveProxy == null) {
+    if (proxy == null && !NetConn.proxyEnabled) {
       return _getOnce(urlStr, headers, timeout, proxy: null, maxBytes: maxBytes);
     }
     try {
@@ -350,7 +232,7 @@ class Net {
   static Future<List<int>> _getBytesWithFallback(String urlStr,
       Map<String, String>? headers, Duration? timeout, String? proxy,
       [int? maxBytes]) async {
-    if (proxy == null && _effectiveProxy == null) {
+    if (proxy == null && !NetConn.proxyEnabled) {
       return _getBytesOnce(urlStr, headers, proxy: null, timeout: timeout, maxBytes: maxBytes);
     }
     try {
@@ -361,18 +243,14 @@ class Net {
     }
   }
 
-  /// 是否全局代理已启用（避免每次请求都解析字符串）。
-  static bool _proxyEnabled = false;
-  static String? _effectiveProxy;
-
   /// 从本地持久化恢复全局代理（用户在网络工具页配置后写入本地）。
-  /// 应用启动时调用一次。
+  /// 应用启动时调用一次。持久化仍由此层负责（[NetConn] 保持零应用层依赖）。
   static Future<void> restoreProxy() async {
     try {
       final v = await LocalStore.readJson('global_proxy');
       if (v is String) {
-        proxy = v.isEmpty ? null : v;
-        _applyProxy();
+        NetConn.proxy = v.isEmpty ? null : v;
+        NetConn.applyProxy();
       }
     } catch (_) {
       // 恢复失败保留直连
@@ -381,31 +259,25 @@ class Net {
 
   /// 设置并持久化全局代理；传入空串/仅空白则清空代理恢复直连。
   static Future<void> setProxy(String? p) async {
-    proxy = (p == null || p.trim().isEmpty) ? null : p.trim();
-    _applyProxy();
-    await LocalStore.writeJson('global_proxy', proxy ?? '');
+    NetConn.proxy = (p == null || p.trim().isEmpty) ? null : p.trim();
+    NetConn.applyProxy();
+    await LocalStore.writeJson('global_proxy', NetConn.proxy ?? '');
   }
 
   /// WebDAV 等自定义协议层读取：当前是否启用了全局代理。
-  static bool get proxyEnabled => _proxyEnabled;
+  static bool get proxyEnabled => NetConn.proxyEnabled;
 
   /// WebDAV 等自定义协议层读取：findProxy 用的 PAC 指令；未启用代理返回 null。
-  static String? get proxyDirective => _effectiveProxy;
-
-  static void _applyProxy() {
-    _effectiveProxy = _proxyDirective(proxy);
-    _proxyEnabled = _effectiveProxy != null;
-  }
+  static String? get proxyDirective => NetConn.proxyDirective;
 
   /// 从本地持久化恢复用户自选的优选 IP（覆盖内置默认）。
-  /// 应用启动时调用一次；工具页「优选 IP」扫描应用后会写入本地。
   static Future<void> restorePreferredHostIps() async {
     try {
       final j = await LocalStore.readJson('preferred_ips');
       if (j is Map) {
         j.forEach((k, v) {
           if (v is List && k is String) {
-            preferredHostIps[k] = v.whereType<String>().toList();
+            NetConn.preferredHostIps[k] = v.whereType<String>().toList();
           }
         });
       }
@@ -417,24 +289,14 @@ class Net {
   /// 将当前优选 IP 配置持久化到本地，重启后由 [restorePreferredHostIps] 恢复。
   static Future<void> savePreferredHostIps() async {
     try {
-      await LocalStore.writeJson('preferred_ips', preferredHostIps);
+      await LocalStore.writeJson('preferred_ips', NetConn.preferredHostIps);
     } catch (_) {
       // 写失败忽略，不影响内存配置
     }
   }
 
-  /// 当前域名已尝试到的候选 IP 下标，失败时轮询切换。
-  static final Map<String, int> _ipIndex = {};
-
   /// 供 platform_http_io 在收到 5xx/429 后轮换候选 IP：返回下一个应尝试的下标。
-  static int rotateIpIndex(String host) {
-    final ips = preferredHostIps[host];
-    if (ips == null || ips.isEmpty) return 0;
-    final cur = _ipIndex[host] ?? 0;
-    final next = (cur + 1) % ips.length;
-    _ipIndex[host] = next;
-    return next;
-  }
+  static int rotateIpIndex(String host) => NetConn.rotateIpIndex(host);
 
   /// [proxy] 为单源代理覆盖：null=走全局代理/直连；''=强制直连；其余=强制走该代理。
   /// [maxBytes] 覆盖响应体上限（默认 [maxTextBytes]）。
@@ -504,7 +366,7 @@ class Net {
       Duration? timeout,
       int? maxBytes,
       bool retry = true}) async {
-    if (_cronetUsable == false || _proxyEnabled) {
+    if (_cronetUsable == false || NetConn.proxyEnabled) {
       return get(urlStr, headers: headers, timeout: timeout, maxBytes: maxBytes, retry: retry);
     }
     final t = timeout ?? _timeout;
@@ -530,7 +392,7 @@ class Net {
   /// Cronet 默认引擎不读代理配置，走它等于绕过代理，故代理场景必须走 [getBytes]。
   static Future<List<int>> getBytesCronet(String urlStr,
       {Map<String, String>? headers, Duration? timeout, String? proxy, int? maxBytes}) async {
-    if (proxy != null || _cronetUsable == false || _proxyEnabled) {
+    if (proxy != null || _cronetUsable == false || NetConn.proxyEnabled) {
       return downloadBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout, maxBytes: maxBytes);
     }
     final t = timeout ?? _timeout;
@@ -587,29 +449,11 @@ class Net {
     }).timeout(probe);
   }
 
-  /// 分块读取响应流，达到 [limit] 立即抛 [ResponseTooLargeException] 并
-  /// 停止消费（不拉满内存）；[t] 为**整体读取超时**（与旧
-  /// `stream.toBytes().timeout(t)` 语义一致——不用 `stream.timeout`：
-  /// Stream 级间隙超时在 FakeAsync 测试环境里不触发，会让请求悬挂、
-  /// 骨架屏动画永动导致 pumpAndSettle 超时）。供 platform_http_io/web
-  /// 复用的同一份实现，保证三条线上路径的上限语义一致。
+  /// 分块读取响应流（转口 [NetConn.readLimited]：io/Cronet/web 三条线上路径
+  /// 共用同一份上限语义，实现已下沉连接原语库）。
   static Future<List<int>> readLimited(
-      Stream<List<int>> stream, int limit, Duration t) {
-    Future<List<int>> read() async {
-      final chunks = <int>[];
-      var total = 0;
-      await for (final chunk in stream) {
-        total += chunk.length;
-        if (total > limit) {
-          throw ResponseTooLargeException(limit);
-        }
-        chunks.addAll(chunk);
-      }
-      return chunks;
-    }
-
-    return read().timeout(t);
-  }
+          Stream<List<int>> stream, int limit, Duration t) =>
+      NetConn.readLimited(stream, limit, t);
 
   /// 智能字节请求：优先 Cronet（类浏览器 TLS/HTTP2 指纹，规避 Cloudflare 质询）；
   /// 仅对配置了优选 IP 直连的 host（如 TvTFun）保留 dart:io 的 connectionFactory 优化。

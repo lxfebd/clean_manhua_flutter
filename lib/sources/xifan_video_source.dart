@@ -196,18 +196,21 @@ class XifanVideoSource extends VideoSource {
     final key = '$videoId/$season/$episode';
     final cached = _urlCache[key];
     if (cached != null && !cached.expired) return cached.url;
-    // 网络抖动/超时重试一次，避免偶发失败直接打断播放。
+    // 网络抖动/超时重试一次（本处手写：第二次放宽超时到 25s），
+    // 故 Net 内建重试关闭（retry: false），避免两层叠加成 4 次真实请求。
     // 播放页走 Cronet（Chromium 网络栈，TLS/HTTP2 指纹类浏览器），
     // 规避部分线路对 dart:io 指纹的 Cloudflare 人机校验拦截。
     String raw;
     try {
       raw = await Net.getCronet('$_host/watch/$videoId/$season/$episode.html',
           headers: _watchHeaders(),
-          timeout: const Duration(seconds: 20));
+          timeout: const Duration(seconds: 20),
+          retry: false);
     } catch (_) {
       raw = await Net.getCronet('$_host/watch/$videoId/$season/$episode.html',
           headers: _watchHeaders(),
-          timeout: const Duration(seconds: 25));
+          timeout: const Duration(seconds: 25),
+          retry: false);
     }
     // 播放页在 <script> 的 JSON 字符串里给出视频地址，斜杠被转义为 \/，
     // 还原成普通 / 后再用正则取直链。

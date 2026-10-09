@@ -4,7 +4,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http/browser_client.dart';
 
-import 'http_client.dart' show Net, HttpStatusException;
+// 只依赖连接/读取原语库（P0-2：解除平台层 → 编排层的循环 import）。
+import 'net_conn.dart' show NetConn, HttpStatusException;
 
 /// web 端线上实现：浏览器 fetch（BrowserClient）自动处理 CORS / gzip /
 /// 同源 cookie。无代理概念（代理只在 io 端有意义），优选 IP 不适用。
@@ -82,10 +83,10 @@ class PlatformHttp {
   static Future<List<int>> _readBytes(
       http.StreamedResponse res, Duration t, int maxBytes) async {
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      final errBytes = await Net.readLimited(res.stream, maxBytes, t);
+      final errBytes = await NetConn.readLimited(res.stream, maxBytes, t);
       throw HttpStatusException(
           res.statusCode, utf8.decode(errBytes, allowMalformed: true));
     }
-    return Net.readLimited(res.stream, maxBytes, t);
+    return NetConn.readLimited(res.stream, maxBytes, t);
   }
 }
