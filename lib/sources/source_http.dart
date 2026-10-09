@@ -39,6 +39,10 @@ class SourceHttp {
   }
 
   /// GET：host 由配置决定，path 拼接在 host 之后。
+  ///
+  /// 重试层收敛：本层 [withTransientRetry] 已负责瞬时失败重试，
+  /// 故 [Net.get] 传 `retry: false`（P0-2：此前两层各自重试 →
+  /// 单个 GET 最坏 4 次真实请求）。
   static Future<String> get(
     String engineId,
     String path, {
@@ -47,7 +51,8 @@ class SourceHttp {
   }) async {
     return withCircuit(engineId, () => withTransientRetry(() async {
       final host = await pickHost(engineId, fallbackHosts);
-      return Net.get('$host$path', headers: headers, proxy: await proxyFor(engineId));
+      return Net.get('$host$path',
+          headers: headers, proxy: await proxyFor(engineId), retry: false);
     }));
   }
 
@@ -67,14 +72,19 @@ class SourceHttp {
   }
 
   /// GET 完整 URL（已拼好 host + 查询串的场景）。
+  ///
+  /// 同 [get]：重试由本层承担，[Net.get] 关掉内建重试，避免叠两层。
   static Future<String> getUrl(
     String engineId,
     String url, {
     Map<String, String>? headers,
   }) async {
-    return withCircuit(engineId,
-        () => withTransientRetry(() async =>
-            Net.get(url, headers: headers, proxy: await proxyFor(engineId))));
+    return withCircuit(
+        engineId,
+        () => withTransientRetry(() async => Net.get(url,
+            headers: headers,
+            proxy: await proxyFor(engineId),
+            retry: false)));
   }
 
   /// POST 完整 URL。

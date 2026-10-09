@@ -179,6 +179,14 @@ class Net {
   /// 比总超时更短，避免全部 IP 不可达时长时间挂起。
   static const Duration _ipTryTimeout = Duration(seconds: 6);
 
+  /// 测试辅助：统计真实出网尝试次数（验证重试层数收敛为 1，P0-2 回归守护）。
+  @visibleForTesting
+  static bool debugCountIoGet = false;
+
+  /// 已发生的真实 IO GET 次数（仅 [debugCountIoGet] 为 true 时累计）。
+  @visibleForTesting
+  static int debugIoGetAttempts = 0;
+
   static const String defaultUA =
       'Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile';
 
@@ -430,16 +438,22 @@ class Net {
 
   /// [proxy] 为单源代理覆盖：null=走全局代理/直连；''=强制直连；其余=强制走该代理。
   /// [maxBytes] 覆盖响应体上限（默认 [maxTextBytes]）。
+  ///
+  /// [retry] 是否启用本层「瞬时失败重试一次」。默认 true（直接调用方的既有行为）。
+  /// **上层已自建重试时须传 false**（如 [SourceHttp.get] 外层已包
+  /// `withTransientRetry`）：两层各自重试会让单个 GET 最坏产生 4 次真实请求
+  /// （P0-2 审计项），重试层数收敛为 1。
   static Future<String> get(String urlStr,
       {Map<String, String>? headers,
       Duration? timeout,
       String? proxy,
-      int? maxBytes}) async {
+      int? maxBytes,
+      bool retry = true}) async {
     if (proxy == null) {
       try {
         return await _getOnce(urlStr, headers, timeout, proxy: null, maxBytes: maxBytes);
       } catch (e) {
-        if (!_retryable(e)) rethrow;
+        if (!retry || !_retryable(e)) rethrow;
         await Future<void>.delayed(const Duration(milliseconds: 600));
         return _getOnce(urlStr, headers, timeout, proxy: null, maxBytes: maxBytes);
       }
@@ -462,6 +476,7 @@ class Net {
       Duration? timeout, {String? proxy, int? maxBytes}) async {
     final t = timeout ?? _timeout;
     final limit = maxBytes ?? maxTextBytes;
+    if (debugCountIoGet) debugIoGetAttempts++;
     // 限流：等待令牌与并发槽位（降低对源站压力，避免被封）
     final host = Uri.parse(urlStr).host;
     await RateLimiter.acquire(host);
@@ -485,9 +500,12 @@ class Net {
   /// 探测策略：只在第一次请求时真正走 Cronet（[probeTimeout] 限时），一旦失败/超时
   /// 就把 [_cronetUsable] 置为 false，后续请求直接走 dart:io，不再反复消耗超时预算。
   static Future<String> getCronet(String urlStr,
-      {Map<String, String>? headers, Duration? timeout, int? maxBytes}) async {
+      {Map<String, String>? headers,
+      Duration? timeout,
+      int? maxBytes,
+      bool retry = true}) async {
     if (_cronetUsable == false || _proxyEnabled) {
-      return get(urlStr, headers: headers, timeout: timeout, maxBytes: maxBytes);
+      return get(urlStr, headers: headers, timeout: timeout, maxBytes: maxBytes, retry: retry);
     }
     final t = timeout ?? _timeout;
     final limit = maxBytes ?? maxTextBytes;
@@ -501,7 +519,7 @@ class Net {
       return s as String;
     } catch (_) {
       _cronetUsable = false;
-      return get(urlStr, headers: headers, timeout: timeout, maxBytes: maxBytes);
+      return get(urlStr, headers: headers, timeout: timeout, maxBytes: maxBytes, retry: retry);
     }
   }
 
