@@ -130,6 +130,66 @@ void main() {
       expect(maxDiff, greaterThan(0), reason: 'ab≠0 时输出应带颜色');
     });
 
+    test('大图自动走分块推理：每块一次推理、输出同尺寸、带色差', () async {
+      final m = ColorizerManager.instance;
+      final fake = _FakeDdcolorBackend();
+      m.backendForTest = fake;
+      // 300×300 纯灰图（>256 → 分块：stride 240，tilesX=2、tilesY=2 共 4 块）。
+      final w = 300, h = 300;
+      final rgb = Uint8List(w * h * 3);
+      for (var i = 0; i < w * h; i++) {
+        final v = (i * 255 ~/ (w * h)).clamp(0, 255);
+        final p = i * 3;
+        rgb[p] = v;
+        rgb[p + 1] = v;
+        rgb[p + 2] = v;
+      }
+      final out = await m.colorize(rgb, w, h);
+      expect(out, isNotNull);
+      expect(out!.length, w * h * 3);
+      // 分块 = 每块一次 inferAsync（单遍缩放只会是 1 次）。
+      expect(fake.calls, greaterThan(1), reason: '大图应走分块推理而非单遍缩放');
+      // 输出整体带色差（fake ab=+1/-1 驱动）。
+      var maxDiff = 0;
+      for (var i = 0; i < w * h; i++) {
+        final p = i * 3;
+        final d = (out[p] - out[p + 2]).abs();
+        if (d > maxDiff) maxDiff = d;
+      }
+      expect(maxDiff, greaterThan(0), reason: 'ab≠0 时输出应带颜色');
+    });
+
+    test('分块拼接区颜色连续（余弦羽化无接缝跳变）', () async {
+      final m = ColorizerManager.instance;
+      final fake = _FakeDdcolorBackend();
+      m.backendForTest = fake;
+      final w = 300, h = 300;
+      final rgb = Uint8List(w * h * 3);
+      // 恒定灰度 → fake ab 恒定 → 全图理论同色；接缝处若有未归一化/黑边
+      // 会出跳变。断言接缝左右/上下相邻像素色差小（≤ 阈值防脆弱）。
+      for (var i = 0; i < w * h; i++) {
+        final p = i * 3;
+        rgb[p] = 128;
+        rgb[p + 1] = 128;
+        rgb[p + 2] = 128;
+      }
+      final out = (await m.colorize(rgb, w, h))!;
+      // 接缝列 x=240（两块重叠区中心）+ 行方向采样，对比相邻像素。
+      var maxJump = 0;
+      for (var y = 10; y < h - 10; y++) {
+        final p0 = (y * w + 240) * 3;
+        final pL = (y * w + 239) * 3;
+        final pR = (y * w + 241) * 3;
+        final jl = (out[p0] - out[pL]).abs();
+        final jr = (out[p0] - out[pR]).abs();
+        if (jl > maxJump) maxJump = jl;
+        if (jr > maxJump) maxJump = jr;
+      }
+      // 恒定 ab + 恒定灰度 → 理论最大跳变 0；容差 6（round/clamp 噪声）。
+      expect(maxJump, lessThanOrEqualTo(6),
+          reason: '重叠区羽化后接缝不应出现明显跳变，实测 maxJump=$maxJump');
+    });
+
     test('输入长度不符 → 返回 null 不抛', () async {
       final m = ColorizerManager.instance;
       _installFakeBackend(m);
@@ -169,6 +229,29 @@ void main() {
       expect(maxDiff, greaterThan(0), reason: 'ab≠0 时输出应带颜色');
     });
 
+    test('colorizeJpeg 大图自动走分块（多块推理、尺寸不变）', () async {
+      final m = ColorizerManager.instance;
+      final fake = _FakeDdcolorBackend();
+      m.backendForTest = fake;
+      // 300×300 纯灰 PNG（>256 → 分块 4 次推理）。
+      final w = 300, h = 300;
+      final im = img.Image(width: w, height: h);
+      for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) {
+          final v = (x + y) * 255 ~/ (w + h - 2);
+          im.setPixelRgb(x, y, v, v, v);
+        }
+      }
+      final bytes = Uint8List.fromList(img.encodePng(im));
+      final out = await m.colorizeJpeg(bytes);
+      expect(out, isNotNull);
+      expect(fake.calls, greaterThan(1), reason: '大图应走分块推理');
+      final dec = img.decodeImage(out!);
+      expect(dec, isNotNull);
+      expect(dec!.width, w);
+      expect(dec.height, h);
+    });
+
     test('colorizeJpeg 未加载 → 返回 null（不抛、不触发推理）', () async {
       final m = ColorizerManager.instance;
       await m.ensureLoaded(); // 无模型 → isAvailable false
@@ -186,6 +269,9 @@ void _installFakeBackend(ColorizerManager m) {
 }
 
 class _FakeDdcolorBackend implements ColorizerBackend {
+  /// 推理调用次数（区分分块多遍与单遍缩放）。
+  int calls = 0;
+
   @override
   bool get isAvailable => true;
 
@@ -197,6 +283,7 @@ class _FakeDdcolorBackend implements ColorizerBackend {
 
   @override
   Future<Float32List> inferAsync(Float32List inputTensor) async {
+    calls++;
     // 返回固定 ab：a=+1, b=-1（256×256 平铺）。
     final out = Float32List(1 * 2 * 256 * 256);
     for (var i = 0; i < 256 * 256; i++) {

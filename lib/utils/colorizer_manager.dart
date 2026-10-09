@@ -233,16 +233,21 @@ class ColorizerManager {
     // 静默 return，输出 tensor 保持全 0/残留，耗时 <100ms）不是模型失败，
     // 是上一帧推理还没结束时又调了一次——等待重试即可，不能降级原图。
     // 降级会置 _colorized=true 让该页永久灰。
+    // 大图（任一边 >256）走分块推理（_inferDdcolorTiled）：整图缩到 256 再
+    // 放大是「糊」的根因，切块 1:1 推理 + 余弦羽化拼接保细节；小图仍单遍。
+    final useTiled = w > 256 || h > 256;
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
         final sw = Stopwatch()..start();
-        final out = await _inferDdcolor(rgb, w, h)
-            .timeout(_computeTimeout, onTimeout: () {
+        final fut =
+            useTiled ? _inferDdcolorTiled(rgb, w, h) : _inferDdcolor(rgb, w, h);
+        final out = await fut.timeout(_computeTimeout, onTimeout: () {
           ErrorLogger.instance.warn('Colorizer 推理超时，降级原图');
           throw TimeoutException('Colorizer 推理超时');
         });
-        ErrorLogger.instance
-            .info('Colorizer 推理完成 ${w}x$h 耗时 ${sw.elapsedMilliseconds}ms');
+        ErrorLogger.instance.info(
+            'Colorizer 推理完成 ${w}x$h 耗时 ${sw.elapsedMilliseconds}ms'
+            '${useTiled ? '（分块）' : ''}');
         return out;
       } catch (e) {
         // 超时/模型错误：真失败，返回 null 降级。
@@ -307,9 +312,190 @@ class ColorizerManager {
     return s.contains('IsolateInterpreter skip');
   }
 
+  /// DDColor 分块推理（大图保细节，解决「整图缩 256 再放大 → 糊」）。
+  ///
+  /// 思路（ai-coloring-research SOLUTIONS §2.2）：把原图切成 256×256 的块，
+  /// 每块以 1:1 分辨率做一次 DDColor 推理（细节全保留），带 [tileOverlap]
+  /// 重叠区避免块间色差接缝，最后用余弦窗（cosine window）在重叠区做
+  /// 羽化加权拼回原尺寸。
+  ///
+  /// 契约：
+  /// - 输入 RGB 像素（w*h*3，无 alpha），w/h 至少一边 >256 才走到这里；
+  /// - 每块复用 [_inferDdcolor] 的「灰度 → 256×256 → ab → Lab→RGB」链路，
+  ///   即 [ColorizerBackend.inferAsync] 每块一次；
+  /// - 输出同尺寸 RGB 像素（w*h*3）；任何一块推理异常直接抛出（由
+  ///   [_timedInfer] 统一降级/重试）。
+  ///
+  /// 实现要点：
+  /// - 主 isolate 只做小块 memcpy（[rgbTile] 切片 ≤196KB）+ 累加；
+  ///   灰度、组输入、Lab→RGB、羽化全在隔离线程，不把整图 `rgb`/`grayMap`
+  ///   传进隔离（Isolate.run 按捕获值整份拷贝，大图逐块传会 GB 级复制）。
+  /// - 块内 256 网格与原图 1:1（原生分辨率 = 保细节的关键），不做任何
+  ///   缩放采样；Lab→RGB 直接用本块灰度的对应像素合成。
+  /// - 羽化只衰减「有相邻块的那一侧」：图像边缘侧权重恒 1（否则边界像素
+  ///   权重 0 → 拼接成黑边）。权重归一化在收尾统一做。
+  /// - 输出/权重累加器用 Float64：重叠区多块加权平均后取整。
+  Future<Uint8List> _inferDdcolorTiled(Uint8List rgb, int w, int h) async {
+    const side = 256;
+    const tileOverlap = 16;
+    final n = w * h;
+    if (rgb.length != n * 3) {
+      throw StateError('RGB 像素长度不符: ${rgb.length} != $n*3');
+    }
+    // 输出累加器（Float64：重叠区要加权平均再取整）+ 权重累加器。
+    final acc = Float64List(n * 3);
+    final weightAcc = Float64List(n);
+
+    // 分块（间隔 stride = side - overlap，保证重叠 16px）。
+    final stride = side - tileOverlap;
+    final tilesX = ((w - tileOverlap) / stride).ceil().clamp(1, 1 << 30);
+    final tilesY = ((h - tileOverlap) / stride).ceil().clamp(1, 1 << 30);
+
+    for (var ty = 0; ty < tilesY; ty++) {
+      for (var tx = 0; tx < tilesX; tx++) {
+        final ox = tx * stride;
+        final oy = ty * stride;
+        final bw = math.min(side, w - ox);
+        final bh = math.min(side, h - oy);
+        // 块像素切片（主 isolate，纯 memcpy，量小）。
+        final rgbTile = Uint8List(bw * bh * 3);
+        for (var y = 0; y < bh; y++) {
+          final src = ((oy + y) * w + ox) * 3;
+          rgbTile.setRange(y * bw * 3, (y + 1) * bw * 3, rgb, src);
+        }
+        // 隔离线程：切片 → 灰度块 + 组 256×256 输入（尾块补零）。
+        // 模型固定 256×256：灰度 1:1 摆进 L 通道（0-1），a/b 输入 = 0。
+        final (tileIn, grayTile) = await Isolate.run(() {
+          final grayTile = Float32List(bw * bh);
+          for (var i = 0; i < bw * bh; i++) {
+            final p = i * 3;
+            grayTile[i] = (rgbTile[p] * 0.299 +
+                    rgbTile[p + 1] * 0.587 +
+                    rgbTile[p + 2] * 0.114) /
+                255.0;
+          }
+          final inF = Float32List(1 * 3 * side * side);
+          for (var y = 0; y < bh; y++) {
+            for (var x = 0; x < bw; x++) {
+              final ti = (y * side + x) * 3;
+              inF[ti] = grayTile[y * bw + x];
+              inF[ti + 1] = 0.0;
+              inF[ti + 2] = 0.0;
+            }
+          }
+          return (inF, grayTile);
+        });
+        final ab = await _backend!.inferAsync(tileIn);
+        if (ab.length != 1 * 2 * side * side) {
+          throw StateError('ab 张量长度不符: ${ab.length}');
+        }
+
+        // 隔离线程：ab + 灰度 → Lab→RGB（1:1 无采样）+ 羽化权重。
+        // 结果经返回值回主 isolate 累加（隔离内存不可共享）。
+        final (wrgb, wwt) = await Isolate.run(() {
+          final rgbTab = Uint8List(side * side * 3);
+          for (var y = 0; y < bh; y++) {
+            for (var x = 0; x < bw; x++) {
+              final abi = (y * side + x) * 2;
+              final a = ab[abi];
+              final b = ab[abi + 1];
+              final l = grayTile[y * bw + x] * 100.0;
+              final fy = (l + 16.0) / 116.0;
+              final fx2 = fy + a / 500.0;
+              final fz = fy - b / 200.0;
+              double lin(double f) {
+                final f3 = f * f * f;
+                return f3 > 0.008856 ? f3 : (f - 16.0 / 116.0) / 7.787;
+              }
+
+              final xr = lin(fx2) * 0.95047;
+              final yr = lin(fy);
+              final zr = lin(fz) * 1.08883;
+              var rr = xr * 3.2406 + yr * -1.5372 + zr * -0.4986;
+              var gg = xr * -0.9689 + yr * 1.8758 + zr * 0.0415;
+              var bb = xr * 0.0557 + yr * -0.2040 + zr * 1.0570;
+              rr = (rr > 0.0031308
+                      ? 1.055 * math.pow(rr, 1 / 2.4).toDouble() - 0.055
+                      : 12.92 * rr) *
+                  255;
+              gg = (gg > 0.0031308
+                      ? 1.055 * math.pow(gg, 1 / 2.4).toDouble() - 0.055
+                      : 12.92 * gg) *
+                  255;
+              bb = (bb > 0.0031308
+                      ? 1.055 * math.pow(bb, 1 / 2.4).toDouble() - 0.055
+                      : 12.92 * bb) *
+                  255;
+              final ti = (y * side + x) * 3;
+              rgbTab[ti] = rr.clamp(0, 255).toInt();
+              rgbTab[ti + 1] = gg.clamp(0, 255).toInt();
+              rgbTab[ti + 2] = bb.clamp(0, 255).toInt();
+            }
+          }
+          // 羽化权重（cosine window，本块自己算，返回给主 isolate 归一化）：
+          // - 有相邻块的一侧，距块边 [0,overlap) 的像素按 sin((d/overlap)·π/2)
+          //   从 0（缝边）升到 1（带内），两相邻块在该带互补；
+          // - 图像边缘侧不衰减（权重 1，否则边界像素累加出 0 → 黑边）。
+          final wrgb = Float32List(bw * bh * 3);
+          final wwt = Float32List(bw * bh);
+          for (var y = 0; y < bh; y++) {
+            for (var x = 0; x < bw; x++) {
+              var wgt = 1.0;
+              if (tx > 0 && x < tileOverlap) {
+                wgt *= math.sin((x / tileOverlap) * math.pi / 2);
+              }
+              if (tx < tilesX - 1 && x >= bw - tileOverlap) {
+                wgt *= math.sin(((bw - 1 - x) / tileOverlap) * math.pi / 2);
+              }
+              if (ty > 0 && y < tileOverlap) {
+                wgt *= math.sin((y / tileOverlap) * math.pi / 2);
+              }
+              if (ty < tilesY - 1 && y >= bh - tileOverlap) {
+                wgt *= math.sin(((bh - 1 - y) / tileOverlap) * math.pi / 2);
+              }
+              final ti = (y * side + x) * 3;
+              final li = (y * bw + x) * 3;
+              wrgb[li] = rgbTab[ti] * wgt;
+              wrgb[li + 1] = rgbTab[ti + 1] * wgt;
+              wrgb[li + 2] = rgbTab[ti + 2] * wgt;
+              wwt[y * bw + x] = wgt;
+            }
+          }
+          return (wrgb, wwt);
+        });
+        // 主 isolate 累加（这块的加权贡献写入全局累加器）。
+        for (var y = 0; y < bh; y++) {
+          for (var x = 0; x < bw; x++) {
+            final gi = (oy + y) * w + (ox + x);
+            final li = (y * bw + x) * 3;
+            final op = gi * 3;
+            acc[op] += wrgb[li];
+            acc[op + 1] += wrgb[li + 1];
+            acc[op + 2] += wrgb[li + 2];
+            weightAcc[gi] += wwt[y * bw + x];
+          }
+        }
+      }
+    }
+
+    // 归一化：重叠区除以累计权重取整；单块覆盖（权重 1）原样。
+    final out = Uint8List(n * 3);
+    for (var i = 0; i < n; i++) {
+      final wgt = weightAcc[i];
+      final p = i * 3;
+      if (wgt <= 0) continue; // 理论上不可达（每像素至少被一块覆盖）
+      out[p] = (acc[p] / wgt).round().clamp(0, 255);
+      out[p + 1] = (acc[p + 1] / wgt).round().clamp(0, 255);
+      out[p + 2] = (acc[p + 2] / wgt).round().clamp(0, 255);
+    }
+    return out;
+  }
+
   /// DDColor 全链路（纯 Dart，可单测）。内部固定 256×256 推理。
   /// 三段式：前处理（灰度+缩放）→ 推理（IsolateInterpreter）→ 后处理
   /// （Lab→RGB+放大），前/后处理各包一层 [Isolate.run]，不占主 isolate。
+  ///
+  /// 小图（宽高均 ≤256）单遍推理；大图由 [_timedInfer] 走 [_inferDdcolorTiled]。
   Future<Uint8List> _inferDdcolor(Uint8List rgb, int w, int h) async {
     const side = 256;
     final n = w * h;
