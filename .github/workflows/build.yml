@@ -2,7 +2,7 @@ name: Build APK & Release
 
 on:
   push:
-    branches: [master]
+    branches: [main, master]
     tags:
       - 'v*'
   workflow_dispatch:
@@ -165,10 +165,11 @@ jobs:
           generate_release_notes: true
 
   # ── 主分支内测包（Pre-release）────────────────────────────
-  # 每次 push 到 master（非 tag）构建 debug APK 并发布到 Pre-release，
+  # 每次 push 到 main/master（非 tag）构建 debug APK 并发布到 Pre-release，
   # 供用户下载内测。功能与 release 构建共用 Android 环境，故独立轻量 job。
+  # 注：默认分支是 main（master 为历史分支），两个都要覆盖，否则 nightly 永不触发。
   nightly:
-    if: github.ref_type == 'branch' && github.ref_name == 'master'
+    if: github.ref_type == 'branch' && (github.ref_name == 'main' || github.ref_name == 'master')
     runs-on: ubuntu-latest
     permissions:
       contents: write
