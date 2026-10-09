@@ -90,7 +90,7 @@ void main() {
             if (denyMkcol) {
               req.response.statusCode = HttpStatus.forbidden;
             } else {
-              dirs.add(p.endsWith('/') ? p : '${p}/');
+              dirs.add(p.endsWith('/') ? p : '$p/');
               req.response.statusCode = HttpStatus.created;
             }
             req.response.close();

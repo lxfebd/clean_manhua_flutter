@@ -60,6 +60,8 @@ dependencies:
   tflite_flutter: ^0.12.1
   share_plus: ^12.0.2
   flutter_riverpod: ^2.6.1
+  # Dart FFI 原生交互（GlobalMemoryStatusEx 等），lib/ 生产代码直接 import
+  ffi: ^2.2.0
 
 dev_dependencies:
   flutter_test:
@@ -71,6 +73,10 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
+
+  # 平台接口测试桩（PathProviderPlatform mock 用，仅测试代码引用）
+  path_provider_platform_interface: ^2.1.3
+  plugin_platform_interface: ^2.1.8
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

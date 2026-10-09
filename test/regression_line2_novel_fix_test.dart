@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -54,8 +53,10 @@ void main() {
 
     test('UTF-8 BOM 剥离：BOM 不影响章节标题正则', () {
       final bom = Uint8List.fromList(
-        [0xEF, 0xBB, 0xBF]
-          ..addAll(utf8.encode('第1章\n\n正文。\n')),
+        <int>[
+          0xEF, 0xBB, 0xBF,
+          ...utf8.encode('第1章\n\n正文。\n'),
+        ],
       );
       final book = parseTxt(bom, 'bom.txt');
       expect(book.chapters, hasLength(1));
@@ -68,8 +69,12 @@ void main() {
     test('UTF-16 LE BOM：解码后能正常切章', () {
       // UTF-16 LE：每个字符转成 2 字节（低位在前），前缀 FF FE
       final s = '第1章\n\n你好。\n';
-final bytes = Uint8List.fromList([0xFF, 0xFE]
-        ..addAll(s.codeUnits.map((u) => [u & 0xFF, (u >> 8) & 0xFF]).expand((e) => e)));
+      final bytes = Uint8List.fromList(
+        <int>[
+          0xFF, 0xFE,
+          ...s.codeUnits.map((u) => [u & 0xFF, (u >> 8) & 0xFF]).expand((e) => e),
+        ],
+      );
       final book = parseTxt(bytes, 'le.txt');
       expect(book.chapters, hasLength(1));
       expect(book.chapters.first.title, '第1章');
@@ -78,8 +83,12 @@ final bytes = Uint8List.fromList([0xFF, 0xFE]
 
     test('UTF-16 BE BOM：解码后能正常切章', () {
       final s = '第1章\n\n你好。\n';
-final bytes = Uint8List.fromList([0xFE, 0xFF]
-        ..addAll(s.codeUnits.map((u) => [(u >> 8) & 0xFF, u & 0xFF]).expand((e) => e)));
+      final bytes = Uint8List.fromList(
+        <int>[
+          0xFE, 0xFF,
+          ...s.codeUnits.map((u) => [(u >> 8) & 0xFF, u & 0xFF]).expand((e) => e),
+        ],
+      );
       final book = parseTxt(bytes, 'be.txt');
       expect(book.chapters, hasLength(1));
       expect(book.chapters.first.title, '第1章');

@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -158,6 +157,8 @@ void main() {
       await ImageCacheManager.clear();
       const url = 'https://cdn-line1.example/a/0001.jpg';
       var calls = 0;
+      // 闭包复用外层 calls 计数（声明式需额外传参，可读性更差）。
+      // ignore: prefer_function_declarations_over_variables
       final fut = () async {
         calls++;
         if (calls == 1) {
@@ -189,6 +190,8 @@ void main() {
       const url = 'https://cdn-line1.example/media/photos/42/f.jpg@jm:9';
       var calls = 0;
       var first = true;
+      // 闭包捕获外层 first/calls 状态（声明式无法等价）。
+      // ignore: prefer_function_declarations_over_variables
       final loader = (u, i) async {
         calls++;
         if (first) {

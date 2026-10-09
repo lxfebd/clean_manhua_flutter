@@ -194,9 +194,18 @@ void main() {
 
       final container = ProviderContainer();
       addTearDown(container.dispose);
-      final stream = container.read(animeDownloadTasksProvider.stream);
-      final first = await stream.first;
-      final key = first.single.key;
+      // 用 listen + fireImmediately 取进度流事件，避免已弃用的 .stream。
+      // fireImmediately 在微任务中投递，先等一拍再读首帧。
+      final events = <List<VideoDownloadTask>>[];
+      final sub = container.listen(animeDownloadTasksProvider, (prev, next) {
+        events.add(next.value ?? const []);
+      });
+      addTearDown(sub.close);
+      // 激活 provider（订阅 notifier 流）；初始 emit 已同步入 controller。
+      container.read(animeDownloadTasksProvider);
+      await pumpEventQueue();
+      expect(events, isNotEmpty, reason: 'fireImmediately 后应拿到初始任务快照');
+      final key = events.first.single.key;
 
       // 推进进度：直接改任务字段 + 触发 notifier → provider 重推。
       final live = m.taskOf(key);
@@ -204,11 +213,11 @@ void main() {
       live!.segmentsDone = 5;
       m.notifier.value = Map.of(m.tasks.fold(<String, VideoDownloadTask>{},
           (map, t) => map..[t.key] = t));
+      await pumpEventQueue();
 
-      final updated = await stream.firstWhere(
-          (ts) => ts.any((t) => t.segmentsDone == 5));
-      final liveTask = updated.single;
-      expect(liveTask.segmentsDone, 5, reason: '进度变化后任务列表应反映最新进度');
+      final latest = events.last;
+      expect(latest.single.segmentsDone, 5,
+          reason: '进度变化后任务列表应反映最新进度');
     });
 
     test('BookshelfData 值相等：无实质变化重读 → 相等；内容变化 → 不相等', () {

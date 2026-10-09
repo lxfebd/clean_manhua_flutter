@@ -713,14 +713,15 @@ class ColorizerManager {
       final kernel32 = DynamicLibrary.open('kernel32.dll');
       // GlobalMemoryStatusEx(MEMORYSTATUSEX*)：参数是结构体指针，
       // lookupFunction 的 Dart 侧签名用 Pointer<MemoryStatusEx>。
-      final int Function(Pointer<MemoryStatusEx>)? globalMemoryStatusEx =
+      // lookupFunction 返回非空函数（句柄必在 kernel32），去掉多余 `?`。
+      final int Function(Pointer<MemoryStatusEx>) globalMemoryStatusEx =
           kernel32.lookupFunction<
               Int8 Function(Pointer<MemoryStatusEx>),
               int Function(Pointer<MemoryStatusEx>)>('GlobalMemoryStatusEx');
       final buffer = calloc<MemoryStatusEx>();
       try {
         buffer.ref.dwLength = sizeOf<MemoryStatusEx>();
-        final ok = globalMemoryStatusEx!(buffer) != 0;
+        final ok = globalMemoryStatusEx(buffer) != 0;
         if (ok) return buffer.ref.ullTotalPhys;
       } finally {
         calloc.free(buffer);
