@@ -20,13 +20,13 @@
 ## 快速开始
 ```bash
 flutter pub get
-flutter build apk --release     # Android 产物：app-release.apk（仅 arm64-v8a，约 33MB）
+flutter build apk --release     # Android 产物：app-release.apk（仅 arm64-v8a，约 20MB）
 flutter build apk --debug       # 全 ABI（含 x86_64，模拟器可跑）
 flutter build windows --release # Windows 桌面端产物：build/windows/x64/runner/Release（含 xingmanxia.exe）
 flutter build web --release     # Web 端（alpha）：静态产物 build/web（PlatformHttp/WebPersist 自动适配）
 # 或 flutter run 直连设备/模拟器
 ```
-> Android 发布包仅打包 `arm64-v8a`（现代手机/平板通用），体积从 112MB 降到 33MB；debug 包保留全 ABI 以便 x86 模拟器测试。
+> Android 发布包仅打包 `arm64-v8a`（现代手机/平板通用）；debug 包保留全 ABI 以便 x86 模拟器测试。
 > Windows 打包产物在 `build/windows/x64/runner/Release/`，完整发布需连同 `data/` 与 `flutter_windows.dll` 一并分发（CI 发版时由 GitHub Actions 打成 zip 挂到 Release）。
 > 需要在装有 Flutter SDK 与 Android NDK 的机器上构建。
 
@@ -43,6 +43,18 @@ flutter build web --release     # Web 端（alpha）：静态产物 build/web（
 ---
 
 ## 更新日志
+
+### v1.5.4（2026-10-09）
+- 📥 **下载体验大迭代**：漫画下载进度实时化；下载完成/失败系统通知（批量漫画/单集视频/阅读器单话，取消不打扰）；动漫下载失败/取消可见化（状态三态卡 + 重试入口）；退出页面停止下载；更新下载慢速检测与通知节流；GitHub 更新渠道加固
+- 🔎 **搜索/过滤体系**：搜索结果类型过滤（全部/漫画/小说）；搜索历史 chip 长按删除 + 「清空搜索历史」；书架四 Tab 搜索（最近阅读/书签/动画记录/下载，纯函数+计数+空态）；下载 Tab 与阅读历史弹窗搜索；弹窗目录搜索（详情/阅读器/小说三处）；批量下载选章搜索 + 反选
+- 📚 **书架/收藏管理**：网格卡续读位置（第N话·第M页）；最近阅读长按删除 + 清空；书签/动画记录清空；下载卡长按删除（单话/全书、单集/全番）；收藏卡长按直达操作菜单；更新角标即时刷新闭环
+- 📖 **阅读器（漫画/小说）**：详情页章节已读/续读/未读三态；阅读器目录已读勾选（漫画+小说）；目录已缓存标注；本地书重命名；小说阅读器亮度调节（原生/黑纱）、偏好卡（设置页六项）、段落点读、屏幕常亮；小说详情页「缓存后续」+ 目录离线标记 + 定位续读；小说首页搜索/分页/下拉刷新/首屏自动续页；漫画阅读器上一章按钮 + `[`/`]` 切章快捷键；章末/集末明确提示
+- 🎬 **播放器/选集**：选集网格已看 + 已下载角标；选集批量下载（多集入队/全选未下载/反选/取消本批）；选集与全集搜索过滤；播完末集明确提示；播放记录返回刷新
+- 🛠️ **工程质量**：审计 R1 性能止血（下载内存增量节流/详情派生集/书架 Tab 隔离/图片管线单解码）→ R4 页面收敛（首页三合一/全屏共享/设置 sheet 共享）；Gen5 第五轮收敛（下载引擎泛型化 download_engine、Category 单一模型、enabled 过滤三合一、能力平台键唯一）；**AI 上色分块推理**（大图 256×256 块 + 16px 余弦羽化拼接，1:1 原生分辨率）；播放器退出/小窗关闭补最终进度落盘；ffmpeg 孤儿二进制清理
+- 🔧 **网络层结构收敛（P0-2 审计项）**：重试层收敛为 1——`Net.get`/`getCronet` 增加 `retry` 开关，`SourceHttp` 三条 GET 路径与稀饭播放页传 `retry: false`（此前两层各自重试 → 单个 GET 最坏 4 次真实请求）；连接/读取原语下沉 `lib/net/net_conn.dart`，解除 `platform_http_io → http_client` 循环 import（平台层不再反向依赖编排层）
+- 🧹 **工程基线**：`analyze` 恢复 **0 error / 0 warning / 0 info**（清理 15 条历史 info lint）；CI 触发分支修正（`build`/`nightly` 补 `main`，此前 nightly 因写死 `master` 永不触发）
+- 📦 **发布包瘦身**：修复 release APK 误含 3 个 ABI 的问题（Flutter Gradle 插件默认对 buildType 级 `abiFilters` 做 clear 后注入全平台，覆盖了项目配置）——启用官方 `disable-abi-filtering` 开关由本仓库显式控制，release 仅打 arm64-v8a，**体积 56.3MB → 19.5MB（−65%）**，模拟器实测功能无损
+- 🧪 **测试**：全量 **865 通过 / 15 跳过**（skip 全为 verify_* 实网项）；release APK 与模拟器实测通过
 
 ### v1.5.3（2026-10-04）
 - ⚡ **滚动流畅度修复（信息流/漫画纵向）**：网格封面按卡片实际列宽降采样（不再整屏宽解码，8× 解码开销）、纵向条漫按屏高等比限制解码高度（`ResizeImagePolicy.fit`，避免全高解码与位图缓存颠簸）、阅读器源代理解析按源缓存（纵向连续建页不再逐页重读存储配置）

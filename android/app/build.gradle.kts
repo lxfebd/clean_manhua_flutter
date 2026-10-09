@@ -47,11 +47,15 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        // 默认仅打包 arm64-v8a（发布版体积最省，112MB→33.5MB）；
+        // 默认仅打包 arm64-v8a（发布版体积最省）。
+        // 注意必须 clear 后 add 而非 `+=` 追加：Flutter 插件（media_kit/tflite/cronet 等）
+        // 已在 defaultConfig 注册了全 ABI，`+=` 会变成「arm64 + 全部」→ 实际仍打 3 ABI
+        // （实测 arm64 41.5MB + armeabi-v7a 37.1MB + x86_64 48.1MB = APK 56.3MB）。
         // debug 构建在下方 buildTypes 中放开全 ABI，保证 x86/x86_64 模拟器可正常测试。
         if (!splitPerAbi) {
             ndk {
-                abiFilters += "arm64-v8a"
+                abiFilters.clear()
+                abiFilters.add("arm64-v8a")
             }
         }
     }
@@ -87,10 +91,12 @@ android {
                 signingConfigs.getByName("debug")
             }
             // 调试/测试保留全 ABI：x86/x86_64 模拟器、老设备都能跑。
-            // split 模式下同样不注（见上方 splitPerAbi 说明），否则与 splits 冲突。
+            // 同样 clear + add（理由见上方 defaultConfig 注释），显式声明全集。
             if (!splitPerAbi) {
                 ndk {
-                    abiFilters += setOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+                    abiFilters.clear()
+                    abiFilters.addAll(
+                        setOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64"))
                 }
             }
         }
