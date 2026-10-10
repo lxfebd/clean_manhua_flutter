@@ -64,7 +64,7 @@ class SubtitleSrt {
         text: textLines.join('\n'),
       ));
     }
-    // 按开始时间升序，去重同时间轴。
+    // 按开始时间升序（重叠时间轴由 SubtitleIndex.at 取最近开始的一条）。
     cues.sort((a, b) => a.startMs.compareTo(b.startMs));
     return cues;
   }
@@ -117,7 +117,8 @@ class SubtitleSrt {
   }
 }
 
-/// 在当前时间轴中查当前时刻命中的字幕（二分，字幕已按 start 升序）。
+/// 在当前时间轴中查当前时刻命中的字幕（线性扫描 early break，
+/// 字幕已按 start 升序，见构造器）。
 class SubtitleIndex {
   final List<SubtitleCue> _cues;
   SubtitleIndex(this._cues) {
