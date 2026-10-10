@@ -1330,10 +1330,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     }
   }
 
-  /// 桌面端诊断轮询：每 2 秒输出完整诊断行 + 墙钟降级守卫。
-  ///
-  /// 移动端不再启用（_sampleStats 单次采样已够 UI 数据；墙钟降级、
-  /// DIAG 日志均为桌面门控，移动端长驻轮询是纯空转）。
+  /// 桌面端诊断轮询：每 2 秒做一次墙钟降级守卫（治倍速异常的兜底防线），
+  /// 完整 DIAG 采样降频到每 6 拍（12 秒）一次（属性值播放中不变化，无需
+  /// 每拍全量读取）。移动端不启用——墙钟降级、DIAG 日志均桌面门控，
+  /// 移动端长驻轮询是纯空转，UI 数据由 [_sampleStats] 单次采样。
   void _startDiag() {
     _diagTimer?.cancel();
     if (!DesktopUi.isDesktopPlatform) {
@@ -1345,6 +1345,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     final dyn = native as dynamic;
     final gen = ++_diagGen;
     String? last;
+    var tick = 0;
     _diagTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
       // 代际守卫：播放页重建（画中画进出/路由替换）后旧 timer 直接废弃，
       // 避免叠加多份周期采样同时操作新播放器。
@@ -1363,24 +1364,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           }
         }
 
-        final wp = await rd('video-params/w');
-        final hp = await rd('video-params/h');
-        final dw = await rd('dwidth');
-        final dh = await rd('dheight');
-        final wop = await rd('video-out-params/w');
-        final hop = await rd('video-out-params/h');
-        final efps = await rd('estimated-vf-fps');
-        final cfps = await rd('container-fps');
-        final dfps = await rd('display-fps');
-        final edfps = await rd('estimated-display-fps');
-        final glsl = await rd('glsl-shaders');
-        final vsync = await rd('video-sync');
-        final hw = await rd('hwdec');
-        // 音频通路是否真的活着（设备被独占 / 网络流音轨未解码 / wasapi 被占
-        // 时 aid 非 no 但 channels 读不到 → 无音频时钟 → display-resample 会
-        // 按显示时钟追赶视频造成倍速）。这是定位「播放被倍速」的关键证据。
-        final ach = await rd('audio-params/channels');
-        final aaid = await rd('aid');
+        // ── 每拍：墙钟闭环降级（仅需 speed + time-pos）──
         final spd = await rd('speed');
         // 墙钟速率（仅观测）：mpv 的 `speed` 属性在显示时钟估算错误时恒读回
         // 1.0（用户机器实测 edisp=419~525Hz 垃圾值、视频实时倍速、speed 仍
@@ -1406,7 +1390,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         // 本次文件内降级后不自动切回（时钟错误不会自愈，自动恢复会来回震荡
         // 被用户感知为「反复跳」），切集/重开/新文件自然重置——那时有机会
         // 重新评估时钟（可能已恢复正常屏幕/刷新率）。
-        if (DesktopUi.isDesktopPlatform && !_syncDegraded) {
+        if (!_syncDegraded) {
           _syncDriftHits = accumulateDrift(
             _syncDriftHits,
             wrateIsDrifted(
@@ -1422,6 +1406,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
             _syncDegraded = true;
             _syncDegradeNotified = false;
             // 归因日志必须先于 toast（UI 反馈），记录本次降级的触发证据。
+            final edfps = await rd('estimated-display-fps');
+            final vsync = await rd('video-sync');
             ErrorLogger.instance.warn(
               'player sync degraded: wrate=${_wallClockRate.toStringAsFixed(3)} '
               'spd=$spd vsync=$vsync edisp=${_fmtFps(edfps)} → video-sync=audio '
@@ -1435,6 +1421,27 @@ class _NativePlayerPageState extends State<NativePlayerPage>
             }
           }
         }
+        // ── 每 6 拍（12 秒）：完整 DIAG 采样 + UI 数据 ──
+        if (++tick < 6) return;
+        tick = 0;
+        final wp = await rd('video-params/w');
+        final hp = await rd('video-params/h');
+        final dw = await rd('dwidth');
+        final dh = await rd('dheight');
+        final wop = await rd('video-out-params/w');
+        final hop = await rd('video-out-params/h');
+        final efps = await rd('estimated-vf-fps');
+        final cfps = await rd('container-fps');
+        final dfps = await rd('display-fps');
+        final edfps = await rd('estimated-display-fps');
+        final glsl = await rd('glsl-shaders');
+        final vsync = await rd('video-sync');
+        final hw = await rd('hwdec');
+        // 音频通路是否真的活着（设备被独占 / 网络流音轨未解码 / wasapi 被占
+        // 时 aid 非 no 但 channels 读不到 → 无音频时钟 → display-resample 会
+        // 按显示时钟追赶视频造成倍速）。这是定位「播放被倍速」的关键证据。
+        final ach = await rd('audio-params/channels');
+        final aaid = await rd('aid');
         // 超分是否**真的进了渲染管线**：只认 vo-passes 里的 user shader pass。
         // glsl-shaders 读回非空不算数——真机实测过"属性读回两个路径、
         // vo-passes 里一个用户着色器 pass 都没有"的静默失效。
