@@ -119,7 +119,7 @@ class _DeviceToolsPageState extends State<DeviceToolsPage>
   void _toggleSw() {
     if (_sw == null) {
       _sw = Stopwatch()..start();
-      _swTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
+      _swTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
         setState(() => _elapsed = _sw!.elapsed);
       });
     } else if (_sw!.isRunning) {

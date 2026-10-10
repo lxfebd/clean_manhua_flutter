@@ -203,7 +203,6 @@ class VideoDownloadManager {
     } catch (e) {
       ErrorLogger.instance.warn('VideoDownloadManager.init() 索引解析失败: $e');
     }
-    _ready = true;
     _notify();
   }
 
@@ -237,16 +236,13 @@ class VideoDownloadManager {
       headers: headers,
     );
     final existing = _tasks[task.key];
-    if (existing != null) {
-      if (existing.isRunning || existing.state == 'done') return existing;
-      _cancel.clearTaskCancel(task.key);
-      _tasks[task.key] = task;
-    } else {
-      // 新建任务分支同样清理取消标记：删除任务后重新 start 同一集时，
-      // 若此前 cancel() 留下的标记未清，新任务会被误判为已取消（缺陷修复）。
-      _cancel.clearTaskCancel(task.key);
-      _tasks[task.key] = task;
+    if (existing != null && (existing.isRunning || existing.state == 'done')) {
+      return existing;
     }
+    // 清理取消标记：删除任务后重新 start 同一集时，若此前 cancel() 留下的
+    // 标记未清，新任务会被误判为已取消。
+    _cancel.clearTaskCancel(task.key);
+    _tasks[task.key] = task;
     _notify();
     _persist();
     _queue.submit(task.key);
@@ -493,8 +489,12 @@ class VideoDownloadManager {
   /// 变体递归解析其媒体播放列表；媒体列表返回分片、密钥、初始化段（均已转为绝对 URL）。
   Future<_M3u8Playlist> _resolveMediaPlaylist(
     String url,
-    Map<String, String> headers,
-  ) async {
+    Map<String, String> headers, {
+    int depth = 0,
+  }) async {
+    if (depth > 3) {
+      throw Exception('m3u8 嵌套 master playlist 过深（>$depth 层）');
+    }
     final text = await _fetchText(url, headers);
     var mediaSeq = 0;
     String? keyUri;
@@ -543,7 +543,7 @@ class VideoDownloadManager {
     }
     if (variants.isNotEmpty) {
       variants.sort((a, b) => b.$1.compareTo(a.$1));
-      return _resolveMediaPlaylist(variants.first.$2, headers);
+      return _resolveMediaPlaylist(variants.first.$2, headers, depth: depth + 1);
     }
     return _M3u8Playlist(segments, keyUri, keyIvHex, mediaSeq, initSegment);
   }

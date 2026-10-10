@@ -47,7 +47,6 @@ class CachedImage extends StatefulWidget {
 class _CachedImageState extends State<CachedImage> {
   Uint8List? _bytes;
   bool _failed = false;
-  bool _loading = false;
   /// 代际 token：didUpdateWidget 换 url 后旧请求结果作废，防止慢请求
   /// 完成后把上一张图赋给当前 url（列表滚动复用脏加载）。
   int _gen = 0;
@@ -88,12 +87,10 @@ class _CachedImageState extends State<CachedImage> {
   }
 
   Future<void> _load() async {
-    if (_loading || widget.url.isEmpty) return;
+    if (widget.url.isEmpty) return;
     final gen = _gen;
-    _loading = true;
     if (mounted) setState(() => _failed = false);
-    try {
-      // 降级链：主 URL + 备用 URL 按序尝试，全部失败才置 failed。
+    // 降级链：主 URL + 备用 URL 按序尝试，全部失败才置 failed。
       final urls = [widget.url, ...widget.fallbackUrls];
       Uint8List? ok;
       for (final u in urls) {
@@ -125,9 +122,6 @@ class _CachedImageState extends State<CachedImage> {
         _bytes = ok;
         _failed = ok == null;
       });
-    } finally {
-      _loading = false;
-    }
   }
 
   @override

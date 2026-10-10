@@ -47,14 +47,9 @@ class DslNovelSource extends NovelSource with DslEngineMixin {
     final rule = def.categoriesRule;
     final url = def.categoriesUrl;
     if (rule == null || url == null) return const [];
-    final html = await fetchHtml(url, null, rule.decrypt, '', 'dsl-novel');
-    final root = parseHtml(html);
-    if (rule.selector.isNotEmpty) {
-      final els = root.querySelectorAll(rule.selector);
+    return runRule(url, rule, (els) {
       final list = <Category>[];
       for (final e in els) {
-        // 与 comic 引擎一致：itemName/itemUrl 支持 `text`/`innerText` 虚拟属性
-        // （走 extract），href 是 HTML 属性（attr）。
         final href = extract(e, rule.url.isNotEmpty ? rule.url : 'href');
         final name = rule.itemName != null && rule.itemName!.isNotEmpty
             ? extract(e, rule.itemName!)
@@ -65,8 +60,7 @@ class DslNovelSource extends NovelSource with DslEngineMixin {
         list.add(Category(id.isEmpty ? href : id, name.isEmpty ? href : name));
       }
       return list;
-    }
-    return const [];
+    }, (_) => const <Category>[], 'dsl-novel');
   }
 
   @override
@@ -170,11 +164,12 @@ class DslNovelSource extends NovelSource with DslEngineMixin {
     final nodes = d.picListCss.isNotEmpty
         ? root.querySelectorAll(d.picListCss)
         : <HtmlNode>[];
+    final picFilterRe = d.picFilter.isNotEmpty ? safeRegExp(d.picFilter) : null;
     if (nodes.isNotEmpty) {
       for (final n in nodes) {
         final t = n.innerText.trim();
         if (t.isEmpty) continue;
-        if (d.picFilter.isNotEmpty && !safeRegExp(d.picFilter).hasMatch(t)) continue;
+        if (picFilterRe != null && !picFilterRe.hasMatch(t)) continue;
         paragraphs.add(t);
       }
     } else if (d.picListRe.isNotEmpty) {
@@ -182,7 +177,7 @@ class DslNovelSource extends NovelSource with DslEngineMixin {
       for (final m in re.allMatches(html)) {
         final t = (m.group(1) ?? '').trim();
         if (t.isEmpty) continue;
-        if (d.picFilter.isNotEmpty && !safeRegExp(d.picFilter).hasMatch(t)) continue;
+        if (picFilterRe != null && !picFilterRe.hasMatch(t)) continue;
         paragraphs.add(t);
       }
     }

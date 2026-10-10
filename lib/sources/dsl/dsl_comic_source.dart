@@ -192,12 +192,10 @@ class DslComicSource extends ComicSource with DslEngineMixin {
       }
     }
     // 过滤 + 修正
+    final picFilterRe = d.picFilter.isNotEmpty ? safeRegExp(d.picFilter) : null;
     final filtered = <String>[];
     for (var u in urls) {
-      if (d.picFilter.isNotEmpty) {
-        final re = safeRegExp(d.picFilter);
-        if (!re.hasMatch(u)) continue;
-      }
+      if (picFilterRe != null && !picFilterRe.hasMatch(u)) continue;
       u = applyReplace(u, d.picReplace);
       if (u.isNotEmpty && !filtered.contains(u)) filtered.add(abs(d.picListUrl, u));
     }

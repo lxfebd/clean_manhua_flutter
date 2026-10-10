@@ -593,7 +593,7 @@ class Net {
     await RateLimiter.acquire(host);
     try {
       final bytes = await PlatformHttp.post(urlStr, headers, body, t, proxy, limit);
-      return utf8.decode(bytes);
+      return utf8.decode(bytes, allowMalformed: true);
     } finally {
       RateLimiter.release(host, jitter: true);
     }

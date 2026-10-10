@@ -198,7 +198,6 @@ class _ImageToolsPageState extends State<ImageToolsPage> {
           }
         }
       }
-      _msg = '九宫格切图完成：已生成 $done 张到 $_saveDir';
       return firstFile;
     }, '九宫格');
   }
