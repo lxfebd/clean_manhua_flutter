@@ -203,10 +203,6 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// x2 放大链是否具备执行条件（见 [Anime4KManager.srChainEligible]）。
   /// null = 尺寸未知，无法判定（界面不显示该结论，避免误报）。
   bool? _srEligible;
-  /// 连续多少次采样里 `vo-passes` 没有用户着色器 pass（用于自愈判定）。
-  int _srPassMiss = 0;
-  /// 已尝试重建视频链重下发 shader 的次数（封顶防死循环）。
-  int _srHealTries = 0;
   /// 渲染输出帧率（约等于源容器帧率）。NaN/0 表示未知。
   double _outFps = 0;
   /// 显示器刷新率，未知为 0。
@@ -1271,9 +1267,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   ///   阶段（滤镜链之后），该属性**不反映超分**，恒等于源尺寸；这里只作为
   ///   对照值写进日志（`vop=`），**不再当"超分后尺寸"用**（2026-09-14 修正，
   ///   旧实现拿它当判据，导致"超分到底生效没有"长期无法判断）。
-  /// * `vo-passes`       — **唯一可靠的超分生效判据**：里面出现的
-  ///   `user shader: Anime4K-*` pass 数量（日志字段 `a4k=`）。为 0 说明
-  ///   着色器没进渲染图，此时会触发自愈（[`_healSrPipeline`]）。
+  /// * `vo-passes`       — 超分生效判据：里面出现的 `user shader: Anime4K-*`
+  ///   pass 数量（日志字段 `a4k=`）。仅如实记日志，播放中不自愈重建。
   /// * `estimated-vf-fps` — 视频滤镜链估计帧率
   /// * `container-fps`   — 源容器帧率
   /// * `display-fps`     — 显示刷新率（override 后即同步目标）
@@ -1443,6 +1438,12 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         // 超分是否**真的进了渲染管线**：只认 vo-passes 里的 user shader pass。
         // glsl-shaders 读回非空不算数——真机实测过"属性读回两个路径、
         // vo-passes 里一个用户着色器 pass 都没有"的静默失效。
+        // 仅写入 DIAG 日志行（a4k=），不再做播放中自愈——旧的 vo-passes
+        // 周期自愈（连续 miss → 重建视频链，播放中翻 hwdec 两下各 250ms）
+        // 的触发条件要求 canObservePasses（Android），而 vo-passes 只在
+        // 真实 gpu VO 下可读、桌面走 libmpv API 恒空 → 该链在诊断循环
+        // 收敛到桌面后已是死代码；真机上"开了没变化"由 _applySr 的
+        // 如实 toast 报告，不在播放中偷偷重建渲染链。
         final srPasses =
             Anime4KManager.userShaderPassCount(await rd('vo-passes'));
         // 同步目标刷新率：优先读真实 display-fps（Windows ANGLE 常为 ?），
@@ -1488,49 +1489,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
             .split(RegExp('[,\\n]'))
             .where((s) => s.trim().isNotEmpty)
             .length;
-        // ── 超分自愈：属性设上了、但 pass 没进渲染图 ──────────────
-        // 真机实测（2026-09-14，Android）存在这种静默失效：`glsl-shaders` 读回两个
-        // 文件路径完全正常，`vo-passes` 里却一个 user shader pass 都没有 ——
-        // 旧实现只信读回值，于是"以为开着"，用户看到的就是"开了超分毫无变化"。
-        // 这里改成以 vo-passes 为准：连续 2 次采样（约 4 秒）都没有 pass，
-        // 就强制重建一次视频链并重新下发 shader（实测这是唯一能让它生效的动作）；
-        // 连试 3 次仍无效则如实报"未生效"，不再假装成功。
-        //
-        // ⚠️ 平台收口（2026-09-19 探针铁证）：`vo-passes` 只在真实 gpu VO 下可读。
-        // Windows/macOS/Linux 桌面走 media_kit 的 `vo=libmpv` 渲染 API——mpv 官方
-        // 证实该 API 只提供完整 VO 的一小部分能力（#10810），`vo-passes` **恒空**，
-        // 但 `glsl-shaders` 列表被接受、无编译错误（探针 GLSHADERS_READBACK 正常 +
-        // SHADERERR=0 + H/W D3D11/ANGLE 渲染）。若桌面端也按 vo-passes 判，会把
-        // 「shader 已接受」误报成「未生效」→ 连重建 3 次视频链 → 弹红条（用户
-        // 实测看到的假"超分没有"）。故自愈/红条只保留给能读 vo-passes 的
-        // Android；桌面端以「glsl-shaders 被接受 + 无编译错误」为准，不重建。
-        //
-        // ⚠️ 平台覆盖（2026-09-30 补）：该自愈在 Android 上仍是潜在路径而非
-        // 死路径——超分是桌面专属（_srId 恢复时强制 off、_applySr 桌面门闸、
-        // UI 入口 _srAndroidOff 隐藏），Android 上 _sr.enabled 恒 false，此分支
-        // 不触发；周期采样全平台跑的意义是消除「桌面才启动诊断」的平台耦合，
-        // 若未来 Android 放开超分，自愈判据立即可用，无需再改调用点。
-        final canObservePasses = !DesktopUi.isDesktopPlatform;
-        if (canObservePasses &&
-            _sr.enabled && _ready && !_srApplying && srPasses == 0) {
-          _srPassMiss++;
-          if (_srPassMiss >= 2) {
-            _srPassMiss = 0;
-            if (_srHealTries < 3) {
-              _srHealTries++;
-              unawaited(_healSrPipeline());
-            } else if (_srFault == null) {
-              setState(() {
-                _srFault = '着色器未进入渲染管线（已重建视频链重试 3 次仍无 pass，'
-                    '可能是硬解模式或显卡驱动不支持）';
-              });
-            }
-          }
-        } else if (!canObservePasses || srPasses > 0) {
-          _srPassMiss = 0;
-          _srHealTries = 0;
-        }
-        // 桌面端附加诊断行；移动端不需要这项复杂观测（自愈判据已在上方）。
+        // 桌面端附加诊断行；移动端不需要这项复杂观测。
         if (!DesktopUi.isDesktopPlatform) return;
         // 字段含义（避免以后再误读）：
         //   src    = 解码源；vo = VO 实际绘制尺寸（超分判据）；voSrc = vo 取自
@@ -1556,7 +1515,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         final dct = await rd('demuxer-cache-time');
         final line = 'DIAG src=$srcTag vo=$voTag($voSrc) vop=$wop x$hop '
             'elig=${eligible == null ? '?' : (eligible ? 1 : 0)} '
-            'a4k=${canObservePasses ? srPasses : "?"} '
+            'a4k=$srPasses '
             'fps=${_fmtFps(efps)} srcFps=${_fmtFps(cfps)} realFps=${_fmtFps(realFps.toString())} '
             'disp=${_fmtFps(dfps)} ovr=${_fmtFps(ovr)} edisp=${_fmtFps(edfps)} '
             'shader=$shaderCount vsync=$vsync hwdec=$hw '
@@ -1614,29 +1573,6 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     }
   }
 
-  /// 超分着色器没进渲染图时的自愈：重建视频链 → 重新下发 shader 列表。
-  ///
-  /// 为什么是这个动作（2026-09-14 真机实测）：把 `glsl-shaders` 设好、读回
-  /// 也正常，`vo-passes` 里却一个 user shader pass 都没有。在反复实验里
-  /// **唯一真正让 Anime4K 跑起来的一次**，是在 `hwdec` 发生过变更（触发视频链
-  /// 重建）之后重新下发 shader 列表 —— 那次 `vo-passes` 里出现了 17 个
-  /// `user shader: Anime4K-*` pass。所以这里照做：先把 hwdec 推到 auto-safe
-  /// 再设回 auto-copy（逼 mpv 重建滤镜/VO 图），紧接着重新下发。
-  ///
-  /// 只在「开着超分却看不到 pass」时才触发，不影响正常播放路径。
-  Future<void> _healSrPipeline() async {
-    final native = _player?.platform;
-    if (native is! NativePlayer) return;
-    final dyn = native as dynamic;
-    try {
-      await dyn.setProperty('hwdec', 'auto-safe');
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-      await dyn.setProperty('hwdec', 'auto-copy');
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-    } catch (_) {}
-    if (mounted) await _applySr(silent: true);
-  }
-
   Future<void> _applySr({bool silent = false}) async {
     // 超分是桌面专属能力：移动端不自带（UI 已用 _srAndroidOff 隐藏入口），
     // 逻辑链也要在此收口——避免 Android 上仍写 hwdec/清 shader 影响播放。
@@ -1644,11 +1580,6 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     final native = _player?.platform;
     if (native is! NativePlayer) return;
     final dyn = native as dynamic;
-    // 用户主动改档位时重置自愈计数：给新档位重新观察的机会。
-    if (!silent) {
-      _srPassMiss = 0;
-      _srHealTries = 0;
-    }
     if (!silent) setState(() => _srApplying = true);
     try {
       _srFault = null;
@@ -1701,18 +1632,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       // 不掉帧（纯 CPU 软解 1080p + VL 巨型 shader 才是掉帧元凶）。
       // 注意：仅本播放器实例生效，不影响全局。
       // ⚠️ 2026-09-14 实测更正：`hwdec=auto-copy` 在本机 Android 构建上
-      // **是超分生效的前提，不只是性能增强**。真机对照实验：同一个
-      // glsl-shaders 列表，`hwdec=no` 时 `vo-passes` 里 0 个用户着色器
-      // pass；`hwdec=auto-copy` 时 17 个 `user shader: Anime4K-*` pass 全跑。
-      // 所以这里失败**必须**被后续以 vo-passes 为准的自愈逻辑兜住
-      // （见 [_healSrPipeline]），不能再像以前那样静默吞掉——否则用户
-      // 只会看到"开了没变化"。
-      try {
-        await dyn.setProperty(
-            'hwdec', _sr.enabled ? 'auto-copy' : 'auto-safe');
-      } catch (_) {
-        // 设不上：交给 vo-passes 自愈逻辑发现并重试。
-      }
+      // **是超分生效的前提，不只是性能增强**（真机对照：hwdec=no 时 0 个
+      // user shader pass，auto-copy 时 17 个全跑）。设失败如实进 catch 报
+      // toast——不做播放中翻 hwdec 的静默自愈（该链已删，见 DIAG 行注释）。
+      await dyn.setProperty('hwdec', _sr.enabled ? 'auto-copy' : 'auto-safe');
       // libmpv 对 path-list 选项用 mpv_set_property_string 设置时不会按
       // 逗号/换行拆分（会把整个串当单个文件名）。改用 change-list 命令，
       // 其 value 按平台路径列表分隔符解析：Windows=`;`，POSIX=`:`。
@@ -1738,7 +1661,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       // ⚠️ 但「读回非空」**只证明属性被接受，不证明 pass 真的执行**：
       // 2026-09-14 真机实测存在读回两个路径、`vo-passes` 里 0 个用户着色器
       // pass 的静默失效。真正的判据是 [Anime4KManager.userShaderPassCount]
-      // 读 `vo-passes`，由 [_startDiag] 持续校验并在必要时自愈（[_healSrPipeline]）。
+      // 读 `vo-passes`（诊断行 a4k= 如实记录）——播放中不做自愈重建。
       final back = (await dyn.getProperty('glsl-shaders'))?.toString() ?? '';
       final applied = (!_sr.enabled && (back.isEmpty)) ||
           (_sr.enabled &&
@@ -1790,7 +1713,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 自动回退 audio），不依赖桌面专属能力（无 shader/无超分/无 GPU 调优），
   /// 是治「60Hz 屏上一顿一顿」的基线，不是画质功能——2026-09-16 曾误把
   /// 它也划进「桌面专属」整体关闭，导致移动端回归默认 audio-sync 抖动。
-  /// 移动端只关桌面画质链（[_applyEnhance]/[_applySr]/[_healSrPipeline]）。
+  /// 移动端只关桌面画质链（[_applyEnhance]/[_applySr]）。
   ///
   /// 倍速防线：本函数**探测显示时钟 + 音轨**，两者都可靠才用 display-resample，
   /// 任一不可靠则退回 `audio` 同步（恒 1 倍速）。mpv 原生 `interpolation`
