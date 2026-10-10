@@ -778,7 +778,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     _resolveTimer?.cancel();
     _fsPollTimer?.cancel();
     _fsHideTimer?.cancel();
-    _fsHideTimer?.cancel();
+    _hudTimer?.cancel();
     // 兜底：离开播放页时若网页播放器仍在播放（如未捕获直链直接退出），
     // 立即硬销毁网页媒体并停掉 WebView2，避免页面销毁后音频残留。
     // 不能复用 _killWebMedia：它在内部 setState，dispose 期间调用会崩。
