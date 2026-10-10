@@ -183,11 +183,6 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   // 置位后 WebView 不再渲染，其音频来源被同步切断，杜绝双音轨残留。
   bool _webViewRemoved = false;
 
-  /// 等待「导航到 about:blank」真正完成的 Future。onPageFinished 时 complete。
-  /// about:blank 会连带卸载整个文档树（含跨域 iframe 里的 <video>），
-  /// 切原生播放器前必须等它完成，否则转场期间网页音频仍在播放（双音轨）。
-  Completer<void>? _pendingBlank;
-
   static const ua = 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
@@ -260,11 +255,6 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
             _restoreProgress();
           }
         });
-        // about:blank 导航到位：放行等待它的切原生播放器流程。
-        if (!loading) {
-          final p = _pendingBlank;
-          if (p != null && !p.isCompleted) p.complete();
-        }
         if (loading) {
           _injectApiInterceptor();
         }
@@ -376,9 +366,6 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           _restoreProgress();
           // 页面就绪后 Hls 可能已初始化完成，再补注入一次确保 hook 生效。
           _injectHlsHook();
-          // about:blank 导航到位：放行等待它的切原生播放器流程。
-          final p = _pendingBlank;
-          if (p != null && !p.isCompleted) p.complete();
         },
         onWebResourceError: (err) {
           // 主框架加载失败（断网/超时/服务器错误）时记录错误态。
@@ -791,10 +778,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     _resolveTimer?.cancel();
     _fsPollTimer?.cancel();
     _fsHideTimer?.cancel();
-    // 兜底：页面销毁时放行未完成的 about:blank 等待，避免 Completer 悬挂。
-    if (_pendingBlank != null && !_pendingBlank!.isCompleted) {
-      _pendingBlank!.complete();
-    }
+    _fsHideTimer?.cancel();
     // 兜底：离开播放页时若网页播放器仍在播放（如未捕获直链直接退出），
     // 立即硬销毁网页媒体并停掉 WebView2，避免页面销毁后音频残留。
     // 不能复用 _killWebMedia：它在内部 setState，dispose 期间调用会崩。
@@ -1245,9 +1229,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   /// 切原生播放器/退出页前杀掉网页媒体：先跑 [_destroyWebMediaJs] 硬销毁
   /// 顶层与同域 iframe 的媒体元素并把跨域 iframe 摘除，再停 WebView2、
   /// 导航到 about:blank 卸载整个文档树，最后同步把 WebView 从视图树移除。
-  ///
-  /// 导航前创建 [_pendingBlank]，onPageFinished 触发时 complete，
-  /// 调用方可等文档树真正卸载完成再推原生播放器。
+  /// 卸载保证来自 `await loadUrl(about:blank)` 本身——导航 API 返回即文档树已卸载。
   Future<void> _killWebMedia() async {
     final d = _desktop;
     // 统一硬销毁脚本：顶层 + 同域 iframe 摘元素，跨域 iframe 摘 iframe。
@@ -1256,29 +1238,14 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       try {
         await d.stop(); // WebView2 立即停止页面活动（含音频）
       } catch (_) {}
-      // about:blank 连带卸载整个文档树（含跨域 iframe 里的 <video>），
-      // 导航完成前网页音频仍可能出声，故在此登记等待对象。
-      if (_pendingBlank == null || _pendingBlank!.isCompleted) {
-        _pendingBlank = Completer<void>();
-      }
+      // about:blank 连带卸载整个文档树（含跨域 iframe 里的 <video>）。
       try {
         await d.loadUrl('about:blank');
       } catch (_) {}
     } else {
-      if (_pendingBlank == null || _pendingBlank!.isCompleted) {
-        _pendingBlank = Completer<void>();
-      }
       try {
         await _controller.loadRequest(Uri.parse('about:blank'));
       } catch (_) {}
-    }
-    // 兜底：导航 API 不保证等文档真正卸载，给 onPageFinished 一个短暂窗口，
-    // 仍未到达则强制 complete，避免 Completer 永久悬挂。
-    final pending = _pendingBlank;
-    if (pending != null) {
-      Future.delayed(const Duration(milliseconds: 400), () {
-        if (!pending.isCompleted) pending.complete();
-      });
     }
     // 同步物理移除 WebView：此后不再渲染、不再出声。
     if (mounted && !_webViewRemoved) {

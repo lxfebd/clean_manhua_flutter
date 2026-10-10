@@ -159,15 +159,18 @@ class NetConn {
         for (int attempt = 0; attempt < ips.length; attempt++) {
           final idx = ((_ipIndex[host] ?? 0) + attempt) % ips.length;
           final ip = ips[idx];
+          Socket? opened;
           try {
-            final socket =
-                await Socket.connect(ip, port, timeout: ipTryTimeout);
-            final secure = await SecureSocket.secure(socket,
+            opened = await Socket.connect(ip, port, timeout: ipTryTimeout);
+            final secure = await SecureSocket.secure(opened,
                 host: url.host,
                 onBadCertificate: trustSelfSigned ? (_) => true : null);
             return ConnectionTask.fromSocket<SecureSocket>(
                 Future.value(secure), () {});
           } catch (_) {
+            // TLS 握手失败时 raw socket 仍归本方所有：不关就是泄漏
+            // （每请求最多泄漏 ips.length 个 socket，移动端 fd 有限）。
+            opened?.destroy();
             // 该 IP 不可用，尝试下一个
           }
         }
@@ -175,11 +178,16 @@ class NetConn {
         final addr = (await InternetAddress.lookup(url.host)).first;
         final socket =
             await Socket.connect(addr, port, timeout: ipTryTimeout);
-        final secure = await SecureSocket.secure(socket,
-            host: url.host,
-            onBadCertificate: trustSelfSigned ? (_) => true : null);
-        return ConnectionTask.fromSocket<SecureSocket>(
-            Future.value(secure), () {});
+        try {
+          final secure = await SecureSocket.secure(socket,
+              host: url.host,
+              onBadCertificate: trustSelfSigned ? (_) => true : null);
+          return ConnectionTask.fromSocket<SecureSocket>(
+              Future.value(secure), () {});
+        } catch (_) {
+          socket.destroy();
+          rethrow;
+        }
       };
     }
     return client;
