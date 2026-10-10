@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 /// 带状态码的 HTTP 异常：让重试逻辑能区分 5xx/429（可重试）与 4xx（不可重试）。
 class HttpStatusException implements Exception {
   final int statusCode;
@@ -151,44 +153,10 @@ class NetConn {
     }
     final ips = preferredHostIps[host];
     if (ips != null && ips.isNotEmpty) {
-      client.connectionFactory = (url, proxyHost, proxyPort) async {
-        final port = url.hasPort
-            ? url.port
-            : (url.scheme == 'https' ? 443 : 80);
-        // 依次尝试每个候选 IP
-        for (int attempt = 0; attempt < ips.length; attempt++) {
-          final idx = ((_ipIndex[host] ?? 0) + attempt) % ips.length;
-          final ip = ips[idx];
-          Socket? opened;
-          try {
-            opened = await Socket.connect(ip, port, timeout: ipTryTimeout);
-            final secure = await SecureSocket.secure(opened,
-                host: url.host,
-                onBadCertificate: trustSelfSigned ? (_) => true : null);
-            return ConnectionTask.fromSocket<SecureSocket>(
-                Future.value(secure), () {});
-          } catch (_) {
-            // TLS 握手失败时 raw socket 仍归本方所有：不关就是泄漏
-            // （每请求最多泄漏 ips.length 个 socket，移动端 fd 有限）。
-            opened?.destroy();
-            // 该 IP 不可用，尝试下一个
-          }
-        }
-        // 全部优选 IP 失败 → 回退系统 DNS
-        final addr = (await InternetAddress.lookup(url.host)).first;
-        final socket =
-            await Socket.connect(addr, port, timeout: ipTryTimeout);
-        try {
-          final secure = await SecureSocket.secure(socket,
-              host: url.host,
-              onBadCertificate: trustSelfSigned ? (_) => true : null);
-          return ConnectionTask.fromSocket<SecureSocket>(
-              Future.value(secure), () {});
-        } catch (_) {
-          socket.destroy();
-          rethrow;
-        }
-      };
+      // 逻辑见 connectionTask（@visibleForTesting 抽出以便离线断言 socket
+      // 生命周期）：逐个候选 IP 尝试，失败销毁 socket，全失败回退系统 DNS。
+      client.connectionFactory = (url, proxyHost, proxyPort) =>
+          connectionTask(url, host, proxyHost, proxyPort);
     }
     return client;
   }
@@ -202,6 +170,95 @@ class NetConn {
     _ipIndex[host] = next;
     return next;
   }
+
+  /// 优选 IP 直连任务（从 connectionFactory 闭包抽出，便于离线驱动失败分支
+  /// 断言 socket 生命周期）。默认使用真实 dart:io 连接；测试通过
+  /// [connectFn]/[secureFn] 注入 fake 记录 destroy 调用。
+  /// 语义与旧闭包完全一致：逐个候选 IP 尝试 TLS 握手，失败销毁该 socket 并
+  /// 换下一个；全部失败回退系统 DNS（[resolveAndConnectDirect]）。
+  @visibleForTesting
+  static Future<ConnectionTask<Socket>> connectionTask(
+    Uri url,
+    String host,
+    String? proxyHost,
+    int? proxyPort,
+  ) async {
+    final ips = preferredHostIps[host];
+    final port = url.hasPort ? url.port : (url.scheme == 'https' ? 443 : 80);
+    if (ips == null || ips.isEmpty) {
+      return resolveAndConnectDirect(url, host, port);
+    }
+    // 依次尝试每个候选 IP
+    for (int attempt = 0; attempt < ips.length; attempt++) {
+      final idx = ((_ipIndex[host] ?? 0) + attempt) % ips.length;
+      final ip = ips[idx];
+      Socket? opened;
+      try {
+        opened = await connectFn(ip, port, ipTryTimeout);
+        final secure = await secureFn(opened, url.host,
+            trustSelfSigned ? (_) => true : null);
+        return ConnectionTask.fromSocket<Socket>(Future.value(secure), () {});
+      } catch (_) {
+        // TLS 握手失败时 raw socket 仍归本方所有：不关就是泄漏
+        // （每请求最多泄漏 ips.length 个 socket，移动端 fd 有限）。
+        opened?.destroy();
+        // 该 IP 不可用，尝试下一个
+      }
+    }
+    // 全部优选 IP 失败 → 回退系统 DNS
+    return resolveAndConnectDirect(url, host, port);
+  }
+
+  /// 系统 DNS 直连任务（优选 IP 全失败的回退路径）。
+  @visibleForTesting
+  static Future<ConnectionTask<Socket>> resolveAndConnectDirect(
+    Uri url,
+    String host,
+    int port,
+  ) async {
+    final addr = (await InternetAddress.lookup(url.host)).first;
+    final socket = await connectFn(addr.address, port, ipTryTimeout);
+    try {
+      final secure = await secureFn(socket, url.host,
+          trustSelfSigned ? (_) => true : null);
+      return ConnectionTask.fromSocket<Socket>(Future.value(secure), () {});
+    } catch (_) {
+      socket.destroy();
+      rethrow;
+    }
+  }
+
+  /// socket 创建注入点（仅测试）：默认即真实 [Socket.connect]。
+  @visibleForTesting
+  static Future<Socket> Function(String host, int port, Duration timeout)
+      connectFn = _defaultConnect;
+
+  /// TLS 握手注入点（仅测试）：默认即真实 [SecureSocket.secure]。
+  @visibleForTesting
+  static Future<Socket> Function(
+    Socket raw,
+    String host,
+    bool Function(X509Certificate)? onBadCertificate,
+  ) secureFn = _defaultSecure;
+
+  /// 恢复注入点为默认实现（测试 tearDown 用，避免跨用例状态污染）。
+  @visibleForTesting
+  static void resetConnectionOverrides() {
+    connectFn = _defaultConnect;
+    secureFn = _defaultSecure;
+  }
+
+  static Future<Socket> _defaultConnect(
+          String host, int port, Duration timeout) =>
+      Socket.connect(host, port, timeout: timeout);
+
+  static Future<Socket> _defaultSecure(
+    Socket raw,
+    String host,
+    bool Function(X509Certificate)? onBadCertificate,
+  ) =>
+      SecureSocket.secure(raw,
+          host: host, onBadCertificate: onBadCertificate);
 
   /// 分块读取响应流，达到 [limit] 立即抛 [ResponseTooLargeException] 并
   /// 停止消费（不拉满内存）；[t] 为**整体读取超时**（与旧
