@@ -43,7 +43,6 @@ class TfliteColorizerBackend implements ColorizerBackend {
     final syncInterp = Interpreter.fromFile(f);
     // 校验模型规格：必须 256×256 输入 → 1×2×256×256 输出（DDColor）。
     final inShape = syncInterp.getInputTensor(0).shape;
-    syncInterp.getOutputTensor(0).shape;
     if (inShape.length != 4 || inShape[0] != 1) {
       syncInterp.close();
       throw StateError('模型规格不符：需要 1×3×256×256（DDColor），'

@@ -172,19 +172,14 @@ class NetConn {
           }
         }
         // 全部优选 IP 失败 → 回退系统 DNS
-        try {
-          final addr = (await InternetAddress.lookup(url.host)).first;
-          final socket =
-              await Socket.connect(addr, port, timeout: ipTryTimeout);
-          final secure = await SecureSocket.secure(socket,
-              host: url.host,
-              onBadCertificate: trustSelfSigned ? (_) => true : null);
-          return ConnectionTask.fromSocket<SecureSocket>(
-              Future.value(secure), () {});
-        } catch (_) {
-          // 回退也失败，抛出由上层捕获
-          rethrow;
-        }
+        final addr = (await InternetAddress.lookup(url.host)).first;
+        final socket =
+            await Socket.connect(addr, port, timeout: ipTryTimeout);
+        final secure = await SecureSocket.secure(socket,
+            host: url.host,
+            onBadCertificate: trustSelfSigned ? (_) => true : null);
+        return ConnectionTask.fromSocket<SecureSocket>(
+            Future.value(secure), () {});
       };
     }
     return client;

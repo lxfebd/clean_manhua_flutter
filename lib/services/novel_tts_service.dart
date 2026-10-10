@@ -166,11 +166,6 @@ class NovelTtsService {
     }
 
     final sentences = splitSentences(paras.substring(_spokenChars));
-    if (sentences.isEmpty) {
-      _spokenChars = paras.length;
-      _speakNext();
-      return;
-    }
     final text = sentences.first;
     _spokenChars += text.length;
     try {

@@ -202,19 +202,15 @@ class ColorizerManager {
     while (true) {
       final m = _mutex;
       if (m == null || m.isCompleted) {
-        // 无锁或锁已释放：尝试抢锁。Dart 单线程下检查+赋值同步原子，
-        // 只有真正抢到才跳出循环（_mutex 仍是 null 才设为自己）。
-        if (_mutex == null) {
-          final mine = _mutex = Completer<void>();
-          try {
-            return await _timedInfer(rgb, w, h);
-          } finally {
-            mine.complete();
-            if (identical(_mutex, mine)) _mutex = null;
-          }
+        // 无锁或锁已释放：直接抢锁（Dart 单线程下 m=_mutex 间无 await，
+        // _mutex 必仍为 null）。
+        final mine = _mutex = Completer<void>();
+        try {
+          return await _timedInfer(rgb, w, h);
+        } finally {
+          mine.complete();
+          if (identical(_mutex, mine)) _mutex = null;
         }
-        // 竞态窗口：刚被并发者抢走，回到循环头重新检查。
-        continue;
       }
       // 有人在跑：等它释放，然后回到循环头复查（不直接覆盖锁）。
       var timedOut = false;

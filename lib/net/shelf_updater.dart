@@ -112,9 +112,6 @@ class ShelfUpdater {
     void Function(int done, int total)? onProgress,
     bool Function()? shouldCancel,
   }) async {
-    // 手动路径不经 checkInBackground：上一轮用户取消残留的 _isCancelled
-    // 必须清零，否则本轮 checkOne/checkNovel 全部短路（空跑不报更新）。
-    _isCancelled = false;
     final items = BookshelfStore.listAll();
     final novels = NovelShelfStore.listAll();
     final total = items.length + novels.length; // 进度总长（漫画+小说）
@@ -135,12 +132,10 @@ class ShelfUpdater {
       }
       try {
         final detail = await src.detail(d.id).timeout(_perBookTimeout);
-        if (!_isCancelled) {
-          final cur = detail.chapters.length;
-          if (cur > d.chapters.length) {
-            updated.add(d.name);
-            BookshelfStore.setLastSeenChapters(sid, d.id, cur);
-          }
+        final cur = detail.chapters.length;
+        if (cur > d.chapters.length) {
+          updated.add(d.name);
+          BookshelfStore.setLastSeenChapters(sid, d.id, cur);
         }
       } catch (_) {
         // 单本失败不阻塞整体检查（源抖动/反爬），下一轮再试
@@ -176,7 +171,6 @@ class ShelfUpdater {
       }
       try {
         final detail = await src.detail(d.id).timeout(_perBookTimeout);
-        if (_isCancelled) return;
         final cur = detail.chapters.length;
         final last = NovelShelfStore.lastSeenChapters(sid, d.id);
         if (last < 0) {
@@ -201,9 +195,6 @@ class ShelfUpdater {
     return updated;
   }
 
-  /// 全局取消标记：任意一轮检查被 [checkNow] 取消时置位。
-  static bool _isCancelled = false;
-
   /// 应用启动补检（B-6）：进程被杀后下次启动跑一轮后台检查，
   /// 命中更新即经 [checkInBackground] 走应用内横幅 + 系统通知
   /// （24h 冷却去重，见 [UpdateNotifier]）。
@@ -219,7 +210,6 @@ class ShelfUpdater {
   Future<void> checkInBackground() async {
     if (_checking) return;
     _checking = true;
-    _isCancelled = false;
     try {
       final updated = await checkNow();
       if (updated != null && updated.isNotEmpty) {

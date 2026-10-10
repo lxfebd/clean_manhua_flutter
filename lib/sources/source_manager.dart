@@ -114,22 +114,19 @@ class SourceManager {
 
   static int _currentNovel = 0;
 
-  /// 当前小说源；列表为空时返回 null，调用方需判空。
-  static NovelSource? get currentNovel =>
-      novelSources.isEmpty ? null : novelSources[_currentNovel];
+  /// 当前小说源。
+  static NovelSource? get currentNovel => novelSources[_currentNovel];
 
   static void switchNovelTo(int index) {
     if (index >= 0 && index < novelSources.length) _currentNovel = index;
   }
 
   static NovelSource? novelById(String id) {
-    if (novelSources.isEmpty) return null;
     return novelSources.firstWhere((s) => s.id == id, orElse: () => currentNovel!);
   }
 
   /// 启用中的小说源列表（配置优先），按 tier 排序。
   static Future<List<NovelSource>> enabledNovelSources() async {
-    if (novelSources.isEmpty) return const [];
     return _enabledSorted(novelSources);
   }
 

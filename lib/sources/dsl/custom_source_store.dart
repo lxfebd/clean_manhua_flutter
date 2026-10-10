@@ -164,11 +164,11 @@ class CustomSourceStore {
   /// [replaceExisting] 为 true 时先卸载内存中已注册的自定义插件（备份恢复等
   /// 场景：磁盘内容已被新数据替换，旧插件若残留会与新源并存或覆盖），再重建。
   static Future<void> restorePlugins({bool replaceExisting = false}) async {
-    if (replaceExisting) _cache = null;
     if (replaceExisting) {
+      _cache = null;
       final pm = SourcePluginManager.instance;
       for (final p in pm.plugins.toList()) {
-        if (p.id.isNotEmpty && !p.builtin) {
+        if (!p.builtin) {
           await pm.uninstall(p.id);
         }
       }

@@ -113,7 +113,6 @@ class AshanYingyuanVideoSource extends VideoSource {
   @override
   Future<VideoDetail> detail(String videoId) async {
     final html = await _fetch('$_base${_detailPath(videoId)}');
-    final num = _videoNum(videoId);
 
     final title = _stripTags(_firstGroup(_titleRe, html)).trim();
 
@@ -154,11 +153,6 @@ class AshanYingyuanVideoSource extends VideoSource {
         episodes.add(VideoEpisode(channel, ep, label));
       }
     }
-    if (episodes.isEmpty && num != null) {
-      // 兜底：无剧集时提供至少第 1 集，避免详情页空列表。
-      episodes.add(VideoEpisode(1, 1, '第01集'));
-    }
-
     return VideoDetail(
       ComicItem(videoId, title, cover),
       episodes,
