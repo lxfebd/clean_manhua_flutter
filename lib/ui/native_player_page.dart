@@ -770,6 +770,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
             if (_handoffSrc.isNotEmpty) {
               _handoffQuarantine.recordFailure(_handoffSrc);
             }
+            ErrorLogger.instance
+                .debug('handoff failed (stream error): staying on web: $_handoffSrc');
             setState(() {
               _useWeb = true;
               _failed = false;
@@ -2034,12 +2036,15 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     if (ok) {
       // 接管成功：清除该资源的历史失败计数，确保后续换源/重开不受影响。
       _handoffQuarantine.clear(src);
+      ErrorLogger.instance.debug('handoff ok: mpv took over $src');
       return true;
     }
     // mpv 打不开（_open 或异步 error 已把该资源计入失败）：留在网页通道
     // （AnimePlayerPage 仍在树中），不叠加报错。计数达到上限后后续捕获
     // 会走上面的隔离闸门秒拒，不再重建 WebView。
-    _handoffQuarantine.recordFailure(src);
+    final failedKey = _handoffQuarantine.recordFailure(src);
+    ErrorLogger.instance.debug(
+        'handoff failed: staying on web (quarantined=$failedKey): $src');
     if (mounted && !_useWeb) {
       setState(() {
         _useWeb = true;
