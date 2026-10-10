@@ -21,6 +21,7 @@ import '../sources/video_source.dart';
 import '../utils/anime4k.dart';
 import '../utils/danmaku.dart';
 import '../utils/desktop_fullscreen.dart';
+import '../utils/handoff_quarantine.dart';
 import '../utils/player_fullscreen.dart';
 import '../utils/player_sync_guard.dart';
 import '../utils/player_sync_mode.dart';
@@ -249,19 +250,11 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// mpv 已确认打不开的直链（源站失效/防盗链拒绝等）。同一失效直链不反复
   /// handoff，避免「mpv 失败 → 重建 WebView → 又解析同一失效直链 → 又失败」
   /// 的循环。仅本次页面生命周期内有效，换源/换集后自然失效。
-  /// 集合字面量即 LinkedHashSet，按插入序记录，上限 [_rejectedHandoffsMax]：防无界增长。
-  final Set<String> _rejectedHandoffs = <String>{};
-
-  static const int _rejectedHandoffsMax = 32;
-
-  /// 记录一条打不开的直链；超出上限时移除最旧一条。
-  void _rememberRejectedHandoff(String src) {
-    if (src.isEmpty) return;
-    _rejectedHandoffs.add(src);
-    while (_rejectedHandoffs.length > _rejectedHandoffsMax) {
-      _rejectedHandoffs.remove(_rejectedHandoffs.first);
-    }
-  }
+  /// 直链接管失败隔离器：按资源键（scheme+host+path，去 query）计数，
+  /// 同一资源连续失败达上限即隔离——签名轮换只变 query 不会重置计数，
+  /// 杜绝「mpv 失败 → WebView 重建 → 重新捕获 → 再失败」的无限横跳。
+  /// 失败即回落网页通道，不再反复试开 mpv。
+  final HandoffQuarantine _handoffQuarantine = HandoffQuarantine();
 
   // ── 画质 ────────────────────────────────────
   String _srId = 'off';
@@ -770,11 +763,12 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         if (!mounted) return;
         if (!_ready) {
           // 网页通道 handoff 的直链打不开（源站失效/防盗链拒绝）：
-          // 记住该直链不再尝试，切回网页通道继续播放，不弹失败页。
+          // 记入失败计数（达上限后由隔离闸门秒拒后续接管），切回网页
+          // 通道继续播放，不弹失败页。
           if (_handoffOpening) {
             _handoffOpening = false;
             if (_handoffSrc.isNotEmpty) {
-              _rememberRejectedHandoff(_handoffSrc);
+              _handoffQuarantine.recordFailure(_handoffSrc);
             }
             setState(() {
               _useWeb = true;
@@ -1955,7 +1949,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       });
       // 换集后失效直链记忆作废：源站常复用同一 CDN 模板，新旧集解析出的
       // 直链可能相同，不清空会让新集的合法直链被旧失效记录静默拒绝。
-      if (_rejectedHandoffs.isNotEmpty) _rejectedHandoffs.clear();
+      _handoffQuarantine.resetAll();
       await _open(url);
       // 换集后重新拉取该集弹幕
       setState(() {
@@ -2012,9 +2006,14 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       ErrorLogger.instance.debug('ad url filtered on handoff: $src');
       return false;
     }
-    // 该直链已确认打不开（源站失效/防盗链拒绝）：不再反复尝试，
-    // 让 WebView 留在网页通道播放，避免循环失败。
-    if (_rejectedHandoffs.contains(src)) return false;
+    // 该资源已确认打不开（源站失效/防盗链拒绝，连续失败达上限）：
+    // 立即停在网页通道，秒拒一切后续接管尝试——不再卸载 WebView、
+    // 不再重建，杜绝反复横跳。隔离按资源键计数，签名轮换不会重置。
+    if (_handoffQuarantine.isQuarantined(src)) {
+      ErrorLogger.instance.debug(
+          'handoff quarantined, staying on web: ${HandoffQuarantine.normalize(src)}');
+      return false;
+    }
     setState(() => _useWeb = false);
     if (!mounted) return false;
     _handoffOpening = true;
@@ -2032,12 +2031,17 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       _player?.stop();
       return false;
     }
-    if (ok) return true;
-    // mpv 打不开（_open 或异步 error 已把该直链记入 _rejectedHandoffs）：
-    // 留在网页通道（AnimePlayerPage 仍在树中），不叠加报错。
+    if (ok) {
+      // 接管成功：清除该资源的历史失败计数，确保后续换源/重开不受影响。
+      _handoffQuarantine.clear(src);
+      return true;
+    }
+    // mpv 打不开（_open 或异步 error 已把该资源计入失败）：留在网页通道
+    // （AnimePlayerPage 仍在树中），不叠加报错。计数达到上限后后续捕获
+    // 会走上面的隔离闸门秒拒，不再重建 WebView。
+    _handoffQuarantine.recordFailure(src);
     if (mounted && !_useWeb) {
       setState(() {
-        _rememberRejectedHandoff(src);
         _useWeb = true;
         _failed = false;
         _webGeneration++;

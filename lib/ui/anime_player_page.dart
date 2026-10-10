@@ -458,15 +458,14 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
         _handedOffToMpv = true;
         await _killWebMedia();
       } else {
-        // handoff 被拒（直链失效/打不开）：留在网页通道。此时 _resolving
-        // 仍为 true 而上面的 cancel 已把 8 秒计时器取消 —— 不重武装的话
-        // "解析直链中…"黑幕会永久挂着、轮询持续强杀网页音量。重新武装
-        // 一次超时放弃计时器，让 _resolving 能正常回落。
-        _resolveTimer = Timer(const Duration(seconds: 8), () {
-          if (mounted && _resolving) {
-            setState(() => _resolving = false);
-          }
-        });
+        // handoff 被拒（直链失效/打不开/被宿主隔离）：留在网页通道。
+        // 上面的 cancel 已把计时器停掉，这里直接回落 _resolving，让
+        // 网页播放器立即可见可听（不再等 8 秒超时）。宿主侧已按资源
+        // 键隔离失败资源，本页无需再武装重试计时器——反复武装只会随
+        // 签名刷新的轮询被无限续期，黑幕永挂。
+        if (mounted && _resolving) {
+          setState(() => _resolving = false);
+        }
       }
       return;
     }
