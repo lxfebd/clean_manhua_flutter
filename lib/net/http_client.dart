@@ -174,7 +174,8 @@ class Net {
   static Map<String, List<String>> get preferredHostIps =>
       NetConn.preferredHostIps;
 
-  /// 全局代理（`socks5://host:port` / `http://host:port` / `https://host:port`）。
+  /// 全局代理（`http://host:port` / `https://host:port`；dart:io 不支持
+  /// socks，socks5/socks4 前缀会被明确拒绝为直连）。
   static String? get proxy => NetConn.proxy;
   static set proxy(String? v) => NetConn.proxy = v;
 

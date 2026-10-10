@@ -78,7 +78,8 @@ class NetConn {
     ],
   };
 
-  /// 全局代理（`socks5://host:port` / `http://host:port` / `https://host:port`）。
+  /// 全局代理（`http://host:port` / `https://host:port`；dart:io 不支持
+  /// socks，socks5/socks4 前缀会被明确拒绝为直连）。
   /// 空串/null 表示直连。仅对 dart:io 路径生效；配置代理后 Cronet 路径自动跳过
   /// （Cronet 默认引擎不读代理配置，避免 Android 上代理被绕过）。
   static String? proxy;
@@ -140,9 +141,9 @@ class NetConn {
   /// （[_effectiveProxy]）；空串表示显式直连（压过全局代理）。返回 null 直连。
   ///
   /// 注意解析只在**原始字符串**上做一次：[_effectiveProxy] 由 [applyProxy]
-  /// 预先经 [_proxyDirective] 解析为最终 PAC 指令（如 `SOCKS5 host:port`），
-  /// 回退全局路径直接使用，不得二次解析（否则 `SOCKS5 host:port` 会被
-  /// 当成裸地址再裹一层 `PROXY`，全局 socks 代理从未正确生效）。
+  /// 预先经 [_proxyDirective] 解析为最终 PAC 指令（如 `PROXY host:port`），
+  /// 回退全局路径直接使用，不得二次解析（否则 `PROXY host:port` 会被
+  /// 当成裸地址再裹一层 `PROXY`，全局代理从未正确生效）。
   @visibleForTesting
   static String? resolveProxyDirective(String? proxy) {
     if (proxy == null) return _effectiveProxy;
