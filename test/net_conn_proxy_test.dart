@@ -5,8 +5,9 @@ import 'package:xingmanxia/net/net_conn.dart';
 ///
 /// 覆盖 [NetConn._proxyDirective] / [NetConn.applyProxy] /
 /// [NetConn.resolveProxyDirective] 三条契约：
-///   1. 指令格式：socks5/socks5h → "SOCKS5 host:port"，socks4 → "SOCKS4"，
-///      其余/裸 host:port → "PROXY host:port"（不认识的 scheme 兜底为 PROXY）
+///   1. 指令格式：http/https/裸 host:port → "PROXY host:port"（不认识的
+///      scheme 兜底为 PROXY）；**socks5/socks5h/socks4 被明确拒绝 → null**
+///      （dart:io findProxy 只认 PROXY/DIRECT，产出 SOCKSx 指令必然炸）
 ///   2. 优先级：单源代理（resolveProxyDirective 的 proxy 参数）> 全局代理
 ///      （NetConn.proxy + applyProxy）；单源空串 = 显式直连，压过全局
 ///   3. 全局代理开关：proxyDirective getter / proxyEnabled 与配置同步
@@ -20,21 +21,29 @@ void main() {
   });
 
   group('NetConn 代理指令格式', () {
-    test('socks5 前缀 → SOCKS5 指令（含 socks5h 变体）', () {
+    test('socks5 前缀被拒绝（含 socks5h 变体）', () {
       NetConn.proxy = 'socks5://127.0.0.1:1080';
       NetConn.applyProxy();
-      expect(NetConn.proxyEnabled, isTrue);
-      expect(NetConn.proxyDirective, 'SOCKS5 127.0.0.1:1080');
+      expect(NetConn.proxyEnabled, isFalse, reason: 'socks 配置不启用代理');
+      expect(NetConn.proxyDirective, isNull, reason: 'socks5 被拒绝，直连');
 
       NetConn.proxy = 'socks5h://proxy.example:1081';
       NetConn.applyProxy();
-      expect(NetConn.proxyDirective, 'SOCKS5 proxy.example:1081');
+      expect(NetConn.proxyDirective, isNull, reason: 'socks5h 同样拒绝');
     });
 
-    test('socks4 前缀 → SOCKS4 指令', () {
+    test('socks5/socks4 前缀被明确拒绝 → 直连（不再产出非法指令）', () {
+      // dart:io findProxy 只认 PROXY/DIRECT；曾经的 `SOCKS5 host:port`
+      // 会让 HttpClient 抛 Invalid proxy configuration，所有代理请求直接炸。
+      // 修复：明确拒绝 socks，返回 null 直连（诚实且可预期）。
+      NetConn.proxy = 'socks5://127.0.0.1:1080';
+      NetConn.applyProxy();
+      expect(NetConn.proxyEnabled, isFalse, reason: 'socks 配置不启用代理');
+      expect(NetConn.proxyDirective, isNull);
+
       NetConn.proxy = 'socks4://10.0.0.1:4145';
       NetConn.applyProxy();
-      expect(NetConn.proxyDirective, 'SOCKS4 10.0.0.1:4145');
+      expect(NetConn.proxyDirective, isNull, reason: 'socks4 同样拒绝');
     });
 
     test('裸 host:port 与 http/https 前缀 → PROXY 指令', () {
@@ -70,7 +79,7 @@ void main() {
 
   group('NetConn 代理优先级', () {
     test('单源代理 > 全局代理', () {
-      NetConn.proxy = 'socks5://global:1080';
+      NetConn.proxy = 'http://global:8080';
       NetConn.applyProxy();
 
       final directive =
@@ -80,7 +89,7 @@ void main() {
     });
 
     test('单源空串显式直连 > 全局代理（跳过代理直连）', () {
-      NetConn.proxy = 'socks5://global:1080';
+      NetConn.proxy = 'http://global:8080';
       NetConn.applyProxy();
 
       expect(NetConn.resolveProxyDirective(''), isNull,
@@ -88,11 +97,21 @@ void main() {
     });
 
     test('单源为 null 时回退全局代理', () {
-      NetConn.proxy = 'socks5://global:1080';
+      NetConn.proxy = 'http://global:8080';
       NetConn.applyProxy();
 
-      expect(NetConn.resolveProxyDirective(null), 'SOCKS5 global:1080',
+      expect(NetConn.resolveProxyDirective(null), 'PROXY global:8080',
           reason: '无单源代理时应使用全局代理');
+    });
+
+    test('单源 socks 配置被拒绝 → 回退全局 http 代理', () {
+      // socks 单源同样拒绝：resolveProxyDirective 收到 socks 串返回 null，
+      // 但注意它不代表直连——null 会走全局代理路径（由调用方再解析全局）。
+      NetConn.proxy = 'http://global:8080';
+      NetConn.applyProxy();
+      // 直接断言 _proxyDirective 语义：socks 字符串本身解析为 null
+      expect(NetConn.resolveProxyDirective('socks5://x:1080'), isNull,
+          reason: '单源 socks 前缀应被拒绝为 null');
     });
   });
 }

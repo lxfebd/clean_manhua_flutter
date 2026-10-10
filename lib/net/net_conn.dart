@@ -103,6 +103,13 @@ class NetConn {
 
   /// 将代理解析为 dart:io findProxy 返回的 PAC 风格指令；null 表示直连。
   /// 仅支持 host:port（不带 scheme）时按 http 代理处理。
+  ///
+  /// **不支持 socks**：dart:io HttpClient 的 findProxy 只认 `PROXY` 与
+  /// `DIRECT` 两个前缀（http_impl._ProxyConfiguration），没有 socks 客户端。
+  /// socks5/socks5h/socks4 配置在此明确拒绝（返回 null 直连）——曾经产出
+  /// `SOCKS5 host:port` 非法指令会让 dart:io 抛 `Invalid proxy configuration`，
+  /// 所有代理请求直接炸；拒绝并保持直连是诚实且可预期的行为（纯 socks
+  /// 端口用户会得到直连而非错误，UI 文案已说明改用 http://）。
   static String? _proxyDirective(String? p) {
     if (p == null || p.trim().isEmpty) return null;
     final s = p.trim();
@@ -116,9 +123,8 @@ class NetConn {
     switch (scheme) {
       case 'socks5':
       case 'socks5h':
-        return 'SOCKS5 $rest';
       case 'socks4':
-        return 'SOCKS4 $rest';
+        return null; // dart:io 不支持 socks，明确拒绝（直连）
       default:
         return 'PROXY $rest';
     }

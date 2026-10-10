@@ -442,7 +442,8 @@ class _ProxyTabState extends State<_ProxyTab> {
       children: [
         Text(
           '为全部网络请求设置代理（漫画/小说/视频/图片/下载）。'
-          '格式：http://127.0.0.1:7890 或 socks5://127.0.0.1:1080。'
+          '格式：http://127.0.0.1:7890（仅支持 HTTP 隧道代理，'
+          'dart:io 不支持 socks5/socks4，请勿填写 socks:// 地址）。'
           '启用代理后 Android 端自动跳过 Cronet 快速路径，保证代理生效。',
           style: TextStyle(
               fontSize: 12.5,

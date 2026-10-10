@@ -30,10 +30,13 @@ void main() {
       await Net.setProxy(null);
     });
 
-    test('socks5://host:port 解析成 SOCKS5 指令', () async {
+    test('socks5://host:port 被明确拒绝 → 不启用代理', () async {
+      // dart:io findProxy 只认 PROXY/DIRECT；曾经产出 `SOCKS5 host:port`
+      // 会让 HttpClient 抛 Invalid proxy configuration。修复：socks 配置
+      // 返回 null（直连），不再产生非法指令。
       await Net.setProxy('socks5://127.0.0.1:1080');
       expect(Net.proxy, 'socks5://127.0.0.1:1080');
-      expect(Net.proxyDirective, 'SOCKS5 127.0.0.1:1080');
+      expect(Net.proxyDirective, isNull, reason: 'socks 指令被拒绝，直连');
       await Net.setProxy(null);
       expect(Net.proxy, isNull);
     });
@@ -48,11 +51,11 @@ void main() {
       expect(Net.proxy, isNull);
     });
 
-    test('socks5h/socks4 指令映射', () async {
+    test('socks5h/socks4 同样拒绝，https 正常映射 PROXY', () async {
       await Net.setProxy('socks5h://127.0.0.1:1081');
-      expect(Net.proxyDirective, 'SOCKS5 127.0.0.1:1081');
+      expect(Net.proxyDirective, isNull, reason: 'socks5h 拒绝');
       await Net.setProxy('socks4://127.0.0.1:1082');
-      expect(Net.proxyDirective, 'SOCKS4 127.0.0.1:1082');
+      expect(Net.proxyDirective, isNull, reason: 'socks4 拒绝');
       await Net.setProxy('https://proxy.example.com:443');
       expect(Net.proxyDirective, 'PROXY proxy.example.com:443');
     });

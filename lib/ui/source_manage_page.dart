@@ -573,7 +573,8 @@ class _SourceEditDialogState extends State<_SourceEditDialog> {
             _field('图片 CDN imageHosts（每行一个，可选）', _imageHosts, maxLines: 3),
             const SizedBox(height: 10),
             _field(
-              '代理 proxy（可选，如 socks5://127.0.0.1:1080）',
+              '代理 proxy（可选，如 http://127.0.0.1:7890，仅支持 HTTP 隧道，'
+              '不支持 socks）',
               _proxy,
               maxLines: 1,
             ),
