@@ -176,8 +176,6 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   // 解析中：WebView 加载后先隐藏网页内容，等直链捕获后直接切原生播放器。
   // 5 秒超时后放弃隐藏（降级为 WebView 播放），避免卡在黑屏。
   bool _resolving = true;
-  // 直链解析已超时（真机 AGE 源排查用）：为 true 时轮询输出 Hls 诊断。
-  bool _resolveFault = false;
   Timer? _resolveTimer;
   // WebView 主页面加载失败（断网/超时/服务器错误）时记录，优先展示错误态而非黑屏。
   String? _webError;
@@ -280,7 +278,6 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       _resolveTimer = Timer(const Duration(seconds: 8), () {
         if (mounted && _resolving) {
           setState(() => _resolving = false);
-          _resolveFault = true;
         }
       });
     } catch (e) {
@@ -409,8 +406,6 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     _resolveTimer = Timer(const Duration(seconds: 8), () {
       if (mounted && _resolving) {
         setState(() => _resolving = false);
-        // 真机 AGE 源直链捕获长期失败时开启 Hls 诊断（排查用）
-        _resolveFault = true;
       }
     });
   }
@@ -470,7 +465,6 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
         _resolveTimer = Timer(const Duration(seconds: 8), () {
           if (mounted && _resolving) {
             setState(() => _resolving = false);
-            _resolveFault = true;
           }
         });
       }
@@ -645,47 +639,6 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     })()
   ''';
 
-  /// 诊断脚本：报告主 frame / iframe 的 Hls 与直链捕获状态。
-  /// 仅 AGE 类源直链捕获长期失败时用于真机排查，稳定后移除。
-  static const String _hlsDiagJs = '''
-    (function(){
-      var info = {
-        pageHref: (location.href || '').toString().slice(0, 90),
-        selfHls: typeof window.Hls !== 'undefined' ? 'yes' : 'no',
-        rxInstalled: window._rxHlsHookInstalled ? 'yes' : 'no',
-        rxHooked: (window.__rxHlsHooked ? 'yes' : 'no'),
-        resolved: (window._resolvedVideoUrl || '').toString().slice(0, 80),
-        lastHlsUrl: (window.__lastHlsUrl || '').toString().slice(0, 80),
-        videos: [],
-        iframes: [],
-        videoSrc: ''
-      };
-      try {
-        var vs = document.querySelectorAll('video');
-        for (var i = 0; i < vs.length; i++) {
-          info.videos.push((vs[i].currentSrc || vs[i].src || 'none').toString().slice(0, 60));
-        }
-        var frs = document.querySelectorAll('iframe');
-        for (var i = 0; i < frs.length && i < 3; i++) {
-          var f = frs[i];
-          try {
-            var w = f.contentWindow;
-            var doc = f.contentDocument || w.document;
-            info.iframes.push((doc.location ? doc.location.href : '?').toString().slice(0, 60) +
-              '|Hls:' + (w.Hls ? 'yes' : 'no'));
-            var v = doc.querySelector('video');
-            if (v) info.videoSrc = (v.currentSrc || v.src || '').toString().slice(0, 60);
-          } catch(e) {
-            info.iframes.push('CROSS:' + e.message);
-          }
-        }
-      } catch(e) {
-        info.iframes.push('ERR:' + e.message);
-      }
-      return JSON.stringify(info);
-    })()
-  ''';
-  
   void _hookVideoSource() {
     _videoPollTimer?.cancel();
     _videoPollTimer = Timer.periodic(const Duration(milliseconds: 900), (_) async {
@@ -737,11 +690,6 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
               ? (r.substring(1, r.length - 1))
               : r;
           if (decoded.isNotEmpty) src = decoded;
-        }
-        // 诊断：AGE 类源直链捕获状态（真机排查用，稳定后移除）
-        if (widget.sourceId == 'agedm' && mounted && _resolveFault) {
-          final diag = await _evalJs(_hlsDiagJs);
-          debugPrint('MPVSRC[${src ?? 'null'}] HlsDiag[$diag]');
         }
       } catch (_) {}
       if (src != null) await _onVideoSrcCaptured(src);
@@ -1837,7 +1785,6 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       _resolveTimer = Timer(const Duration(seconds: 8), () {
         if (mounted && _resolving) {
           setState(() => _resolving = false);
-          _resolveFault = true;
         }
       });
     }
@@ -2249,8 +2196,6 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     _resolveTimer = Timer(const Duration(seconds: 8), () {
       if (mounted && _resolving) {
         setState(() => _resolving = false);
-        // 真机 AGE 源直链捕获长期失败时开启 Hls 诊断（排查用）
-        _resolveFault = true;
       }
     });
     // 重试是新一次捕获流程：清掉上次的直链缓存与「已接管」标志，
