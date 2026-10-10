@@ -232,13 +232,6 @@ class Responsive {
 
   // ── 网格列数 ─────────────────────────────────────────────────────────
 
-  /// 内容卡片网格列数。
-  static int gridColumns(BuildContext context, {double itemWidth = 120}) {
-    final w = widthOf(context);
-    final usable = w - pagePadding(context) * 2;
-    return (usable / itemWidth).floor().clamp(2, 10);
-  }
-
   /// 漫画/番剧卡片网格列数（首页 / 动漫首页 / 书架）。
   ///
   /// 设计目标：大屏不是无脑涨列数把卡片挤小，而是让卡片反而更大更疏，
