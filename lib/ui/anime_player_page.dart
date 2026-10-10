@@ -1038,8 +1038,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       // 自动播放声音/视频，不需要用户手势
       and.setMediaPlaybackRequiresUserGesture(false);
     } catch (_) {}
-    // 拦截网页内部 video 全屏请求，转发给 app 级横屏全屏，
-    // 避免出现"网页内竖屏全屏"与 app 全屏互相冲突。
+    // 禁用网页内 video 的全屏请求（webkitEnterFullscreen / requestFullscreen），
+    // 避免"网页内竖屏全屏"与 app 全屏互相冲突；网页播放只作为拿直链的
+    // 中间层，真正播放切到原生播放器（mpv），网页内全屏无保留价值。
     _runJs('''
       (function(){
         var hijack = function(){
@@ -1047,12 +1048,6 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           if(v){
             v.webkitEnterFullscreen = null;
             if(v.requestFullscreen){ v.requestFullscreen = null; }
-          }
-          if(document.documentElement.requestFullscreen){
-            document.documentElement.requestFullscreen = function(){
-              try{ window.flutter_inappwebview.callHandler('enterFullscreen'); }catch(e){}
-              return Promise.resolve();
-            };
           }
         };
         hijack();
