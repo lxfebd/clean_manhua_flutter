@@ -87,6 +87,19 @@ typedef WebChannelBuilder = Widget Function(WebChannelArgs args);
 /// * 双击左/右 → ±10 秒，双击中间 → 播放/暂停
 /// * 全屏锁定、画面比例、倍速、选集、自动下一集、断点续播
 /// * Anime4K CNN 超分（多档位）+ mpv 画质增强（去色带 / 高质量缩放核）
+/// 播放主状态机相位：把原先 `_opening`/`_switching`/`_recovering` 三个并发
+/// 标志合成单一枚举。三个 bool 有 2³=8 种组合、实际合法仅 4 种，且互相
+/// 牵挂（重连要同时看 switching/opening、切集要防恢复）——组合失控正是
+/// 竞态补丁层层叠叠的根源。单一相位让互斥由类型表达、转换路径显式
+/// （switch→open→回弹、recover→open→回弹），后到调用在相位检查处直接
+/// 拒绝，不再靠记忆多个标志。
+///
+/// - [idle] 空闲/播完，可进任何流程
+/// - [opening] `_open` 进行中（由 idle 进入的自持互斥段）
+/// - [switching] 切集解析中（持有期贯穿 `_open`）
+/// - [recovering] 断流重连中（持有期贯穿 `_open`）
+enum _PlayerPhase { idle, opening, switching, recovering }
+
 class NativePlayerPage extends StatefulWidget {
   final String url;
   final String title;
@@ -151,6 +164,8 @@ class NativePlayerPage extends StatefulWidget {
 
 class _NativePlayerPageState extends State<NativePlayerPage>
     with WidgetsBindingObserver {
+  /// 当前播放相位（见顶层 [_PlayerPhase]：三并发标志合一的状态机）。
+  _PlayerPhase _phase = _PlayerPhase.idle;
   Player? _player;
   VideoController? _controller;
   final List<StreamSubscription> _subs = [];
@@ -372,16 +387,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   // ── 选集 ────────────────────────────────────
   late int _curSeason;
   late int _curEpisode;
-  bool _switching = false;
   /// 切集代际：每次切换剧集递增，自动连播/延迟任务据此作废过期动作。
   int _switchGen = 0;
-  /// 播放中途流错误后的重连进行中标记（防并发重连）。
-  bool _recovering = false;
-  /// `_open` 互斥（2026-10-02）：首开/切集/断流重连/画中画恢复共用同一入口，
-  /// 且 open 到 _ready 之间有异步收尾段；此标志把整段串行化，杜绝两个流程
-  /// 并发对同一 Player open（切集 finally 复位 _switching 后 stream error 到来
-  /// 会并发进入重连的竞态）。
-  bool _opening = false;
   bool _completedHandled = false;
   /// 竖屏面板里「当前集」方块的定位锚点：每次切集后作废重建，
   /// 面板打开时用它把当前集滚进视口（长番几百集时当前集可能在第 150 集）。
@@ -867,16 +874,15 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   Future<bool> _open(String url, {bool adopted = false, Duration? resumeAt}) async {
     final p = _player;
     if (p == null) return false;
-    // ⚠️ 互斥（2026-10-02）：_open 是多入口共用的（首开/切集/断流重连/画中画
-    // 恢复），且 open 到 _ready 之间有一段异步收尾（首帧等待/超分补挂/重设
-    // 同步）。切集流程的 _switching 在 finally 复位后，若 stream error 事件
-    // 恰好到来，_tryRecoverFromStreamError 会并发进入第二次 _open → 两个流程
-    // 同时对同一 Player open+seek，出现「切到新集又被拉回/重复提示」。这里
-    // 用 _opening 把整段串行化：后到者直接返回 false（各自调用方有自己的
-    // 标志位驱动 UI 等待，返回 false 只会让重连方进失败态——这正是它不该
-    // 在别人 open 时进来的正确结果）。
-    if (_opening) return false;
-    _opening = true;
+    // ⚠️ 相位互斥：_open 多入口共用（首开/切集/断流重连/画中画恢复/网页
+    // handoff），open 到 _ready 之间有异步收尾段，绝不能两个流程并发对同一
+    // Player open+seek（否则「切到新集又被拉回/重复提示」）。切集/断流重连
+    // 调用 _open 时相位由调用方持有（switching/recovering——解析/重连提示
+    // 要贯穿整个 open 过程）；首开/重试/画中画恢复从 idle 进来，由 _open
+    // 自持 opening 相位挡住开流期间的并发二次 open。
+    if (_phase == _PlayerPhase.opening) return false;
+    final selfHeld = _phase == _PlayerPhase.idle;
+    if (selfHeld) _phase = _PlayerPhase.opening;
     try {
       // 超分是桌面专属能力：移动端不拷 shader 资产（避免首次启动磁盘 IO），
       // 也跳过 mpv shader 编译缓存目录创建。
@@ -921,7 +927,12 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       _syncDegradeNotified = false;
       await _applyEnhance();
       await _applySr(silent: true);
-      await _applySync();
+      // 同步模式只在首帧后统一设置一次（下方 waitUntilFirstFrameRendered
+      // 之后）。旧实现在 open 前也调一次 _applySync，而首帧前 aid 还是
+      // "no"（音轨未解析）→ 先设 audio 同步，首帧后再探测到音轨切回
+      // display-resample —— 开播瞬间 video-sync 翻转一次（重建音频重
+      // 采样器），是「开头卡一下」的来源之一。mpv 默认 display-sync
+      // 足以覆盖首帧前的窗口期，音轨就绪后再做一次完整探测选择。
       await p.setRate(_speed);
       _currentUrl = url;
       if (adopted) {
@@ -943,21 +954,13 @@ class _NativePlayerPageState extends State<NativePlayerPage>
               .timeout(const Duration(seconds: 10));
         } catch (_) {}
         if (_sr.enabled) {
+          // 首帧后重挂一次（open 可能清掉 glsl-shaders）。旧的 1.5s/3s
+          // 延迟补挂循环只为「Android vo 重建清 shader」场景设计，而超分
+          // 已是桌面专属（Android 恒 _srId=off、_applySr 桌面门闸）——
+          // 该循环在所有平台上都是为一个不存在的问题固定付费：开超分后
+          // 视频已在播、加载圈却多盖 1.5 秒。桌面 media_kit 首帧后不会
+          // 重建 VO 清 shader，首帧后这次重挂即覆盖 open 清空的情况。
           await _applySr(silent: true);
-          // vo 重建的时点可能在首帧回调之后（Android 上 texture 尺寸
-          // 稳定才真正重建）。补挂后延迟再补两次，覆盖晚到/多次重建，
-          // 每次补挂后读回 glsl-shaders，列表还在就不再重复设置。
-          for (final ms in const [1500, 3000]) {
-            if (!mounted) break;
-            await Future<void>.delayed(Duration(milliseconds: ms));
-            if (!mounted) break;
-            final native = _player?.platform;
-            if (native is! NativePlayer) break;
-            final back =
-                await (native as dynamic).getProperty('glsl-shaders');
-            if (back.toString().isNotEmpty) break;
-            await _applySr(silent: true);
-          }
         }
         // vo 重建会重置 video-sync，且音轨要到首帧前后才解析出来：首帧后
         // **统一重设一次**（含音轨感知的同步模式选择），确保治卡顿 /
@@ -1002,7 +1005,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       }
       return false;
     } finally {
-      _opening = false;
+      if (selfHeld) _phase = _PlayerPhase.idle;
     }
   }
 
@@ -1014,8 +1017,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 地址（mpv 内部会重新拉流/重新握手，多数瞬时断流可自愈）；重连
   /// 仍失败才进失败视图，让用户能手动重试/切网页播放。
   Future<void> _tryRecoverFromStreamError() async {
-    if (_recovering || _switching || _handoffOpening) return;
-    _recovering = true;
+    // 仅 idle 相位可进入：切集（switching）/开流（opening）/网页 handoff
+    // 进行中都不该二次 open——相位互斥在此提前拒绝，且不弹假重连提示。
+    if (_phase != _PlayerPhase.idle || _handoffOpening) return;
+    if (mounted) setState(() => _phase = _PlayerPhase.recovering);
     _toast('播放中断，正在重连…');
     // 记住断点，重开同一 URL 后 seek 回来（t-3s 稳一点，直接回精确点可能
     // 因关键帧偏移黑屏/重缓冲）。_open 失败时内部已置 _failed 并返回 false。
@@ -1041,7 +1046,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       resumeAt: resumeFrom,
     );
     if (mounted) {
-      setState(() => _recovering = false);
+      setState(() => _phase = _PlayerPhase.idle);
       if (ok) _toast('重连成功，继续播放');
     }
   }
@@ -1192,8 +1197,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     if (!(regress >= const Duration(seconds: 60) && v < const Duration(seconds: 10))) {
       return;
     }
-    if (_recovering ||
-        _switching ||
+    if (_phase != _PlayerPhase.idle ||
         _handoffOpening ||
         _draggingBar ||
         DateTime.now().difference(_lastSeekCmd) < const Duration(seconds: 3)) {
@@ -1279,8 +1283,68 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 恒读回 1.0（自认 1x），**不可信**；只有墙钟速率（time-pos 推进 / 墙钟
   /// 流逝，日志字段 `wrate=`）能看出视频是否被实际倍速。显示同步相关的
   /// 读数（`vsync`/`disp`/`edisp`/`ovr`）供诊断面板参考。
+  /// 采样一次 mpv 关键属性（open/切集后调用），填充 UI 徽标数据
+  /// （源分辨率/输出尺寸/帧率）。移动端不再跑常驻轮询——旧的每 2 秒
+  /// 19 次 FFI 读在 Android 上是纯空转（墙钟降级、DIAG 日志全桌面门控，
+  /// 超分自愈因超分恒 off 永不触发），每次还 setState 一次。分辨率与
+  /// 帧率在播放中不变化，open/切集后采一次即可。
+  Future<void> _sampleStats() async {
+    if (!mounted) return;
+    final native = _player?.platform;
+    if (native is! NativePlayer) return;
+    final dyn = native as dynamic;
+    Future<String> rd(String name) async {
+      try {
+        return (await dyn.getProperty(name)).toString();
+      } catch (e) {
+        return 'ERR($e)';
+      }
+    }
+    final wp = await rd('video-params/w');
+    final hp = await rd('video-params/h');
+    final dw = await rd('dwidth');
+    final dh = await rd('dheight');
+    final wop = await rd('video-out-params/w');
+    final hop = await rd('video-out-params/h');
+    final cfps = await rd('container-fps');
+    final dfps = await rd('display-fps');
+    final ovr = await rd('options/override-display-fps');
+    final srcW = int.tryParse(wp) ?? 0;
+    final srcH = int.tryParse(hp) ?? 0;
+    var ow = int.tryParse(dw) ?? 0;
+    var oh = int.tryParse(dh) ?? 0;
+    if (ow <= 0 || oh <= 0) {
+      ow = int.tryParse(wop) ?? 0;
+      oh = int.tryParse(hop) ?? 0;
+    }
+    final ddisp = double.tryParse(dfps) ?? ovrFps(ovr);
+    final realFps = double.tryParse(cfps) ?? _outFps;
+    if (!mounted) return;
+    if (ow != _outW || oh != _outH || realFps != _outFps ||
+        ddisp != _dispFps) {
+      setState(() {
+        _outW = ow;
+        _outH = oh;
+        _srEligible = (srcW > 0 && srcH > 0 && ow > 0 && oh > 0)
+            ? Anime4KManager.srChainEligible(
+                srcW: srcW, srcH: srcH, outW: ow, outH: oh)
+            : null;
+        _outFps = realFps;
+        _dispFps = ddisp;
+      });
+    }
+  }
+
+  /// 桌面端诊断轮询：每 2 秒输出完整诊断行 + 墙钟降级守卫。
+  ///
+  /// 移动端不再启用（_sampleStats 单次采样已够 UI 数据；墙钟降级、
+  /// DIAG 日志均为桌面门控，移动端长驻轮询是纯空转）。
   void _startDiag() {
     _diagTimer?.cancel();
+    if (!DesktopUi.isDesktopPlatform) {
+      _sampleStats();
+      return;
+    }
     final native = _player?.platform;
     if (native is! NativePlayer) return;
     final dyn = native as dynamic;
@@ -1946,10 +2010,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
 
   Future<void> _switchTo(VideoEpisode ep) async {
     final resolver = widget.resolveUrl;
-    if (resolver == null || _switching) return;
+    if (resolver == null || _phase != _PlayerPhase.idle) return;
     _switchGen++;
     setState(() {
-      _switching = true;
+      _phase = _PlayerPhase.switching;
       _ready = false;
       _buffering = true;
       _resumeTipVisible = false;
@@ -1970,7 +2034,6 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           _useWeb = true;
           _webGeneration++;
           _ready = false;
-          _switching = false;
         });
         return;
       }
@@ -2025,7 +2088,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         });
       }
     } finally {
-      if (mounted) setState(() => _switching = false);
+      if (mounted) setState(() => _phase = _PlayerPhase.idle);
     }
   }
 
@@ -2663,8 +2726,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
 
   /// 缓冲/加载中提示文案：已有进度数据时给百分比，否则给阶段说明。
   String _bufferText() {
-    if (_recovering) return '播放中断，正在重连…';
-    if (_switching) return '正在解析直链…';
+    if (_phase == _PlayerPhase.recovering) return '播放中断，正在重连…';
+    if (_phase == _PlayerPhase.switching) return '正在解析直链…';
     if (_ready && _buffering) {
       final d = _dur.inMilliseconds;
       final b = _buffer.inMilliseconds;
@@ -2758,9 +2821,11 @@ class _NativePlayerPageState extends State<NativePlayerPage>
               onHorizontalDragEnd: _onHorizontalEnd,
             ),
           ),
-          // 缓冲（含断流重连：_recovering 期间画面定格但绝不能静默——重连
+          // 缓冲（含断流重连：recovering 相位期间画面定格但绝不能静默——重连
           // 常需数秒到十几秒，无遮罩提示用户会以为死机）。
-          if (_buffering || !_ready || _switching || _recovering)
+          if (_buffering || !_ready ||
+              _phase == _PlayerPhase.switching ||
+              _phase == _PlayerPhase.recovering)
             Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
