@@ -129,6 +129,23 @@ class NetConn {
     _proxyEnabled = _effectiveProxy != null;
   }
 
+  /// 解析单次请求应使用的代理 PAC 指令（@visibleForTesting 抽出，便于离线
+  /// 断言优先级语义）：单源代理（[proxy] 非 null 且非空）> 全局代理
+  /// （[_effectiveProxy]）；空串表示显式直连（压过全局代理）。返回 null 直连。
+  ///
+  /// 注意解析只在**原始字符串**上做一次：[_effectiveProxy] 由 [applyProxy]
+  /// 预先经 [_proxyDirective] 解析为最终 PAC 指令（如 `SOCKS5 host:port`），
+  /// 回退全局路径直接使用，不得二次解析（否则 `SOCKS5 host:port` 会被
+  /// 当成裸地址再裹一层 `PROXY`，全局 socks 代理从未正确生效）。
+  @visibleForTesting
+  static String? resolveProxyDirective(String? proxy) {
+    if (proxy == null) return _effectiveProxy;
+    // 单源代理为空串 = 显式直连，压过全局代理
+    if (proxy.trim().isEmpty) return null;
+    // 单源代理是用户原始配置（含 scheme），需解析为 PAC 指令
+    return _proxyDirective(proxy);
+  }
+
   /// 构造 HttpClient；若该 host 配置了优选 IP，则通过 connectionFactory 强制直连。
   /// 优选 IP 全部失败时，自动回退到系统 DNS 解析，避免整源因写死 IP 失效而挂死。
   /// 代理启用时优先走代理（findProxy 自动处理 CONNECT 隧道），
@@ -143,13 +160,10 @@ class NetConn {
       client.badCertificateCallback = (cert, h, port) => true;
     }
     // 单源代理（proxy != null 且非空）> 全局代理（_effectiveProxy）；空串表示直连
-    final p = (proxy == null) ? _effectiveProxy : (proxy.isEmpty ? null : proxy);
-    if (p != null) {
-      final directive = _proxyDirective(p);
-      if (directive != null) {
-        client.findProxy = (url) => directive;
-        return client;
-      }
+    final directive = resolveProxyDirective(proxy);
+    if (directive != null) {
+      client.findProxy = (url) => directive;
+      return client;
     }
     final ips = preferredHostIps[host];
     if (ips != null && ips.isNotEmpty) {
