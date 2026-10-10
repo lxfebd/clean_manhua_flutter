@@ -32,7 +32,11 @@ class PlayerFullscreen {
   /// 恢复方向：与两页原有 _unlockOrientation 同语义——平板保留竖屏+横屏，
   /// 手机回到竖屏（播放器全屏前的常态）。
   static Future<void> _unlockOrientation() async {
-    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    // views 在窗口全关的极端瞬间可短暂为空；此刻页面已销毁，直接跳过
+    // 方向恢复，避免 views.first 抛 RangeError 变成未捕获异步异常。
+    final views = WidgetsBinding.instance.platformDispatcher.views;
+    if (views.isEmpty) return;
+    final view = views.first;
     final w = view.physicalSize.width / view.devicePixelRatio;
     await SystemChrome.setPreferredOrientations(w >= 600.0
         ? [
