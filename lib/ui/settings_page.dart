@@ -955,7 +955,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           return;
         }
       }
-      final data = jsonDecode(json) as Map<String, dynamic>;
+      final decoded = jsonDecode(json);
+      // 合法 JSON 但非对象（数组/标量）直接判定无效，避免 as Map 的
+      // TypeError 落到外层 catch 变成笼统的「恢复失败」提示。
+      if (decoded is! Map<String, dynamic>) {
+        if (mounted) {
+          AppToast.error(context, '无效的备份文件');
+        }
+        return;
+      }
+      final data = decoded;
       if (data['version'] == null) {
         if (mounted) {
           AppToast.error(context, '无效的备份文件');
