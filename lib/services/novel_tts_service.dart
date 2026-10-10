@@ -88,7 +88,9 @@ class NovelTtsService {
   Future<void> _stopEngine() async {
     try {
       await _tts.stop();
-    } catch (_) {}
+    } catch (e) {
+      ErrorLogger.instance.warn('NovelTts stop: $e');
+    }
     _setState(TtsPlayState.idle);
   }
 
@@ -115,6 +117,7 @@ class NovelTtsService {
       _setState(TtsPlayState.idle);
       return;
     }
+    _cancelTimer();
     _accumulating = true;
     _setState(TtsPlayState.speaking);
     onParagraph?.call(_index);
@@ -129,7 +132,8 @@ class NovelTtsService {
     // stop 会触发完成回调 → 先关掉累计开关，让回调只停不前进。
     _accumulating = false;
     await _stopEngine();
-    // 低版本 Android 无法精确续读：句首过半就整句重读（回到本段开头）。
+    // 低版本 Android 无法精确续读：句首未过半 → 回到段开头重读；
+    // 过半 → 保留偏移，下次 play 从过半处继续。
     if (_spokenChars > 0 && _spokenChars < _queue[_index].length / 2) {
       _spokenChars = 0;
     }
@@ -182,7 +186,7 @@ class NovelTtsService {
   /// 公开为静态以便纯逻辑测试（不依赖 TTS 引擎）。
   static List<String> splitSentences(String s) {
     if (s.isEmpty) return [];
-    final re = RegExp(r'.+?[。！？!?；;]|.+?[，,]|.+?(?=[。！？!?；;，,])|.+');
+    final re = RegExp(r'.+?[。！？!?；;]|.+?[，,]|.+');
     final matches = re.allMatches(s);
     if (matches.isEmpty) return [s];
     return matches.map((m) => m.group(0)!).toList();
@@ -193,6 +197,8 @@ class NovelTtsService {
     _cancelTimer();
     try {
       _tts.stop();
-    } catch (_) {}
+    } catch (e) {
+      ErrorLogger.instance.warn('NovelTts dispose stop: $e');
+    }
   }
 }

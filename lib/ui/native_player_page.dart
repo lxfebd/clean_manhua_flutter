@@ -346,6 +346,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   double _volume = 1.0;
   bool _volumeNative = false;
   bool _selfVolumeChange = false;
+  Timer? _selfVolumeGuard;
   StreamSubscription<double>? _volumeSub;
 
   double _gestureStartValue = 0;
@@ -625,8 +626,12 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       } catch (_) {
         _volumeNative = false;
       }
-      // 平台事件是异步回来的，稍等一拍再放开抑制标记
-      Future.delayed(const Duration(milliseconds: 250), () {
+      // 平台事件是异步回来的，稍等一拍再放开抑制标记。
+      // 用单个 Timer 而非 Future.delayed 堆叠：连续拖动时只保留最后一个
+      // 计时器，避免连续 10 次调用排队 10 个 delayed、第一个提前放开
+      // 抑制导致后续平台事件被误判为外部音量变化（HUD 闪烁）。
+      _selfVolumeGuard?.cancel();
+      _selfVolumeGuard = Timer(const Duration(milliseconds: 250), () {
         _selfVolumeChange = false;
       });
     } else {
@@ -1953,6 +1958,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       // 直链可能相同，不清空会让新集的合法直链被旧失效记录静默拒绝。
       _handoffQuarantine.resetAll();
       await _open(url);
+      if (!mounted) return;
       // 换集后重新拉取该集弹幕
       setState(() {
         _danmaku = const [];
@@ -2039,9 +2045,15 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       ErrorLogger.instance.debug('handoff ok: mpv took over $src');
       return true;
     }
-    // mpv 打不开（_open 或异步 error 已把该资源计入失败）：留在网页通道
-    // （AnimePlayerPage 仍在树中），不叠加报错。计数达到上限后后续捕获
-    // 会走上面的隔离闸门秒拒，不再重建 WebView。
+    // 若 error 监听器在 _open 期间已触发（把 _useWeb 翻回 true 并
+    // recordFailure），此处不再重复计数——否则同一次失败被计两次，
+    // maxFailures=2 时一次失败即秒隔离，合法直链被误隔离。
+    if (_useWeb) {
+      ErrorLogger.instance.debug('handoff failure already recorded by error listener: $src');
+      return false;
+    }
+    // mpv 打不开（_open 内部 catch 返回 false，error 监听器未触发）：
+    // 留在网页通道，计数达到上限后后续捕获走隔离闸门秒拒。
     final failedKey = _handoffQuarantine.recordFailure(src);
     ErrorLogger.instance.debug(
         'handoff failed: staying on web (quarantined=$failedKey): $src');
@@ -2098,6 +2110,16 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       SystemChrome.setPreferredOrientations(
           [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
       _bumpControls();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // Android 按 Home 退后台时 mpv 不会自动暂停（音频继续外放）；
+    // 与 anime_player_page 对齐：paused 即暂停，回前台由用户手动恢复。
+    if (state == AppLifecycleState.paused && mounted && _playing) {
+      _player?.pause();
     }
   }
 
@@ -2320,6 +2342,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     _clockTimer?.cancel();
     _resumeTipTimer?.cancel();
     _diagTimer?.cancel();
+    _selfVolumeGuard?.cancel();
     for (final s in _subs) {
       s.cancel();
     }

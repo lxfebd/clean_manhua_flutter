@@ -45,9 +45,9 @@ class CircuitBreaker {
         }
         return false;
       case CircuitState.halfOpen:
-        // 理论上 _probeInFlight 恒为 true；防御性兜底：异常路径丢失标记时
-        // 也不放行第二个探针。
-        return _probeInFlight;
+        // 探针已在 open→halfOpen 转换时放行；其余请求一律拒绝，
+        // 等探针 recordSuccess→closed 或 recordFailure→open 后再决定。
+        return false;
     }
   }
 

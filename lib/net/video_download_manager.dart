@@ -324,11 +324,11 @@ class VideoDownloadManager {
       }
       if (_cancel.isTaskCancelled(t.key)) {
         t.state = 'canceled';
-        _cleanupPartFile(t);
+        await _cleanupPartFile(t);
       } else if (_stalled.contains(t.key)) {
         t.state = 'failed';
         t.error = '下载停滞，请重试';
-        _cleanupPartFile(t);
+        await _cleanupPartFile(t);
       } else {
         t.state = 'done';
       }
@@ -337,7 +337,7 @@ class VideoDownloadManager {
       ErrorLogger.instance.logError('[video-dl] FAIL key=${t.key} err=$e');
       t.error = e is HttpException ? e.message : '下载失败，请重试';
       t.state = _cancel.isTaskCancelled(t.key) ? 'canceled' : 'failed';
-      _cleanupPartFile(t);
+      await _cleanupPartFile(t);
     } finally {
       watchdog.stop();
       _stalled.remove(t.key);
@@ -637,7 +637,7 @@ class VideoDownloadManager {
     } catch (_) {}
   }
 
-  void _cleanupPartFile(VideoDownloadTask t) async {
+  Future<void> _cleanupPartFile(VideoDownloadTask t) async {
     try {
       final dir = await _videoDir(t);
       final part = File('${dir.path}/S${t.season}E${t.episode}.mp4.part');

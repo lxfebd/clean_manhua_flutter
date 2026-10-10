@@ -438,36 +438,44 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           'handoff already taken; ignored new src (ad/switch): ${src.length > 80 ? src.substring(0, 80) : src}');
       return;
     }
-    // 页面确实在播（拿到直链）→ 之前的加载失败提示是误报，清除错误态。
-    if (_webError != null || _switchFail) {
-      setState(() {
-        _webError = null;
-        _switchFail = false;
-      });
-    }
-    // 同一 Route 内嵌模式（NativePlayerPage 持有 WebView 状态机）：
-    // 由宿主切回 mpv 通道，本页不 pushReplacement，杜绝双页互跳。
-    final cb = widget.onDirectUrl;
-    if (cb != null) {
-      _resolveTimer?.cancel();
-      // 先由宿主用 mpv 试开直链：成功才杀网页媒体（杜绝双音轨窗口），
-      // 失败则 WebView 完好，原样留在网页通道继续播放，不弹失败页。
-      final taken = await cb(src);
-      if (!mounted) return;
-      if (taken) {
-        _handedOffToMpv = true;
-        await _killWebMedia();
-      } else {
-        // handoff 被拒（直链失效/打不开/被宿主隔离）：留在网页通道。
-        // 上面的 cancel 已把计时器停掉，这里直接回落 _resolving，让
-        // 网页播放器立即可见可听（不再等 8 秒超时）。宿主侧已按资源
-        // 键隔离失败资源，本页无需再武装重试计时器——反复武装只会随
-        // 签名刷新的轮询被无限续期，黑幕永挂。
-        if (mounted && _resolving) {
-          setState(() => _resolving = false);
-        }
+    // 接管重入锁：上一轮接管流程未结束时丢弃新捕获（接管完成后的后续
+    // 轮询自会继续发现新直链，此处丢帧无损）。
+    if (_handoffBusy) return;
+    _handoffBusy = true;
+    try {
+      // 页面确实在播（拿到直链）→ 之前的加载失败提示是误报，清除错误态。
+      if (_webError != null || _switchFail) {
+        setState(() {
+          _webError = null;
+          _switchFail = false;
+        });
       }
-      return;
+      // 同一 Route 内嵌模式（NativePlayerPage 持有 WebView 状态机）：
+      // 由宿主切回 mpv 通道，本页不 pushReplacement，杜绝双页互跳。
+      final cb = widget.onDirectUrl;
+      if (cb != null) {
+        _resolveTimer?.cancel();
+        // 先由宿主用 mpv 试开直链：成功才杀网页媒体（杜绝双音轨窗口），
+        // 失败则 WebView 完好，原样留在网页通道继续播放，不弹失败页。
+        final taken = await cb(src);
+        if (!mounted) return;
+        if (taken) {
+          _handedOffToMpv = true;
+          await _killWebMedia();
+        } else {
+          // handoff 被拒（直链失效/打不开/被宿主隔离）：留在网页通道。
+          // 上面的 cancel 已把计时器停掉，这里直接回落 _resolving，让
+          // 网页播放器立即可见可听（不再等 8 秒超时）。宿主侧已按资源
+          // 键隔离失败资源，本页无需再武装重试计时器——反复武装只会随
+          // 签名刷新的轮询被无限续期，黑幕永挂。
+          if (mounted && _resolving) {
+            setState(() => _resolving = false);
+          }
+        }
+        return;
+      }
+    } finally {
+      _handoffBusy = false;
     }
     // 独立播放器时代的兜底（pushReplacement 到 NativePlayerPage）已随
     // 独立入口删除：本页现只以内嵌 WebView 通道存在，onDirectUrl 恒非空。
@@ -487,6 +495,10 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   /// 导致 src 变化）时不再重复 handoff/重建，只尝试让 mpv 更新播放源，
   /// 防止「广告 src → 正片 src」两次接管各从 0:00 重播。
   bool _handedOffToMpv = false;
+  /// 接管流程重入锁：轮询回调为 async，WebView 慢时两个回调可叠加并发，
+  /// 不加锁会让两个不同 src 先后进宿主 handoff，后者被 mpv 相位挡住后
+  /// 误记为「直链打不开」，多次误判把可用直链永久隔离。
+  bool _handoffBusy = false;
 
   /// AGE 类（WASM 解密）Hls.loadSource 拦截：解密后的真实 m3u8
   /// 写入 window._resolvedVideoUrl，由轮询捕获后交原生播放器。

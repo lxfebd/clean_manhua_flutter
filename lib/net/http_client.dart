@@ -64,7 +64,6 @@ class RateLimiter {
   static final Map<String, _Bucket> _buckets = {};
   static final Map<String, int> _inflight = {};
   static final Map<String, int> _waiting = {};
-  static final Random _random = Random();
 
   /// 请求开始前调用：等待令牌 + 并发槽位（限流排队，不丢请求）。
   /// 排队有上限与超时：队列塞满（慢域被卡死）或等待过久直接抛错，
@@ -98,16 +97,11 @@ class RateLimiter {
     }
   }
 
-  /// 请求完成后调用：释放并发槽位。批量请求间可加随机小延迟错峰。
-  static void release(String host, {bool jitter = false}) {
+  /// 请求完成后调用：释放并发槽位。
+  static void release(String host) {
     if (!_enabled) return;
     final inflight = _inflight[host] ?? 0;
     _inflight[host] = inflight > 0 ? inflight - 1 : 0;
-    if (jitter && _random.nextDouble() < 0.3) {
-      // 30% 概率在释放后稍等 0~150ms，打散批量请求的节奏
-      Future<void>.delayed(Duration(
-          milliseconds: 50 + _random.nextInt(100))).ignore();
-    }
   }
 
   static _Bucket _bucketFor(String host) {
@@ -350,7 +344,7 @@ class Net {
       // 上行为不一致（一边成功一边崩溃）。容错解码替换坏字节，页面照常解析。
       return utf8.decode(bytes, allowMalformed: true);
     } finally {
-      RateLimiter.release(host, jitter: true);
+      RateLimiter.release(host);
     }
   }
 
@@ -546,14 +540,10 @@ class Net {
     if (urls.isEmpty) throw ArgumentError('urls 不能为空');
     Object? lastErr;
     for (final u in urls) {
-      final host = Uri.parse(u).host;
-      await RateLimiter.acquire(host);
       try {
         return await _getBytesOnce(u, headers, proxy: null, timeout: timeout, maxBytes: maxBytes);
       } catch (e) {
         lastErr = e;
-      } finally {
-        RateLimiter.release(host);
       }
     }
     if (lastErr is Exception) throw lastErr;
@@ -564,7 +554,15 @@ class Net {
       Map<String, String>? headers, {String? proxy, Duration? timeout, int? maxBytes}) async {
     final t = timeout ?? _timeout;
     final limit = maxBytes ?? maxDownloadBytes;
-    return PlatformHttp.get(urlStr, headers, t, proxy, limit);
+    // 限流：所有字节下载（图片/文件/无进度路径）统一经此基元，受
+    // 每域名令牌桶与并发槽位约束，避免高频图片加载绕过限流打爆源站。
+    final host = Uri.parse(urlStr).host;
+    await RateLimiter.acquire(host);
+    try {
+      return await PlatformHttp.get(urlStr, headers, t, proxy, limit);
+    } finally {
+      RateLimiter.release(host);
+    }
   }
 
   /// POST 请求，body 为表单/JSON 字符串，返回响应体字符串（UTF-8）。
@@ -595,7 +593,7 @@ class Net {
       final bytes = await PlatformHttp.post(urlStr, headers, body, t, proxy, limit);
       return utf8.decode(bytes, allowMalformed: true);
     } finally {
-      RateLimiter.release(host, jitter: true);
+      RateLimiter.release(host);
     }
   }
 
