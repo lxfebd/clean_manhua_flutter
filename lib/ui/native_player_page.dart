@@ -23,6 +23,7 @@ import '../utils/danmaku.dart';
 import '../utils/desktop_fullscreen.dart';
 import '../utils/player_fullscreen.dart';
 import '../utils/player_sync_guard.dart';
+import '../utils/player_sync_mode.dart';
 import '../utils/pip_channel.dart';
 import '../utils/tv_platform.dart';
 import 'episode_grouping.dart';
@@ -1733,81 +1734,39 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     // 直接失败被吞掉，行为等价于「web 无同步」。
     final dyn = native as dynamic;
     try {
-      // ── 同步模式选型（2026-09-19 重写，根治「什么都没开也倍速」）──
-      // 背景：mpv 上游已知 bug（#18177/#10489/#11478，长期 open）——
-      // display-resample 的恒定 1 倍速**依赖 `estimated-display-fps`**，而该
-      // 估算在窗口跨屏 / ANGLE / 远程桌面 / 合成器故障时可能读到垃圾值
-      // （本机实测 edisp=4211→5512→6706→8922Hz，正常应 60/120/144）。
-      // 显示时钟错了，mpv 就按错时钟追帧 → 视频被倍速播放，且与任何
-      // 插帧/倍速开关无关（正好对应用户「我什么都没开，1 倍速，视频却是
-      // 倍速的」）。所以正确做法不是硬设某个 sync，而是**探测显示时钟，
-      // 不可靠就退回 `audio` 同步**——audio 同步以音频时钟为基准，恒 1 倍速，
-      // 永不倍速（宁可丢流畅也不变速）。
-      final targetSync = 'display-resample';
-      // 目标刷新率：60Hz 兜底（Windows ANGLE 读不到真实刷新率时）。
-      const targetFps = 60;
-      // 合理显示刷新率区间：正常屏幕 30~250Hz。低于/高于此区间说明
-      // estimated-display-fps 是垃圾值（如远程桌面/ANGLE/双屏估算错误），
-      // display-resample 不可信，必须退回 audio 同步。
-      const kMinDispFps = 30.0;
-      const kMaxDispFps = 250.0;
-
-      // 读当前实际生效的显示刷新率估算。空/读错 → 不可信 → 走 audio。
-      double dispFps = 0;
+      // ── 同步模式选型（决策逻辑见 [decideSyncMode] 纯函数）──
+      // 背景：mpv display-resample 恒定 1 倍速依赖 edisp 估算，该估算在
+      // 跨屏/ANGLE/远程桌面/合成器故障时可读垃圾值 → 按错时钟追帧 → 倍速；
+      // 无音轨时无音频时钟 → 也倍速。故探测显示时钟 + 音轨，任一不可靠
+      // 退 audio 同步（恒 1 倍速，绝不倍速）。墙钟 wrate 兜底 + 降级态
+      // 由 [decideSyncMode] 的 degraded 参数表达。
+      String edispRaw = '';
       try {
-        final edfps = await dyn.getProperty('estimated-display-fps');
-        dispFps = double.tryParse(edfps?.toString() ?? '') ?? 0;
+        edispRaw = (await dyn.getProperty('estimated-display-fps'))?.toString() ?? '';
       } catch (_) {}
-      final dispOk = dispFps >= kMinDispFps && dispFps <= kMaxDispFps;
-
-      // ── 音频感知（根治「倍速」）──
-      // display-resample 的稳定 1 倍速**依赖音轨作为时间基准**：有音轨时
-      // 它重采样音频贴合视频，速度恒定；**无音轨**时 mpv 没有音频时钟，
-      // 改用显示刷新率追赶视频 → 按 60/24 ≈ 2.5 倍加速播放。故先探测
-      // 音轨：无音轨则**不切** display-resample
-      // （退回 audio 同步，恒 1 倍速）。
-      bool hasAudio = true;
+      String? aidRaw;
+      String audioChannelsRaw = '';
       try {
         final aid = await dyn.getProperty('aid');
-        hasAudio = aid != null && aid != 'no' && !(aid is int && aid <= 0);
-        // 二次确认：aid 只说明「轨道存在」，不代表音频设备**此刻真的在
-        // 输出**——设备被独占（如用户另跑音频占用程序）、网络流音轨尚未
-        // 解码、wasapi 独占被占等情况下，aid 非 no 但实际无音频时钟。
-        // display-resample 在没有音频时钟时会按显示时钟追赶视频 → 倍速。
-        // 读 audio-params/channels 确认音频通路真的活着：读不到/为 0/出错
-        // 一律按无音轨处理（退回 audio 同步，恒 1 倍速）。
-        if (hasAudio) {
-          final ach = await dyn.getProperty('audio-params/channels');
-          final a = ach?.toString() ?? '';
-          hasAudio = a.isNotEmpty && !a.contains('ERR') && a != '0';
+        aidRaw = aid?.toString();
+        if (aid != null && aid != 'no' && !(aid is int && aid <= 0)) {
+          audioChannelsRaw =
+              (await dyn.getProperty('audio-params/channels'))?.toString() ?? '';
         }
       } catch (_) {}
-      // 最终决策：显示时钟可信 **且** 音轨在 → display-resample（平滑）；
-      // 任一不可靠 → audio 同步（恒 1 倍速，绝不倍速）。
-      //
-      // 2026-09-19 用户机器实测定案：
-      //   * `estimated-display-fps`（edisp）是 mpv 实际用于追帧的估算值；
-      //     用户机器实测 edisp=419~525Hz 垃圾值 → mpv 按错时钟追帧 → 实时
-      //     倍速（speed 属性读回恒 1.0 不可信）。
-      //   * `display-fps` 恒 60 可读，但它只反映**标称刷新率**，不能证明
-      //     mpv 的实际重采样时钟可靠——用它放行是上一版回归的根源。
-      //   → 结论：edisp 不可靠（? 或 30~250 之外）时**绝不进任何
-      //     display-resample 系**。墙钟观测（time-pos vs 墙钟，日志 `wrate=`）
-      //     在诊断循环兜底，防探测不到的时钟错误。
-      //   ⚠️ 闭环覆盖（2026-10-02）：即便 edisp 落在 30~250 区间内也可能错
-      //     （用户机器实测 419~525Hz 垃圾值仍被采纳）——诊断循环的墙钟 wrate
-      //     连续偏出会触发 _syncDegraded，此处在决策时**直接无视 edisp 结果**
-      //     强制 audio 同步。降级态在本文件内不自动恢复（防震荡），切集/重开
-      //     自然重置后重新评估。
-      final effectiveSync =
-          (_syncDegraded || !(dispOk && hasAudio)) ? 'audio' : targetSync;
+      final decision = decideSyncMode(
+        edispRaw: edispRaw,
+        aidRaw: aidRaw,
+        audioChannelsRaw: audioChannelsRaw,
+        degraded: _syncDegraded,
+      );
 
       // 1) 同步模式**最先设、独立容错**——这是治卡顿的前提。旧写法把
       //    video-sync 紧跟在插帧属性之后且不单独容错，一旦某构建不支持
       //    运行时改该属性就整段抛出被外层吞掉，video-sync 根本没设上 →
       //    退回默认 audio 同步 → 卡顿照旧（"改了没用"的元凶）。
       try {
-        await dyn.setProperty('video-sync', effectiveSync);
+        await dyn.setProperty('video-sync', decision.mode);
       } catch (_) {}
       // 2) 加速上限兜底：`video-sync-max-factor` 是整数选项（mpv 源码
       //    M_RANGE(1,10)），默认 10 = 视频最多被加速到 10 倍速。钉到 1 收紧
@@ -1827,7 +1786,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       //    额外抖动）。它是 option 不是 property，走 command set。
       try {
         if (DesktopUi.isDesktopPlatform) {
-          await dyn.command(['set', 'override-display-fps', '$targetFps']);
+          await dyn.command(['set', 'override-display-fps', '$kSyncTargetFps']);
         }
       } catch (_) {}
     } catch (_) {
