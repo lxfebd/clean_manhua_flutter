@@ -307,20 +307,18 @@ class UpdateChecker {
   /// CI 多轮打包（1.2.3+4 → 1.2.3+5）应提示升级；build 缺失视为 0；
   /// build 非纯数字时按字符串比兜底（如 `1.0.0+dev` vs `1.0.0+rc`）。
   static int compareVersions(String a, String b) {
-    final pa = a.split('.').first;
-    final pb = b.split('.').first;
-    final sa = a.split('.').length >= 2 ? a.split('.')[1] : '0';
-    final sb = b.split('.').length >= 2 ? b.split('.')[1] : '0';
-    final ta =
-        a.split('.').length >= 3 ? a.split('.')[2].split('+').first : '0';
-    final tb =
-        b.split('.').length >= 3 ? b.split('.')[2].split('+').first : '0';
-    final va = int.tryParse(pa) ?? 0;
-    final vb = int.tryParse(pb) ?? 0;
+    final pa = a.split('.');
+    final pb = b.split('.');
+    final va = int.tryParse(pa.first) ?? 0;
+    final vb = int.tryParse(pb.first) ?? 0;
     if (va != vb) return va - vb;
+    final sa = pa.length >= 2 ? pa[1] : '0';
+    final sb = pb.length >= 2 ? pb[1] : '0';
     final ma = int.tryParse(sa) ?? 0;
     final mb = int.tryParse(sb) ?? 0;
     if (ma != mb) return ma - mb;
+    final ta = pa.length >= 3 ? pa[2].split('+').first : '0';
+    final tb = pb.length >= 3 ? pb[2].split('+').first : '0';
     final ta2 = int.tryParse(ta) ?? 0;
     final tb2 = int.tryParse(tb) ?? 0;
     if (ta2 != tb2) return ta2 - tb2;

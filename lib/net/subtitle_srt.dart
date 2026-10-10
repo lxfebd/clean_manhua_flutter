@@ -127,7 +127,8 @@ class SubtitleIndex {
 
   List<SubtitleCue> get cues => _cues;
 
-  /// 当前时刻命中的字幕（可能多条重叠时取 start 最大的一条，即最近开始）。
+  /// 当前时刻命中的字幕（线性扫描 early break，字幕已按 start 升序；
+  /// 多条重叠时取 start 最大的一条，即最近开始）。
   SubtitleCue? at(int ms) {
     SubtitleCue? best;
     for (final c in _cues) {
