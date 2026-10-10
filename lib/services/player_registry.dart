@@ -59,7 +59,9 @@ class PlayerRegistry {
       if (p.state.playing) p.pause();
       _persistFinal(handoff, p);
       p.dispose();
-    } catch (_) {}
+    } catch (e) {
+      ErrorLogger.instance.warn('player_registry: release failed: $e');
+    }
   }
 
   /// 关闭小窗前的最终进度写回（fire-and-forget，LocalStore 排队写与

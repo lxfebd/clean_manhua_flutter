@@ -595,7 +595,9 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
       // 网络自适应：Wi-Fi 预取 5 页、蜂窝 2 页、无网 0 页
       _prefetchRange(urls, 0,
           SmartPrefetch.nextChapterDepth(SmartPrefetch.cachedNetwork()));
-    } catch (_) {}
+    } catch (e) {
+      ErrorLogger.instance.warn('prefetchNextChapter failed: $e');
+    }
   }
 
   /// 自动翻页：按间隔定时翻页。每次用户触摸/切章都会重置计时。
@@ -690,7 +692,8 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
       }
       _prefetchNextChapter();
       _startAutoPage();
-    } catch (_) {
+    } catch (e) {
+      ErrorLogger.instance.warn('reader load failed: $e');
       if (mounted) {
         setState(() {
           _loading = false;
@@ -2722,7 +2725,8 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
           setState(() => _bytes = colored);
         }
       }
-    } catch (_) {
+    } catch (e) {
+      ErrorLogger.instance.warn('image load failed url=${widget.url} err=$e');
       if (mounted) {
         setState(() => _failed = true);
         widget.onError();

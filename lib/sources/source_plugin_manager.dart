@@ -69,12 +69,9 @@ class SourcePluginManager {
   }
 
   Future<bool> _builtinEnabled(String engineId) async {
-    try {
-      final c = await SourceConfigStore.byEngine(engineId);
-      return c.isEnabled && c.tier != SourceTier.disabled;
-    } catch (_) {
-      return true;
-    }
+    final c = await SourceConfigStore.byEngine(engineId);
+    if (c == null) return true;
+    return c.isEnabled && c.tier != SourceTier.disabled;
   }
 
   /// 注册插件：幂等（同 id 已存在则忽略），触发 onInstall + bind。
@@ -136,8 +133,8 @@ class SourcePluginManager {
     final p = _registry[id];
     if (p == null) return;
     if (p.builtin) {
-      try {
-        var c = await SourceConfigStore.byEngine(id);
+      final c = await SourceConfigStore.byEngine(id);
+      if (c != null) {
         await SourceConfigStore.save(SourceConfig(
           engineId: c.engineId,
           id: c.id,
@@ -151,7 +148,7 @@ class SourcePluginManager {
           tier: c.tier,
           proxy: c.proxy,
         ));
-      } catch (_) {
+      } else {
         // 无既有配置：新建一条
         await SourceConfigStore.save(SourceConfig(
           engineId: id,

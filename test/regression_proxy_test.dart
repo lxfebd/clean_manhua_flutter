@@ -82,8 +82,9 @@ void main() {
 
     test('配置代理后返回 trim 后的值', () async {
       final c = await SourceConfigStore.byEngine('jm');
+      expect(c, isNotNull);
       await SourceConfigStore.save(SourceConfig(
-        engineId: c.engineId,
+        engineId: c!.engineId,
         id: c.id,
         name: c.name,
         hosts: c.hosts,
@@ -95,8 +96,9 @@ void main() {
 
     test('空白代理配置视为未配置（返回 null）', () async {
       final c = await SourceConfigStore.byEngine('jm');
+      expect(c, isNotNull);
       await SourceConfigStore.save(SourceConfig(
-        engineId: c.engineId,
+        engineId: c!.engineId,
         id: c.id,
         name: c.name,
         hosts: c.hosts,

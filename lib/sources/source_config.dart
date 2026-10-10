@@ -1,4 +1,3 @@
-import '../net/error_logger.dart';
 import '../net/local_store.dart';
 
 /// 源优先级层级（对应 Ani 的 `MediaSourceTier`）。
@@ -239,24 +238,17 @@ class SourceConfigStore {
     return _cache!;
   }
 
-  static Future<SourceConfig> byEngine(String engineId) async =>
-      (await all()).firstWhere(
-        (c) => c.engineId == engineId,
-        orElse: () => throw StateError('未找到源配置: $engineId'),
-      );
+  static Future<SourceConfig?> byEngine(String engineId) async =>
+      (await all()).where((c) => c.engineId == engineId).firstOrNull;
 
   /// 取得某源的可用 hosts：用户配置优先，无则回退内置。
   static Future<List<String>> hostsFor(
     String engineId,
     List<String> fallback,
   ) async {
-    try {
-      final c = await byEngine(engineId);
-      return c.hosts.isNotEmpty ? c.hosts : fallback;
-    } catch (e) {
-      ErrorLogger.instance.warn('hostsFor($engineId) failed: $e');
-      return fallback;
-    }
+    final c = await byEngine(engineId);
+    if (c == null) return fallback;
+    return c.hosts.isNotEmpty ? c.hosts : fallback;
   }
 
   /// 取得某源的图片 CDN hosts。
@@ -264,13 +256,9 @@ class SourceConfigStore {
     String engineId,
     List<String> fallback,
   ) async {
-    try {
-      final c = await byEngine(engineId);
-      return c.imageHosts.isNotEmpty ? c.imageHosts : fallback;
-    } catch (e) {
-      ErrorLogger.instance.warn('imageHostsFor($engineId) failed: $e');
-      return fallback;
-    }
+    final c = await byEngine(engineId);
+    if (c == null) return fallback;
+    return c.imageHosts.isNotEmpty ? c.imageHosts : fallback;
   }
 
   /// 保存用户对某源的修改（保留其他源配置）。

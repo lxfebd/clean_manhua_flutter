@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../net/circuit_breaker.dart';
-import '../net/error_logger.dart';
 import '../net/http_client.dart';
 import 'source_config.dart';
 
@@ -28,14 +27,10 @@ class SourceHttp {
 
   /// 读取某源的代理配置（单源代理覆盖全局）；未配置返回 null。
   static Future<String?> proxyFor(String engineId) async {
-    try {
-      final c = await SourceConfigStore.byEngine(engineId);
-      final p = c.proxy?.trim() ?? '';
-      return p.isEmpty ? null : p;
-    } catch (e) {
-      ErrorLogger.instance.warn('proxyFor($engineId) failed: $e');
-      return null;
-    }
+    final c = await SourceConfigStore.byEngine(engineId);
+    if (c == null) return null;
+    final p = c.proxy?.trim() ?? '';
+    return p.isEmpty ? null : p;
   }
 
   /// GET：host 由配置决定，path 拼接在 host 之后。
