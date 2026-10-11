@@ -55,6 +55,14 @@ class ComicDetail {
   /// 所属源 id。书架统一视图由 BookshelfStore 填充（存储里每本书自带 sourceId），
   /// UI 直接用它定位源，不要用 comicId 全局反查——跨源同名 id 会取错源。
   String? sourceId;
+  /// 标签/分类（如 恋爱 / 搞笑 / 冒险），详情页标签云展示用。
+  List<String> tags;
+  /// 年份（如「2024」），详情页信息块展示用。
+  String? year;
+  /// 源站更新时间（原样字符串，如「2024-05-01」），详情页信息块展示用。
+  String? updatedAt;
+  /// 人气/点击数（源站原样字符串），详情页信息块展示用。
+  String? hits;
   ComicDetail(
     this.comic,
     this.chapters, {
@@ -64,6 +72,10 @@ class ComicDetail {
     this.type,
     this.status,
     this.sourceId,
+    this.tags = const [],
+    this.year,
+    this.updatedAt,
+    this.hits,
   });
 
   String get id => comic.id;

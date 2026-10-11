@@ -204,6 +204,11 @@ class BookshelfStore {
       'description': d.description ?? '',
       'type': d.type ?? '',
       'status': d.status ?? '',
+      'area': d.area ?? '',
+      'tags': d.tags,
+      'year': d.year ?? '',
+      'updatedAt': d.updatedAt ?? '',
+      'hits': d.hits ?? d.comic.hits ?? '',
       'chapters': d.chapters
           .map((c) => {'id': c.id, 'title': c.title})
           .toList(),
@@ -325,6 +330,13 @@ class BookshelfStore {
       description: (m['description'] as String?) ?? '',
       type: (m['type'] as String?) ?? '',
       status: (m['status'] as String?) ?? '',
+      area: (m['area'] as String?) ?? '',
+      tags: ((m['tags'] as List?) ?? const [])
+          .whereType<String>()
+          .toList(),
+      year: (m['year'] as String?) ?? '',
+      updatedAt: (m['updatedAt'] as String?) ?? '',
+      hits: (m['hits'] as String?) ?? '',
       sourceId: (m['sourceId'] as String?) ?? '',
     );
   }
