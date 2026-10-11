@@ -73,4 +73,25 @@ void main() {
     expect(after.firstWhere((c) => c.engineId == 'dm5').isEnabled, isFalse,
         reason: '恢复值必须立即可见：缓存不失效则读到恢复前旧值（本地导入路径曾漏失效）');
   });
+
+  test('restoreBackup 摄入口：sources_config 含坏条目，all() 不崩且跳过坏条目', () async {
+    // 备份文件是磁盘数据（用户/WebDAV/旧版本可产生任意形状）。SourceConfig
+    // .fromJson 对 id/engineId/name 用严格 as String，坏条目（类型错/缺字段）
+    // 会让 SourceConfigStore.all() 抛 TypeError——restoreBackup 恢复后首次
+    // all() 直接崩源管理/主页。
+    final bad = [
+      {'id': 123, 'name': '坏条目'}, // 类型错：engineId/id 缺失，fromJson as String 抛
+      for (final c in SourceConfigStore.defaults())
+        {
+          ...c.toJson(),
+          'isEnabled': c.engineId == 'dm5' ? false : c.isEnabled,
+        },
+    ];
+    final count = await BackupRestore.apply({'sources_config': bad});
+    expect(count, 1);
+    // 坏条目跳过，好条目照常合并生效。
+    final after = await SourceConfigStore.all();
+    expect(after.firstWhere((c) => c.engineId == 'dm5').isEnabled, isFalse);
+    expect(after.any((c) => c.id == '123'), isFalse, reason: '坏条目被跳过');
+  });
 }

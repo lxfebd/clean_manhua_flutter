@@ -1,3 +1,4 @@
+import '../net/error_logger.dart';
 import '../net/local_store.dart';
 
 /// 源优先级层级（对应 Ani 的 `MediaSourceTier`）。
@@ -220,7 +221,18 @@ class SourceConfigStore {
     if (raw == null || raw.isEmpty) {
       merged = defs;
     } else {
-      final saved = raw.map((m) => SourceConfig.fromJson(m)).toList();
+      // sources_config.json 是磁盘数据（用户手改/旧版格式/备份恢复都可能
+      // 产生任意形状）：fromJson 的严格 as String 对坏条目（类型错/缺字段）
+      // 抛 TypeError 会崩掉整个 all() 链（源管理/主页首次读取即崩）。
+      // per-entry 隔离：坏条目带原因记日志跳过，好条目照常合并。
+      final saved = <SourceConfig>[];
+      for (final m in raw) {
+        try {
+          saved.add(SourceConfig.fromJson(m));
+        } catch (e) {
+          ErrorLogger.instance.warn('sources_config 条目解析失败已跳过: $e');
+        }
+      }
       final Map<String, SourceConfig> map = {
         for (final d in defs) d.engineId: d,
       };
