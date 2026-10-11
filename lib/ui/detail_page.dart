@@ -293,6 +293,14 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                           child: _DescCard(detail: _detail!),
                         ),
                       ),
+                    // 元信息卡（作者/地区/类型/状态/年份/更新/人气 + 标签云）
+                    SliverToBoxAdapter(
+                      child: FadeSlideIn(
+                        delay: const Duration(milliseconds: 220),
+                        offset: 14,
+                        child: _MetaCard(detail: _detail!),
+                      ),
+                    ),
                     // 章节标题
                     SliverToBoxAdapter(
                       child: FadeSlideIn(
@@ -798,6 +806,13 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                             child: _DescCard(detail: d),
                           ),
                         ),
+                      SliverToBoxAdapter(
+                        child: FadeSlideIn(
+                          delay: const Duration(milliseconds: 210),
+                          offset: 14,
+                          child: _MetaCard(detail: d),
+                        ),
+                      ),
                       SliverToBoxAdapter(
                         child: FadeSlideIn(
                           delay: const Duration(milliseconds: 250),

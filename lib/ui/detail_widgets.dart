@@ -371,6 +371,123 @@ class _CountPill extends StatelessWidget {
   }
 }
 
+// ─── 信息卡 ──────────────────────────────────────────────────────────────────
+
+/// 详情元信息卡：把作者/地区/类型/状态/年份/更新时间/人气等从「一行合并」
+/// 改成独立 标签:值 网格展示，源站抓到的字段逐项可读（详情精细化）。
+class _MetaCard extends StatelessWidget {
+  final ComicDetail detail;
+  const _MetaCard({required this.detail});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final style = context.uiStyle;
+    final d = detail;
+
+    // 仅展示非空字段（值缺失的项不占位，避免空标签行）。
+    final author = d.author ?? d.comic.author ?? '';
+    final rows = <(String, String)>[
+      if (author.isNotEmpty) ('作者', author),
+      if ((d.area ?? '').isNotEmpty) ('地区', d.area!),
+      if ((d.type ?? '').isNotEmpty) ('类型', d.type!),
+      if ((d.status ?? '').isNotEmpty) ('状态', d.status!),
+      if ((d.year ?? '').isNotEmpty) ('年份', d.year!),
+      if ((d.updatedAt ?? '').isNotEmpty) ('更新', d.updatedAt!),
+      if ((d.hits ?? '').isNotEmpty) ('人气', d.hits!),
+      if ((d.comic.score ?? '').isNotEmpty) ('评分', d.comic.score!),
+    ];
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        Responsive.pagePadding(context),
+        8,
+        Responsive.pagePadding(context),
+        0,
+      ),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(
+            style == UIStyle.minimalist
+                ? 10
+                : R.of(R.control, style: context.uiStyle),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (rows.isNotEmpty)
+              Wrap(
+                spacing: 16,
+                runSpacing: 8,
+                children: [
+                  for (final (k, v) in rows)
+                    _metaItem(scheme, k, v),
+                ],
+              ),
+            if (d.tags.isNotEmpty) ...[
+              if (rows.isNotEmpty) const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final t in d.tags) _tagChip(scheme, style, t),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _metaItem(ColorScheme scheme, String k, String v) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '$k：',
+          style: TextStyle(
+            fontSize: 12,
+            color: scheme.onSurface.withValues(alpha: 0.5),
+          ),
+        ),
+        Text(
+          v,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: scheme.onSurface.withValues(alpha: 0.85),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _tagChip(ColorScheme scheme, UIStyle style, String t) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+      decoration: BoxDecoration(
+        color: scheme.primary.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(
+          style == UIStyle.minimalist ? 6 : 999,
+        ),
+      ),
+      child: Text(
+        t,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w500,
+          color: scheme.primary,
+        ),
+      ),
+    );
+  }
+}
+
 // ─── 简介卡 ──────────────────────────────────────────────────────────────────
 
 class _DescCard extends StatefulWidget {
