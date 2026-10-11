@@ -95,5 +95,22 @@ void main() {
       expect(raw, {'a/b/1-1': 30, 'c/d/2-1': 12});
       expect(raw.keys.any((k) => k.contains('::')), isFalse);
     });
+
+    test('restoreBackup 恢复新格式（/ 分隔）video_progress：原样写回不丢失', () async {
+      // 现代备份的 key 已是 `/` 分隔：normalize 判定"无需改写"返 null，
+      // 恢复必须回退写原数据——否则新格式备份的续播进度被静默丢弃。
+      await LocalStore.init();
+      await LocalStore.restoreBackup({
+        'video_progress': {'x/y/1-1': 30, 'z/w/2-1': 12},
+        'video_records': null,
+        'history': null,
+        'favorites': null,
+        'bookmarks': null,
+        'downloads': null,
+      });
+      final raw = await LocalStore.readJson('video_progress') as Map;
+      expect(raw, {'x/y/1-1': 30, 'z/w/2-1': 12},
+          reason: '新格式备份恢复不得丢数据（normalize 返 null 不能当"跳过"）');
+    });
   });
 }

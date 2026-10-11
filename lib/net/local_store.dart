@@ -1171,11 +1171,10 @@ class LocalStore {
       list.removeWhere((m) => _downloadKeyOf(m) == d.key);
       list.add(d.toMap());
       if (list.length > _downloadsMax) {
-        // 超限：丢弃「已完成」且最 old 的记录（finished 有界裁剪），
-        // 失败/进行中优先保留（可重试）。排序键与原实现一致用 localKey。
-        final finished = [for (final m in list) if (m['finished'] == true) m]
-          ..sort((a, b) => (a['localKey'] as String)
-              .compareTo(b['localKey'] as String));
+        // 超限：丢弃「已完成」且插入最早的记录（finished 有界裁剪），
+        // 失败/进行中优先保留（可重试）。list 顺序即插入新旧序（upsert 先
+        // removeWhere 再 add，重传会排到末尾），从头裁即裁最旧，无需排序。
+        final finished = [for (final m in list) if (m['finished'] == true) m];
         var over = list.length - _downloadsMax;
         while (over > 0 && finished.isNotEmpty) {
           list.remove(finished.removeAt(0));
@@ -1344,7 +1343,9 @@ class LocalStore {
     await put('search_history', data['search_history']);
     await put('video_records', data['video_records']);
     // 旧备份的续播进度 key 仍是 `::` 分隔：恢复时统一改写为 `/`（P2-15）。
-    await put('video_progress', _normalizeVideoProgress(data['video_progress']));
+    // 新格式（normalize 返 null）原样写回——null 表示"无需改写"，不是"跳过恢复"。
+    await put('video_progress',
+        _normalizeVideoProgress(data['video_progress']) ?? data['video_progress']);
     await put('downloads', data['downloads']);
     if (data['downloads'] != null) {
       // 恢复导入绕过镜像直写磁盘：作废未落盘变更与在途读盘，下次读重建。

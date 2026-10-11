@@ -122,6 +122,27 @@ void main() {
         reason: '最新记录应保留');
   });
 
+  test('下载表超上限：按插入顺序裁最旧，不按 localKey 字典序', () async {
+    await freshDownloads();
+    // 199 条字典序大的已完成（插入较早）。
+    for (var i = 0; i < 199; i++) {
+      await LocalStore.upsertDownload(
+          rec(comicId: 'z$i', chapterId: '1', finished: true));
+    }
+    // 最新插入但字典序最小（'a' < 'z'）——两种排序在此分离。
+    await LocalStore.upsertDownload(
+        rec(comicId: 'a_new', chapterId: '1', finished: true));
+    // 201 条触发裁 1：应裁插入最早的 z0，而非字典序最小的 a_new。
+    await LocalStore.upsertDownload(
+        rec(comicId: 'z_new', chapterId: '1', finished: true));
+    final all = await LocalStore.downloads();
+    expect(all.length, 200);
+    expect(all.any((d) => d.book.comicId == 'a_new'), isTrue,
+        reason: '最新插入的 a_new 不是最旧，不应被 localKey 字典序误裁');
+    expect(all.any((d) => d.book.comicId == 'z0'), isFalse,
+        reason: '插入最早的 z0 才是最旧，应被裁剪');
+  });
+
   test('R1-1 镜像与磁盘一致：flush 后读盘内容与内存同', () async {
     await freshDownloads();
     final chapters = [
