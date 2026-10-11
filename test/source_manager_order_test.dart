@@ -7,6 +7,8 @@ import 'package:xingmanxia/net/local_store.dart';
 import 'package:xingmanxia/sources/comic_source.dart';
 import 'package:xingmanxia/sources/source_config.dart';
 import 'package:xingmanxia/sources/source_manager.dart';
+import 'package:xingmanxia/sources/source_plugin.dart';
+import 'package:xingmanxia/sources/source_plugin_manager.dart';
 
 /// 测试用源：只区分 id，其余行为空实现（不联网）。
 class OrderFakeSource extends ComicSource {
@@ -102,4 +104,53 @@ void main() {
     expect(got, expected,
         reason: '同 tier 必须保持注册顺序（注释契约：按注册顺序稳定）');
   });
+
+  test('自定义源停用后从 enabledSources 移除（防配置变更后静默切回）', () async {
+    final before = await SourceConfigStore.all();
+    const id = 'orderfake';
+    // 忠实路径：自定义源经插件注册表 install（bind 才把实现挂进 SourceManager），
+    // 直接 addSource 会绕过注册表——那时 setEnabled 对未注册插件静默 no-op。
+    await SourcePluginManager.instance.install(_OrderFakePlugin(id));
+    addTearDown(() async {
+      await SourcePluginManager.instance.uninstall(id);
+      SourceManager.removeSource(id);
+    });
+    addTearDown(() async {
+      for (final c in before) {
+        await SourceConfigStore.save(c);
+      }
+      SourceConfigStore.invalidateCache();
+    });
+
+    // 启用时在列表里。
+    var enabled = await SourceManager.enabledSources();
+    expect(enabled.any((s) => s.id == id), isTrue,
+        reason: '自定义源启用时应进入 enabledSources');
+
+    // 停用（setEnabled(false) 走 SourcePluginManager 的 _disabledCustom 禁用集合）。
+    await SourcePluginManager.instance.setEnabled(id, false);
+
+    enabled = await SourceManager.enabledSources();
+    expect(enabled.any((s) => s.id == id), isFalse,
+        reason: '停用的自定义源必须从 enabledSources 消失——否则配置变更后 '
+            'ensureEnabledCurrent 会把它静默切回当前源');
+  });
+}
+
+/// 自定义源插件的最小忠实替身：bind/unbind 挂/收漫画源实现正文。
+class _OrderFakePlugin extends SourcePlugin {
+  _OrderFakePlugin(String id)
+      : super(
+          id: id,
+          name: 'fake-$id',
+          type: 'comic',
+          version: '1.0.0',
+          author: 'test',
+        );
+
+  @override
+  Future<void> bind() async => SourceManager.addSource(OrderFakeSource(id));
+
+  @override
+  Future<void> unbind() async => SourceManager.removeSource(id);
 }

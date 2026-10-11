@@ -12,6 +12,7 @@ import 'novel_source.dart';
 import 'source_base.dart';
 import 'source_config.dart';
 import 'source_plugin.dart';
+import 'source_plugin_manager.dart';
 import 'tvtfun_video_source.dart';
 import 'video_source.dart';
 import 'wche_dm_video_source.dart';
@@ -135,7 +136,11 @@ class SourceManager {
       final cfg = byId[s.id];
       final enabled = cfg?.isEnabled ?? s.isEnabled;
       final tier = cfg?.tier ?? s.tier;
-      return enabled && tier != SourceTier.disabled;
+      if (!enabled || tier == SourceTier.disabled) return false;
+      // 自定义源没有 config 条目（all() 只保留 defaults 内的 engineId），
+      // 其实现类 isEnabled 恒 true，停用态只记在插件的禁用集合里；漏判会让
+      // 停用的自定义源留在列表里，配置变更后被 ensureEnabledCurrent 静默切回。
+      return !SourcePluginManager.instance.isCustomDisabled(s.id);
     }).toList();
     // 按 tier 权重排序 + 注册下标 tie-break：Dart List.sort 对 >32 个同权重
     // 元素走双枢轴快排（不稳定，实测 n=40 重排率 20/20），显式下标才能

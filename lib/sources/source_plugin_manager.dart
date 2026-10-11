@@ -52,6 +52,12 @@ class SourcePluginManager {
 
   SourcePlugin? byId(String id) => _registry[id];
 
+  /// 自定义源是否被停用（内置源的启停走 SourceConfigStore，不在此集合）。
+  ///
+  /// 供 [SourceManager] 过滤启用源列表：自定义源没有 config 条目，其
+  /// 实现类 `isEnabled` 恒为 true，仅查配置会漏判停用态。
+  bool isCustomDisabled(String id) => _disabledCustom.contains(id);
+
   /// 插件是否启用（同步版，供 UI 渲染）。
   bool isEnabledSync(String id) {
     final p = _registry[id];
