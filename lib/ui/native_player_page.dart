@@ -11,7 +11,6 @@ import 'package:screen_brightness/screen_brightness.dart';
 import 'package:volume_controller/volume_controller.dart';
 
 import '../net/error_logger.dart';
-import '../net/http_client.dart' show Net;
 import '../net/local_store.dart';
 import '../net/subtitle_srt.dart';
 import '../net/video_download_manager.dart';
@@ -849,22 +848,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 还要带正确 Host 头，否则 TLS 证书校验不过。
   ///
   /// ⚠️ 签名直链源（稀饭动漫 → media.vod 302 到 pan.wo.cn 移动云盘）**拒绝**
-  /// 带 Referer 的请求（实测 HTTP 400 / ECONNRESET，无 Referer 才 206 正常
-  /// 下载）。带 Referer 会让 mpv 拉流反复被 400 掐断 → 播 1-2 秒 → 缓存耗尽
-  /// → 停 12-44 秒 → 重连 → 循环（v1.5.1 引入的回归，见 _open)。故对这类
-  /// 签名直链域名不设 Referer。
-  Map<String, String> _mediaHeaders(String url) {
-    final uri = Uri.tryParse(url);
-    if (uri == null) return const {};
-    final host = uri.host;
-    final h = <String, String>{
-      'User-Agent': Net.defaultUA,
-      if (!RegExp(r'(^|\.)pan\.wo\.cn$').hasMatch(host))
-        'Referer': '${uri.scheme}://$host/',
-      ...hostHeaderFor(url),
-    };
-    return h;
-  }
+  /// 带 Referer 的请求头（实测 HTTP 400 / ECONNRESET，无 Referer 才 206 正常
+  /// 下载）。见 [mediaHeaders]。
+  Map<String, String> _mediaHeaders(String url) => mediaHeaders(url);
 
   /// 用 mpv 打开媒体地址。返回是否成功打开。
   ///

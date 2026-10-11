@@ -1,5 +1,8 @@
 import 'package:media_kit/media_kit.dart';
 
+import '../net/http_client.dart' show Net;
+import '../sources/video_source.dart';
+
 /// 播放器页公共纯函数（god-class 拆分产物）。
 ///
 /// 原为 native_player_page / anime_player_page 各自私有的 static helper
@@ -95,4 +98,21 @@ double verticalGestureDelta(double primaryDelta, double screenHeight) {
 double verticalGestureValue(double start, double delta, double lo) {
   final v = start + delta;
   return v.clamp(lo, 1.0);
+}
+
+/// 播放请求头：UA + 除 pan.wo.cn 外的 Referer + Host 头映射。
+///
+/// 带 Referer 会让 mpv 拉流反复被 400 掐断（实测 HTTP 400 / ECONNRESET，
+/// 无 Referer 才 206 正常下载），故对 pan.wo.cn 签名直链域名不设 Referer。
+Map<String, String> mediaHeaders(String url) {
+  final uri = Uri.tryParse(url);
+  if (uri == null) return const {};
+  final host = uri.host;
+  final h = <String, String>{
+    'User-Agent': Net.defaultUA,
+    if (!RegExp(r'(^|\.)pan\.wo\.cn$').hasMatch(host))
+      'Referer': '${uri.scheme}://$host/',
+    ...hostHeaderFor(url),
+  };
+  return h;
 }

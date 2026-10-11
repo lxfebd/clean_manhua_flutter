@@ -187,11 +187,6 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   static const ua = 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
-  /// 若 URL 主机是已知优选 IP，返回正确的 Host 头（映射见表
-  /// [preferredIpHosts]），否则返回空。WebView 直连 IP 仍需 CDN 证书覆盖该
-  /// 域名，否则会证书错误。
-  static Map<String, String> _hostHeader(String url) => hostHeaderFor(url);
-
   @override
   void initState() {
     super.initState();
@@ -386,7 +381,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           }
         },
       ))
-      ..loadRequest(Uri.parse(widget.url), headers: _hostHeader(widget.url));
+      ..loadRequest(Uri.parse(widget.url), headers: hostHeaderFor(widget.url));
     _enableWebViewMediaPlayback();
     _hookVideoSource();
     // 8 秒后放弃隐藏 WebView（降级为网页播放），避免一直黑屏。
@@ -1735,7 +1730,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
         await d.loadUrl(url);
       } else {
         await _controller.loadRequest(Uri.parse(url),
-            headers: _hostHeader(url));
+            headers: hostHeaderFor(url));
       }
     } catch (e) {
       if (mounted && gen == _switchGen) {
