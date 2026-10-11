@@ -174,7 +174,7 @@ void main() {
           reason: 'PiP 按钮需由能力位守卫');
       expect(
           src.contains(RegExp(
-              r'_barBtn\(Icons\.picture_in_picture_alt_rounded, _toggleSystemPip\)')),
+              r'playerBarBtn\(Icons\.picture_in_picture_alt_rounded, _toggleSystemPip\)')),
           isTrue,
           reason: 'PiP 按钮仍指向 _toggleSystemPip');
 
