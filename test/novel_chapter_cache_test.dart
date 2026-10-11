@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -96,6 +97,26 @@ void main() {
     await dir.create(recursive: true);
     await File('${dir.path}/ch1.json').writeAsString('not json');
     expect(await NovelChapterCache.read('src1', 'novel1', 'ch1'), isNull);
+  });
+
+  test('paragraphs 非 List（如 int）：降级空列表，不抛、可读其余字段', () async {
+    final dir = Directory(
+        '${tmp.path}/novel_cache/src1/novel1'); // 用与 _file 相同的编码路径
+    await dir.create(recursive: true);
+    // 篡改：只把 paragraphs 写成非 List 的 int（真实源里正文段落正常是
+    // 字符串列表，但缓存文件在磁盘上可被手改/旧版格式写入异常值）。
+    await File('${dir.path}/ch1.json').writeAsString(jsonEncode({
+      'chapterId': 'ch1',
+      'title': '第一章',
+      'paragraphs': 3,
+      'prevChapterId': 'ch0',
+      'nextChapterId': 'ch2',
+    }));
+    final c = await NovelChapterCache.read('src1', 'novel1', 'ch1');
+    expect(c, isNotNull, reason: 'paragraphs 类型错不得让整条缓存判死');
+    expect(c!.title, '第一章');
+    expect(c.paragraphs, isEmpty, reason: '非列表段落降级为空，不抛 TypeError');
+    expect(c.prevChapterId, 'ch0');
   });
 
   test('cachedChapterIds 返回已缓存章节 id 集合', () async {

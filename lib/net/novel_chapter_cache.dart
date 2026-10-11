@@ -41,7 +41,16 @@ class NovelChapterCache {
       return NovelContent(
         (m['chapterId'] as String?) ?? chapterId,
         (m['title'] as String?) ?? '',
-        (m['paragraphs'] as List? ?? const []).cast<String>(),
+        // 元素级容错：`cast<String>` 遇非字符串元素抛 TypeError 进而把
+        // 整条缓存判死（read 返 null，title/上下章导航全丢）。whereType
+        // 滤掉坏元素，只损失该段，缓存仍可读。
+        // 元素级容错：`cast<String>` 遇非字符串元素抛 TypeError，且 `as List?`
+        // 对非 List 值（如 int）本身也抛——任一都会把整条缓存判死
+        // （read 返 null，title/上下章导航全丢）。is List 守卫 + whereType
+        // 只损失该段，缓存仍可读。
+        (m['paragraphs'] is List
+            ? (m['paragraphs'] as List).whereType<String>().toList()
+            : const <String>[]),
         prevChapterId: m['prevChapterId'] as String?,
         nextChapterId: m['nextChapterId'] as String?,
       );
