@@ -176,8 +176,10 @@ class Net {
 
   /// 全局代理（`http://host:port` / `https://host:port`；dart:io 不支持
   /// socks，socks5/socks4 前缀会被明确拒绝为直连）。
+  ///
+  /// 只读：写代理统一走 [setProxy]（含持久化 + [NetConn.applyProxy]），
+  /// 直接赋 setter 会漏 applyProxy 导致配置不生效（历史死代码，已删）。
   static String? get proxy => NetConn.proxy;
-  static set proxy(String? v) => NetConn.proxy = v;
 
   /// 单次请求是否走代理：proxy=null 走全局代理/直连；proxy='' 强制直连；
   /// proxy=具体串 强制走该代理（单源代理覆盖全局）。

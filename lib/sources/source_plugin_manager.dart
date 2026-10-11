@@ -36,7 +36,7 @@ class SourcePluginManager {
 
   /// 已注册插件列表，按类型（comic→video→novel）再按 id 排序。
   List<SourcePlugin> get plugins {
-    const typeRank = {'comic': 0, 'video': 1, 'novel': 2, 'custom': 3};
+    const typeRank = {'comic': 0, 'video': 1, 'novel': 2};
     final list = _registry.values.toList()
       ..sort((a, b) {
         final ta = typeRank[a.type] ?? 9;
@@ -64,20 +64,6 @@ class SourcePluginManager {
     if (p == null) return false;
     if (p.builtin) return true; // 内置源禁用走 SourceConfigStore，UI 用异步版
     return !_disabledCustom.contains(id);
-  }
-
-  /// 插件是否启用：内置源委托 SourceConfigStore；自定义源查本地禁用集合。
-  Future<bool> isEnabled(String id) async {
-    final p = _registry[id];
-    if (p == null) return false;
-    if (p.builtin) return _builtinEnabled(id);
-    return !_disabledCustom.contains(id);
-  }
-
-  Future<bool> _builtinEnabled(String engineId) async {
-    final c = await SourceConfigStore.byEngine(engineId);
-    if (c == null) return true;
-    return c.isEnabled && c.tier != SourceTier.disabled;
   }
 
   /// 注册插件：幂等（同 id 已存在则忽略），触发 onInstall + bind。
