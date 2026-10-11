@@ -2225,13 +2225,12 @@ class _NativePlayerPageState extends State<NativePlayerPage>
 
   void _onHorizontalUpdate(DragUpdateDetails d, Size size) {
     if (_locked || _gesture != _Gesture.seek) return;
-    // 整屏宽 = 视频总时长的 1/4，最多不超过 180 秒，手感更稳
-    final span = _dur.inSeconds / 4;
-    final maxSpan = span > 180 ? 180.0 : span;
-    final deltaSec = d.primaryDelta! / size.width * maxSpan * 2;
-    var t = _seekTarget + Duration(milliseconds: (deltaSec * 1000).round());
-    if (t < Duration.zero) t = Duration.zero;
-    if (t > _dur) t = _dur;
+    final t = horizontalSeekTarget(
+      from: _seekTarget,
+      dx: d.primaryDelta!,
+      width: size.width,
+      dur: _dur,
+    );
     setState(() => _seekTarget = t);
     // 拖拽过程中持续重置自动隐藏计时器，避免中央进度预览在手势中途消失
     // （_showHud 默认 keep=true 会一直挂住，见下方 keep:false 修复）。
@@ -2271,9 +2270,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     if (_locked) return;
     final x = _lastTapPos.dx;
     final now = DateTime.now();
-    final side = x < size.width * 0.35
-        ? 1
-        : (x > size.width * 0.65 ? 2 : 0);
+    final side = seekTapSide(x, size.width);
     if (side == 0) {
       _togglePlay();
       _tapStreak = 0;
@@ -2289,7 +2286,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     }
     _lastDoubleTapAt = now;
     // 连点累计幅度：第 1 次 10s，之后每次 +10s，上限 60s
-    final amount = (_tapStreak * 10).clamp(10, 60);
+    final amount = tapSeekSeconds(_tapStreak);
     _seekBy(side == 1 ? -amount : amount);
   }
 

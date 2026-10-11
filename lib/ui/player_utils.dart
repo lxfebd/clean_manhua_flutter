@@ -47,3 +47,38 @@ String? audioTrackSubtitle(AudioTrack t) {
   if (t.isDefault ?? false) parts.add('默认');
   return parts.isEmpty ? null : parts.join(' · ');
 }
+
+/// ── 手势纯计算（god-class 拆分产物） ──────────────────────────
+/// 原为 native_player_page 手势 State 方法内的内联计算，抽为顶层纯函数
+/// 后可单测（见 test/player_gesture_test.dart）。
+
+/// 连点侧区判定：左 35% 内 → 1（回退），右 35% 外 → 2（快进），
+/// 中间 30% → 0（播放/暂停）。
+int seekTapSide(double x, double width) {
+  return x < width * 0.35 ? 1 : (x > width * 0.65 ? 2 : 0);
+}
+
+/// 连点累计 seek 幅度：第 1 次 10s，之后每次 +10s，上限 60s。
+int tapSeekSeconds(int streak) => (streak * 10).clamp(10, 60);
+
+/// 横滑 seek 可扫总时长：整屏宽 = 视频总时长的 1/4，最多 180 秒。
+double horizontalSeekSpan(int durSeconds) {
+  final span = durSeconds / 4;
+  return span > 180 ? 180.0 : span;
+}
+
+/// 横滑 seek 目标：从 [from] 按横向位移 [dx]（屏宽 [width]）推进/回退，
+/// clamp 到 [0, dur]。
+Duration horizontalSeekTarget({
+  required Duration from,
+  required double dx,
+  required double width,
+  required Duration dur,
+}) {
+  final maxSpan = horizontalSeekSpan(dur.inSeconds);
+  final deltaSec = dx / width * maxSpan * 2;
+  var t = from + Duration(milliseconds: (deltaSec * 1000).round());
+  if (t < Duration.zero) t = Duration.zero;
+  if (t > dur) t = dur;
+  return t;
+}
