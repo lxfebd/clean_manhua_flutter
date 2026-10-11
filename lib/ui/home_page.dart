@@ -178,17 +178,11 @@ class HomePageState extends State<HomePage> {
     }
   }
 
-  /// 首页榜单快照文件名：按模式+关键字区分，避免切换污染。
-  String get _snapshotKey {
-    switch (_mode) {
-      case 'category':
-        return 'home_snapshot_category_$_categoryId';
-      case 'search':
-        return 'home_snapshot_search_$_keyword';
-      default:
-        return 'home_snapshot_rank_${SourceManager.current.id}';
-    }
-  }
+  /// 首页榜单快照文件名：仅 rank 模式读写（_loadCachedSnapshot 在 _refresh
+  /// 里 `if (_mode == 'rank')` 调用、_saveSnapshot 在 `next==1 && _mode=='rank'`
+  /// 调用——category/search 分支从未触达，收敛掉死路径与连带路径注入面）。
+  String get _snapshotKey =>
+      'home_snapshot_rank_${SourceManager.current.id}';
 
   void _onScroll() {
     if (_noMore || _loading) return;

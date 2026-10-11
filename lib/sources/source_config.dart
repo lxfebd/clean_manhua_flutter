@@ -73,12 +73,8 @@ class SourceConfig {
 /// 源配置存储：内置默认 + 用户持久化覆盖。
 ///
 /// 合并策略：以 [defaults] 为蓝本，用户保存过的配置按 engineId 覆盖对应字段。
-/// 远程配置 [remoteUrl] 预留：域名过期时后台改一份 JSON 即可，免发版。
 class SourceConfigStore {
   static const String _file = 'sources_config';
-
-  /// 可选远程配置 URL（域名过期时后台更新，免发版）。预留接口，未设置时不拉取。
-  static String? remoteUrl;
 
   static List<SourceConfig>? _cache;
   /// 缓存写入时间戳（用于 TTL 失效）：超过 [kCacheTtl] 强制重新读盘，
