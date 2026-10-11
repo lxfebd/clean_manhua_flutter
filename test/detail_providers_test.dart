@@ -161,6 +161,20 @@ void main() {
         throwsA(isA<Exception>()),
       );
     });
+
+    test('未知源 id：抛 SourceMissing 而非静默回退当前源取详情', () async {
+      // 把 current 切到注册的 fake：回退语义下 byId 会拿到它并「成功」返回
+      // 详情（语义错：把别的源的数据标上请求的 sourceId，确定性不依赖网络）；
+      // 修复后应立刻抛类型化 SourceMissing（页面映射「未找到漫画源」）。
+      SourceManager.switchTo(SourceManager.sources.indexOf(comicSrc));
+      addTearDown(() => SourceManager.switchTo(0)); // 内置源 0 号恒在
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      await expectLater(
+        container.read(comicDetailProvider(('not_registered', 'c9')).future),
+        throwsA(isA<SourceMissing>()),
+      );
+    });
   });
 
   group('comicResumeProvider', () {

@@ -189,6 +189,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
   static String _detailErrorMessage(Object e) {
     if (e is TimeoutException) return '网络超时，请重试';
     if (e is SocketException) return '网络连接失败，请检查网络后重试';
+    if (e is SourceMissing) return '未找到漫画源';
     if (e is SourceUnauthorized) return '该源需要登录后才能查看详情';
     if (e is SourceBlocked) return '访问受限（触发站点风控），请稍后再试';
     if (e is SourceParse || e is FormatException) {

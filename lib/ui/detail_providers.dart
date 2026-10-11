@@ -131,6 +131,13 @@ class NovelSourceMissing implements Exception {
   const NovelSourceMissing(this.sourceId);
 }
 
+/// 漫画源缺失（byId 兜底回 current 会让错源取到他人数据并标上请求的
+/// sourceId——详情入口须先校验命中，缺失抛此类型由页面映射文案）。
+class SourceMissing implements Exception {
+  final String sourceId;
+  const SourceMissing(this.sourceId);
+}
+
 /// 漫画详情（按 sourceId+comicId 缓存，family 键用记录结构相等）。
 ///
 /// - 30s 超时（与原详情页一致）；
@@ -142,9 +149,11 @@ final comicDetailProvider =
   (ref, args) async {
     final (sourceId, comicId) = args;
     try {
-      final d = await SourceManager.byId(
-        sourceId,
-      ).detail(comicId).timeout(const Duration(seconds: 30));
+      final src = SourceManager.byId(sourceId);
+      // byId 未命中时回退 current（永不 null）；不校验会把 current 的数据
+      // 标上请求的 sourceId 静默返回。与小说侧 novelDetailProvider 同构。
+      if (src.id != sourceId) throw SourceMissing(sourceId);
+      final d = await src.detail(comicId).timeout(const Duration(seconds: 30));
       d.sourceId = sourceId;
       return d;
     } catch (e) {
@@ -170,7 +179,11 @@ final comicInShelfProvider =
     FutureProvider.family<bool, (String sourceId, String comicId)>(
   (ref, args) async {
     final (sourceId, comicId) = args;
-    return SourceManager.byId(sourceId).isInBookshelf(comicId);
+    final s = SourceManager.byId(sourceId);
+    // byId 未命中回退 current 会拿错源 id 查书架 → 误导布尔；对齐
+    // novelInShelfProvider 的判空分支。
+    if (s.id != sourceId) return false;
+    return s.isInBookshelf(comicId);
   },
 );
 

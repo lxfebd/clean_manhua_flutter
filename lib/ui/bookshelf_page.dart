@@ -2015,8 +2015,8 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
   Future<void> _openBookmark(ComicBookmark m) async {
     if (_openingBookmark) return; // 防连点：detail await 期间忽略重复点击
     _openingBookmark = true;
-    final src = SourceManager.byId(m.book.sourceId);
     try {
+      final src = SourceManager.byId(m.book.sourceId);
       final detail = await src.detail(m.book.comicId);
       if (!mounted) return;
       final chapters = detail.chapters;
