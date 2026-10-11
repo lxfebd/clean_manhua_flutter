@@ -18,6 +18,7 @@ import '../utils/tv_platform.dart';
 import 'desktop_webview.dart';
 import 'episode_grouping.dart';
 import 'native_player_page.dart';
+import 'player_utils.dart';
 import 'responsive.dart';
 import 'style_scope.dart';
 import 'style_tokens.dart';
@@ -2290,7 +2291,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
               _metaChip(scheme, _srName,
                   icon: Icons.auto_awesome_rounded, highlight: true),
             if (_speed != 1.0)
-              _metaChip(scheme, '${_trimSpeed(_speed)}x',
+              _metaChip(scheme, '${trimSpeed(_speed)}x',
                   icon: Icons.speed_rounded),
           ]),
           if (multi) ...[
@@ -2321,7 +2322,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           Row(children: [
             Expanded(
                 child: _miniCardWeb(scheme, Icons.speed_rounded, '倍速',
-                    '${_trimSpeed(_speed)}x', _showSpeedPanel)),
+                    '${trimSpeed(_speed)}x', _showSpeedPanel)),
             const SizedBox(width: 10),
             Expanded(
                 child: _miniCardWeb(scheme, Icons.auto_awesome_rounded, '画质增强(滤镜)',
@@ -2837,7 +2838,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                   style: const TextStyle(
                       color: Colors.white70, fontSize: 11.5)),
               const Spacer(),
-              _textBtn('${_trimSpeed(_speed)}x', _showSpeedPanel,
+              _textBtn('${trimSpeed(_speed)}x', _showSpeedPanel,
                   icon: Icons.speed_rounded),
               _textBtn('画质增强', _showSrPanel,
                   icon: Icons.auto_awesome_rounded, active: _srLevel > 0),
@@ -2900,9 +2901,6 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     return '$mm:${r.toString().padLeft(2, '0')}';
   }
 
-  static String _trimSpeed(double s) =>
-      s == s.roundToDouble() ? s.toStringAsFixed(1) : s.toString();
-
   Widget _barBtn(IconData icon, VoidCallback? onTap, {bool active = false}) {
     final color = onTap == null
         ? Colors.white24
@@ -2962,7 +2960,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
         return SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             ...speeds.map((s) => PanelOptionTile(
-                  title: '${_trimSpeed(s)}x',
+                  title: '${trimSpeed(s)}x',
                   subtitle: s == 1.0 ? '正常速度' : null,
                   selected: _speed == s,
                   onTap: () {

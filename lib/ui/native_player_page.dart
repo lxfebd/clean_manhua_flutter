@@ -28,6 +28,7 @@ import '../utils/pip_channel.dart';
 import '../utils/tv_platform.dart';
 import 'episode_grouping.dart';
 import 'player_body.dart';
+import 'player_utils.dart';
 import 'responsive.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/danmaku_overlay.dart';
@@ -1412,10 +1413,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
             final vsync = await rd('video-sync');
             ErrorLogger.instance.warn(
               'player sync degraded: wrate=${_wallClockRate.toStringAsFixed(3)} '
-              'spd=$spd vsync=$vsync edisp=${_fmtFps(edfps)} → video-sync=audio '
+              'spd=$spd vsync=$vsync edisp=${fmtFps(edfps)} → video-sync=audio '
               '(closed-loop guard)');
             debugPrint('MPV[sync-degraded wrate=${_wallClockRate.toStringAsFixed(3)} '
-                'spd=$spd vsync=$vsync edisp=${_fmtFps(edfps)} → video-sync=audio]');
+                'spd=$spd vsync=$vsync edisp=${fmtFps(edfps)} → video-sync=audio]');
             await _applySync();
             if (mounted && !_syncDegradeNotified) {
               _syncDegradeNotified = true;
@@ -1506,8 +1507,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         //   vop    = 滤镜链输出（**不含超分**，仅对照）；
         //   elig   = x2 链是否具备执行条件（1 成立 / 0 不成立 / ? 尺寸未知）；
         //   a4k    = vo-passes 里 user shader pass 数（0 = 着色器没进渲染图）。
-        final srcTag = _wh(srcW, srcH);
-        final voTag = _wh(ow, oh);
+        final srcTag = whLabel(srcW, srcH);
+        final voTag = whLabel(ow, oh);
         // 渲染后端判定（2026-09-19 加）：超分「属性被接受但 vo-passes 0 pass」
         // 的静默失效，最常是渲染后端不支持用户着色器——软件 Vulkan
         // （vk_swiftshader）或 VO 回退到软渲染时 user shader 根本不执行。
@@ -1525,10 +1526,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         final line = 'DIAG src=$srcTag vo=$voTag($voSrc) vop=$wop x$hop '
             'elig=${eligible == null ? '?' : (eligible ? 1 : 0)} '
             'a4k=$srPasses '
-            'fps=${_fmtFps(efps)} srcFps=${_fmtFps(cfps)} realFps=${_fmtFps(realFps.toString())} '
-            'disp=${_fmtFps(dfps)} ovr=${_fmtFps(ovr)} edisp=${_fmtFps(edfps)} '
+            'fps=${fmtFps(efps)} srcFps=${fmtFps(cfps)} realFps=${fmtFps(realFps.toString())} '
+            'disp=${fmtFps(dfps)} ovr=${fmtFps(ovr)} edisp=${fmtFps(edfps)} '
             'shader=$shaderCount vsync=$vsync hwdec=$hw '
-            'ach=$ach aid=$aaid speed=$spd wrate=${_fmtFps(_wallClockRate.toStringAsFixed(3))} '
+            'ach=$ach aid=$aaid speed=$spd wrate=${fmtFps(_wallClockRate.toStringAsFixed(3))} '
             'rvo=$rvo gapi=$rgapi gctx=$rgctx '
             'pfc=$pfc dct=$dct';
         if (line == last) return;
@@ -1539,28 +1540,6 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         _diagBusy = false;
       }
     });
-  }
-
-  /// 拼「宽×高」文案（`×` 不是标识符字符，插值里不用加花括号）。
-  static String _wh(int w, int h) => '$w×$h';
-
-  static String _fmtFps(String v) {
-    final d = double.tryParse(v);
-    if (d == null) return v.isEmpty ? '?' : v;
-    return d.toStringAsFixed(2);
-  }
-
-  /// 解析 override-display-fps 读回值（如 "60.000000" 或 "60/1"）。
-  static double ovrFps(String v) {
-    final d = double.tryParse(v);
-    if (d != null && d > 0) return d;
-    final parts = v.split('/');
-    if (parts.length == 2) {
-      final num = int.tryParse(parts[0]);
-      final den = int.tryParse(parts[1]);
-      if (num != null && den != null && den > 0) return num / den;
-    }
-    return 0;
   }
 
   Future<void> _applyEnhance() async {
@@ -3166,7 +3145,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                     _hasNext ? () => _goRelative(1) : null),
               ],
               const Spacer(),
-              _textBtn('${_trimSpeed(_speed)}x', _showSpeedPanel,
+              _textBtn('${trimSpeed(_speed)}x', _showSpeedPanel,
                   icon: Icons.speed_rounded),
               if (!_srAndroidOff)
                 _textBtn(_srFault != null ? '未生效' : (_sr.enabled ? _sr.name : '超分'),
@@ -3193,9 +3172,6 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       ),
     );
   }
-
-  static String _trimSpeed(double s) =>
-      s == s.roundToDouble() ? s.toStringAsFixed(1) : s.toString();
 
   /// 定宽时间文本，避免秒数进位时把进度条挤得左右抖动。
   Widget _timeText(Duration d, Color color) {
@@ -3319,7 +3295,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                   '${_outFps >= 60 ? (_outFps >= 120 ? _outFps.toStringAsFixed(0) : _outFps.toStringAsFixed(1)) : _outFps.toStringAsFixed(1)} fps',
                   icon: Icons.speed_rounded),
             if (_speed != 1.0)
-              _metaChip(scheme, '${_trimSpeed(_speed)}x',
+              _metaChip(scheme, '${trimSpeed(_speed)}x',
                   icon: Icons.speed_rounded),
             if (_sr.enabled)
               _metaChip(scheme, _srFault != null ? '超分未生效' : _sr.name,
@@ -3347,7 +3323,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           Row(children: [
             Expanded(
                 child: _miniCard(scheme, Icons.speed_rounded, '倍速',
-                    '${_trimSpeed(_speed)}x', _showSpeedPanel)),
+                    '${trimSpeed(_speed)}x', _showSpeedPanel)),
             const SizedBox(width: 10),
             Expanded(
                 child: _miniCard(scheme, Icons.aspect_ratio_rounded, '画面',
@@ -3932,7 +3908,7 @@ child: Icon(Icons.auto_awesome,
                       ),
                     ),
                     child: Text(
-                      '${_trimSpeed(s)}x',
+                      '${trimSpeed(s)}x',
                       style: TextStyle(
                         color: sel ? PlayerColors.accent : Colors.white,
                         fontSize: 13,
@@ -3945,7 +3921,7 @@ child: Icon(Icons.auto_awesome,
             ),
             const SizedBox(height: 14),
             ..._speedSteps.map((s) => PanelOptionTile(
-                  title: '${_trimSpeed(s)}x',
+                  title: '${trimSpeed(s)}x',
                   subtitle: s == 1.0 ? '正常速度' : null,
                   selected: _speed == s,
                   onTap: () {
@@ -4012,7 +3988,7 @@ child: Icon(Icons.auto_awesome,
           for (final t in list)
             PanelOptionTile(
               title: t.title ?? t.language ?? '音轨 ${t.id}',
-              subtitle: _audioTrackSubtitle(t),
+              subtitle: audioTrackSubtitle(t),
               selected: current?.id == t.id ||
                   (current?.id == 'auto' && (t.isDefault ?? false)),
               onTap: () {
@@ -4023,19 +3999,6 @@ child: Icon(Icons.auto_awesome,
         ]);
       }),
     ).then((_) => _scheduleHide());
-  }
-
-  static String? _audioTrackSubtitle(AudioTrack t) {
-    final parts = <String>[];
-    if (t.language != null && t.language!.isNotEmpty) {
-      parts.add('语言 ${t.language}');
-    }
-    if (t.codec != null) parts.add(t.codec!);
-    if (t.channels != null && t.channels!.isNotEmpty) {
-      parts.add(t.channels!);
-    }
-    if (t.isDefault ?? false) parts.add('默认');
-    return parts.isEmpty ? null : parts.join(' · ');
   }
 
   void _showEpisodePanel() {
