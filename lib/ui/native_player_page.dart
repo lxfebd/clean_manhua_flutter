@@ -28,6 +28,7 @@ import '../utils/pip_channel.dart';
 import '../utils/tv_platform.dart';
 import 'episode_grouping.dart';
 import 'player_body.dart';
+import 'player_status_text.dart';
 import 'player_utils.dart';
 import 'responsive.dart';
 import 'widgets/app_toast.dart';
@@ -1223,16 +1224,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// `video-out-params` 冒充，结果永远等于源尺寸，属于谎报（也是「超分到底
   /// 生效没有」长期判不出来的原因）。改为如实展示三件事：
   /// 档位 + 源分辨率 + x2 放大链是否具备执行条件（不成立时说明原因）。
-  String _srBadgeLabel() {
-    final buf = StringBuffer('AI 超分 · ${_sr.name}');
-    if (_vw > 0 && _vh > 0) buf.write(' · $_vw×$_vh');
-    if (_srEligible == false) {
-      // 渲染输出比源还小（窗口/屏幕装不下源，正在缩小播放）：
-      // shader 的 WHEN 条件不成立，本次只有 Restore 修复链在跑。
-      buf.write(' · 缩小播放，仅修复');
-    }
-    return buf.toString();
-  }
+  String _srBadgeLabel() =>
+      srBadgeLabel(_sr.name, _vw, _vh, _srEligible);
 
   /// 超分面板底部提示。
   ///
@@ -1246,20 +1239,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 被放大到 2×源分辨率再由 VO 缩回窗口尺寸（超采样）。所以：
   /// * 全屏到 2K 屏（输出 2560×1440）播 1080p 源 → x2 链跑 → 真实 2K；
   /// * 窗口化播 1080p 源 → 输出≈源尺寸 → WHEN 不成立 → 只有修复链生效。
-  String _srHintText() {
-    final src = (_vw > 0 && _vh > 0) ? '当前片源 $_vw×$_vh' : '片源分辨率获取中';
-    if (_srEligible == false) {
-      return '$src，画面渲染尺寸比片源还小（正在缩小播放），放大链不执行，'
-          '本次只有线条修复生效。全屏播放或调大窗口即可开启 2 倍超采样。';
-    }
-    if (_vw > 0 && _vw <= 1280) {
-      return '$src，低于 720p 档位收益最明显；卡顿请降档。'
-          'x2 档（极致画质）全屏到 2K 屏会自动放大到 2560×1440（2K 超采样）。';
-    }
-    return '$src。超分会把画面放大 2 倍再缩回屏幕尺寸（超采样，锐化线条与降噪），'
-        '收益小于低分辨率片源但真实可见，开销较高，卡顿请降档。'
-        'x2 档（极致画质）全屏到 2K 屏即为 2K 超分。';
-  }
+  String _srHintText() => srHintText(_vw, _vh, _srEligible);
 
   /// 周期读取 mpv 关键属性，实测超分的实际输出并写日志。
   ///
@@ -2625,19 +2605,14 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   }
 
   /// 缓冲/加载中提示文案：已有进度数据时给百分比，否则给阶段说明。
-  String _bufferText() {
-    if (_phase == _PlayerPhase.recovering) return '播放中断，正在重连…';
-    if (_phase == _PlayerPhase.switching) return '正在解析直链…';
-    if (_ready && _buffering) {
-      final d = _dur.inMilliseconds;
-      final b = _buffer.inMilliseconds;
-      if (d > 0) {
-        final pct = (b * 100 / d).clamp(0, 100).toInt();
-        return '缓冲中 $pct%';
-      }
-    }
-    return '加载中…';
-  }
+  String _bufferText() => bufferText(
+        recovering: _phase == _PlayerPhase.recovering,
+        switching: _phase == _PlayerPhase.switching,
+        ready: _ready,
+        buffering: _buffering,
+        dur: _dur,
+        buffer: _buffer,
+      );
 
   /// 视频舞台：画面 + 亮度遮罩 + 手势 + 控制层。
   Widget _stage() {
