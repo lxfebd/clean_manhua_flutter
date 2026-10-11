@@ -409,9 +409,21 @@ class LocalStore {
     return sub;
   }
 
+  /// 文件名安全化：key 会拼进 `data/<name>.json`。历史/静态 key 全为
+  /// `[a-z0-9_]`（schema_version、bookshelf、home_snapshot_rank_dm5…），
+  /// 但动态 key 面存在——首页快照 key 含 `SourceManager.current.id`，
+  /// 而自定义源 id（DSL 导入/源市场，validate 只查非空）可能带 `/`、`\`、
+  /// `..`：直接拼路径会把文件写到 data 目录之外（桌面端可越出 app 数据
+  /// 目录；写失败被 [_writeNow] 吞、读失败被 [_read] 吞 = 全静默）。
+  /// 归一后读写走同一转换，语义一致，文件永不越出 data 目录。
+  static String _sanitizeName(String name) => name
+      .replaceAll(r'\', '_')
+      .replaceAll('/', '_')
+      .replaceAll('..', '_');
+
   static Future<File> _fileAsync(String name) async {
     final d = await _dirAsync();
-    return File('${d.path}/$name.json');
+    return File('${d.path}/${_sanitizeName(name)}.json');
   }
 
   // ---- 通用读写 ----

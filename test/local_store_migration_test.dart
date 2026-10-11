@@ -34,7 +34,6 @@ void main() {
       final v = await LocalStore.readJson('schema_version');
       expect(v, LocalStore.schemaVersion);
     });
-
     test('重复 init 幂等：版本不倒退不重复写', () async {
       await LocalStore.init();
       final f = File('${tmp.path}/data/schema_version.json');
@@ -135,6 +134,35 @@ void main() {
       expect(await LocalStore.weekReadingSeconds(), 60);
       final days = await LocalStore.recentReadingDays(3);
       expect(days.last['seconds'], 60);
+    });
+
+    test('writeJson 拒绝路径注入 key：文件必须落在 data 目录内（防越界写）', () async {
+      await LocalStore.init();
+      // 动态 key 面：home 快照 key 含 SourceManager.current.id，而自定义源 id
+      // （DSL 导入/源市场）只校验非空——`../x` 这类 id 若直接拼
+      // File('${d.path}/$name.json') 会把文件写到 data 目录之外（桌面端
+      // 可越出 app 数据目录；写失败被 _writeNow 吞、读失败被 _read 吞=静默）。
+      await LocalStore.writeJson('../escaped', {'k': 1});
+      // `..` 归一为 `_`：不得存在 data/../escaped.json（越界）、也不得
+      // 存在 tmp/escaped.json（data 父目录）——文件只在 data 内。
+      expect(File('${tmp.path}/data/../escaped.json').existsSync(), isFalse,
+          reason: '路径注入 key 不得写到 data 目录之外');
+      expect(File('${tmp.path}/escaped.json').existsSync(), isFalse,
+          reason: '不得越出 data 父目录');
+      // 归一后读写走同一映射：读回应命中 data 内文件、往返一致（非越界）。
+      expect(await LocalStore.readJson('../escaped'), {'k': 1},
+          reason: '归一后读写同一文件，往返一致');
+    });
+
+    test('writeJson 拒绝反斜杠/危险字符 key：归一为安全文件名不越界', () async {
+      await LocalStore.init();
+      await LocalStore.writeJson(r'a\b', {'k': 1});
+      // 反斜杠归一为 _（Windows 路径分隔符不得插入路径）：
+      // 文件落在 data/a_b.json，且读写走同一归一 → 往返一致。
+      expect(File('${tmp.path}/data/a_b.json').existsSync(), isTrue,
+          reason: r'a\b 应归一为 data 内的 a_b.json');
+      expect(await LocalStore.readJson(r'a\b'), {'k': 1},
+          reason: '读写走同一归一函数，往返必须命中同一文件');
     });
   });
 }
