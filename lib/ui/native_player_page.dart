@@ -2794,7 +2794,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
               child: Padding(
                 padding: EdgeInsets.only(
                     left: 14 + MediaQuery.of(context).viewPadding.left),
-                child: _roundBtn(
+                child: playerRoundBtn(
                   _locked ? Icons.lock_rounded : Icons.lock_open_rounded,
                   () {
                     setState(() => _locked = !_locked);
@@ -2904,7 +2904,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
               ]),
         ),
         child: Row(children: [
-          _barBtn(Icons.arrow_back_ios_new_rounded, () {
+          playerBarBtn(Icons.arrow_back_ios_new_rounded, () {
             if (_fullscreen) {
               _toggleFullscreen();
             } else {
@@ -2962,7 +2962,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                     fontWeight: FontWeight.w600)),
             const SizedBox(width: 6),
             // 画中画：缩小到悬浮小窗继续播放（全屏时更靠前，号角清晰）
-            _barBtn(
+            playerBarBtn(
               Icons.picture_in_picture_alt_rounded,
               _minimizeToPip,
               active: true,
@@ -2970,13 +2970,13 @@ class _NativePlayerPageState extends State<NativePlayerPage>
             const SizedBox(width: 2),
           ],
           // 弹幕开关（竖屏小窗也显示，方便快速开/关）
-          _barBtn(
+          playerBarBtn(
             _danmakuSet.on ? Icons.subtitles_rounded : Icons.subtitles_off_rounded,
             _toggleDanmaku,
             active: _danmakuSet.on,
           ),
           const SizedBox(width: 2),
-          _barBtn(Icons.more_vert_rounded, _showMorePanel),
+          playerBarBtn(Icons.more_vert_rounded, _showMorePanel),
         ]),
       ),
     );
@@ -3038,7 +3038,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         child: SizedBox(
           height: 38,
           child: Row(children: [
-            _barBtn(_playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+            playerBarBtn(_playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
                 _togglePlay),
             Text(
               '${fmtDuration(_pos)} / ${fmtDuration(_dur)}',
@@ -3072,7 +3072,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
               ),
             ),
             const SizedBox(width: 4),
-            _barBtn(Icons.fullscreen_rounded, _toggleFullscreen),
+            playerBarBtn(Icons.fullscreen_rounded, _toggleFullscreen),
           ]),
         ),
       ),
@@ -3104,7 +3104,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Row(children: [
             const SizedBox(width: 4),
-            _timeText(_pos, Colors.white),
+            playerTimeText(_pos, Colors.white, total: _dur),
             const SizedBox(width: 10),
             Expanded(
               child: PlayerProgressBar(
@@ -3128,130 +3128,47 @@ class _NativePlayerPageState extends State<NativePlayerPage>
               ),
             ),
             const SizedBox(width: 10),
-            _timeText(_dur, Colors.white60),
+            playerTimeText(_dur, Colors.white60, total: _dur),
             const SizedBox(width: 4),
           ]),
           const SizedBox(height: 4),
           SizedBox(
             height: 40,
             child: Row(children: [
-              _barBtn(
+              playerBarBtn(
                   _playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
                   _togglePlay),
               if (widget.episodes.length > 1) ...[
-                _barBtn(Icons.skip_previous_rounded,
+                playerBarBtn(Icons.skip_previous_rounded,
                     _hasPrev ? () => _goRelative(-1) : null),
-                _barBtn(Icons.skip_next_rounded,
+                playerBarBtn(Icons.skip_next_rounded,
                     _hasNext ? () => _goRelative(1) : null),
               ],
               const Spacer(),
-              _textBtn('${trimSpeed(_speed)}x', _showSpeedPanel,
+              playerTextBtn('${trimSpeed(_speed)}x', _showSpeedPanel,
                   icon: Icons.speed_rounded),
               if (!_srAndroidOff)
-                _textBtn(_srFault != null ? '未生效' : (_sr.enabled ? _sr.name : '超分'),
+                playerTextBtn(_srFault != null ? '未生效' : (_sr.enabled ? _sr.name : '超分'),
                     _showSrPanel,
                     icon: Icons.auto_awesome_rounded, active: _sr.enabled),
-              _textBtn(_fitNames[_fitIndex], _showFitPanel,
+              playerTextBtn(_fitNames[_fitIndex], _showFitPanel,
                   icon: Icons.aspect_ratio_rounded, active: _fitIndex != 0),
               // 多音轨时展示音轨切换；单音轨不占位
               if (_audioTracks.length > 2)
-                _textBtn('音轨', _showAudioTrackPanel,
+                playerTextBtn('音轨', _showAudioTrackPanel,
                     icon: Icons.music_note_rounded),
               if (widget.episodes.isNotEmpty)
-                _textBtn('选集', _showEpisodePanel,
+                playerTextBtn('选集', _showEpisodePanel,
                     icon: Icons.playlist_play_rounded),
               // 系统画中画：仅本机原生通道安装成功（Android 8+ 且系统支持）
               // 显示；不支持时不渲染入口，避免点了静默失败。非 Android 走
               // App 内小窗（_minimizeToPip），入口在左上返回位。
               if (_pipAvailable)
-                _barBtn(Icons.picture_in_picture_alt_rounded, _toggleSystemPip),
-              _barBtn(Icons.fullscreen_exit_rounded, _toggleFullscreen),
+                playerBarBtn(Icons.picture_in_picture_alt_rounded, _toggleSystemPip),
+              playerBarBtn(Icons.fullscreen_exit_rounded, _toggleFullscreen),
             ]),
           ),
         ]),
-      ),
-    );
-  }
-
-  /// 定宽时间文本，避免秒数进位时把进度条挤得左右抖动。
-  Widget _timeText(Duration d, Color color) {
-    return SizedBox(
-      width: _dur.inHours > 0 ? 56 : 40,
-      child: Text(
-        fmtDuration(d),
-        textAlign: TextAlign.center,
-        maxLines: 1,
-        style: TextStyle(
-          color: color,
-          fontSize: 11.5,
-          fontFeatures: const [FontFeature.tabularFigures()],
-        ),
-      ),
-    );
-  }
-
-  /// 紧凑图标按钮：固定 42x40 热区，图标严格居中，禁用态自动变灰。
-  Widget _barBtn(IconData icon, VoidCallback? onTap, {bool active = false}) {
-    final color = onTap == null
-        ? Colors.white24
-        : (active ? PlayerColors.sr : Colors.white);
-    return SizedBox(
-      width: 42,
-      height: 40,
-      child: Material(
-        color: Colors.transparent,
-        child: InkResponse(
-          onTap: onTap,
-          radius: 22,
-          child: Center(child: Icon(icon, size: 22, color: color)),
-        ),
-      ),
-    );
-  }
-
-  /// 图标 + 文字的组合按钮，只在全屏下使用。
-  Widget _textBtn(String text, VoidCallback onTap,
-      {bool active = false, IconData? icon}) {
-    final color = active ? PlayerColors.sr : Colors.white;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          height: 40,
-          padding: const EdgeInsets.symmetric(horizontal: 9),
-          alignment: Alignment.center,
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            if (icon != null) ...[
-              Icon(icon, size: 17, color: color),
-              const SizedBox(width: 5),
-            ],
-            Text(text,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    color: color,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600)),
-          ]),
-        ),
-      ),
-    );
-  }
-
-  Widget _roundBtn(IconData icon, VoidCallback onTap, {bool active = false}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.45),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icon,
-            size: 20, color: active ? PlayerColors.accent : Colors.white),
       ),
     );
   }
@@ -3280,37 +3197,37 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                   fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           Wrap(spacing: 6, runSpacing: 6, children: [
-            if (widget.episodes.isNotEmpty) _metaChip(scheme, _epLabel()),
+            if (widget.episodes.isNotEmpty) playerMetaChip(scheme, _epLabel()),
             // 画面实际渲染尺寸（mpv `dwidth`/`dheight`，VO 真正绘制的尺寸），
             // 每 2 秒从 mpv 采样，不硬编码推断。
             // ⚠️ 不要用 video-out-params 充当这个值：它在滤镜链就截断了，
             // Anime4K 在更后面的 VO 着色器阶段执行，拿它永远是源尺寸。
             if (_outW > 0 && _outH > 0)
-              _metaChip(scheme, '$_outW×$_outH', icon: Icons.hd_rounded),
+              playerMetaChip(scheme, '$_outW×$_outH', icon: Icons.hd_rounded),
             // 真实渲染帧率：estimated-vf-fps 是滤镜链估计的实际输出帧率
             //（插帧已移除，约等于源容器帧率）。
             if (_outFps > 0)
-              _metaChip(
+              playerMetaChip(
                   scheme,
                   '${_outFps >= 60 ? (_outFps >= 120 ? _outFps.toStringAsFixed(0) : _outFps.toStringAsFixed(1)) : _outFps.toStringAsFixed(1)} fps',
                   icon: Icons.speed_rounded),
             if (_speed != 1.0)
-              _metaChip(scheme, '${trimSpeed(_speed)}x',
+              playerMetaChip(scheme, '${trimSpeed(_speed)}x',
                   icon: Icons.speed_rounded),
             if (_sr.enabled)
-              _metaChip(scheme, _srFault != null ? '超分未生效' : _sr.name,
+              playerMetaChip(scheme, _srFault != null ? '超分未生效' : _sr.name,
                   icon: Icons.auto_awesome_rounded, highlight: true),
           ]),
           if (multi) ...[
             const SizedBox(height: 12),
             Row(children: [
               Expanded(
-                child: _stepBtn(scheme, Icons.skip_previous_rounded, '上一集',
+                child: playerStepBtn(scheme, Icons.skip_previous_rounded, '上一集',
                     _hasPrev ? () => _goRelative(-1) : null),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: _stepBtn(scheme, Icons.skip_next_rounded, '下一集',
+                child: playerStepBtn(scheme, Icons.skip_next_rounded, '下一集',
                     _hasNext ? () => _goRelative(1) : null),
               ),
             ]),
@@ -3322,16 +3239,16 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           ],
           Row(children: [
             Expanded(
-                child: _miniCard(scheme, Icons.speed_rounded, '倍速',
+                child: playerMiniCard(scheme, Icons.speed_rounded, '倍速',
                     '${trimSpeed(_speed)}x', _showSpeedPanel)),
             const SizedBox(width: 10),
             Expanded(
-                child: _miniCard(scheme, Icons.aspect_ratio_rounded, '画面',
+                child: playerMiniCard(scheme, Icons.aspect_ratio_rounded, '画面',
                     _fitNames[_fitIndex], _showFitPanel)),
             if (!_srAndroidOff) ...[
               const SizedBox(width: 10),
               Expanded(
-                  child: _miniCard(
+                  child: playerMiniCard(
                       scheme,
                       Icons.tune_rounded,
                       '画质增强',
@@ -3343,7 +3260,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           const SizedBox(height: 10),
           Row(children: [
             Expanded(
-                child: _miniCard(
+                child: playerMiniCard(
                     scheme,
                     Icons.subtitles_rounded,
                     '字幕',
@@ -3478,101 +3395,6 @@ child: Icon(Icons.auto_awesome,
           ),
           Icon(Icons.chevron_right_rounded,
               color: scheme.onSurface.withValues(alpha: 0.4)),
-        ]),
-      ),
-    );
-  }
-
-  /// 竖屏面板里的元信息小标签。
-  Widget _metaChip(ColorScheme scheme, String text,
-      {IconData? icon, bool highlight = false}) {
-    final fg = highlight
-        ? PlayerColors.sr
-        : scheme.onSurface.withValues(alpha: 0.62);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: highlight
-            ? PlayerColors.sr.withValues(alpha: 0.12)
-            : scheme.surfaceContainerHighest.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        if (icon != null) ...[
-          Icon(icon, size: 13, color: fg),
-          const SizedBox(width: 4),
-        ],
-        Text(text,
-            style: TextStyle(
-                fontSize: 11.5, fontWeight: FontWeight.w600, color: fg)),
-      ]),
-    );
-  }
-
-  /// 上一集 / 下一集按钮，禁用态自动变灰。
-  Widget _stepBtn(
-      ColorScheme scheme, IconData icon, String label, VoidCallback? onTap) {
-    final on = onTap != null;
-    final fg = on
-        ? scheme.onSurface
-        : scheme.onSurface.withValues(alpha: 0.3);
-    return Material(
-      color: scheme.surfaceContainerHighest.withValues(alpha: on ? 0.55 : 0.25),
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: SizedBox(
-          height: 40,
-          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Icon(icon, size: 18, color: fg),
-            const SizedBox(width: 6),
-            Text(label,
-                style: TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w600, color: fg)),
-          ]),
-        ),
-      ),
-    );
-  }
-
-  Widget _miniCard(ColorScheme scheme, IconData icon, String label,
-      String value, VoidCallback onTap,
-      {bool active = false}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
-          border: Border.all(
-              color: active
-                  ? PlayerColors.sr.withValues(alpha: 0.5)
-                  : Colors.transparent),
-        ),
-        child: Column(children: [
-          Icon(icon,
-              size: 19,
-              color: active
-                  ? PlayerColors.sr
-                  : scheme.onSurface.withValues(alpha: 0.7)),
-          const SizedBox(height: 6),
-          Text(label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: 11,
-                  color: scheme.onSurface.withValues(alpha: 0.55))),
-          const SizedBox(height: 2),
-          Text(value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: active ? PlayerColors.sr : scheme.onSurface)),
         ]),
       ),
     );

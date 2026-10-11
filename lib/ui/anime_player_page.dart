@@ -2286,24 +2286,24 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                   fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           Wrap(spacing: 6, runSpacing: 6, children: [
-            if (eps.isNotEmpty) _metaChip(scheme, _epLabel()),
+            if (eps.isNotEmpty) playerMetaChip(scheme, _epLabel()),
             if (_srLevel > 0)
-              _metaChip(scheme, _srName,
+              playerMetaChip(scheme, _srName,
                   icon: Icons.auto_awesome_rounded, highlight: true),
             if (_speed != 1.0)
-              _metaChip(scheme, '${trimSpeed(_speed)}x',
+              playerMetaChip(scheme, '${trimSpeed(_speed)}x',
                   icon: Icons.speed_rounded),
           ]),
           if (multi) ...[
             const SizedBox(height: 12),
             Row(children: [
               Expanded(
-                child: _stepBtn(scheme, Icons.skip_previous_rounded, '上一集',
+                child: playerStepBtn(scheme, Icons.skip_previous_rounded, '上一集',
                     _hasPrev ? () => _goToAdjacent(-1) : null),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: _stepBtn(scheme, Icons.skip_next_rounded, '下一集',
+                child: playerStepBtn(scheme, Icons.skip_next_rounded, '下一集',
                     _hasNext ? () => _goToAdjacent(1) : null),
               ),
             ]),
@@ -2312,7 +2312,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           if (eps.isNotEmpty)
             Row(children: [
               Expanded(
-                child: _stepBtn(scheme, Icons.fullscreen_rounded, '全屏播放',
+                child: playerStepBtn(scheme, Icons.fullscreen_rounded, '全屏播放',
                     _toggleFullscreen),
               ),
             ]),
@@ -2321,16 +2321,16 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           const SizedBox(height: 10),
           Row(children: [
             Expanded(
-                child: _miniCardWeb(scheme, Icons.speed_rounded, '倍速',
+                child: playerMiniCard(scheme, Icons.speed_rounded, '倍速',
                     '${trimSpeed(_speed)}x', _showSpeedPanel)),
             const SizedBox(width: 10),
             Expanded(
-                child: _miniCardWeb(scheme, Icons.auto_awesome_rounded, '画质增强(滤镜)',
+                child: playerMiniCard(scheme, Icons.auto_awesome_rounded, '画质增强(滤镜)',
                     _srName, _showSrPanel,
                     active: _srLevel > 0)),
             const SizedBox(width: 10),
             Expanded(
-                child: _miniCardWeb(scheme, Icons.tune_rounded, '快速增强',
+                child: playerMiniCard(scheme, Icons.tune_rounded, '快速增强',
                     _srLevel > 0 ? '已开启' : '已关闭', () => _cycleSr(),
                     active: _srLevel > 0)),
           ]),
@@ -2605,99 +2605,6 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     );
   }
 
-  Widget _miniCardWeb(ColorScheme scheme, IconData icon, String label,
-      String value, VoidCallback onTap,
-      {bool active = false}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
-          border: Border.all(
-              color: active
-                  ? PlayerColors.sr.withValues(alpha: 0.5)
-                  : Colors.transparent),
-        ),
-        child: Column(children: [
-          Icon(icon,
-              size: 19,
-              color: active
-                  ? PlayerColors.sr
-                  : scheme.onSurface.withValues(alpha: 0.7)),
-          const SizedBox(height: 6),
-          Text(label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: 11,
-                  color: scheme.onSurface.withValues(alpha: 0.55))),
-          const SizedBox(height: 2),
-          Text(value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: active ? PlayerColors.sr : scheme.onSurface)),
-        ]),
-      ),
-    );
-  }
-
-  Widget _stepBtn(ColorScheme scheme, IconData icon, String label,
-      VoidCallback? onTap) {
-    final on = onTap != null;
-    final fg = on ? scheme.onSurface : scheme.onSurface.withValues(alpha: 0.3);
-    return Material(
-      color: scheme.surfaceContainerHighest.withValues(alpha: on ? 0.55 : 0.25),
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: SizedBox(
-          height: 40,
-          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Icon(icon, size: 18, color: fg),
-            const SizedBox(width: 6),
-            Text(label,
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: fg)),
-          ]),
-        ),
-      ),
-    );
-  }
-
-  Widget _metaChip(ColorScheme scheme, String text,
-      {IconData? icon, bool highlight = false}) {
-    final fg = highlight
-        ? PlayerColors.sr
-        : scheme.onSurface.withValues(alpha: 0.62);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: highlight
-            ? PlayerColors.sr.withValues(alpha: 0.12)
-            : scheme.surfaceContainerHighest.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        if (icon != null) ...[
-          Icon(icon, size: 13, color: fg),
-          const SizedBox(width: 4),
-        ],
-        Text(text,
-            style: TextStyle(
-                fontSize: 11.5, fontWeight: FontWeight.w600, color: fg)),
-      ]),
-    );
-  }
-
   // ══ 全屏控制浮层（与原生播放器控制条风格一致） ══════════════
   Widget _fullscreenOverlay() {
     final pad = MediaQuery.of(context).viewPadding;
@@ -2751,7 +2658,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
             ),
           ),
           child: Row(children: [
-            _barBtn(Icons.arrow_back_ios_new_rounded, _exitFullscreen),
+            playerBarBtn(Icons.arrow_back_ios_new_rounded, _exitFullscreen),
             const SizedBox(width: 4),
             Expanded(
               child: Text(widget.title,
@@ -2762,8 +2669,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                       fontWeight: FontWeight.w700,
                       color: Colors.white)),
             ),
-            _barBtn(_muted ? Icons.volume_off : Icons.volume_up, _toggleMute),
-            _barBtn(
+            playerBarBtn(_muted ? Icons.volume_off : Icons.volume_up, _toggleMute),
+            playerBarBtn(
                 _srLevel > 0
                     ? Icons.auto_awesome_rounded
                     : Icons.auto_awesome_outlined,
@@ -2791,11 +2698,11 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           child: SizedBox(
             height: 40,
             child: Row(children: [
-              _barBtn(_fsPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+              playerBarBtn(_fsPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
                   _fsTogglePlay),
-              _barBtn(Icons.skip_previous_rounded,
+              playerBarBtn(Icons.skip_previous_rounded,
                   _hasPrev ? () => _goToAdjacent(-1) : null),
-              _barBtn(Icons.skip_next_rounded,
+              playerBarBtn(Icons.skip_next_rounded,
                   _hasNext ? () => _goToAdjacent(1) : null),
               const SizedBox(width: 8),
               Text(_formatDuration(_fsPos),
@@ -2838,13 +2745,13 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                   style: const TextStyle(
                       color: Colors.white70, fontSize: 11.5)),
               const Spacer(),
-              _textBtn('${trimSpeed(_speed)}x', _showSpeedPanel,
+              playerTextBtn('${trimSpeed(_speed)}x', _showSpeedPanel,
                   icon: Icons.speed_rounded),
-              _textBtn('画质增强', _showSrPanel,
+              playerTextBtn('画质增强', _showSrPanel,
                   icon: Icons.auto_awesome_rounded, active: _srLevel > 0),
-              _textBtn('选集', _showEpisodePanel,
+              playerTextBtn('选集', _showEpisodePanel,
                   icon: Icons.playlist_play_rounded),
-              _barBtn(Icons.fullscreen_exit_rounded, _exitFullscreen),
+              playerBarBtn(Icons.fullscreen_exit_rounded, _exitFullscreen),
             ]),
           ),
         ),
@@ -2899,54 +2806,6 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       return '$hh:$mm:${r.toString().padLeft(2, '0')}';
     }
     return '$mm:${r.toString().padLeft(2, '0')}';
-  }
-
-  Widget _barBtn(IconData icon, VoidCallback? onTap, {bool active = false}) {
-    final color = onTap == null
-        ? Colors.white24
-        : (active ? PlayerColors.sr : Colors.white);
-    return SizedBox(
-      width: 42,
-      height: 40,
-      child: Material(
-        color: Colors.transparent,
-        child: InkResponse(
-          onTap: onTap,
-          radius: 22,
-          child: Center(child: Icon(icon, size: 22, color: color)),
-        ),
-      ),
-    );
-  }
-
-  Widget _textBtn(String text, VoidCallback onTap,
-      {bool active = false, IconData? icon}) {
-    final color = active ? PlayerColors.sr : Colors.white;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          height: 40,
-          padding: const EdgeInsets.symmetric(horizontal: 9),
-          alignment: Alignment.center,
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            if (icon != null) ...[
-              Icon(icon, size: 17, color: color),
-              const SizedBox(width: 5),
-            ],
-            Text(text,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    color: color,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600)),
-          ]),
-        ),
-      ),
-    );
   }
 
   // ══ 面板 ══════════════════════════════════════════════════

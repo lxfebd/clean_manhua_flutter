@@ -559,3 +559,189 @@ class PanelOptionTile extends StatelessWidget {
     );
   }
 }
+
+/// ── 播放器控制按钮/标签纯构造 helper（god-class 拆分产物） ──────
+/// 原为 native_player_page / anime_player_page 各自私有的同名方法（逐字节
+/// 相同），抽公共后两页共用，消除重复。
+
+/// 定宽时间文本，避免秒数进位时把进度条挤得左右抖动。
+Widget playerTimeText(Duration d, Color color, {required Duration total}) {
+  return SizedBox(
+    width: total.inHours > 0 ? 56 : 40,
+    child: Text(
+      fmtDuration(d),
+      textAlign: TextAlign.center,
+      maxLines: 1,
+      style: TextStyle(
+          color: color,
+          fontSize: 12.5,
+          fontWeight: FontWeight.w600,
+          fontFeatures: const [FontFeature.tabularFigures()]),
+    ),
+  );
+}
+
+/// 紧凑图标按钮：固定 42x40 热区，图标严格居中，禁用态自动变灰。
+Widget playerBarBtn(IconData icon, VoidCallback? onTap,
+    {bool active = false}) {
+  final color = onTap == null
+      ? Colors.white24
+      : (active ? PlayerColors.sr : Colors.white);
+  return SizedBox(
+    width: 42,
+    height: 40,
+    child: Material(
+      color: Colors.transparent,
+      child: InkResponse(
+        onTap: onTap,
+        radius: 22,
+        child: Center(child: Icon(icon, size: 22, color: color)),
+      ),
+    ),
+  );
+}
+
+/// 图标 + 文字的组合按钮，只在全屏下使用。
+Widget playerTextBtn(String text, VoidCallback onTap,
+    {bool active = false, IconData? icon}) {
+  final color = active ? PlayerColors.sr : Colors.white;
+  return Material(
+    color: Colors.transparent,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 9),
+        alignment: Alignment.center,
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          if (icon != null) ...[
+            Icon(icon, size: 17, color: color),
+            const SizedBox(width: 5),
+          ],
+          Text(text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  color: color,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600)),
+        ]),
+      ),
+    ),
+  );
+}
+
+/// 圆形图标按钮：40x40，半透明黑底，激活态用强调色。
+Widget playerRoundBtn(IconData icon, VoidCallback onTap,
+    {bool active = false}) {
+  return GestureDetector(
+    onTap: onTap,
+    child: Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.45),
+        shape: BoxShape.circle,
+      ),
+      child: Icon(icon,
+          size: 20, color: active ? PlayerColors.accent : Colors.white),
+    ),
+  );
+}
+
+/// 竖屏面板里的元信息小标签。
+Widget playerMetaChip(ColorScheme scheme, String text,
+    {IconData? icon, bool highlight = false}) {
+  final fg = highlight
+      ? PlayerColors.sr
+      : scheme.onSurface.withValues(alpha: 0.62);
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: highlight
+          ? PlayerColors.sr.withValues(alpha: 0.12)
+          : scheme.surfaceContainerHighest.withValues(alpha: 0.6),
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      if (icon != null) ...[
+        Icon(icon, size: 13, color: fg),
+        const SizedBox(width: 4),
+      ],
+      Text(text,
+          style: TextStyle(
+              fontSize: 11.5, fontWeight: FontWeight.w600, color: fg)),
+    ]),
+  );
+}
+
+/// 上一集 / 下一集按钮，禁用态自动变灰。
+Widget playerStepBtn(ColorScheme scheme, IconData icon, String label,
+    VoidCallback? onTap) {
+  final on = onTap != null;
+  final fg = on
+      ? scheme.onSurface
+      : scheme.onSurface.withValues(alpha: 0.3);
+  return Material(
+    color: scheme.surfaceContainerHighest.withValues(alpha: on ? 0.55 : 0.25),
+    borderRadius: BorderRadius.circular(10),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: SizedBox(
+        height: 40,
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(icon, size: 18, color: fg),
+          const SizedBox(width: 6),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 13, fontWeight: FontWeight.w600, color: fg)),
+        ]),
+      ),
+    ),
+  );
+}
+
+/// 竖屏面板里的迷你功能卡片（图标 + 标签 + 值）。
+Widget playerMiniCard(ColorScheme scheme, IconData icon, String label,
+    String value, VoidCallback onTap,
+    {bool active = false}) {
+  return InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(12),
+    child: Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
+        border: Border.all(
+            color: active
+                ? PlayerColors.sr.withValues(alpha: 0.5)
+                : Colors.transparent),
+      ),
+      child: Column(children: [
+        Icon(icon,
+            size: 19,
+            color: active
+                ? PlayerColors.sr
+                : scheme.onSurface.withValues(alpha: 0.7)),
+        const SizedBox(height: 6),
+        Text(label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+                fontSize: 11,
+                color: scheme.onSurface.withValues(alpha: 0.55))),
+        const SizedBox(height: 2),
+        Text(value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: active ? PlayerColors.sr : scheme.onSurface)),
+      ]),
+    ),
+  );
+}
