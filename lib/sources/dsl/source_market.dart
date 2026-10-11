@@ -1,5 +1,8 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+
+import '../../net/error_logger.dart';
 import '../../net/http_client.dart';
 import '../../net/local_store.dart';
 import 'custom_source_def.dart';
@@ -87,23 +90,40 @@ class SourceMarket {
     }
   }
 
+  /// 解析索引 JSON（纯函数，可单测）。
+  /// sources 段为坏条目（字段缺/类型错/校验失败）时跳过并记日志，
+  /// 不阻塞整个市场——与 [MarketSourceEntry.installed] 的按条比对一致。
+  @visibleForTesting
+  static List<MarketSourceEntry> parseIndex(String text) => _parse(text);
+
   static List<MarketSourceEntry> _parse(String text) {
     final decoded = jsonDecode(text);
     if (decoded is! Map) throw FormatException('索引格式错误');
     final list = decoded['sources'];
     if (list is! List) throw FormatException('索引缺少 sources 数组');
     final out = <MarketSourceEntry>[];
+    final provider = (decoded['name'] as String?) ?? '源市场';
     for (final item in list) {
       if (item is! Map) continue;
-      final m = Map<String, dynamic>.from(item);
-      final def = CustomSourceDef.fromJson(m);
-      // 跳过校验失败的条目（坏源不阻塞整个市场）
-      if (def.validate().isNotEmpty) continue;
-      out.add(MarketSourceEntry(
-        const JsonEncoder().convert(m),
-        def,
-        (decoded['name'] as String?) ?? '源市场',
-      ));
+      try {
+        final m = Map<String, dynamic>.from(item);
+        final def = CustomSourceDef.fromJson(m);
+        final errs = def.validate();
+        if (errs.isNotEmpty) {
+          ErrorLogger.instance.warn('源市场跳过 ${def.id}：$errs');
+          continue;
+        }
+        out.add(MarketSourceEntry(
+          const JsonEncoder().convert(m),
+          def,
+          provider,
+        ));
+      } catch (e) {
+        // fromJson 对字段做严格类型断言（id/name/baseUrl…）：远端条目任一
+        // 字段类型错（如 "id": 123）会抛 TypeError，单条隔离，不让坏源
+        // 把整个市场崩掉（旧实现这里没有 try，TypeError 会逃出 fetchIndex）。
+        ErrorLogger.instance.warn('源市场解析条目失败，跳过：$e');
+      }
     }
     return out;
   }
