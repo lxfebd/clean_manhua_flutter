@@ -798,6 +798,9 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
     try {
       final registered = SourcePluginManager.instance.byId(def.id) != null;
       await SourcePluginManager.instance.setEnabled(def.id, enabled);
+      // 与内置源 _toggleEnabled 对齐：停用后立即刷新当前源，避免
+      // SourceManager.current 仍停用源（首页读的是 current）。
+      await SourceManager.ensureEnabledCurrent();
       await _load();
       if (!mounted) return;
       if (!registered) {
