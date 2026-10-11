@@ -184,7 +184,10 @@ class ShelfStore<T> {
   }
 
   /// 导出原始数据（用于备份）。
-  Map<String, dynamic> exportData() => Map.from(_cache);
+  Map<String, dynamic> exportData() {
+    _ensureLoaded();
+    return Map.from(_cache);
+  }
 
   /// 覆盖导入（用于恢复备份）。
   void importData(Map<String, dynamic> data) {
@@ -194,11 +197,14 @@ class ShelfStore<T> {
   }
 
   /// 上次检查更新时记录的章节数（-1 = 尚未检查过，不报更新）。
-  int lastSeenChapters(String sourceId, String id) =>
-      ((_cache[_key(sourceId, id)]?['lastChapters'] as num?) ?? -1).toInt();
+  int lastSeenChapters(String sourceId, String id) {
+    _ensureLoaded();
+    return ((_cache[_key(sourceId, id)]?['lastChapters'] as num?) ?? -1).toInt();
+  }
 
   /// 写入上次检查到的章节数。
   void setLastSeenChapters(String sourceId, String id, int count) {
+    _ensureLoaded();
     final m = _cache[_key(sourceId, id)];
     if (m == null) return;
     m['lastChapters'] = count;
@@ -207,6 +213,7 @@ class ShelfStore<T> {
 
   /// 是否有更新：当前章节数 > 上次记录。
   bool hasUpdate(String sourceId, String id, int currentChapters) {
+    _ensureLoaded();
     final last = lastSeenChapters(sourceId, id);
     if (last < 0) return false;
     return currentChapters > last;
@@ -214,6 +221,7 @@ class ShelfStore<T> {
 
   /// 新增章节数（current - last）。
   int newChapterCount(String sourceId, String id, int currentChapters) {
+    _ensureLoaded();
     final last = lastSeenChapters(sourceId, id);
     if (last < 0) return 0;
     final diff = currentChapters - last;
@@ -224,7 +232,9 @@ class ShelfStore<T> {
   ///
   /// 直接按条目 id+sourceId 查字段，不扫描全表（原 _readAddedAt 在排序
   /// 比较器里 O(n) 扫描 = O(n² log n)，这里 O(1)）。
-  int addedAtOf(T entry) =>
-      (((_cache[_key(sourceIdOf(entry), idOf(entry))]?['addedAt'] as num?) ?? 0)
-          .toInt());
+  int addedAtOf(T entry) {
+    _ensureLoaded();
+    return (((_cache[_key(sourceIdOf(entry), idOf(entry))]?['addedAt'] as num?) ?? 0)
+        .toInt());
+  }
 }
