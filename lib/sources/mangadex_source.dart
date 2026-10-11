@@ -87,6 +87,19 @@ class MangaDexSource extends ComicSource {
     final desc = _pickLocalized(attrs['description']) ?? '';
     item.content = desc;
 
+    // 详情页元信息：标签（relationships type=tag 的名称）、状态、年份、评分。
+    final tags = <String>[
+      for (final r in rels)
+        if (r is Map &&
+            r['type'] == 'tag' &&
+            r['attributes'] is Map)
+          ..._tagNames(r['attributes'] as Map),
+    ];
+    final status = _statusLabel(attrs['status']);
+    final year = (attrs['year'] as num?)?.toString();
+    // MangaDex 无点击数，评分（bayesian rating）放 score 供详情展示。
+    item.score = (attrs['rating'] as num?)?.toString();
+
     final api2 = await _apiHost();
     // MangaDex feed 每页最多 500 条，超长章节列表按 offset 续拉全量，
     // 避免 >500 章的作品章节被硬截断。
@@ -116,7 +129,12 @@ class MangaDexSource extends ComicSource {
       if (chData.length < pageSize) break;
       offset += pageSize;
     }
-    return ComicDetail(item, chapters);
+    return ComicDetail(item, chapters,
+        tags: tags,
+        status: status,
+        year: year,
+        updatedAt: _lastUpdatedLabel(attrs['lastUpdatedAt']),
+        area: _countryLabel(attrs['publicationDemographic']));
   }
 
   @override
@@ -215,5 +233,52 @@ class MangaDexSource extends ComicSource {
       }
     }
     return null;
+  }
+
+  /// 标签条目的本地化名称（tags 数组每条 {type:'tag', attributes:{name:{...}}}）。
+  List<String> _tagNames(Map attrs) {
+    final name = attrs['name'];
+    final n = _pickLocalized(name);
+    return n == null ? const [] : [n];
+  }
+
+  /// MangaDex 状态枚举 → 中文展示（ongoing=连载中 / completed=已完结等）。
+  String? _statusLabel(dynamic status) {
+    if (status is! String || status.isEmpty) return null;
+    switch (status) {
+      case 'ongoing':
+        return '连载中';
+      case 'completed':
+        return '已完结';
+      case 'hiatus':
+        return '休载中';
+      case 'cancelled':
+        return '已取消';
+      default:
+        return status;
+    }
+  }
+
+  /// publicationDemographic 枚举 → 中文展示（shounen=少年 / shoujo=少女等）。
+  String? _countryLabel(dynamic demo) {
+    if (demo is! String || demo.isEmpty) return null;
+    switch (demo) {
+      case 'shounen':
+        return '少年';
+      case 'shoujo':
+        return '少女';
+      case 'seinen':
+        return '青年';
+      case 'josei':
+        return '女性';
+      default:
+        return demo;
+    }
+  }
+
+  /// lastUpdatedAt ISO 时间戳 → 展示用日期（取前 10 位 YYYY-MM-DD）。
+  String? _lastUpdatedLabel(dynamic ts) {
+    if (ts is! String || ts.length < 10) return null;
+    return ts.substring(0, 10);
   }
 }
