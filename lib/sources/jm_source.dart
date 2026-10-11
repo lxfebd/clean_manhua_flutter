@@ -153,7 +153,21 @@ class JmSource extends ComicSource {
       chapters,
       author: author,
       description: _str(album['description']),
+      // 禁漫 album 的 type 即中文类别（如「纯爱」「后宫」），tags 为分类标签。
+      type: _str(album['type']),
+      tags: _strList(album['tags']),
+      hits: _str(album['reading']),
     );
+  }
+
+  /// JSON 字段可能是字符串（逗号分隔）或数组，统一转字符串列表。
+  List<String> _strList(dynamic v) {
+    if (v is List) {
+      return v.map((e) => _str(e) ?? '').where((s) => s.isNotEmpty).toList();
+    }
+    final s = _str(v);
+    if (s == null || s.isEmpty) return const [];
+    return s.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
   }
 
   @override
