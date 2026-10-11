@@ -1,11 +1,11 @@
 {
-    "name": "xingmanxia",
-    "short_name": "xingmanxia",
+    "name": "星漫匣",
+    "short_name": "星漫匣",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#FAFAFA",
+    "theme_color": "#18181B",
+    "description": "星漫匣 - 多源漫画/小说/影视聚合阅读与播放",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

@@ -4,5 +4,8 @@
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
+	<!-- 沙盒默认拒绝出站连接；本应用全部内容源/更新检查走网络，必须显式授权 -->
+	<key>com.apple.security.network.client</key>
+	<true/>
 </dict>
 </plist>
