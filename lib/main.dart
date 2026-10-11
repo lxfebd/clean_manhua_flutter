@@ -81,19 +81,27 @@ double? _toDoubleOrNull(Object? raw) {
 }
 
 /// 监听窗口尺寸/位置变化，落盘以便下次启动恢复。
+///
+/// 拖拽/连续 resize 时 onWindowResized/onWindowMoved 高频触发（每帧多次），
+/// 每次都 await setWindowGeometry 会高频读改写 settings JSON（含 enqueue
+/// 队列尾部追加）。300ms 防抖合并：窗口静置后才写一次，拖拽过程零落盘。
 class _DesktopWindowListener extends WindowListener {
-  @override
-  void onWindowResized() async {
-    final size = await windowManager.getSize();
-    final pos = await windowManager.getPosition();
-    await LocalStore.setWindowGeometry(
-        w: size.width, h: size.height, x: pos.dx, y: pos.dy);
-  }
+  Timer? _debounce;
 
   @override
-  void onWindowMoved() async {
-    final pos = await windowManager.getPosition();
-    await LocalStore.setWindowGeometry(x: pos.dx, y: pos.dy);
+  void onWindowResized() => _schedule();
+
+  @override
+  void onWindowMoved() => _schedule();
+
+  void _schedule() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () async {
+      final size = await windowManager.getSize();
+      final pos = await windowManager.getPosition();
+      await LocalStore.setWindowGeometry(
+          w: size.width, h: size.height, x: pos.dx, y: pos.dy);
+    });
   }
 }
 
