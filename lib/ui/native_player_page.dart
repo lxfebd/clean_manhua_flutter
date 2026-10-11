@@ -2187,19 +2187,18 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       return;
     }
     // 竖屏小窗只有两百来像素高，若按窗口高度换算会灵敏到没法微调，
-    // 所以统一以屏幕高度为标尺。
+    // 所以统一以屏幕高度为标尺（见 verticalGestureDelta）。
     final refH =
-        (_fullscreen ? size.height : MediaQuery.of(context).size.height) * 0.7;
-    final delta = -d.primaryDelta! / refH;
-    final v = (_gestureStartValue + delta * 1.0);
+        (_fullscreen ? size.height : MediaQuery.of(context).size.height);
+    final delta = verticalGestureDelta(d.primaryDelta!, refH);
     if (_gesture == _Gesture.brightness) {
       final lo = _brightnessNative ? _minBrightness : _minMaskBrightness;
-      final nv = v.clamp(lo, 1.0);
+      final nv = verticalGestureValue(_gestureStartValue, delta, lo);
       setState(() => _brightness = nv);
       _gestureStartValue = nv;
       _applyBrightness(nv);
     } else {
-      final nv = v.clamp(0.0, 1.0);
+      final nv = verticalGestureValue(_gestureStartValue, delta, 0.0);
       setState(() => _volume = nv);
       _gestureStartValue = nv;
       _applyVolume(nv);

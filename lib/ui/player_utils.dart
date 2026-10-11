@@ -82,3 +82,17 @@ Duration horizontalSeekTarget({
   if (t > dur) t = dur;
   return t;
 }
+
+/// 竖滑归一化位移：以屏幕高度 *0.7 为标尺（竖屏小窗只有两百来像素高，
+/// 按窗口高度换算会灵敏到没法微调），上滑（负 primaryDelta）为正值增量。
+double verticalGestureDelta(double primaryDelta, double screenHeight) {
+  final refH = screenHeight * 0.7;
+  return -primaryDelta / refH;
+}
+
+/// 竖滑目标值：起始值 + 增量后 clamp 到 [lo, 1.0]（亮度下限随模式不同：
+/// 系统亮度 _minBrightness=0，遮罩兜底 _minMaskBrightness=0.12；音量下限 0）。
+double verticalGestureValue(double start, double delta, double lo) {
+  final v = start + delta;
+  return v.clamp(lo, 1.0);
+}
