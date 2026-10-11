@@ -22,7 +22,7 @@
 flutter pub get
 flutter build apk --release     # Android 产物：app-release.apk（仅 arm64-v8a，约 20MB）
 flutter build apk --debug       # 全 ABI（含 x86_64，模拟器可跑）
-flutter build windows --release # Windows 桌面端产物：build/windows/x64/runner/Release（含 xingmanxia.exe）
+flutter build windows --release # Windows 桌面端产物：build/windows/x64/runner/Release（含 yingmanhe_clean.exe，历史命名）
 flutter build web --release     # Web 端（alpha）：静态产物 build/web（PlatformHttp/WebPersist 自动适配）
 # 或 flutter run 直连设备/模拟器
 ```
@@ -270,7 +270,7 @@ flutter build web --release     # Web 端（alpha）：静态产物 build/web（
 - **网络自愈**：候选 IP 轮询 + DNS 回退 + 短超时 + 每 host 熔断；单源代理 + 失败自动回退直连；每域名令牌桶限流（3req/s）+ 并发上限，避免对源站施压
 - **多类型聚合**：`MainShell` 底部 4 Tab（首页/书架/工具/我的），首页内 漫画/动漫/小说 三态切换
 - **阅读/播放体验**：小说 TTS 朗读 / TXT·EPUB 导入 / 色温护眼 / 本章摘要；漫画自动裁边 / 双页 / 条漫 / 局部放大 / AI 上色（桌面）；播放器倍速 0.25x–4x / 画中画 / 音轨切换
-- **桌面端**：全键盘快捷键 + 窗口状态记忆 + 真全屏；**Windows 检查更新会自动选择 `-windows` zip 附件，不再误下手机 APK**
+- **桌面端**：全键盘快捷键 + 窗口状态记忆 + 真全屏；**Windows 检查更新优先选择 `-setup.exe` 安装包（静默覆盖升级），旧 release 无 exe 时回退 `-windows` zip**
 
 ---
 
