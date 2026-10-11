@@ -849,9 +849,9 @@ class LocalStore {
     });
   }
 
-  /// 读取某天的阅读秒数。
+  /// 读取某天的阅读秒数（恢复导入可能带 double，按 num 收敛）。
   static Future<int> readingSecondsOfDay(String dayKey) async =>
-      ((await _read('reading_stats')) as Map?)?[dayKey] as int? ?? 0;
+      (((await _read('reading_stats')) as Map?)?[dayKey] as num?)?.toInt() ?? 0;
 
   /// 今日阅读秒数。
   static Future<int> todayReadingSeconds() => readingSecondsOfDay(_todayKey());
@@ -862,7 +862,7 @@ class LocalStore {
     var sum = 0;
     for (var i = 0; i < 7; i++) {
       final d = DateTime.now().subtract(Duration(days: i));
-      sum += (m[_dayKeyOf(d)] as int?) ?? 0;
+      sum += (m[_dayKeyOf(d)] as num?)?.toInt() ?? 0;
     }
     return sum;
   }
@@ -884,7 +884,7 @@ class LocalStore {
     for (var i = n - 1; i >= 0; i--) {
       final d = DateTime.now().subtract(Duration(days: i));
       final key = _dayKeyOf(d);
-      out.add({'day': key, 'seconds': (m[key] as int?) ?? 0});
+      out.add({'day': key, 'seconds': (m[key] as num?)?.toInt() ?? 0});
     }
     return out;
   }

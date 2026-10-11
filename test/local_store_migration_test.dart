@@ -112,5 +112,29 @@ void main() {
       expect(raw, {'x/y/1-1': 30, 'z/w/2-1': 12},
           reason: '新格式备份恢复不得丢数据（normalize 返 null 不能当"跳过"）');
     });
+
+    test('restoreBackup 导入 double 秒数：统计读取按 num 容错不抛 TypeError', () async {
+      // 备份恢复是外部 JSON 摄入口：手改/第三方工具可能产生 3600.5 这类
+      // double；同节其余统计读（total/month/year）都用 as num 容错，这 3 处
+      // 严格 as int 会让 profileProvider 整组失败 → 我的页整页错误。
+      await LocalStore.init();
+      final now = DateTime.now();
+      final todayKey =
+          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      await LocalStore.restoreBackup({
+        'reading_stats': {'2000-01-01': 3600.5, todayKey: 60.5},
+        'video_progress': null,
+        'video_records': null,
+        'history': null,
+        'favorites': null,
+        'bookmarks': null,
+        'downloads': null,
+      });
+      expect(await LocalStore.readingSecondsOfDay('2000-01-01'), 3600,
+          reason: 'double 应按 num 收敛为 int，不得抛 TypeError');
+      expect(await LocalStore.weekReadingSeconds(), 60);
+      final days = await LocalStore.recentReadingDays(3);
+      expect(days.last['seconds'], 60);
+    });
   });
 }
