@@ -36,34 +36,6 @@ class BookshelfData {
     required this.bookmarks,
     this.totalError,
   });
-
-  /// 值相等：让 FutureProvider 对「无实质变化」的重读短路（Riverpod 相等
-  /// 短路后 listenManual 不再回调、页面不整组重灌）。
-  ///
-  /// 背景：书架本地读虽快，但每次重读都产生新实例 → 页面 _applyData 整组
-  /// 重建列表，用户滚动会被抖。值相等后仅当任意一组**实际内容变化**才回调
-  /// 页面。其余列表按 identity（内部成员本就不变，仅重读产生新容器）；
-  /// folders 等 Map/对象无稳定 identity，用 toString 兜底近似。
-  @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) return true;
-    if (other is! BookshelfData) return false;
-    if (!identical(items, other.items) ||
-        !identical(recent, other.recent) ||
-        !identical(videos, other.videos) ||
-        !identical(mangaDownloads, other.mangaDownloads) ||
-        !identical(bookmarks, other.bookmarks) ||
-        totalError != other.totalError) {
-      return false;
-    }
-    // 分类列表：无稳定 identity，用 toString 近似（内容变化通常文本也变）。
-    return folders.toString() == other.folders.toString();
-  }
-
-  @override
-  int get hashCode => Object.hash(
-      items, recent, videos, mangaDownloads, bookmarks,
-      folders.toString(), totalError);
 }
 
 /// 单组读取结果：成功返回 [data]；失败返回空列表 + [error]。

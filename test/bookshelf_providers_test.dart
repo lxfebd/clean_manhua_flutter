@@ -219,31 +219,6 @@ void main() {
       expect(latest.single.segmentsDone, 5,
           reason: '进度变化后任务列表应反映最新进度');
     });
-
-    test('BookshelfData 值相等：无实质变化重读 → 相等；内容变化 → 不相等', () {
-      final base = BookshelfData(
-        items: const [], recent: const [], videos: const [],
-        mangaDownloads: const [],
-        folders: const [], bookmarks: const [],
-      );
-      // 同一内容重新构造（列表/容器新实例）→ 相等（短路重灌）。
-      final same = BookshelfData(
-        items: const [], recent: const [], videos: const [],
-        mangaDownloads: const [],
-        folders: const [], bookmarks: const [],
-      );
-      expect(same, equals(base), reason: '无实质变化的重读应相等短路');
-      // 内容变化（folders 增一个）→ 不相等。
-      final withFolder = BookshelfData(
-        items: const [], recent: const [], videos: const [],
-        mangaDownloads: const [],
-        folders: const [{'id': 'x', 'name': '新分类'}],
-        bookmarks: const [],
-      );
-      expect(withFolder, isNot(equals(base)), reason: '内容变化必须触发重灌');
-      // hashCode 契约：相等对象 hashCode 必相等。
-      expect(same.hashCode, base.hashCode);
-    });
   });
 
   group('mangaDownloadsProvider', () {
