@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../net/backup_cipher.dart';
+import '../net/backup_restore.dart';
 import '../net/bookshelf_store.dart';
 import '../net/error_logger.dart';
 import '../net/http_client.dart';
@@ -998,14 +999,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             ),
       );
       if (confirmed != true) return; // 取消导入
-      // 恢复书架
-      if (data['bookshelf'] is Map) {
-        BookshelfStore.importData(data['bookshelf'] as Map<String, dynamic>);
-      }
-      if (data['novel_shelf'] is Map) {
-        NovelShelfStore.importData(data['novel_shelf'] as Map<String, dynamic>);
-      }
-      final count = await LocalStore.restoreBackup(data);
+      // 书架还原 + 全量恢复 + 常驻缓存失效，与 WebDAV 恢复共用单一流程。
+      final count = await BackupRestore.apply(data);
       if (mounted) {
         AppToast.info(
           context,
