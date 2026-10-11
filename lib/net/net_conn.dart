@@ -285,23 +285,37 @@ class NetConn {
   /// 停止消费（不拉满内存）；[t] 为**整体读取超时**（与旧
   /// `stream.toBytes().timeout(t)` 语义一致——不用 `stream.timeout`：
   /// Stream 级间隙超时在 FakeAsync 测试环境里不触发，会让请求悬挂、
-  /// 骨架屏动画永动导致 pumpAndSettle 超时）。供 platform_http_io/web
+  /// 骨架屏动画永动导致 pumpAndSettle 超时）。任何出口（完成/超限/超时/
+  /// 上游错误）都会**取消上游订阅**：若超时只放弃 Future 结果而订阅还活着
+  /// （悬挂/慢速响应），幽灵订阅会继续把后续数据读进内存直至响应体结束
+  /// ——正是 socket 泄漏测试防的那类。供 platform_http_io/web
   /// 复用的同一份实现，保证三条线上路径的上限语义一致。
   static Future<List<int>> readLimited(
       Stream<List<int>> stream, int limit, Duration t) {
-    Future<List<int>> read() async {
-      final chunks = <int>[];
-      var total = 0;
-      await for (final chunk in stream) {
+    final chunks = <int>[];
+    var total = 0;
+    final done = Completer<List<int>>();
+    late final StreamSubscription<List<int>> sub;
+    sub = stream.listen(
+      (chunk) {
         total += chunk.length;
         if (total > limit) {
-          throw ResponseTooLargeException(limit);
+          // 超限即终止：先取消订阅再报错，后续块不再消费。
+          sub.cancel();
+          if (!done.isCompleted) {
+            done.completeError(ResponseTooLargeException(limit));
+          }
+          return;
         }
-        chunks.addAll(chunk);
-      }
-      return chunks;
-    }
-
-    return read().timeout(t);
+        chunks.addAll(chunk); // 收齐所有块后由 onDone 完成
+      },
+      onError: (Object e) {
+        if (!done.isCompleted) done.completeError(e);
+      },
+      onDone: () {
+        if (!done.isCompleted) done.complete(chunks);
+      },
+    );
+    return done.future.timeout(t).whenComplete(sub.cancel);
   }
 }

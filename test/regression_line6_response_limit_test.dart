@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -48,6 +49,29 @@ void main() {
     test('默认上限常量：文本 8MB 对齐 parseHtml，下载 256MB 容下权重', () {
       expect(Net.maxTextBytes, 8 * 1024 * 1024);
       expect(Net.maxDownloadBytes, 256 * 1024 * 1024);
+    });
+  });
+
+  group('readLimited 超时：取消上游订阅（防幽灵消费）', () {
+    test('超时抛 TimeoutException 后，不再消费上游后续数据', () async {
+      // 慢速/悬挂响应场景：读取超时抛错后上游流还活着。readLimited 内部若
+      // 不取消订阅（旧实现 Future.timeout 只放弃结果、管不住 await-for），
+      // 幽灵订阅会继续把后续数据读进内存——正是 socket 泄漏测试防的那类。
+      final ctrl = StreamController<List<int>>();
+      var consumed = 0;
+      final src = ctrl.stream.map((c) {
+        consumed += c.length;
+        return c;
+      });
+      final fut = Net.readLimited(src, 100, const Duration(milliseconds: 80));
+      ctrl.add(bytes(4));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(consumed, 4, reason: '超时前应正常消费首块');
+      await expectLater(fut, throwsA(isA<TimeoutException>()));
+      ctrl.add(bytes(4)); // 超时后上游仍推数据
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(consumed, 4, reason: '超时抛错后必须已取消订阅，不得再消费上游数据');
+      await ctrl.close();
     });
   });
 }
