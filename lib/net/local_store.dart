@@ -9,6 +9,7 @@ import '../models/comic_item.dart';
 import '../utils/danmaku.dart';
 import '../utils/file_backup.dart';
 import 'error_logger.dart';
+import 'reading_stats.dart';
 import 'web_persist.dart';
 
 /// 在独立 Isolate 中解析 JSON（用于大文件，避免阻塞 UI）。
@@ -847,12 +848,12 @@ class LocalStore {
     });
   }
 
-  // ---- 阅读统计 ----
+  // ---- 阅读统计（聚合逻辑已抽到 reading_stats.dart 纯函数域）----
   /// 累计一段阅读时长（秒）到当天。
   /// 存储结构：reading_stats -> { "2026-08-23": 3600, ... }（按天，秒）。
   static Future<void> addReadingSeconds(int seconds) async {
     if (seconds <= 0) return;
-    final day = _todayKey();
+    final day = ReadingStats.dayKeyOf(DateTime.now());
     // 读-改-写整体排进写队列，避免 _flushStats 与 dispose flush 并发时互相覆盖丢秒数。
     await _enqueue('reading_stats', () async {
       final m = (await _read('reading_stats')) as Map? ?? {};
@@ -866,101 +867,48 @@ class LocalStore {
       (((await _read('reading_stats')) as Map?)?[dayKey] as num?)?.toInt() ?? 0;
 
   /// 今日阅读秒数。
-  static Future<int> todayReadingSeconds() => readingSecondsOfDay(_todayKey());
+  static Future<int> todayReadingSeconds() => readingSecondsOfDay(ReadingStats.dayKeyOf(DateTime.now()));
 
   /// 本周（最近 7 天）阅读秒数总和。
   static Future<int> weekReadingSeconds() async {
     final m = (await _read('reading_stats')) as Map? ?? {};
-    var sum = 0;
-    for (var i = 0; i < 7; i++) {
-      final d = DateTime.now().subtract(Duration(days: i));
-      sum += (m[_dayKeyOf(d)] as num?)?.toInt() ?? 0;
-    }
-    return sum;
+    return ReadingStats.weekSeconds(m);
   }
 
   /// 累计阅读秒数（所有记录）。
   static Future<int> totalReadingSeconds() async {
     final m = (await _read('reading_stats')) as Map? ?? {};
-    var sum = 0;
-    for (final v in m.values) {
-      sum += (v as num?)?.toInt() ?? 0;
-    }
-    return sum;
+    return ReadingStats.totalSeconds(m);
   }
 
   /// 最近 N 天每天的阅读秒数（按日期升序返回 [{day, seconds}]）。
   static Future<List<Map<String, dynamic>>> recentReadingDays(int n) async {
     final m = (await _read('reading_stats')) as Map? ?? {};
-    final out = <Map<String, dynamic>>[];
-    for (var i = n - 1; i >= 0; i--) {
-      final d = DateTime.now().subtract(Duration(days: i));
-      final key = _dayKeyOf(d);
-      out.add({'day': key, 'seconds': (m[key] as num?)?.toInt() ?? 0});
-    }
-    return out;
+    return ReadingStats.recentDays(m, n);
   }
 
   /// 最近 N 个月每月的阅读秒数（按月份升序 [{month:'2026-08', seconds}]）。
   static Future<List<Map<String, dynamic>>> recentReadingMonths(int n) async {
     final m = (await _read('reading_stats')) as Map? ?? {};
-    final now = DateTime.now();
-    final out = <Map<String, dynamic>>[];
-    for (var i = n - 1; i >= 0; i--) {
-      final month = DateTime(now.year, now.month - i, 1);
-      final key = '${month.year}-${month.month.toString().padLeft(2, '0')}';
-      var sum = 0;
-      for (final entry in m.entries) {
-        final d = (entry.key as String?) ?? '';
-        if (d.length >= 7 && d.startsWith(key)) {
-          sum += (entry.value as num?)?.toInt() ?? 0;
-        }
-      }
-      out.add({'month': key, 'seconds': sum});
-    }
-    return out;
+    return ReadingStats.recentMonths(m, n);
   }
 
   /// 指定年份的月度阅读统计（全年 12 个月升序 [{month:'2026-01', seconds}]）。
   static Future<List<Map<String, dynamic>>> yearReadingMonths(int year) async {
     final m = (await _read('reading_stats')) as Map? ?? {};
-    final out = <Map<String, dynamic>>[];
-    for (var mo = 1; mo <= 12; mo++) {
-      final key = '$year-${mo.toString().padLeft(2, '0')}';
-      var sum = 0;
-      for (final entry in m.entries) {
-        final d = (entry.key as String?) ?? '';
-        if (d.length >= 7 && d.startsWith(key)) {
-          sum += (entry.value as num?)?.toInt() ?? 0;
-        }
-      }
-      out.add({'month': key, 'seconds': sum});
-    }
-    return out;
+    return ReadingStats.yearMonths(m, year);
   }
 
   /// 指定年份的总阅读秒数；不传年份为全部累计。
   static Future<int> yearReadingSeconds([int? year]) async {
     final m = (await _read('reading_stats')) as Map? ?? {};
-    var sum = 0;
-    for (final entry in m.entries) {
-      final d = (entry.key as String?) ?? '';
-      if (year != null && !(d.length >= 4 && d.startsWith('$year'))) continue;
-      sum += (entry.value as num?)?.toInt() ?? 0;
-    }
-    return sum;
+    return ReadingStats.yearSeconds(m, year);
   }
 
   /// 有效阅读天数（秒数 > 0）；可传年份限定。
   static Future<int> activeReadingDays([int? year]) async {
     final m = (await _read('reading_stats')) as Map? ?? {};
-    var count = 0;
-    for (final entry in m.entries) {
-      final d = (entry.key as String?) ?? '';
-      if (year != null && !(d.length >= 4 && d.startsWith('$year'))) continue;
-      if (((entry.value as num?)?.toInt() ?? 0) > 0) count++;
-    }
-    return count;
+    return ReadingStats.activeDays(m, year);
   }
 
   /// 指定年份的最长连续阅读记录（纯读取，不落盘）。
@@ -970,77 +918,15 @@ class LocalStore {
   /// maxStreak=0 表示该年无任何阅读记录。
   static Future<Map<String, dynamic>> yearReadingStreak(int year) async {
     final m = (await _read('reading_stats')) as Map? ?? {};
-    final days = <String, int>{};
-    for (final entry in m.entries) {
-      final d = (entry.key as String?) ?? '';
-      if (d.length < 10 || !d.startsWith('$year-')) continue;
-      final sec = (entry.value as num?)?.toInt() ?? 0;
-      if (sec > 0) days[d] = sec;
-    }
-    if (days.isEmpty) return {'maxStreak': 0, 'bestStart': null, 'bestEnd': null, 'bestSeconds': 0};
-    final sorted = days.keys.toList()..sort();
-    var bestStart = sorted.first;
-    var bestEnd = sorted.first;
-    var curStart = sorted.first;
-    var curEnd = sorted.first;
-    var curStreak = 1;
-    var maxStreak = 1;
-    for (var i = 1; i < sorted.length; i++) {
-      final prev = DateTime.parse(sorted[i - 1]);
-      final cur = DateTime.parse(sorted[i]);
-      // 相邻两天（差 1 天）延续当前连续段；否则开新段
-      if (cur.difference(prev).inDays == 1) {
-        curEnd = sorted[i];
-        curStreak++;
-      } else {
-        curStart = sorted[i];
-        curEnd = sorted[i];
-        curStreak = 1;
-      }
-      if (curStreak > maxStreak) {
-        maxStreak = curStreak;
-        bestStart = curStart;
-        bestEnd = curEnd;
-      }
-    }
-    // 最佳连续区间内的累计时长
-    var bestSeconds = 0;
-    for (var d = DateTime.parse(bestStart);
-        !d.isAfter(DateTime.parse(bestEnd));
-        d = d.add(const Duration(days: 1))) {
-      final k = '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-      bestSeconds += days[k] ?? 0;
-    }
-    return {
-      'maxStreak': maxStreak,
-      'bestStart': bestStart,
-      'bestEnd': bestEnd,
-      'bestSeconds': bestSeconds,
-    };
+    return ReadingStats.yearStreak(m, year);
   }
 
   /// 指定年份的单日最长阅读记录（纯读取）。
   /// 返回 { day, seconds }；无记录时 seconds=0。
   static Future<Map<String, dynamic>> yearBestDay(int year) async {
     final m = (await _read('reading_stats')) as Map? ?? {};
-    String? bestDay;
-    var bestSec = 0;
-    for (final entry in m.entries) {
-      final d = (entry.key as String?) ?? '';
-      if (d.length < 10 || !d.startsWith('$year-')) continue;
-      final sec = (entry.value as num?)?.toInt() ?? 0;
-      if (sec > bestSec) {
-        bestSec = sec;
-        bestDay = d;
-      }
-    }
-    return {'day': bestDay, 'seconds': bestSec};
+    return ReadingStats.yearBestDay(m, year);
   }
-
-  static String _todayKey() => _dayKeyOf(DateTime.now());
-
-  static String _dayKeyOf(DateTime d) =>
-      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   // ---- 阅读器手势配置 ----
   /// 阅读器手势模式：left/center/right 分别映射到哪个动作。
