@@ -94,7 +94,11 @@ class LocalNovelSource extends NovelSource {
     if (meta == null) {
       throw Exception('本地书不存在或已删除');
     }
-    final comic = ComicItem(novelId, meta['name'] as String, '')
+    // book.json 是本地文件（用户/外部工具可手改、旧版格式字段可能缺失或
+    // 类型错）：`as String?` 只放行 null，对非 String 值（如 int）照样抛
+    // TypeError——用 is String 守卫兜底，缺失/类型错都降级为 id 不崩详情页。
+    final comic = ComicItem(
+        novelId, meta['name'] is String ? meta['name'] as String : novelId, '')
       ..author = (meta['author'] as String?) ?? '';
     final chapters = <NovelChapter>[
       for (final c in (meta['chapters'] as List? ?? []))

@@ -171,6 +171,36 @@ test('rename 空名/不存在/空白返回 null 且不改原名', () async {
       final meta = store.metaOf(id);
       expect(meta!['name'], 't3'); // 原名未改
     });
+
+    test('book.json name 缺失/类型错：detail 容错降级，不抛 TypeError（外部摄入口）', () async {
+      // book.json 是磁盘上的本地文件：用户/外部工具可手改，或旧版格式字段
+      // 缺失。detail 里唯一严格 `meta['name'] as String`（同文件其余 7 处
+      // 消费点全部 `as String? ?? ''`）会在缺失/非 String 时抛 TypeError
+      // 逃逸到详情页 → 整页崩。
+      final store = LocalNovelStore(dir: tmp.path);
+      final parsed = parseTxt(
+          utf8.encode('第1章 初见\n\n你好世界。\n'), 't4.txt');
+      final id = await store.import(parsed, sourceName: '本地');
+      final metaFile = File('${tmp.path}/$id/book.json');
+
+      // ① name 缺失
+      final m1 = jsonDecode(metaFile.readAsStringSync()) as Map<String, dynamic>;
+      m1.remove('name');
+      metaFile.writeAsStringSync(jsonEncode(m1));
+      final src = LocalNovelSource();
+      LocalNovelSource.setStoreDir(tmp.path);
+      addTearDown(() => LocalNovelSource.setStoreDir(
+          p.join(Directory.systemTemp.path, 'novel_imports')));
+      final d1 = await src.detail(id);
+      expect(d1.comic.name, id, reason: 'name 缺失时降级为 id，不抛 TypeError');
+
+      // ② name 类型错（123）
+      final m2 = jsonDecode(metaFile.readAsStringSync()) as Map<String, dynamic>;
+      m2['name'] = 123;
+      metaFile.writeAsStringSync(jsonEncode(m2));
+      final d2 = await src.detail(id);
+      expect(d2.comic.name, id, reason: 'name 非 String 时降级，不抛 TypeError');
+    });
   });
 
   group('章节边界（prev/next 门，阅读器置灰判定根）', () {
