@@ -58,4 +58,23 @@ void main() {
     expect(BookshelfStore.listAll().first.id, '100');
     expect(getBackups(), isEmpty, reason: '合法 JSON 不应生成备份');
   });
+
+  test('double 字段（addedAt/lastChapters）：读取按 num 容错不抛 TypeError', () async {
+    // 恢复备份 importData 是外部 JSON 摄入口：手改/第三方导出可能产生
+    // 0.5 这类 double；rawAll 的排序比较器、addedAtOf、lastSeenChapters
+    // 若严格 as int 会抛 → listAll 整页挂 / 更新检查炸。
+    const doubleJson =
+        '{"dm5|a":{"sourceId":"dm5","id":"a","name":"A","pic":"","chapters":[],"addedAt":0.5},'
+        '"dm5|b":{"sourceId":"dm5","id":"b","name":"B","pic":"","chapters":[],"addedAt":0,"lastChapters":5.0}}';
+    await shelfFile.writeAsString(doubleJson);
+    BookshelfStore.bindFile(shelfFile);
+
+    expect(BookshelfStore.listAll(), hasLength(2),
+        reason: 'addedAt 为 double 时排序比较器应按 num 收敛，不得抛');
+    final entry = BookshelfStore.listAll().firstWhere((e) => e.id == 'a');
+    expect(BookshelfStore.addedAtOf(entry), 0,
+        reason: 'addedAtOf 应按 num 收敛');
+    expect(BookshelfStore.lastSeenChapters('dm5', 'b'), 5,
+        reason: 'lastChapters 为 double 时应按 num 收敛');
+  });
 }

@@ -11,8 +11,4 @@ class WebPersist {
   static void write(String key, String value) {
     web.window.localStorage.setItem('$_prefix$key', value);
   }
-
-  static void remove(String key) {
-    web.window.localStorage.removeItem('$_prefix$key');
-  }
 }

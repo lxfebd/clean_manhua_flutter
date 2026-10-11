@@ -5,7 +5,4 @@ class WebPersist {
 
   static void write(String key, String value) =>
       throw UnsupportedError('WebPersist 仅用于 web 端');
-
-  static void remove(String key) =>
-      throw UnsupportedError('WebPersist 仅用于 web 端');
 }

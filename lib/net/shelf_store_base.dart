@@ -145,8 +145,8 @@ class ShelfStore<T> {
   List<Map<String, dynamic>> rawAll() {
     _ensureLoaded();
     final list = _all()
-      ..sort((a, b) =>
-          ((b['addedAt'] as int?) ?? 0).compareTo((a['addedAt'] as int?) ?? 0));
+      ..sort((a, b) => (((b['addedAt'] as num?) ?? 0).toInt())
+          .compareTo(((a['addedAt'] as num?) ?? 0).toInt()));
     return list;
   }
 
@@ -195,7 +195,7 @@ class ShelfStore<T> {
 
   /// 上次检查更新时记录的章节数（-1 = 尚未检查过，不报更新）。
   int lastSeenChapters(String sourceId, String id) =>
-      (_cache[_key(sourceId, id)]?['lastChapters'] as int?) ?? -1;
+      ((_cache[_key(sourceId, id)]?['lastChapters'] as num?) ?? -1).toInt();
 
   /// 写入上次检查到的章节数。
   void setLastSeenChapters(String sourceId, String id, int count) {
@@ -225,5 +225,6 @@ class ShelfStore<T> {
   /// 直接按条目 id+sourceId 查字段，不扫描全表（原 _readAddedAt 在排序
   /// 比较器里 O(n) 扫描 = O(n² log n)，这里 O(1)）。
   int addedAtOf(T entry) =>
-      (_cache[_key(sourceIdOf(entry), idOf(entry))]?['addedAt'] as int?) ?? 0;
+      (((_cache[_key(sourceIdOf(entry), idOf(entry))]?['addedAt'] as num?) ?? 0)
+          .toInt());
 }

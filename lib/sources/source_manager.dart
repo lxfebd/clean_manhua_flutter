@@ -87,7 +87,6 @@ class SourceManager {
   static int _current = 0;
 
   static ComicSource get current => sources[_current];
-  static int get currentIndex => _current;
 
   static void switchTo(int index) {
     if (index >= 0 && index < sources.length) _current = index;
@@ -117,10 +116,6 @@ class SourceManager {
   /// 当前小说源。
   static NovelSource? get currentNovel => novelSources[_currentNovel];
 
-  static void switchNovelTo(int index) {
-    if (index >= 0 && index < novelSources.length) _currentNovel = index;
-  }
-
   static NovelSource? novelById(String id) {
     return novelSources.firstWhere((s) => s.id == id, orElse: () => currentNovel!);
   }
@@ -142,10 +137,15 @@ class SourceManager {
       final tier = cfg?.tier ?? s.tier;
       return enabled && tier != SourceTier.disabled;
     }).toList();
+    // 按 tier 权重排序 + 注册下标 tie-break：Dart List.sort 对 >32 个同权重
+    // 元素走双枢轴快排（不稳定，实测 n=40 重排率 20/20），显式下标才能
+    // 兑现「同 tier 按注册顺序稳定」的契约。
+    final order = {for (var i = 0; i < all.length; i++) all[i]: i};
     list.sort((a, b) {
       final ta = byId[a.id]?.tier ?? a.tier;
       final tb = byId[b.id]?.tier ?? b.tier;
-      return (_tierWeight[ta] ?? 1).compareTo(_tierWeight[tb] ?? 1);
+      final c = (_tierWeight[ta] ?? 1).compareTo(_tierWeight[tb] ?? 1);
+      return c != 0 ? c : order[a]!.compareTo(order[b]!);
     });
     return list;
   }
