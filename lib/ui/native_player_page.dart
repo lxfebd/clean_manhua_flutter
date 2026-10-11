@@ -2941,11 +2941,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
 
   String _epLabel() {
     final i = _curIndex;
-    if (i >= 0) {
-      final t = widget.episodes[i].title;
-      return t.isEmpty ? '第 $_curEpisode 集' : t;
-    }
-    return '第 $_curEpisode 集';
+    final title = i >= 0 ? widget.episodes[i].title : '';
+    return episodeLabel(title, _curEpisode);
   }
 
   Widget _centerPlayButton() {

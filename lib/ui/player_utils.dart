@@ -116,3 +116,8 @@ Map<String, String> mediaHeaders(String url) {
   };
   return h;
 }
+
+/// 集数标签：有标题用标题（含 OVA/SP 等自定义名），空标题回退「第 N 集」。
+/// 原为 native/anime 两页逐字节相同的 _epLabel 私有方法，抽公共后消除重复。
+String episodeLabel(String title, int episode) =>
+    title.isEmpty ? '第 $episode 集' : title;

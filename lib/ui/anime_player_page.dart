@@ -2375,11 +2375,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     final eps = widget.episodes;
     final i =
         eps.indexWhere((e) => e.season == _curSeason && e.episode == _curEpisode);
-    if (i >= 0) {
-      final t = eps[i].title;
-      return t.isEmpty ? '第 $_curEpisode 集' : t;
-    }
-    return '第 $_curEpisode 集';
+    final title = i >= 0 ? eps[i].title : '';
+    return episodeLabel(title, _curEpisode);
   }
 
   /// 集数标签：委托 [episodeCountLabelFor]，多线路绝不把各渠道剧集相加。
