@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:xingmanxia/ui/native_player_page.dart';
+import 'package:xingmanxia/ui/player_body.dart';
 
 /// 播放主体「稳定树位」回归测试（全屏卡死 bug，2026-09-21）。
 ///
