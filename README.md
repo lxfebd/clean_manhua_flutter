@@ -36,13 +36,37 @@ flutter build web --release     # Web 端（alpha）：静态产物 build/web（
 
 **漫画（4）**：动漫屋(DM5) ✅(国内免登录默认源) ｜ 豆包 ✅ ｜ 禁漫JM ⚠️(反爬+图片解扰) ｜ MangaDex ✅(英文兜底)
 
-**视频（6）**：AGE动漫 ✅ ｜ TvTFun ✅(需优选IP) ｜ 稀饭动漫 ✅(mp4直链) ｜ Anime1 ✅(WebView播放) ｜ 风车动漫 ✅(WebView兜底) ｜ 鞍山影院 ✅(仅分类浏览)
+**视频（6）**：AGE动漫 ✅ ｜ TvTFun ✅(需优选IP) ｜ 稀饭动漫 ✅(新站 next.xifanacg.com，WebView 播放页) ｜ Anime1 ✅(WebView播放) ｜ 风车动漫 ✅(WebView兜底) ｜ 鞍山影院 ✅(仅分类浏览)
 
 **小说（2）**：笔趣阁 ✅(多镜像可换) ｜ 新笔趣阁 ✅(Base64 章节解密)
 
 ---
 
 ## 更新日志
+
+### 未发布（v1.5.4 之后）
+
+- 🔍 **详情精细化**：漫画/动漫详情页新增元信息卡 + 标签云；`ComicDetail` 扩展 `tags/year/updatedAt/hits`，各源补抓 author/tags/status/area/type/lang——覆盖 禁漫JM、MangaDex、豆包、动漫屋(DM5)、AGE动漫、dsl 自定义源、稀饭动漫；AGE 详情元信息解析修正（此前 tags/状态漏抓）。
+- 🧨 **崩溃修复**：纵向条漫整页图片整屏红屏断言墙——`Image` 构造已自动套一层 `ResizeImage`，再套一层在解码处直接断言失败；改为单层 provider（`readerImageProvider`）。
+- 🌐 **源迁移**：稀饭动漫整体迁到 `next.xifanacg.com`——搜索走 `api.xifanacg.com` RPC（apikey 为站点前端公开常量），详情走服务端 Schema.org JSON-LD + HTML 剧集列表（多线路 epid 映射），播放交内嵌 WebView 通道执行 JS 捕获直链，不再 Dart 侧解析。
+- 🏗️ **god-class 拆分**：播放器纯函数/状态文案/控件 helper 抽 `player_utils.dart`、`player_status_text.dart`、`player_widgets.dart`；首页/动漫首页/详情/书架/阅读器/小说阅读器/主壳/源管理/网络工具 的子组件区抽 part 文件（`home_widgets.dart`、`anime_home_widgets.dart`、`bookshelf_cards.dart`、`reader_widgets.dart`、`player_body.dart` 等）；`local_store` 阅读统计域抽 `reading_stats.dart` 纯函数。
+- 🛡️ **健壮性（审计批）**：`LocalStore` 文件名 key 消毒，堵住 `writeJson` 动态 key 的路径越界写；坏数据单条隔离不再整块崩（源配置 `fromJson` 坏条目 / 源市场坏索引 / 小说章节缓存类型错 / 本地书 `book.json` 严格 cast）；停用自定义源从 `enabledSources` 过滤并补 `ensureEnabledCurrent`，详情入口校验 `byId` 命中、缺失抛 `SourceMissing` 而非静默回退错源；备份导入后失效常驻缓存（抽 `BackupRestore` 统一入口）、新格式备份不再丢续播进度；`readLimited` 超时取消上游订阅，消除悬挂响应的幽灵消费。
+- ⚡ **加载速度（两份性能审计落地）**：
+  - **限流分通道**：静态资源与数据接口不再共用令牌桶——`api` 3 req/s（burst 5）｜`asset` 6 req/s（burst 12）。此前一屏 19 张封面要排队 ≈6.3 秒，现 ≈2 秒。
+  - **Cronet 引擎复用**：旧实现每请求 `new + finally close()`，引擎销毁即 socket pool 销毁——一屏 24 张同域封面 = 24 次完整 TCP+TLS 握手、连接零复用；现常驻复用，且 HTTP 4xx 不再误判为引擎不可用（此前一张封面 404 就把 Cronet 全局下线）；非 Android 直接短路（JNI 库缺失，此前每图白跑一次引擎构建）。
+  - **AGE 首屏并发**：精选页与目录页此前串行 `await`（实测 1.29s + 1.24s ≈ 2.5s 才凑齐首屏数据、封面才开始下载），现并发发起，省约 1.2 秒。
+  - **预取**：三个首页 `cacheExtent` 默认 250px（≈提前一行）→ 1400px（提前 4~5 行开始构建）；到底阈值 400 → 900（下一页提前约一屏发起，到底时数据已在本地）。
+  - **图片磁盘缓存**：去掉 `flush: true`（`FlushFileBuffers` 同步刷盘卡在返回 UI 之前）；LRU 裁剪从「每写一张 stat 全目录（最多 2000 文件）」节流为每 50 次写一次——此前一屏 24 张封面 ≈4.8 万次 stat。
+  - **内存图片缓存按平台分档**：条数 24 → 桌面 160 / 移动 48（封面原图 50-200KB，24 条只有 2-5MB，字节预算永远用不到，条数才是闸门；淘汰后重读盘拿到新 `Uint8List`，`MemoryImage` 按对象判等 → 整图重解码）；引擎 `imageCache` 桌面 100 张/30MB → 300 张/64MB（一条条漫页解码后 ≈10MB，旧值只容 3 页，回翻必然重解码）。
+  - **超时收敛**：封面外层 8s 判失败但底层仍按 15s 跑完才释放限流槽 → 幽灵请求占死 asset 通道 6 个并发槽（一片灰、越滚越慢），现 8s 真正中止；AGE `playUrl` 手写重试与 `Net.get` 内建 retry 叠加最坏 ≈91 秒才落到 WebView 兜底 → 现 ≈20 秒；稀饭详情 40s → 10s。
+  - **动漫首页本地快照**：对齐漫画首页——首屏成功后落盘、`initState` 先打底再走网络，冷启动不再必等一次完整往返（AGE 首页实测 ≈1.2 秒），弱网/离线首帧即有内容。
+- 🎨 **动效与渲染热路径**：
+  - 首页 pinned 头部两态实例缓存：`SliverPersistentHeader` 的 delegate 每次 constraints 变化都重跑 builder，此前每滚动帧重建 logo 行 + 源切换胶囊 + 搜索框 + 分类胶囊（Apple 风格还每帧新建 `BackdropFilter` 即每帧重新模糊）——桌面端最明显的掉帧源；现 delegate 每帧只重算 `Opacity/Transform` 外壳。
+  - 详情页滚动不再整页 `setState`（`_scrollOffset` → `ValueNotifier`，三块浮层各自订阅）；阅读器图片 provider 记忆化（此前每次 `setState` 都新建 `MemoryImage`+`ResizeImage`，MB 级章节图被反复重新 resolve）；搜索框不再每敲一字重建整页；骨架屏 12-16 个 `AnimationController` → 整片共用一个。
+  - 封面解码完成 220ms 淡入（不再从占位「啪」地换成实图）；切 tab 新页 180ms 淡入；漫画首页入场动画不再对追加页逐张延迟。
+  - 选集网格格内标记 O(n) → O(1)：此前每格 `indexOf`(全量列表) + `any`(续播记录) + `taskOf`(下载表)，一屏 60 格 × 千集 = 每次 build 上万次比较，且滚动逐帧发生；现每次 build 预计算索引/集合。
+  - 集列表头图 `Image.network` → `CachedImage`（此前绕过自有磁盘缓存与降级链，重进即重下）。
+- 🧪 **测试基线**：全量 **1007 通过 / 16 跳过**（v1.5.4 为 865/15，skip 全为 `verify_*` 实网项）；`analyze` 保持 0 issues。
 
 ### v1.5.4（2026-10-09）
 - 📥 **下载体验大迭代**：漫画下载进度实时化；下载完成/失败系统通知（批量漫画/单集视频/阅读器单话，取消不打扰）；动漫下载失败/取消可见化（状态三态卡 + 重试入口）；退出页面停止下载；更新下载慢速检测与通知节流；GitHub 更新渠道加固
