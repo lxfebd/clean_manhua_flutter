@@ -30,8 +30,11 @@ class AgedMVideoSource extends VideoSource {
       dotAll: true);
   static final RegExp _titleRe =
       RegExp(r'<h2 class="video_detail_title">([^<]+)</h2>');
-  static final RegExp _infoRe =
-      RegExp(r'<div class="video_detail_info"><span>([^<]+)</span>([^<]+)</div>');
+  /// 详情元信息行（实测结构）：
+  /// `<li><span class="detail_imform_tag">剧情类型：</span><span class="detail_imform_value">运动 热血</span></li>`
+  /// 标签含「：」，值可能空格分隔多标签（如「运动 热血」）。
+  static final RegExp _infoRe = RegExp(
+      r'class="detail_imform_tag">([^<]+)</span><span class="detail_imform_value">([^<]+)</span>');
   /// 目录页卡片：h4/h5 标题内的详情链接（标题 + 番剧 ID）
   static final RegExp _catalogCardRe = RegExp(
       r'<h[45][^>]*>\s*<a[^>]*href="[^"]*?/detail/(\d+)"[^>]*>\s*([^<]+?)\s*</a>',
@@ -122,7 +125,8 @@ class AgedMVideoSource extends VideoSource {
     }
     cover = _resolveCover(cover);
     final desc = _extractDescription(html);
-    String? area, year, type, lang;
+    String? area, year, type, lang, status, updatedAt;
+    final tags = <String>[];
     for (final m in _infoRe.allMatches(html)) {
       final k = m.group(1)?.trim() ?? '';
       final v = m.group(2)?.trim() ?? '';
@@ -130,7 +134,15 @@ class AgedMVideoSource extends VideoSource {
       if (k.startsWith('年代')) year = v;
       if (k.startsWith('动画种类')) type = v;
       if (k.startsWith('语言')) lang = v;
+      if (k.startsWith('播放状态')) status = v;
+      if (k.startsWith('首播时间')) updatedAt = v;
+      // 剧情类型/标签是空格分隔的多标签（如「运动 热血」），
+      // 两行内容相同，用 Set 去重后并入。
+      if (k.startsWith('剧情类型') || k.startsWith('标签')) {
+        tags.addAll(v.split(RegExp(r'\s+')).where((t) => t.isNotEmpty));
+      }
     }
+    final uniqueTags = tags.toSet().toList();
     final episodes = <VideoEpisode>[];
     for (final m in _epRe.allMatches(html)) {
       final s = int.tryParse(m.group(2) ?? '');
@@ -139,7 +151,9 @@ class AgedMVideoSource extends VideoSource {
       episodes.add(VideoEpisode(s, e, htmlUnescape(m.group(4) ?? '')));
     }
     return VideoDetail(
-      ComicItem(videoId, title, cover)..lang = lang,
+      ComicItem(videoId, title, cover)
+        ..lang = lang
+        ..remarks = status,
       episodes,
       description: desc,
       cover: cover,
@@ -147,6 +161,7 @@ class AgedMVideoSource extends VideoSource {
       year: year,
       type: type,
       lang: lang,
+      tags: uniqueTags,
     );
   }
 
