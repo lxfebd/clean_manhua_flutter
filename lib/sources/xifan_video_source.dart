@@ -142,13 +142,14 @@ class XifanVideoSource extends VideoSource {
     }
 
     return VideoDetail(
-      ComicItem(videoId, title, cover),
+      ComicItem(videoId, title, cover)..lang = _metaText(html, '语言'),
       episodes,
       description: description.isNotEmpty ? description : null,
       cover: cover,
       area: _metaText(html, '地区'),
       year: _metaText(html, '年份'),
       type: _metaText(html, '类型'),
+      lang: _metaText(html, '语言'),
       sourceNames: sourceNames,
     );
   }
@@ -268,7 +269,7 @@ class XifanVideoSource extends VideoSource {
     // 截断点：下一个元信息标签，或进入简介/角色区，或首个「·」分隔（类型标签后常接 年·地区）。
     const stops = [
       '地区', '年份', '状态', '动画种类', '简介', '角色', '播放', '分享',
-      '收藏', 'Bangumi', '·', '</li>', '</ul>',
+      '收藏', 'Bangumi', '·', '</li>', '</ul>', '语言',
     ];
     var end = html.length;
     for (final s in stops) {
