@@ -122,13 +122,14 @@ class AgedMVideoSource extends VideoSource {
     }
     cover = _resolveCover(cover);
     final desc = _extractDescription(html);
-    String? area, year, type;
+    String? area, year, type, lang;
     for (final m in _infoRe.allMatches(html)) {
       final k = m.group(1)?.trim() ?? '';
       final v = m.group(2)?.trim() ?? '';
       if (k.startsWith('地区')) area = v;
       if (k.startsWith('年代')) year = v;
       if (k.startsWith('动画种类')) type = v;
+      if (k.startsWith('语言')) lang = v;
     }
     final episodes = <VideoEpisode>[];
     for (final m in _epRe.allMatches(html)) {
@@ -138,13 +139,14 @@ class AgedMVideoSource extends VideoSource {
       episodes.add(VideoEpisode(s, e, htmlUnescape(m.group(4) ?? '')));
     }
     return VideoDetail(
-      ComicItem(videoId, title, cover),
+      ComicItem(videoId, title, cover)..lang = lang,
       episodes,
       description: desc,
       cover: cover,
       area: area,
       year: year,
       type: type,
+      lang: lang,
     );
   }
 
