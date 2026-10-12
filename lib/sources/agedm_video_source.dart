@@ -125,7 +125,7 @@ class AgedMVideoSource extends VideoSource {
     }
     cover = _resolveCover(cover);
     final desc = _extractDescription(html);
-    String? area, year, type, lang, status, updatedAt;
+    String? area, year, type, lang, status;
     final tags = <String>[];
     for (final m in _infoRe.allMatches(html)) {
       final k = m.group(1)?.trim() ?? '';
@@ -135,7 +135,6 @@ class AgedMVideoSource extends VideoSource {
       if (k.startsWith('动画种类')) type = v;
       if (k.startsWith('语言')) lang = v;
       if (k.startsWith('播放状态')) status = v;
-      if (k.startsWith('首播时间')) updatedAt = v;
       // 剧情类型/标签是空格分隔的多标签（如「运动 热血」），
       // 两行内容相同，用 Set 去重后并入。
       if (k.startsWith('剧情类型') || k.startsWith('标签')) {
