@@ -128,19 +128,22 @@ class WcheDmVideoSource extends VideoSource {
     String? area;
     String? year;
     String? type;
+    String? lang;
     for (final m in _dataRowRe.allMatches(html)) {
       final text = _stripTags(m.group(1) ?? '');
       if (text.contains('类型')) type = _afterLabel(text, '类型');
       if (text.contains('地区')) area = _afterLabel(text, '地区');
       if (text.contains('年份')) year = _afterLabel(text, '年份');
+      if (text.contains('语言')) lang = _afterLabel(text, '语言');
     }
-    if (type == null || area == null) {
+    if (type == null || area == null || lang == null) {
       for (final m in _metaPairRe.allMatches(html)) {
         final k = m.group(1)?.trim() ?? '';
         final v = m.group(2)?.trim() ?? '';
         if (k == '类型' && type == null) type = v;
         if (k == '地区' && area == null) area = v;
         if (k == '年份' && year == null) year = v;
+        if (k == '语言' && lang == null) lang = v;
       }
     }
     if (year != null && year == '0') year = null;
@@ -160,7 +163,7 @@ class WcheDmVideoSource extends VideoSource {
       episodes.add(VideoEpisode(1, ep, label));
     }
 
-    final item = ComicItem(videoId, title, cover);
+    final item = ComicItem(videoId, title, cover)..lang = lang;
     return VideoDetail(
       item,
       episodes,
@@ -169,6 +172,7 @@ class WcheDmVideoSource extends VideoSource {
       area: area,
       year: year,
       type: type,
+      lang: lang,
     );
   }
 

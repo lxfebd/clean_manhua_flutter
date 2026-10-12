@@ -126,6 +126,7 @@ class AshanYingyuanVideoSource extends VideoSource {
     String? area;
     String? year;
     String? type;
+    String? lang;
     // 实测站点把「类型：…地区：…年份：…」三个字段挤在同一个 `<p>` 里，
     // 故必须按标签边界切值，不能取「标签：」之后的全部内容。
     for (final m in _metaLineRe.allMatches(html)) {
@@ -133,6 +134,7 @@ class AshanYingyuanVideoSource extends VideoSource {
       type = _fieldValue(text, '类型') ?? type;
       area = _fieldValue(text, '地区') ?? area;
       year = _fieldValue(text, '年份') ?? year;
+      lang = _fieldValue(text, '语言') ?? lang;
       desc ??= _fieldValue(text, '简介');
     }
     if (year != null && year == '0') year = null;
@@ -154,13 +156,14 @@ class AshanYingyuanVideoSource extends VideoSource {
       }
     }
     return VideoDetail(
-      ComicItem(videoId, title, cover),
+      ComicItem(videoId, title, cover)..lang = lang,
       episodes,
       description: desc,
       cover: cover,
       area: area,
       year: year,
       type: type,
+      lang: lang,
     );
   }
 
@@ -308,7 +311,7 @@ class AshanYingyuanVideoSource extends VideoSource {
   /// 站点的元信息行把多个字段拼在同一个 `<p>` 内（「类型：A 地区：B 年份：2026」），
   /// 直接取标签后的全部会串字段，故以其它字段标签作为终止边界。
   static String? _fieldValue(String text, String label) {
-    const labels = ['类型', '地区', '年份', '主演', '导演', '更新', '简介'];
+    const labels = ['类型', '地区', '年份', '主演', '导演', '更新', '简介', '语言'];
     final i = text.indexOf('$label：');
     if (i < 0) return null;
     var tail = text.substring(i + label.length + 1);
