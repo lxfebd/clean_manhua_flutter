@@ -44,7 +44,7 @@ flutter build web --release     # Web 端（alpha）：静态产物 build/web（
 
 ## 更新日志
 
-### 未发布（v1.5.4 之后）
+### v1.5.5（2026-10-13）
 
 - 🔍 **详情精细化**：漫画/动漫详情页新增元信息卡 + 标签云；`ComicDetail` 扩展 `tags/year/updatedAt/hits`，各源补抓 author/tags/status/area/type/lang——覆盖 禁漫JM、MangaDex、豆包、动漫屋(DM5)、AGE动漫、dsl 自定义源、稀饭动漫；AGE 详情元信息解析修正（此前 tags/状态漏抓）。
 - 🧨 **崩溃修复**：纵向条漫整页图片整屏红屏断言墙——`Image` 构造已自动套一层 `ResizeImage`，再套一层在解码处直接断言失败；改为单层 provider（`readerImageProvider`）。
