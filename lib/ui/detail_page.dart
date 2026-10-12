@@ -75,7 +75,24 @@ class DetailPage extends ConsumerStatefulWidget {
 
 class _DetailPageState extends ConsumerState<DetailPage> {
   final _scrollCtrl = ScrollController();
-  double _scrollOffset = 0;
+
+  /// 头部收起进度。用 ValueNotifier 而非 setState：此前每个滚动帧都
+  /// setState 重建整页（信息卡 + 按钮区 + 章节网格 + 5 个 ref.watch getter），
+  /// 而这个值的全部用途只是 hero 淡出 / 顶部渐变 / 标题淡入三块小浮层。
+  final ValueNotifier<double> _scrollCollapse = ValueNotifier<double>(0.0);
+
+  /// 顶部渐变蒙版：固定不变，提到 static final 避免每滚动帧重新分配
+  /// LinearGradient + `List<Color>`。
+  static final BoxDecoration _topScrim = BoxDecoration(
+    gradient: LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        Colors.black.withValues(alpha: 0.35),
+        Colors.black.withValues(alpha: 0.0),
+      ],
+    ),
+  );
   bool _descending = false; // 章节倒序（最新在顶部）
   List<Chapter>? _sortedCache; // 按 _descending 缓存的章节列表
 
@@ -175,13 +192,14 @@ class _DetailPageState extends ConsumerState<DetailPage> {
   void dispose() {
     _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
+    _scrollCollapse.dispose();
     super.dispose();
   }
 
   void _onScroll() {
     if (_scrollCtrl.hasClients) {
-      final v = _scrollCtrl.offset.clamp(0.0, _heroHeight);
-      if (v != _scrollOffset) setState(() => _scrollOffset = v);
+      // 只通知订阅了折叠进度的三块浮层，不整页 setState。
+      _scrollCollapse.value = _scrollCtrl.offset.clamp(0.0, _heroHeight);
     }
   }
 
@@ -230,7 +248,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
         // 手机：单栏沉浸式布局
         final topPad = mq.padding.top;
         final heroH = _heroHeight + topPad;
-        final collapseProgress = (_scrollOffset / _heroHeight).clamp(0.0, 1.0);
+        // 折叠进度不再从 state 读：见 _scrollCollapse，三块浮层各自订阅。
 
         return Scaffold(
           backgroundColor: theme.scaffoldBackgroundColor,
@@ -485,14 +503,17 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                 left: 0,
                 right: 0,
                 height: heroH,
-                child: Opacity(
-                  opacity: 1.0 - collapseProgress,
-                  child: _Hero(
-                    sourceId: widget.sourceId,
-                    comicId: widget.comicId,
-                    name: name,
-                    pic: pic,
-                    status: _detail?.status,
+                child: ValueListenableBuilder<double>(
+                  valueListenable: _scrollCollapse,
+                  builder: (context, offset, _) => Opacity(
+                    opacity: 1.0 - (offset / _heroHeight).clamp(0.0, 1.0),
+                    child: _Hero(
+                      sourceId: widget.sourceId,
+                      comicId: widget.comicId,
+                      name: name,
+                      pic: pic,
+                      status: _detail?.status,
+                    ),
                   ),
                 ),
               ),
@@ -503,19 +524,13 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                 left: 0,
                 right: 0,
                 height: topPad + 56,
-                child: Opacity(
-                  opacity: (1.0 - collapseProgress * 3).clamp(0.0, 1.0),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.black.withValues(alpha: 0.35),
-                          Colors.black.withValues(alpha: 0.0),
-                        ],
-                      ),
-                    ),
+                child: ValueListenableBuilder<double>(
+                  valueListenable: _scrollCollapse,
+                  builder: (context, offset, _) => Opacity(
+                    opacity:
+                        (1.0 - (offset / _heroHeight).clamp(0.0, 1.0) * 3)
+                            .clamp(0.0, 1.0),
+                    child: DecoratedBox(decoration: _topScrim),
                   ),
                 ),
               ),
@@ -535,25 +550,30 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                         const BackCircleButton(),
                         const Spacer(),
                         // 标题（滚动后显示）
-                        if (collapseProgress > 0.6)
-                          Expanded(
-                            child: Opacity(
-                              opacity: ((collapseProgress - 0.6) / 0.4).clamp(
-                                0.0,
-                                1.0,
-                              ),
-                              child: Text(
-                                name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                  color: scheme.onSurface,
+                        Expanded(
+                          child: ValueListenableBuilder<double>(
+                            valueListenable: _scrollCollapse,
+                            builder: (context, offset, _) {
+                              final p = (offset / _heroHeight).clamp(0.0, 1.0);
+                              // 标题在头部收起 60% 之后淡入。Expanded 常驻：
+                              // 此前用 if 条件增删，标题出现那一刻 Row 里其它
+                              // 元素会横向跳一下。
+                              return Opacity(
+                                opacity: ((p - 0.6) / 0.4).clamp(0.0, 1.0),
+                                child: Text(
+                                  name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                    color: scheme.onSurface,
+                                  ),
                                 ),
-                              ),
-                            ),
+                              );
+                            },
                           ),
+                        ),
                         IconButton(
                           tooltip: _saved ? '移出书架' : '加入书架',
                           icon: AnimatedSwitcher(

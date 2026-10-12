@@ -312,6 +312,13 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
   int _autoRetries = 0;
   Timer? _retryTimer;
 
+  /// 解码 provider 的记忆化槽（见 build）：按「同一字节对象 + 同一目标尺寸」
+  /// 复用同一个实例，避免每次重建都新建 MemoryImage/ResizeImage。
+  Uint8List? _providerBytes;
+  int _providerW = -1;
+  int _providerH = -1;
+  ImageProvider<Object>? _provider;
+
   /// 当前源的 CustomSourceDef 缓存（picHeaders 读图用）。
   CustomSourceDef? _defCache;
 
@@ -545,12 +552,25 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
             fit: BoxFit.cover),
       );
     }
-    final dpr = MediaQuery.of(context).devicePixelRatio;
-    final cw = (MediaQuery.sizeOf(context).width * dpr).toInt();
-    final ch = (MediaQuery.sizeOf(context).height * dpr).toInt();
+    final mq = MediaQuery.of(context);
+    final dpr = mq.devicePixelRatio;
+    final cw = (mq.size.width * dpr).toInt();
+    final ch = (mq.size.height * dpr).toInt();
+    // provider 记忆化：阅读器任何一次 setState（翻页 / overlay / 放大镜 /
+    // 键盘缩放 / 超分回填）都会重建所有已挂载页，此前每次都新建
+    // MemoryImage + ResizeImage，Image.didUpdateWidget 见 provider 实例不同
+    // 就重新 resolve —— MB 级章节图被反复重新解析。
+    if (!identical(_providerBytes, bytes) ||
+        _providerW != cw ||
+        _providerH != ch) {
+      _providerBytes = bytes;
+      _providerW = cw;
+      _providerH = ch;
+      _provider = readerImageProvider(bytes,
+          horizontal: widget.horizontal, width: cw, height: ch);
+    }
     return Image(
-      image: readerImageProvider(bytes,
-          horizontal: widget.horizontal, width: cw, height: ch),
+      image: _provider!,
       width: double.infinity,
       fit: widget.fit,
       filterQuality: widget.filterQuality,

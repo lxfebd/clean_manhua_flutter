@@ -86,7 +86,20 @@ class ImageCacheManager {
   @visibleForTesting
   static int debugDiskBudget() => _maxDiskBytes;
 
-  static const int _maxMemCount = 24;
+  /// 内存缓存条目上限（真正的闸门：字节预算往往碰不到）。
+  ///
+  /// 此前固定 24：封面原图 50–200KB，24 条只有 2–5MB，桌面 96MB 的字节预算
+  /// 永远用不到。而桌面网格 6–8 列 × 4–5 行 ≈ 24–40 张可见封面，再算上视口外
+  /// 预构建的行，稳态就是「边加载边淘汰」。被淘汰后再访问要走磁盘重读，拿回来
+  /// 的是新的 Uint8List 实例——MemoryImage 按字节对象判等，新实例即新 cache key，
+  /// 于是整张图重新解码一遍。回滚/重进首页 = 全量重解码。
+  static int get _maxMemCount => switch (defaultTargetPlatform) {
+        TargetPlatform.windows ||
+        TargetPlatform.macOS ||
+        TargetPlatform.linux =>
+          160,
+        _ => 48,
+      };
   static Directory? _dir;
   static Directory? _srDir;
 
@@ -133,12 +146,21 @@ class ImageCacheManager {
     final f = File(
         '${(await (sr ? _srImagesDir() : _imagesDir())).path}/${sr ? _srKey(url) : _key(url)}.img');
     try {
-      if (!f.existsSync()) return null;
+      // 不做 existsSync 预检：那是一次同步 stat，排在 UI isolate 上，且命中后
+      // readAsBytes 本来就会自己报错。直接读、读不到即未命中。
       return await f.readAsBytes();
     } catch (_) {
       return null;
     }
   }
+
+  /// 落盘裁剪节流：[pruneLruDirectory] 必须把目录内所有文件 stat 完才知道是否
+  /// 超限（目录上限 2000 文件）。此前每写一张图就扫一次全目录——一屏 24 张封面
+  /// = 24 次全扫描（最多 ≈4.8 万次 stat），全部排在 UI isolate 的事件循环上，
+  /// 正是"边加载边卡"的来源。改为每 50 次写扫一次（配额略滞后，磁盘峰值可接受）。
+  static const int _trimEveryWrites = 50;
+  static int _writesSinceTrim = 0;
+  static int _srWritesSinceTrim = 0;
 
   static Future<void> _diskWrite(String url, Uint8List bytes,
       {bool sr = false}) async {
@@ -146,8 +168,18 @@ class ImageCacheManager {
     final f = File(
         '${(await (sr ? _srImagesDir() : _imagesDir())).path}/${sr ? _srKey(url) : _key(url)}.img');
     try {
-      await f.writeAsBytes(bytes, flush: true);
-      unawaited(_maybeTrimDisk(sr: sr));
+      // 不再 flush:true：那会 FlushFileBuffers 同步刷盘，图片字节已在内存，
+      // 却要多等一次磁盘同步才返回给 UI 开始解码。交给操作系统批量落盘。
+      await f.writeAsBytes(bytes);
+      if (sr) {
+        if (++_srWritesSinceTrim >= _trimEveryWrites) {
+          _srWritesSinceTrim = 0;
+          unawaited(_maybeTrimDisk(sr: true));
+        }
+      } else if (++_writesSinceTrim >= _trimEveryWrites) {
+        _writesSinceTrim = 0;
+        unawaited(_maybeTrimDisk());
+      }
     } catch (_) {}
   }
 
@@ -252,6 +284,7 @@ class ImageCacheManager {
     Map<String, String>? headers,
     Future<Uint8List> Function()? fetch,
     String? proxy,
+    Duration? timeout,
   }) {
     _maybeRecoverImageCache();
     final norm = primaryUrl(url);
@@ -272,11 +305,13 @@ class ImageCacheManager {
           if (identical(_inflight[norm], running)) {
             _inflight.remove(norm);
           }
-          return _load(norm, headers: headers, fetch: fetch, proxy: proxy);
+          return _load(norm,
+              headers: headers, fetch: fetch, proxy: proxy, timeout: timeout);
         },
       );
     }
-    final future = _load(norm, headers: headers, fetch: fetch, proxy: proxy);
+    final future = _load(norm,
+        headers: headers, fetch: fetch, proxy: proxy, timeout: timeout);
     _inflight[norm] = future;
     return future;
   }
@@ -289,6 +324,7 @@ class ImageCacheManager {
     Map<String, String>? headers,
     Future<Uint8List> Function()? fetch,
     String? proxy,
+    Duration? timeout,
   }) async {
     final disk = await _diskBytes(url);
     if (disk != null) {
@@ -297,7 +333,13 @@ class ImageCacheManager {
     }
     final bytes = fetch != null
         ? await fetch()
-        : Uint8List.fromList(await Net.getBytesAuto(url, headers: headers, proxy: proxy));
+        // 超时必须透传到真正的 HTTP 请求。此前调用方只在外层 .timeout(8s)，
+        // 底层请求仍按默认 15s 跑完才 release 限流槽：慢 CDN 下一屏封面会被
+        // 这些「已判失败但还在跑」的幽灵请求占满 asset 通道的 6 个并发槽，
+        // 后面的图只能排队，表现就是一片灰、越滚越慢。透传后请求在 8s 真正
+        // 中止并释放槽位。
+        : Uint8List.fromList(await Net.getBytesAuto(url,
+            headers: headers, proxy: proxy, timeout: timeout));
     _putMem(url, bytes);
     await _diskWrite(url, bytes);
     return bytes;

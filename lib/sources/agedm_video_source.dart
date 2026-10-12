@@ -178,18 +178,24 @@ class AgedMVideoSource extends VideoSource {
     const headers = {'Cookie': 'adult=1', 'Referer': '$_base/'};
     final pageUrl = '$_base/play/$videoId/$season/$episode';
     String? html;
+    // retry:false 是必须的：Net.get 默认自带一次重试，这里又手写了一层
+    // 「失败再试一次」，两层叠加后最坏 20+0.6+20 → 25+0.6+25 ≈ 91 秒才落到
+    // 下面「返回播放页 URL 交给 WebView」的兜底，用户看到的就是转圈一分半。
+    // 关掉内建重试、收紧超时后最坏 ≈ 8+12 = 20 秒，且 WebView 兜底本来就在。
     try {
       html = await Net.get(
         pageUrl,
         headers: headers,
-        timeout: const Duration(seconds: 20),
+        timeout: const Duration(seconds: 8),
+        retry: false,
       );
     } catch (_) {
       try {
         html = await Net.get(
           pageUrl,
           headers: headers,
-          timeout: const Duration(seconds: 25),
+          timeout: const Duration(seconds: 12),
+          retry: false,
         );
       } catch (_) {}
     }

@@ -11,6 +11,7 @@ import 'native_player_page.dart';
 import 'responsive.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/back_circle_button.dart';
+import 'widgets/cached_image.dart';
 
 /// 选集过滤纯函数（选集搜索框用；独立便于单元测试）。
 /// [filter] 按剧集标题模糊匹配，也支持直接输集数（如「12」匹配第 12 集）；
@@ -405,12 +406,9 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
           flexibleSpace: FlexibleSpaceBar(
             background: Stack(fit: StackFit.expand, children: [
               if (d.cover != null && d.cover!.isNotEmpty)
-                Image.network(d.cover!,
-                    fit: BoxFit.cover,
-                    cacheWidth:
-                        (MediaQuery.sizeOf(context).width * MediaQuery.devicePixelRatioOf(context)).toInt(),
-                    errorBuilder: (_, __, ___) => _coverFallback(theme),
-                  )
+                // CachedImage 而非 Image.network：后者绕开自有磁盘缓存、降级链
+                // 与 Referer 头，重进页面即重新下载，且没有占位（背景先空白）。
+                CachedImage(d.cover!, fit: BoxFit.cover)
               else
                 _coverFallback(theme),
               Container(

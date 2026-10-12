@@ -108,8 +108,11 @@ class _CachedImageState extends State<CachedImage> {
             ).timeout(const Duration(seconds: 8));
             ok = sr;
           } else {
-            ok = await ImageCacheManager.load(u, headers: headers)
-                .timeout(const Duration(seconds: 8));
+            ok = await ImageCacheManager.load(
+                    u, headers: headers, timeout: const Duration(seconds: 8))
+                // 外层只作兜底（注入 fetch 的路径不受内层超时约束），比内层宽
+                // 2s：外层若先到点，底层请求还在跑并占着限流并发槽。
+                .timeout(const Duration(seconds: 10));
           }
           break;
         } catch (_) {

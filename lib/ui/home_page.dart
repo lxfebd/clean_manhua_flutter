@@ -431,7 +431,11 @@ class HomePageState extends State<HomePage> {
             delegate: SliverChildBuilderDelegate(
             (c, i) => RepaintBoundary(
               child: FadeSlideIn(
-                delay: Duration(milliseconds: 50 * (i % 12)),
+                // 只对首屏做入场动画：追加页若仍逐张延迟，新卡片会重播
+                // 0~550ms 入场并掀起定时器风暴（与动漫首页同一处理）。
+                delay: _items.length <= 24
+                    ? Duration(milliseconds: 50 * (i % 12))
+                    : Duration.zero,
                 offset: 16,
                 child: ContextMenuWrapper(
                   items: () => _cardMenu(_items[i]),

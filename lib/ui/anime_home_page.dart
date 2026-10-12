@@ -99,13 +99,17 @@ class AnimeHomePageState extends State<AnimeHomePage> {
   Future<void> _loadSources() async {
     final enabled = await SourceManager.enabledVideoSources();
     if (!mounted) return;
+    final prevId = _source.id;
     setState(() {
       _sources = enabled.isNotEmpty ? enabled : SourceManager.videoSources;
       if (!_sources.any((s) => s.id == _source.id)) {
         _source = _sources.first;
       }
     });
-    _loadSourceCats();
+    // 源没换就不必再抓一次分类：对 categories() 走网络的源（anime1 要抓整页
+    // HTML、dsl 同理），此前启动时同一页会被抓两遍，还和首屏列表请求抢同一个
+    // api 通道（3 req/s、并发 5）。
+    if (_source.id != prevId) _loadSourceCats();
   }
 
   /// 弹出视频源选择底部弹窗。
@@ -862,7 +866,6 @@ class AnimeHomePageState extends State<AnimeHomePage> {
       child: TextField(
         controller: _searchCtrl,
         textInputAction: TextInputAction.search,
-        onChanged: (_) => setState(() {}),
         onSubmitted: (v) {
           _keyword = v;
           _switchMode('search');
@@ -881,24 +884,29 @@ class AnimeHomePageState extends State<AnimeHomePage> {
             color: T.color(scheme.onSurface, TextTier.low,
                 brightness: scheme.brightness),
           ),
-          suffixIcon: _searchCtrl.text.isEmpty
-              ? null
-              : IconButton(
-                  tooltip: '清空',
-                  icon: Icon(
-                    Icons.close_rounded,
-                    size: 17,
-                    color: T.color(scheme.onSurface, TextTier.low,
-                        brightness: scheme.brightness),
+          // 清除按钮的可见性单独订阅控制器。此前 onChanged: setState((){})
+          // 让每敲一个字符都重建整页（头部 + 网格 delegate + 已挂载卡片）。
+          suffixIcon: ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _searchCtrl,
+            builder: (c, v, _) => v.text.isEmpty
+                ? const SizedBox.shrink()
+                : IconButton(
+                    tooltip: '清空',
+                    icon: Icon(
+                      Icons.close_rounded,
+                      size: 17,
+                      color: T.color(scheme.onSurface, TextTier.low,
+                          brightness: scheme.brightness),
+                    ),
+                    onPressed: () {
+                      _searchCtrl.clear();
+                      setState(() {
+                        _keyword = '';
+                        if (_mode == 'search') _switchMode('rank');
+                      });
+                    },
                   ),
-                  onPressed: () {
-                    _searchCtrl.clear();
-                    setState(() {
-                      _keyword = '';
-                      if (_mode == 'search') _switchMode('rank');
-                    });
-                  },
-                ),
+          ),
           isDense: true,
           contentPadding: const EdgeInsets.symmetric(vertical: 10),
           border: InputBorder.none,

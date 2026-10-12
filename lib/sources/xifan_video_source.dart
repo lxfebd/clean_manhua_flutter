@@ -149,7 +149,9 @@ class XifanVideoSource extends VideoSource {
   @override
   Future<VideoDetail> detail(String videoId) async {
     final html = await Net.get('$_host/anime/$videoId',
-        headers: {'Accept': 'text/html'}, timeout: const Duration(seconds: 20));
+        headers: {'Accept': 'text/html'},
+        timeout: const Duration(seconds: 10),
+        retry: false);
     return _detailFromHtml(html, videoId);
   }
 
@@ -219,7 +221,9 @@ class XifanVideoSource extends VideoSource {
     if (ep != null) return _playPath(videoId, ep);
     // 缓存未命中（如跨会话/清除）：重新请求详情页补 epid 映射。
     final html = await Net.get('$_host/anime/$videoId',
-        headers: {'Accept': 'text/html'}, timeout: const Duration(seconds: 20));
+        headers: {'Accept': 'text/html'},
+        timeout: const Duration(seconds: 10),
+        retry: false);
     final parsed = _parseEpisodes(html);
     if (parsed.episodes.isEmpty) throw Exception('稀饭：未找到剧集信息');
     _cacheEps(videoId, parsed.mapping);

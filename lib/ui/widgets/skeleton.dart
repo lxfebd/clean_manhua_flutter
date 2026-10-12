@@ -97,17 +97,17 @@ class SkeletonCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SkeletonPulse(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(child: SkeletonBox()),
-          Padding(
-            padding: EdgeInsets.fromLTRB(8, 8, 8, 10),
-            child: SkeletonBox(height: 12, radius: R.control),
-          ),
-        ],
-      ),
+    // 脉冲由外层整片骨架共用一个 controller（见 HomeGridSkeleton），
+    // 不再每卡一个 AnimationController + 每帧 Tween。
+    return const Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: SkeletonBox()),
+        Padding(
+          padding: EdgeInsets.fromLTRB(8, 8, 8, 10),
+          child: SkeletonBox(height: 12, radius: R.control),
+        ),
+      ],
     );
   }
 }
@@ -128,8 +128,12 @@ class HomeGridSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDesktop = DesktopUi.isDesktopPlatform;
-    return CustomScrollView(
-      physics: const NeverScrollableScrollPhysics(),
+    // 一个 controller 驱动整片骨架：此前每张卡各有一个 AnimationController
+    // （桌面 6–8 列 = 12–16 个同时 tick，每帧 12–16 次 Tween 求值 + 12–16 个
+    // Opacity 合成层），而首屏加载时正是最忙的时候。
+    return SkeletonPulse(
+      child: CustomScrollView(
+        physics: const NeverScrollableScrollPhysics(),
       slivers: [
         if (showRankBanner) ...[
           const SliverToBoxAdapter(child: SizedBox(height: 8)),
@@ -169,6 +173,7 @@ class HomeGridSkeleton extends StatelessWidget {
           ),
         ),
       ],
+      ),
     );
   }
 }

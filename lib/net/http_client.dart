@@ -385,7 +385,7 @@ class Net {
       Duration? timeout,
       int? maxBytes,
       bool retry = true}) async {
-    if (_cronetUsable == false || NetConn.proxyEnabled) {
+    if (!_cronetPlatform || _cronetUsable == false || NetConn.proxyEnabled) {
       return get(urlStr, headers: headers, timeout: timeout, maxBytes: maxBytes, retry: retry);
     }
     final t = timeout ?? _timeout;
@@ -411,7 +411,7 @@ class Net {
   /// Cronet 默认引擎不读代理配置，走它等于绕过代理，故代理场景必须走 [getBytes]。
   static Future<List<int>> getBytesCronet(String urlStr,
       {Map<String, String>? headers, Duration? timeout, String? proxy, int? maxBytes}) async {
-    if (proxy != null || _cronetUsable == false || NetConn.proxyEnabled) {
+    if (proxy != null || !_cronetPlatform || _cronetUsable == false || NetConn.proxyEnabled) {
       return downloadBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout, maxBytes: maxBytes);
     }
     final t = timeout ?? _timeout;
@@ -434,6 +434,20 @@ class Net {
   /// Cronet 是否已确认可用；null=未探测，false=已确认不可用（跳过 Cronet）。
   static bool? _cronetUsable;
 
+  /// Cronet 只在 Android 存在。非 Android 上 `defaultCronetEngine()` 返回的
+  /// client 要到 send() 才炸（JNI 动态库缺失），首帧突发里一屏封面会在
+  /// 标志位翻转前各自白跑一次引擎构建。这里直接短路，连尝试都不发起。
+  static final bool _cronetPlatform =
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  /// 复用的 Cronet 客户端（内含 Chromium 网络栈：网络线程、socket pool、缓存）。
+  ///
+  /// 必须复用：`defaultCronetEngine()` 构造的 client 带 `_closeEngine=true`，
+  /// `close()` 会真的销毁引擎，而引擎一销毁 socket pool 就跟着没了。旧实现
+  /// 每个请求 new 一个 + finally close —— 一屏 24 张同域封面 = 24 次完整
+  /// TCP+TLS 握手，连接零复用，这是 Android 图片慢的主要来源之一。
+  static http.Client? _cronetClient;
+
   /// 真正走一次 Cronet 的完整请求（探测 + 响应），整体受 [probe] 限时。
   /// 成功返回 String 或 `List<int>`（按 [asBytes]），失败抛异常由调用方回退 dart:io。
   ///
@@ -445,7 +459,7 @@ class Net {
       int limit,
       {required String accept, required bool asBytes}) {
     return Future<Object>(() async {
-      final client = CronetHttp.defaultCronetEngine();
+      final client = _cronetClient ??= CronetHttp.defaultCronetEngine();
       // web 上 Cronet 不可用（stub 返回 null），抛错让调用方回退 dart:io。
       if (client == null) throw UnsupportedError('Cronet 仅支持 Android');
       try {
@@ -456,15 +470,23 @@ class Net {
         final streamed = await client.send(req).timeout(t);
         if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
           final body = await readLimited(streamed.stream, limit, t);
-          throw Exception(
-              'HTTP ${streamed.statusCode}: ${utf8.decode(body, allowMalformed: true)}');
+          // 用 HttpStatusException 而非裸 Exception：调用方据此区分
+          // 「这个 URL 的问题」与「Cronet 引擎不可用」，一张封面 404 或一次
+          // CF 403 不应把 Cronet 全局下线（见 getCronet/getBytesCronet）。
+          throw HttpStatusException(
+              streamed.statusCode, utf8.decode(body, allowMalformed: true));
         }
         final bytes = await readLimited(streamed.stream, limit, t);
         if (asBytes) return bytes;
         return utf8.decode(bytes, allowMalformed: true);
-      } finally {
-        client.close();
+      } catch (e) {
+        // HTTP 状态错误是这次请求的问题，引擎与连接池照常留着复用；
+        // 只有引擎本身不可用才丢弃，下一次请求重建干净的。
+        if (e is! HttpStatusException) _cronetClient = null;
+        rethrow;
       }
+      // 注意：不再 client.close()。close() 会销毁 CronetEngine，socket pool
+      // 随之消失，同域下一张图又要完整 TCP+TLS 握手。引擎常驻才有连接复用。
     }).timeout(probe);
   }
 
