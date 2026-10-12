@@ -27,7 +27,10 @@ class VideoEpisode {
   final int season;
   final int episode;
   final String title;
-  VideoEpisode(this.season, this.episode, this.title);
+  /// 播放页剧集 id（部分源播放链接用剧集 id 而非集号，如稀饭新站 /anime/{id}/play/{epid}）。
+  /// 为 null 时按 [episode] 兜底。
+  final int? epid;
+  VideoEpisode(this.season, this.episode, this.title, {this.epid});
 }
 
 class VideoDetail {

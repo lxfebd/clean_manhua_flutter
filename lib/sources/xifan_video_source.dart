@@ -1,38 +1,53 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../models/comic_item.dart';
 import '../net/http_client.dart';
 import 'video_source.dart';
-import 'dsl/html_parser.dart';
+import 'dsl/html_parser.dart' show htmlUnescape;
 
-/// 稀饭动漫 (XIFAN / xifan.moe) 视频源 —— anime.xifanacg.com
+/// 稀饭动漫 (XIFAN / xifan.moe) 视频源 —— next.xifanacg.com
 ///
-/// 数据流：
-/// - 列表 / 搜索：苹果CMS v10 风格 JSON 接口
-///     https://anime.xifanacg.com/index.php/ajax/data.html?mid=1&page=N
-///     https://anime.xifanacg.com/index.php/ajax/data.html?mid=1&wd=关键词&page=N
-///   返回 list[].vod_id / vod_name / vod_pic / vod_remarks / vod_class
-/// - 详情 / 剧集：HTML 页面解析（/bangumi/{id}.html）
-/// - 剧集链接：/watch/{id}/{season}/{episode}.html
-/// - 播放：播放页内直接给出视频直链（moedot.net 的 mp4，302 跳转到 pan.wo.cn 签名直链，
-///   无需 Referer），由 media_kit 直接播放（走 NativePlayerPage，接系统音量/亮度）。
+/// 数据流（Next.js 新站，2026-10 实测）：
+/// - 列表 / 搜索：Supabase RPC POST /rest/v1/rpc/search_animes
+///     headers 需带 apikey（publishable key，站点前端公开常量）与 Authorization。
+///     body: search_term?/page_number/items_per_page/sort_by?/filter_*?
+///     返回 [{id,title,cover_url,description,bangumi_score,view_count,is_finished,
+///           total_episodes,current_episodes,format,anime_type,rank,...}]
+/// - 详情：GET /anime/{id} 服务端渲染，Schema.org JSON-LD(TVSeries) 给元信息，
+///     HTML 剧集列表 <li><a href="/anime/{id}/play/{epid}?source={code}">。
+///     多线路为 tab（默认线路的剧集完整渲染在 HTML 中，其余线路客户端请求）。
+/// - 播放：GET /anime/{id}/play/{epid}?source={code} 播放页，直链由站点 JS
+///     请求 issue-web-playback 后注入 <video>。App 返回播放页地址交给内嵌
+///     WebView 通道（执行 JS、捕获直链），不再尝试 Dart 侧解析。
 class XifanVideoSource extends VideoSource {
-  static const String _host = 'https://anime.xifanacg.com';
-  static const String _api = '$_host/index.php/ajax/data.html';
+  static const String _host = 'https://next.xifanacg.com';
+  static const String _apiBase = 'https://api.xifanacg.com/rest/v1/rpc/search_animes';
+  // 站点前端公开常量：supabase createBrowserClient(url, key)（05pvawgvkihwy.js）。
+  static const String _sbKey =
+      'sb_publishable_OBIVAWACIX6lPXrO98_z24_HcsmalkA';
+  static const int _perPage = 24;
 
+  static final RegExp _ldRe =
+      RegExp(r'<script type="application/ld\+json">([\s\S]*?)</script>');
   static final RegExp _titleRe = RegExp(r'<title>([^<]*)</title>');
-  static final RegExp _coverRe =
-      RegExp(r'<img[^>]*src="(https://img2\.xfmanga\.top/[^"]+)"');
   static final RegExp _descRe = RegExp(
       r'<meta[^>]+name="description"[^>]+content="([^"]*)"',
       dotAll: true);
-  // /watch/{videoId}/{线路line}/{集ep}.html —— 只抓取后两个数字（线路=季，集=集）。
-  static final RegExp _epRe = RegExp(
-      r'href="/watch/\d+/(\d+)/(\d+)\.html"[^>]*>([\s\S]*?)</a>');
-  static final RegExp _mp4Re = RegExp(
-      r'https?://[^\s"<>]+moedot\.net[^\s"<>]*\.(?:mp4|m3u8)');
-  static final RegExp _mp4FallbackRe =
-      RegExp(r'https?://[^\s"<>]+\.(?:mp4|m3u8)');
+  static final RegExp _playRe = RegExp(
+      r'href="/anime/\d+/play/(\d+)\?source=([a-z0-9]+)"');
+  static final RegExp _epNumRe = RegExp(
+      r'<span class="text-lg leading-none font-semibold tabular-nums">(\d+)</span>');
+  static final RegExp _epTitleRe = RegExp(
+      r'<span class="mt-1 line-clamp-1 text-xs text-ink-muted">([^<]*)</span>');
+  static final RegExp _lineRe = RegExp(
+      r'aria-label="播放线路"[\s\S]{0,1600}?<span class="relative z-10">([^<]+)</span>');
+
+  /// 详情页解析出的剧集映射：videoId → (episode → epid + 线路代码)。
+  /// playUrl(videoId, season, episode) 不携带剧集列表，靠此缓存还原 epid；
+  /// 缓存未命中时重新请求详情页补充。
+  static final Map<String, Map<int, _EpMap>> _epCache = {};
 
   @override
   String get id => 'xifan';
@@ -42,247 +57,289 @@ class XifanVideoSource extends VideoSource {
   @override
   Future<List<Category>> categories() async => [
         Category('all', '全部'),
-        Category('tv', '番剧'),
-        Category('manga', '漫画改'),
-        Category('novel', '轻小说改'),
-        Category('original', '原创'),
+        Category('serial', '连载新番'),
+        Category('finished', '完结旧番'),
+        Category('tv', 'TV动画'),
+        Category('movie', '剧场版'),
       ];
 
   @override
   Future<List<ComicItem>> listByCategory(String categoryId, int page) async {
-    if (categoryId == 'all') return _list(page);
-    final kws = _classKeywords(categoryId);
-    if (kws.isEmpty) return _list(page);
-    final out = <ComicItem>[];
-    // 列表接口不含地区/年份字段，按 vod_class 标签过滤（TV/剧场版/OVA·SP）。
-    // 翻页为累积式：最多向后拉 5 页，凑够约一屏（18 条）后返回。
-    for (int p = page; p < page + 8 && out.length < 18; p++) {
-      List<Map<String, dynamic>> raw;
-      try {
-        raw = _parseListRaw(await Net.get('$_api?mid=1&page=$p',
-            timeout: const Duration(seconds: 20)));
-      } catch (_) {
-        break;
-      }
-      if (raw.isEmpty) break;
-      for (final m in raw) {
-        final c = (m['vod_class'] as String? ?? '');
-        if (kws.any((k) => c.contains(k))) out.add(_toItem(m));
-      }
-    }
-    return out;
+    return _searchAnimes(_categoryBody(categoryId)..['page_number'] = page
+      ..['items_per_page'] = _perPage);
   }
 
-  static List<String> _classKeywords(String id) {
-    switch (id) {
-      case 'tv':
-        return const ['TV'];
-      case 'manga':
-        return const ['漫画改'];
-      case 'novel':
-        return const ['轻小说改'];
-      case 'original':
-        return const ['原创'];
-      default:
-        return const [];
-    }
+  static Map<String, dynamic> _categoryBody(String categoryId) {
+    return {
+      if (categoryId == 'serial') 'filter_type_id': 1,
+      if (categoryId == 'finished') 'filter_type_id': 2,
+      if (categoryId == 'tv') 'filter_format': 'tv',
+      if (categoryId == 'movie') 'filter_format': 'movie',
+    };
   }
 
   @override
   Future<List<ComicItem>> search(String keyword, int page) async {
     if (keyword.trim().isEmpty) return const [];
-    final url = '$_api?mid=1&wd=${Uri.encodeQueryComponent(keyword)}&page=$page';
     // 网络/解析失败直接上抛，由列表页错误态处理，避免把"加载失败"伪装成"无结果"
-    return _parseList(
-        await Net.get(url, timeout: const Duration(seconds: 20)));
+    return _searchAnimes({
+      'search_term': keyword.trim(),
+      'page_number': page,
+      'items_per_page': _perPage,
+    });
   }
 
-  Future<List<ComicItem>> _list(int page) async {
-    final url = '$_api?mid=1&page=$page';
-    return _parseList(
-        await Net.get(url, timeout: const Duration(seconds: 20)));
-  }
-
-  List<Map<String, dynamic>> _parseListRaw(String body) {
-    final json = jsonDecode(body) as Map<String, dynamic>;
-    // code != 1 视为无结果（如翻页越界），返回空列表；
-    // 但 jsonDecode/类型转换异常自然上抛，不再被吞掉伪装成"无结果"。
-    if (json['code'] != 1) return const [];
-    final list = (json['list'] as List?) ?? const [];
+  Future<List<ComicItem>> _searchAnimes(Map<String, dynamic> body) async {
+    final raw = await Net.post(
+      _apiBase,
+      headers: _sbHeaders(),
+      body: jsonEncode(body),
+      // 响应可能较大（24 条 × 长简介），放宽字节上限。
+      maxBytes: 4 * 1024 * 1024,
+    );
+    final list = jsonDecode(raw) as List<dynamic>;
     return list
-        .map<Map<String, dynamic>>((e) => e as Map<String, dynamic>)
-        .toList();
+        .whereType<Map<String, dynamic>>()
+        .map(_toItem)
+        .toList(growable: false);
   }
+
+  static Map<String, String> _sbHeaders() => {
+        'apikey': _sbKey,
+        'Authorization': 'Bearer $_sbKey',
+        'Content-Type': 'application/json',
+      };
 
   ComicItem _toItem(Map<String, dynamic> m) {
-    final pic = (m['vod_pic'] as String? ?? '').trim();
+    final score = m['bangumi_score'];
+    final views = m['view_count'];
     return ComicItem(
-      (m['vod_id']?.toString() ?? ''),
-      _cleanTitle((m['vod_name'] as String? ?? '').trim()),
-      pic,
-    );
+      (m['id']?.toString() ?? ''),
+      _cleanTitle((m['title'] as String? ?? '').trim()),
+      (m['cover_url'] as String? ?? '').trim(),
+    )
+      ..score = (score is num && score > 0) ? score.toString() : null
+      ..hits = (views is num && views > 0) ? views.toString() : null
+      ..rank = _rank(m)
+      ..remarks = _remarks(m);
   }
 
-  List<ComicItem> _parseList(String body) => _parseListRaw(body).map(_toItem).toList();
+  static String? _rank(Map<String, dynamic> m) {
+    final r = m['rank'];
+    return (r is num && r > 0) ? r.toString() : null;
+  }
+
+  static String? _remarks(Map<String, dynamic> m) {
+    final finished = m['is_finished'] == true;
+    final total = m['total_episodes'];
+    final cur = m['current_episodes'];
+    if (finished) {
+      return (total is num && total > 0) ? '全${total.toInt()}集' : '完结';
+    }
+    if (cur is num && cur > 0) return '更新至${cur.toInt()}集';
+    return null;
+  }
 
   @override
   Future<VideoDetail> detail(String videoId) async {
-    final html = await Net.get('$_host/bangumi/$videoId.html',
-        timeout: const Duration(seconds: 20));
+    final html = await Net.get('$_host/anime/$videoId',
+        headers: {'Accept': 'text/html'}, timeout: const Duration(seconds: 20));
+    return _detailFromHtml(html, videoId);
+  }
 
-    final title = _cleanTitle(_first(_titleRe, html));
-    final cover = _first(_coverRe, html);
-    final description = htmlUnescape(_first(_descRe, html));
+  /// 测试入口：跳过网络，直接解析给定的详情页 HTML。
+  @visibleForTesting
+  Future<VideoDetail> detailForTest(String html, String videoId) async =>
+      _detailFromHtml(html, videoId);
 
-    final episodes = _parseEpisodes(html);
-    final rawNames = _parseSourceNames(html);
-    Map<int, String>? sourceNames;
-    if (rawNames.isNotEmpty) {
-      sourceNames = {for (int i = 0; i < rawNames.length; i++) i + 1: rawNames[i]};
-    }
+  /// 测试入口：列表条目 JSON → ComicItem 映射（不请求网络）。
+  @visibleForTesting
+  List<ComicItem> itemsForTest(List<Map<String, dynamic>> list) =>
+      list.map(_toItem).toList(growable: false);
+
+  /// 测试入口：分类 → RPC body 筛选映射。
+  @visibleForTesting
+  Map<String, dynamic> bodyForTest(String categoryId) =>
+      _categoryBody(categoryId);
+
+  Future<VideoDetail> _detailFromHtml(String html, String videoId) async {
+    final ld = _ld(html);
+    final title = _cleanTitle(ld?['name'] as String? ?? _first(_titleRe, html));
+    final cover = _ldImage(ld) ?? '';
+    final description =
+        ld?['description'] as String? ?? htmlUnescape(_first(_descRe, html));
+
+    final parsed = _parseEpisodes(html);
+    if (parsed.episodes.isNotEmpty) _epCache[videoId] = parsed.mapping;
+
+    final countryRaw = ld?['countryOfOrigin'];
+    final country = countryRaw is String
+        ? countryRaw
+        : (countryRaw is List
+            ? countryRaw.whereType<String>().join(' ')
+            : '');
+    final genre = _genreList(ld);
+    final date = ld?['datePublished'] as String? ?? '';
+    final year = date.isNotEmpty ? date.split('-').first : null;
+    final rating = _rating(ld);
+    final type = _typeFrom(genre, date);
+    final tags = _tagsFrom(genre, year, country.isNotEmpty ? country : null);
+    final line = _lineName(html);
+
+    final item = ComicItem(
+      videoId,
+      htmlUnescape(title),
+      cover,
+    );
+    if (rating != null) item.score = rating;
 
     return VideoDetail(
-      ComicItem(videoId, title, cover)..lang = _metaText(html, '语言'),
-      episodes,
+      item,
+      parsed.episodes,
       description: description.isNotEmpty ? description : null,
-      cover: cover,
-      area: _metaText(html, '地区'),
-      year: _metaText(html, '年份'),
-      type: _metaText(html, '类型'),
-      lang: _metaText(html, '语言'),
-      sourceNames: sourceNames,
+      cover: cover.isNotEmpty ? cover : null,
+      area: country.isNotEmpty ? country : null,
+      year: year,
+      type: type,
+      tags: tags,
+      lang: _langFrom(genre),
+      sourceNames: line == null ? null : {1: line},
     );
   }
 
-  /// 解析详情页 [anthology-tab] 里的播放源（线路）名称，按出现顺序返回。
-  ///
-  /// 例如：稀饭新番主线-1 / 稀饭新番主线-2 / 稀饭备用-1，下标 i 对应
-  /// 剧集链接里的 season = i+1。解析失败时返回空列表（不分组）。
-  List<String> _parseSourceNames(String html) {
-    final tabIdx = html.indexOf('anthology-tab');
-    if (tabIdx < 0) return const [];
-    // 只取 anthology-tab 到第一个剧集列表块之间，避免误匹配其它 swiper-slide
-    final listIdx = html.indexOf('anthology-list-play', tabIdx);
-    final rawEnd = listIdx > 0 ? listIdx : (tabIdx + 4000);
-    final end = rawEnd > html.length ? html.length : rawEnd;
-    final block = html.substring(tabIdx, end);
-    final names = <String>[];
-    final re =
-        RegExp(r'<a[^>]*class="[^"]*swiper-slide[^"]*"[^>]*>([\s\S]*?)</a>');
-    for (final m in re.allMatches(block)) {
-      final t = _stripTags(m.group(1) ?? '')
-          .replaceAll('&nbsp;', ' ')
-          .replaceAll(RegExp(r'\s+'), ' ')
-          .trim();
-      if (t.isNotEmpty) names.add(htmlUnescape(t));
-    }
-    return names;
-  }
-
-  // 直链缓存：播放页每次返回 moedot.net 的 302 签名直链，重复请求浪费。
-  // 同一集缓存 30 分钟（约等于 pan.wo.cn 签名有效期），过期重新解析播放页。
-  // 最多保留 100 条，超限先清过期，仍超则移除最旧，防止长期追番内存只增不减。
-  static final Map<String, _CachedUrl> _urlCache = {};
-  static const int _maxUrlCache = 100;
-
-  /// 播放页请求头：带同源 Referer 与站点 UA，降低反爬/人机校验触发率。
-  static Map<String, String> _watchHeaders() => {
-        'Referer': '$_host/',
-        'Accept':
-            'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      };
-
   @override
   Future<String> playUrl(String videoId, int season, int episode) async {
-    final key = '$videoId/$season/$episode';
-    final cached = _urlCache[key];
-    if (cached != null && !cached.expired) return cached.url;
-    // 网络抖动/超时重试一次（本处手写：第二次放宽超时到 25s），
-    // 故 Net 内建重试关闭（retry: false），避免两层叠加成 4 次真实请求。
-    // 播放页走 Cronet（Chromium 网络栈，TLS/HTTP2 指纹类浏览器），
-    // 规避部分线路对 dart:io 指纹的 Cloudflare 人机校验拦截。
-    String raw;
-    try {
-      raw = await Net.getCronet('$_host/watch/$videoId/$season/$episode.html',
-          headers: _watchHeaders(),
-          timeout: const Duration(seconds: 20),
-          retry: false);
-    } catch (_) {
-      raw = await Net.getCronet('$_host/watch/$videoId/$season/$episode.html',
-          headers: _watchHeaders(),
-          timeout: const Duration(seconds: 25),
-          retry: false);
-    }
-    // 播放页在 <script> 的 JSON 字符串里给出视频地址，斜杠被转义为 \/，
-    // 还原成普通 / 后再用正则取直链。
-    final html = raw.replaceAll(r'\/', '/');
-    final m = _mp4Re.firstMatch(html) ?? _mp4FallbackRe.firstMatch(html);
-    if (m == null) {
-      // 命中反爬/人机校验落地页时给出可读提示，而非笼统的"未找到直链"
-      if (html.contains('captcha') ||
-          html.contains('verify') ||
-          html.contains('cf-challenge')) {
-        throw Exception('稀饭：该线路触发人机校验，请换一个线路再试');
-      }
-      throw Exception('稀饭：未找到播放直链');
-    }
-    final url = m.group(0)!;
-    // 超限清理：先清已过期，仍超则逐出最早的条目
-    if (_urlCache.length >= _maxUrlCache) {
-      _urlCache.removeWhere((_, c) => c.expired);
-    }
-    if (_urlCache.length >= _maxUrlCache) {
-      final oldest = _urlCache.entries
-          .toList()
-        ..sort((a, b) => a.value.fetched.compareTo(b.value.fetched));
-      for (var i = 0; i < oldest.length && _urlCache.length >= _maxUrlCache; i++) {
-        _urlCache.remove(oldest[i].key);
-      }
-    }
-    _urlCache[key] = _CachedUrl(url);
-    return url;
+    final ep = _epCache[videoId]?[episode];
+    if (ep != null) return _playPath(videoId, ep);
+    // 缓存未命中（如跨会话/清除）：重新请求详情页补 epid 映射。
+    final html = await Net.get('$_host/anime/$videoId',
+        headers: {'Accept': 'text/html'}, timeout: const Duration(seconds: 20));
+    final parsed = _parseEpisodes(html);
+    if (parsed.episodes.isEmpty) throw Exception('稀饭：未找到剧集信息');
+    _epCache[videoId] = parsed.mapping;
+    final found = _epCache[videoId]?[episode];
+    if (found == null) throw Exception('稀饭：未找到第 $episode 集的播放地址');
+    return _playPath(videoId, found);
   }
 
-  List<VideoEpisode> _parseEpisodes(String html) {
+  static String _playPath(String videoId, _EpMap ep) =>
+      '$_host/anime/$videoId/play/${ep.epid}?source=${ep.source}';
+
+  /// 从详情页 JSON-LD 脚本解析出结构化对象（TVSeries）。无则返回 null。
+  Map<String, dynamic>? _ld(String html) {
+    for (final m in _ldRe.allMatches(html)) {
+      try {
+        final d = jsonDecode(m.group(1)!) as Map<String, dynamic>;
+        final t = d['@type'];
+        if (t == 'TVSeries' || t == 'Movie' || t == 'VideoObject') return d;
+      } catch (_) {
+        // 某个 JSON-LD 损坏不影响其余解析
+      }
+    }
+    return null;
+  }
+
+  static String? _ldImage(Map<String, dynamic>? ld) {
+    final img = ld?['image'];
+    if (img is String && img.isNotEmpty) return img;
+    if (img is Map && img['url'] is String) return img['url'] as String;
+    return null;
+  }
+
+  static List<String> _genreList(Map<String, dynamic>? ld) {
+    final g = ld?['genre'];
+    if (g is List) return g.whereType<String>().toList();
+    if (g is String && g.isNotEmpty) {
+      return g.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    }
+    return const [];
+  }
+
+  static String? _rating(Map<String, dynamic>? ld) {
+    final r = ld?['aggregateRating'];
+    if (r is Map) {
+      final v = r['ratingValue'];
+      if (v is num && v > 0) return v.toString();
+    }
+    return null;
+  }
+
+  /// 动画形式：从 genre 里取 TV/剧场版/OVA/Web 等词；取不到则按日期年份判断
+  /// （2010 年前多为 TV 动画，仅作兜底）。
+  static String? _typeFrom(List<String> genre, String date) {
+    const forms = ['TV', '剧场版', 'OVA', 'OAD', 'SP', 'Web', '网络动画'];
+    for (final f in forms) {
+      if (genre.contains(f)) return '$f动画';
+    }
+    final y = int.tryParse(date.split('-').first);
+    if (y != null && y >= 2010) return 'TV动画';
+    return null;
+  }
+
+  /// 标签集合：genre 里剔除形式/地区/年份类噪声，保留题材词。
+  static List<String> _tagsFrom(
+      List<String> genre, String? year, String? country) {
+    final skip = <String>{
+      'TV', '剧场版', 'OVA', 'OAD', 'SP', 'Web', '网络动画', '动画', '日本', '国产',
+      if (year != null) year, if (country != null && country.isNotEmpty) country,
+    };
+    final tags = <String>[];
+    for (final g in genre) {
+      final t = g.trim();
+      if (t.isEmpty || skip.contains(t) || tags.contains(t)) continue;
+      tags.add(t);
+    }
+    return tags;
+  }
+
+  /// 配音语言：genre 里常见「日语」「国语」「中配」等词。
+  static String? _langFrom(List<String> genre) {
+    for (final g in genre) {
+      if (g.contains('语') || g.contains('配')) return g;
+    }
+    return null;
+  }
+
+  /// 解析详情页剧集列表（默认线路，服务端完整渲染）。
+  /// 返回 [episodes]（按集号排序）与 [mapping]（集号 → epid+线路，供 playUrl）。
+  _ParsedEpisodes _parseEpisodes(String html) {
     final episodes = <VideoEpisode>[];
-    final seen = <String>{};
-    for (final m in _epRe.allMatches(html)) {
-      final s = int.tryParse(m.group(1) ?? '');
-      final e = int.tryParse(m.group(2) ?? '');
-      if (s == null || e == null) continue;
-      final key = '$s-$e';
-      if (!seen.add(key)) continue;
-      final raw = _stripTags(m.group(3) ?? '').trim();
-      final title = raw.isEmpty ? '第${_pad(e)}集' : htmlUnescape(raw);
-      episodes.add(VideoEpisode(s, e, title));
+    final mapping = <int, _EpMap>{};
+    final seen = <int>{};
+    for (final m in _playRe.allMatches(html)) {
+      final epid = int.tryParse(m.group(1) ?? '');
+      final source = m.group(2) ?? '';
+      if (epid == null || source.isEmpty) continue;
+      // 从该剧集链接之后取集号与子标题（700 字符内足够容纳一个 <li>）。
+      final end = m.end + 700 < html.length ? m.end + 700 : html.length;
+      final tail = html.substring(m.end, end);
+      // 「立即观看」按钮的 href 也是 /play/{epid}，但后面是 <button> 而非
+      // 剧集项（<span class="...">第...集</span>）；无集号直接跳过，
+      // 不占 seen 位，否则列表项（epid 相同）会被误去重。
+      final numM = _epNumRe.firstMatch(tail);
+      final epNum = int.tryParse(numM?.group(1) ?? '');
+      if (epNum == null || !seen.add(epid)) continue;
+      final titleM = _epTitleRe.firstMatch(tail);
+      final sub = titleM?.group(1)?.trim() ?? '';
+      final label = '第${_pad(epNum)}集';
+      episodes.add(VideoEpisode(
+        1,
+        epNum,
+        sub.isEmpty ? label : '$label $sub',
+        epid: epid,
+      ));
+      mapping[epNum] = _EpMap(epid, source);
     }
-    episodes.sort((a, b) => a.season == b.season
-        ? a.episode.compareTo(b.episode)
-        : a.season.compareTo(b.season));
-    return episodes;
+    episodes.sort((a, b) => a.episode.compareTo(b.episode));
+    return _ParsedEpisodes(episodes, mapping);
   }
 
-  /// 提取 label（地区/年份/状态/类型）之后、直到下一个标签或块的纯文本。
-  String? _metaText(String html, String label) {
-    final i = html.indexOf(label);
-    if (i < 0) return null;
-    // 截断点：下一个元信息标签，或进入简介/角色区，或首个「·」分隔（类型标签后常接 年·地区）。
-    const stops = [
-      '地区', '年份', '状态', '动画种类', '简介', '角色', '播放', '分享',
-      '收藏', 'Bangumi', '·', '</li>', '</ul>', '语言',
-    ];
-    var end = html.length;
-    for (final s in stops) {
-      if (s == label) continue;
-      final j = html.indexOf(s, i + label.length);
-      if (j >= 0 && j < end) end = j;
-    }
-    final seg = html.substring(i, end);
-    var text = seg.replaceAll(RegExp(r'<[^>]+>'), ' ');
-    text = text.replaceFirst(
-        RegExp('^\\s*${RegExp.escape(label)}\\s*[:：]?\\s*'), '');
-    text = text.replaceAll(RegExp(r'[,\s]+$'), ''); // 去掉截断产生的尾部逗号/空白
-    return _collapse(text);
+  /// 默认线路名（第一个 aria-label="播放线路" 的 tab 文本），无则 null。
+  String? _lineName(String html) {
+    final m = _lineRe.firstMatch(html);
+    if (m == null) return null;
+    final t = _collapse(m.group(1) ?? '');
+    return t.isEmpty ? null : htmlUnescape(t);
   }
 
   static String _cleanTitle(String raw) {
@@ -292,9 +349,6 @@ class XifanVideoSource extends VideoSource {
     return t;
   }
 
-  static String _stripTags(String s) =>
-      s.replaceAll(RegExp(r'<[^>]+>'), '').trim();
-
   static String _collapse(String s) => s.replaceAll(RegExp(r'\s+'), ' ').trim();
 
   static String _first(RegExp re, String html) =>
@@ -303,9 +357,16 @@ class XifanVideoSource extends VideoSource {
   static String _pad(int n) => n.toString().padLeft(2, '0');
 }
 
-class _CachedUrl {
-  final String url;
-  final DateTime fetched;
-  _CachedUrl(this.url) : fetched = DateTime.now();
-  bool get expired => DateTime.now().difference(fetched).inMinutes >= 30;
+/// playUrl 需要的剧集映射：epid + 线路代码。
+class _EpMap {
+  final int epid;
+  final String source;
+  _EpMap(this.epid, this.source);
+}
+
+/// 剧集解析结果：展示列表 + epid 映射。
+class _ParsedEpisodes {
+  final List<VideoEpisode> episodes;
+  final Map<int, _EpMap> mapping;
+  _ParsedEpisodes(this.episodes, this.mapping);
 }

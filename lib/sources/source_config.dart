@@ -170,7 +170,7 @@ class SourceConfigStore {
           id: 'xifan',
           name: '稀饭动漫',
           tier: SourceTier.fallback,
-          hosts: ['https://anime.xifanacg.com'],
+          hosts: ['https://next.xifanacg.com'],
         ),
         const SourceConfig(
           engineId: 'anime1',
