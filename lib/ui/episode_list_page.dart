@@ -376,6 +376,9 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
           ),
         ),
       SliverToBoxAdapter(
+        child: _VideoMetaCard(detail: d, theme: theme),
+      ),
+      SliverToBoxAdapter(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
           child: SectionHeader(
@@ -634,6 +637,10 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
               ),
             ),
           ),
+        // 元信息卡（地区/语言/年份/类型/评分/备注/集数逐项展示，详情精细化）
+        SliverToBoxAdapter(
+          child: _VideoMetaCard(detail: d, theme: theme),
+        ),
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
@@ -1041,6 +1048,72 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
             color: disabled
                 ? theme.colorScheme.onSurface.withValues(alpha: 0.25)
                 : theme.colorScheme.onSurface),
+      ),
+    );
+  }
+}
+
+/// 动漫元信息卡：把地区/语言/年份/类型/评分/备注/集数从「一行合并」改成
+/// 独立 标签:值 网格展示（详情精细化）。空字段不占位。
+class _VideoMetaCard extends StatelessWidget {
+  final VideoDetail detail;
+  final ThemeData theme;
+  const _VideoMetaCard({required this.detail, required this.theme});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = theme.colorScheme;
+    final d = detail;
+    final rows = <(String, String)>[
+      if ((d.area ?? '').isNotEmpty) ('地区', d.area!),
+      if ((d.lang ?? '').isNotEmpty) ('语言', d.lang!),
+      if ((d.year ?? '').isNotEmpty) ('年份', d.year!),
+      if ((d.type ?? '').isNotEmpty) ('类型', d.type!),
+      if (d.video.score != null &&
+          d.video.score!.isNotEmpty &&
+          d.video.score != '0')
+        ('评分', d.video.score!),
+      if (d.video.remarks != null && d.video.remarks!.isNotEmpty)
+        ('备注', d.video.remarks!),
+      if (d.episodes.isNotEmpty)
+        ('集数', EpisodeListPage._epCountLabel(d)),
+    ];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Wrap(
+          spacing: 16,
+          runSpacing: 8,
+          children: [
+            for (final (k, v) in rows)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '$k：',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: scheme.onSurface.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  Text(
+                    v,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: scheme.onSurface.withValues(alpha: 0.85),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
       ),
     );
   }
