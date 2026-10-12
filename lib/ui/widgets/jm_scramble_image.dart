@@ -162,13 +162,18 @@ class _JmScrambleImageWidgetState extends State<JmScrambleImageWidget> {
     // 避免整张按原始几千像素高解码导致 OOM 卡死。
     final ch =
         widget.horizontal ? (MediaQuery.sizeOf(context).height * dpr).toInt() : null;
-    return Image.memory(
-      _bytes!,
+    // 单层 ResizeImage + fit 策略。Image.memory(cacheWidth+cacheHeight) 走的是
+    // ResizeImage 默认 exact 策略：两轴各自独立拉伸到目标尺寸，整页/条漫图会被
+    // 压扁变形。fit 才是等比限位。
+    final provider = MemoryImage(_bytes!);
+    return Image(
+      image: ch == null
+          ? ResizeImage(provider, width: cw, policy: ResizeImagePolicy.fit)
+          : ResizeImage(provider,
+              width: cw, height: ch, policy: ResizeImagePolicy.fit),
       width: double.infinity,
       fit: widget.fit,
       filterQuality: widget.filterQuality,
-      cacheWidth: cw,
-      cacheHeight: ch,
       // 翻页时该 widget 会被销毁重建（横向 PageView wantKeepAlive=false），
       // 未开 gapless 时 provider 变更会先闪一帧空白 spinner 再出图。
       gaplessPlayback: true,

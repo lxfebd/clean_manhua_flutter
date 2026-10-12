@@ -64,7 +64,7 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 120));
     expect(apiSixthDone, false, reason: 'API 第 6 个并发必须排队（礼仪未放松）');
 
-    // 清理，避免悬挂 Future 触发 fake-async 报错
+    // 清理：释放槽位让排队的两个 acquire 收尾，避免悬挂 Future
     for (var i = 0; i < 6; i++) {
       RateLimiter.release('c.host', channel: RateChannel.asset);
     }
@@ -73,5 +73,32 @@ void main() {
     }
     await seventh;
     await apiSixth;
+  });
+
+  test('一屏 24 张封面的槽位排空时间：asset 通道应在 3s 内放行全部', () async {
+    // 首页一屏 24 张封面。旧实现（API 桶：burst 5 / 并发 5 / 3 req/s）下
+    // 前 5 张立即开始，剩余 19 张按 3/s 补充令牌 → 约 6.3s 才全部开拉。
+    // asset 通道（burst 12 / 并发 6 / 6 req/s）应在 3s 内全部放行。
+    final sw = Stopwatch()..start();
+    for (var i = 0; i < 24; i++) {
+      await RateLimiter.acquire('grid.host', channel: RateChannel.asset);
+      RateLimiter.release('grid.host', channel: RateChannel.asset);
+    }
+    sw.stop();
+    // ignore: avoid_print
+    print('24 张封面槽位排空：asset 通道 ${sw.elapsedMilliseconds} ms');
+    expect(sw.elapsedMilliseconds, lessThan(3000));
+  });
+
+  test('对照：同一批请求走 API 通道需要明显更久（旧行为量化）', () async {
+    final sw = Stopwatch()..start();
+    for (var i = 0; i < 24; i++) {
+      await RateLimiter.acquire('grid.host');
+      RateLimiter.release('grid.host');
+    }
+    sw.stop();
+    // ignore: avoid_print
+    print('24 张封面槽位排空：api 通道 ${sw.elapsedMilliseconds} ms');
+    expect(sw.elapsedMilliseconds, greaterThan(5000));
   });
 }

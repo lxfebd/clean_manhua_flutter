@@ -547,33 +547,42 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
     }
     final dpr = MediaQuery.of(context).devicePixelRatio;
     final cw = (MediaQuery.sizeOf(context).width * dpr).toInt();
-    final image = Image.memory(
-      bytes,
-      width: double.infinity,
-      fit: widget.fit,
-      filterQuality: widget.filterQuality,
-      cacheWidth: cw,
-      gaplessPlayback: true,
-    );
-    // 纵向条漫按屏高限制解码高度：原图常远高于屏（几千 px），全高解码
-    // 徒耗内存与 UI 线程解码时间，滚动滑入即卡。cacheHeight 让 Flutter
-    // 解码时直接降采样到可视高度（横向 PageView 无此问题，屏即全高）。
-    // 注意必须用 ResizeImagePolicy.fit 等比限制：Image.memory 的
-    // cacheWidth+cacheHeight 默认 exact 策略会按两轴独立拉伸把图压变形。
-    if (widget.horizontal) return image;
     final ch = (MediaQuery.sizeOf(context).height * dpr).toInt();
     return Image(
-      image: ResizeImage(
-        image.image,
-        height: ch,
-        policy: ResizeImagePolicy.fit,
-      ),
+      image: readerImageProvider(bytes,
+          horizontal: widget.horizontal, width: cw, height: ch),
       width: double.infinity,
       fit: widget.fit,
       filterQuality: widget.filterQuality,
       gaplessPlayback: true,
     );
   }
+}
+
+/// 阅读器图片的解码降采样 provider（单一入口）。
+///
+/// 只允许有一层 ResizeImage。`Image.memory(bytes, cacheWidth: n)` 会自动把
+/// provider 包成 ResizeImage；若再取它的 `.image` 套一层 ResizeImage（纵向条漫
+/// 曾这么写），Flutter 在**解码时**断言
+///   "ResizeImage cannot be composed with another ImageProvider that applies
+///    getTargetSize"
+/// ——纵向每一张图都抛异常，整页变成红字错误墙，阅读器完全不可用。
+///
+/// 纵向按屏高等比限位：条漫原图常几千 px 高，全高解码徒耗内存与 UI 线程解码
+/// 时间，滚动滑入即卡。`fit` 策略等比限制，不会像 `exact` 那样按两轴独立拉伸
+/// 把图压变形。
+@visibleForTesting
+ImageProvider<Object> readerImageProvider(
+  Uint8List bytes, {
+  required bool horizontal,
+  required int width,
+  required int height,
+}) {
+  final provider = MemoryImage(bytes);
+  return horizontal
+      ? ResizeImage(provider, width: width, policy: ResizeImagePolicy.fit)
+      : ResizeImage(
+          provider, width: width, height: height, policy: ResizeImagePolicy.fit);
 }
 
 /// 顶部工具栏：返回 / 章节名 / 菜单（对齐 S5）。
