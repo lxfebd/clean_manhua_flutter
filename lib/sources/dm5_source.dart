@@ -76,11 +76,26 @@ class Dm5Source extends ComicSource {
     var status = '';
     final st = _statusRe.firstMatch(body);
     if (st != null) status = st.group(1) ?? '';
+    // 作者：<p class="detail-main-info-author">作者：<a>小林有吾 </a>
+    var author = '';
+    final au = _authorRe.firstMatch(body);
+    if (au != null) author = htmlUnescape(au.group(1) ?? '').trim();
+    // 标签：<p class="detail-main-info-class"><span><a>热血</a></span>...
+    final tags = <String>[];
+    final tg = _tagRe.firstMatch(body);
+    if (tg != null) {
+      for (final t in _tagItemRe.allMatches(tg.group(1)!)) {
+        final v = htmlUnescape(t.group(1) ?? '').trim();
+        if (v.isNotEmpty) tags.add(v);
+      }
+    }
     return ComicDetail(
-      ComicItem(comicId, title, cover ?? ''),
+      ComicItem(comicId, title, cover ?? '')..author = author,
       chapters,
       description: desc,
       status: status,
+      author: author,
+      tags: tags,
     );
   }
 
@@ -152,6 +167,15 @@ class Dm5Source extends ComicSource {
   // 状态：<span class="detail-list-title-1">连载中</span>
   static final _statusRe = RegExp(
       r'class="detail-list-title-1"[^>]*>([^<]+)</span>');
+  // 作者：<p class="detail-main-info-author">作者：<a href="...">小林有吾 </a> </p>
+  static final _authorRe = RegExp(
+      r'class="detail-main-info-author">作者：<a[^>]*>([^<]+)</a>');
+  // 标签：<p class="detail-main-info-class"><span href="..."><a>热血</a></span>...
+  // （一组 <span><a>标签</a></span>，逐个取文本）
+  static final _tagRe = RegExp(
+      r'class="detail-main-info-class">\s*((?:<span[^>]*><a[^>]*>[^<]+</a></span>\s*)+)');
+  // 单个标签：<span ...><a ...>热血</a></span>
+  static final _tagItemRe = RegExp(r'<a[^>]*>([^<]+)</a>');
 
   // ---- Packer 解混淆 ----
 
