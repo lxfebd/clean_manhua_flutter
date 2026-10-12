@@ -27,6 +27,15 @@ class DoubaoSource extends ComicSource {
       RegExp(r'<title>\s*([^<]*?)\s*-\s*(?:[^-<]*?)\s*</title>');
   static final RegExp _coverRe =
       RegExp(r'data-original="(https://img\.doubaomanhua\.com[^"]*)"');
+  // 详情元信息行（<p class="row"> 下的 <span class="...text-overflow">）：
+  // 作者：X / 标签：X / 状态：X / 更新时间：X
+  static final RegExp _metaSpanRe = RegExp(
+      r'<span class="[^"]*text-overflow[^"]*">\s*([^<：]+)：\s*([^<]*)<',
+      dotAll: true);
+  // 状态值可能再包一层 <span class="has-text-success">连载中</span>：
+  // 标签/作者/更新时间是纯文本，状态是 <span>。此正则只取纯文本字段。
+  static final RegExp _statusSpanRe = RegExp(
+      r'<span class="[^"]*text-overflow[^"]*">\s*状态：<span[^>]*>([^<]+)</span>');
   static final RegExp _paramsRe =
       RegExp(r'''var\s+params\s*=\s*['"]([A-Za-z0-9+/=_-]+)['"]''');
 
@@ -70,7 +79,38 @@ class DoubaoSource extends ComicSource {
     final cover = _first(_coverRe, body);
     final chapters = _chapterRe.allMatches(body).map((m) => Chapter(
         '${m.group(1)}/${m.group(2)}', htmlUnescape(m.group(3) ?? ''))).toList();
-    return ComicDetail(ComicItem(comicId, title, cover), chapters);
+
+    // 详情元信息行：<span class="...text-overflow">标签：X</span> 等。
+    // 标签/作者/更新时间是纯文本，状态可能再包一层 <span class="has-text-success">。
+    String? author;
+    String? status;
+    String? updatedAt;
+    final tags = <String>[];
+    for (final m in _metaSpanRe.allMatches(body)) {
+      final label = m.group(1)!.trim();
+      final value = htmlUnescape(m.group(2) ?? '').trim();
+      switch (label) {
+        case '作者':
+          author = value;
+        case '标签':
+          tags
+            ..clear()
+            ..addAll(value.split(RegExp(r'\s+')).where((t) => t.isNotEmpty));
+        case '更新时间':
+          updatedAt = value;
+      }
+    }
+    final st = _statusSpanRe.firstMatch(body);
+    if (st != null) status = htmlUnescape(st.group(1) ?? '').trim();
+
+    return ComicDetail(
+      ComicItem(comicId, title, cover)..author = author ?? '',
+      chapters,
+      author: author,
+      status: status,
+      updatedAt: updatedAt,
+      tags: tags,
+    );
   }
 
   @override
