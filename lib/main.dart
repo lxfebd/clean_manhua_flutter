@@ -111,7 +111,11 @@ void main() async {
   // 内部访问 dart:io Platform stub 抛 Unsupported operation。
   await runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
-    PaintingBinding.instance.imageCache.maximumSize = 20;
+    // 引擎层解码位图缓存：上限 100 张 / 30MB。上限过小（旧值 20）会让一屏
+    // 24 张封面在滚动时反复被驱逐重解码，表现为滚动卡顿与重复解码耗电；
+    // 100 张（平均 ~150KB ≈ 15MB）仍由 30MB 字节上限兜底，低内存设备靠
+    // onLowMemory/probeDeviceMemory 动态收缩。
+    PaintingBinding.instance.imageCache.maximumSize = 100;
     PaintingBinding.instance.imageCache.maximumSizeBytes = 30 * 1024 * 1024;
     // 注册各源的图片降级链（原画→省空间→备用镜像），幂等；
     // 必须在任何图片加载前完成，否则首张图加载时降级注册表为空。

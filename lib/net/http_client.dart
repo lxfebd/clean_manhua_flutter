@@ -17,29 +17,35 @@ import 'platform_http.dart';
 /// 这里转出，`show HttpStatusException` 之类的既有 import 无需改动。
 export 'net_conn.dart' show HttpStatusException, ResponseTooLargeException;
 
+/// 限流通道：数据接口与静态资源分开计费。
+///
+/// 数据接口（API/页面/RPC）保持礼貌的 3 req/s、并发 ≤5（爬虫礼仪）；
+/// 静态资源（封面图/文件下载）常与接口同域，共用一个 3/s 小桶会出问题：
+/// 一屏 24 张封面瞬间耗光 burst(5)，剩下 19 张按 3/s 排队 6s+ 才开拉、并发
+/// 只有 5，还把同域的首页数据接口一起饿死（列表一直转圈）；队列积压到
+/// 上限直接抛错，封面静默变灰（"加载失败"）。静态资源按浏览器级并发
+/// （Chrome 同域 6 连接）单独放行：6 req/s、并发 6。两通道按
+/// (channel, host) 独立计费，互不抢令牌。
+enum RateChannel { api, asset }
+
 /// 每域名令牌桶限流：控制对源站的请求频率与并发，避免对源站造成过大压力，
-/// 降低 IP 被封风险（爬虫礼仪）。默认每域名 3 req/s、并发 ≤5。
+/// 降低 IP 被封风险（爬虫礼仪）。API 默认每域名 3 req/s、并发 ≤5；
+/// 静态资源走 [RateChannel.asset] 见该枚举注释。
 class RateLimiter {
   RateLimiter._();
 
   static final RateLimiter instance = RateLimiter._();
 
-  /// 每域名每秒最大请求数（令牌桶速率）。
-  static const double _tokensPerSec = 3.0;
-
-  /// 桶容量（突发上限）。
-  static const double _burst = 5.0;
-
-  /// 每域名最大并发请求数。
-  static const int _maxConcurrent = 5;
+  /// 通道参数：(速率 req/s, 桶容量突发上限, 并发上限, 排队上限)。
+  static ({double rate, double burst, int concurrent, int queue}) paramsOf(
+          RateChannel channel) =>
+      channel == RateChannel.api
+          ? (rate: 3.0, burst: 5.0, concurrent: 5, queue: 40)
+          : (rate: 6.0, burst: 12.0, concurrent: 6, queue: 60);
 
   /// 单请求在限流队列中的最长等待时间：超时抛出，让调用方走超时/降级
   /// 路径（原本无限排队会把超时请求拖到永不出网，UI 直接转圈）。
   static const Duration _acquireTimeout = Duration(seconds: 30);
-
-  /// 每域名等待队列上限：超过视为该域被卡死，直接抛错降级
-  /// （防批量预取把所有请求都堆进同一个慢域的队列）。
-  static const int _maxQueue = 40;
 
   /// 测试环境下跳过限流：widget 测试无真实网络流量（HttpClient 恒返回 400），
   /// 且 fake-async 不允许测试结束时仍有挂起计时器。单元测试需用
@@ -68,50 +74,60 @@ class RateLimiter {
   /// 请求开始前调用：等待令牌 + 并发槽位（限流排队，不丢请求）。
   /// 排队有上限与超时：队列塞满（慢域被卡死）或等待过久直接抛错，
   /// 调用方按网络异常处理（走降级/超时路径）。
-  static Future<void> acquire(String host) async {
+  /// [channel] 决定用哪套参数与哪个桶（默认 API 通道）。
+  static Future<void> acquire(String host,
+      {RateChannel channel = RateChannel.api}) async {
     if (!_enabled) return;
-    final bucket = _bucketFor(host);
+    final key = _key(channel, host);
+    final params = paramsOf(channel);
+    final bucket = _bucketFor(key, channel);
     final deadline =
         DateTime.now().add(_acquireTimeout);
     while (true) {
       bucket.refill();
-      final waiting = _waiting[host] ?? 0;
-      if (waiting >= _maxQueue) {
-        throw StateError('RateLimiter 队列超限: $host');
+      final waiting = _waiting[key] ?? 0;
+      if (waiting >= params.queue) {
+        throw StateError('RateLimiter 队列超限: $key');
       }
-      final inflight = _inflight[host] ?? 0;
-      if (inflight < _maxConcurrent && bucket.tokens >= 1.0) {
+      final inflight = _inflight[key] ?? 0;
+      if (inflight < params.concurrent && bucket.tokens >= 1.0) {
         bucket.tokens -= 1.0;
-        _inflight[host] = inflight + 1;
+        _inflight[key] = inflight + 1;
         return;
       }
       if (DateTime.now().isAfter(deadline)) {
-        throw TimeoutException('RateLimiter 等待超时: $host', _acquireTimeout);
+        throw TimeoutException('RateLimiter 等待超时: $key', _acquireTimeout);
       }
       // 队列等待；并发满或令牌不足时让出事件循环
-      _waiting[host] = waiting + 1;
+      _waiting[key] = waiting + 1;
       await Future<void>.delayed(const Duration(milliseconds: 50));
-      _waiting[host] = DateTime.now().isAfter(deadline)
+      _waiting[key] = DateTime.now().isAfter(deadline)
           ? 0
-          : ((_waiting[host] ?? 1) - 1).clamp(0, _maxQueue);
+          : ((_waiting[key] ?? 1) - 1).clamp(0, params.queue);
     }
   }
 
-  /// 请求完成后调用：释放并发槽位。
-  static void release(String host) {
+  /// 请求完成后调用：释放并发槽位（[channel] 须与 acquire 时一致）。
+  static void release(String host, {RateChannel channel = RateChannel.api}) {
     if (!_enabled) return;
-    final inflight = _inflight[host] ?? 0;
-    _inflight[host] = inflight > 0 ? inflight - 1 : 0;
+    final key = _key(channel, host);
+    final inflight = _inflight[key] ?? 0;
+    _inflight[key] = inflight > 0 ? inflight - 1 : 0;
   }
 
-  static _Bucket _bucketFor(String host) {
+  /// 桶键：(通道, 域名) 隔离——同一域名的 API 与图片互不抢令牌。
+  static String _key(RateChannel channel, String host) =>
+      '${channel.name}|$host';
+
+  static _Bucket _bucketFor(String key, RateChannel channel) {
     final now = DateTime.now().millisecondsSinceEpoch;
-    final b = _buckets[host];
+    final b = _buckets[key];
     if (b != null) {
       return b;
     }
-    final nb = _Bucket(now);
-    _buckets[host] = nb;
+    final p = paramsOf(channel);
+    final nb = _Bucket(now, rate: p.rate, burst: p.burst);
+    _buckets[key] = nb;
     return nb;
   }
 
@@ -123,23 +139,29 @@ class RateLimiter {
     _waiting.clear();
   }
 
-  /// 测试辅助：当前某域名的并发数。
+  /// 测试辅助：当前某域名某通道的并发数（默认 API 通道）。
   @visibleForTesting
-  static int debugInflight(String host) => _inflight[host] ?? 0;
+  static int debugInflight(String host,
+          {RateChannel channel = RateChannel.api}) =>
+      _inflight[_key(channel, host)] ?? 0;
 }
 
 class _Bucket {
   double tokens;
   int lastRefillMs;
-  _Bucket(this.lastRefillMs) : tokens = RateLimiter._burst;
+  final double rate;
+  final double burst;
 
-  /// 按经过时间补充令牌（1 秒 3 个）。
+  _Bucket(this.lastRefillMs, {required this.rate, required this.burst})
+      : tokens = burst;
+
+  /// 按经过时间补充令牌（速率随通道而定）。
   void refill() {
     final now = DateTime.now().millisecondsSinceEpoch;
     final elapsed = now - lastRefillMs;
     if (elapsed <= 0) return;
     lastRefillMs = now;
-    tokens = min(RateLimiter._burst, tokens + elapsed * RateLimiter._tokensPerSec / 1000);
+    tokens = min(burst, tokens + elapsed * rate / 1000);
   }
 }
 
@@ -494,7 +516,7 @@ class Net {
           headers: headers, proxy: proxy, timeout: t, maxBytes: limit);
     }
     final host = Uri.parse(urlStr).host;
-    await RateLimiter.acquire(host);
+    await RateLimiter.acquire(host, channel: RateChannel.asset);
     try {
       final client = clientForRequest(host, proxy: proxy);
       try {
@@ -527,7 +549,7 @@ class Net {
         client.close(force: true);
       }
     } finally {
-      RateLimiter.release(host);
+      RateLimiter.release(host, channel: RateChannel.asset);
     }
   }
 
@@ -558,13 +580,15 @@ class Net {
     final t = timeout ?? _timeout;
     final limit = maxBytes ?? maxDownloadBytes;
     // 限流：所有字节下载（图片/文件/无进度路径）统一经此基元，受
-    // 每域名令牌桶与并发槽位约束，避免高频图片加载绕过限流打爆源站。
+    // 静态资源令牌桶与并发槽位约束，避免高频图片加载绕过限流打爆源站。
+    // 走 asset 通道（6 req/s、并发 6）：与同域 API 分桶，封面图不再把
+    // 数据接口饿死，一屏 24 张封面也不再排队 6s+。
     final host = Uri.parse(urlStr).host;
-    await RateLimiter.acquire(host);
+    await RateLimiter.acquire(host, channel: RateChannel.asset);
     try {
       return await PlatformHttp.get(urlStr, headers, t, proxy, limit);
     } finally {
-      RateLimiter.release(host);
+      RateLimiter.release(host, channel: RateChannel.asset);
     }
   }
 
