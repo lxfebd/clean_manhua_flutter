@@ -116,6 +116,10 @@ class DslComicSource extends ComicSource with DslEngineMixin {
     final item = ComicItem(comicId, d.title.isNotEmpty ? queryText(root, d.title) : '', cover.isEmpty ? '' : abs(def.detailUrl!, cover))
       ..author = queryText(root, d.author)
       ..content = queryText(root, d.description);
+    // 详情元信息：配置驱动的 CSS 选择器，未配置的字段留空（详情页不显示）。
+    final area = queryText(root, d.area);
+    final type = queryText(root, d.type);
+    final status = queryText(root, d.status);
 
     // 章节：CSS 选择器抽取，或正则
     final chapters = <Chapter>[];
@@ -162,7 +166,10 @@ class DslComicSource extends ComicSource with DslEngineMixin {
     return ComicDetail(item, chapters,
         sourceId: id,
         description: item.content,
-        author: item.author);
+        author: item.author,
+        area: area.isEmpty ? null : area,
+        type: type.isEmpty ? null : type,
+        status: status.isEmpty ? null : status);
   }
 
   // ---- 章节图片 ----
