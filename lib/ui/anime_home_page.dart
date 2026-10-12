@@ -527,6 +527,14 @@ class AnimeHomePageState extends State<AnimeHomePage> {
     final expanded =
         (isDesktop ? 138.0 : (isTablet ? 176.0 : 168.0)) + textSlack + topPad;
     final collapsed = kToolbarHeight + topPad;
+    // 两态头部实例在页面 build 里创建一次，delegate 每帧只重算 Opacity/Transform
+    // 外壳。SliverPersistentHeader 的 delegate 在每次 constraints 变化时都会重跑
+    // builder——此前每次都重建整块头部（logo 行 / 源切换胶囊 / TextField / 分类
+    // 胶囊，Apple 风格还含 BackdropFilter(sigma 28)，每帧新建 filter 即每帧重新
+    // 模糊，是桌面端最明显的掉帧源）。缓存后 Element.updateChild 见
+    // child.widget == newWidget 直接短路，整棵子树不重建。
+    final expandedHeader = _buildExpandedHeader(theme, expanded);
+    final collapsedHeader = _buildCollapsedHeader(theme);
     return SliverPersistentHeader(
       pinned: true,
       delegate: HomeHeaderDelegate(
@@ -536,7 +544,8 @@ class AnimeHomePageState extends State<AnimeHomePage> {
           final current = (expanded - shrinkOffset).clamp(collapsed, expanded);
           final t =
               ((expanded - current) / (expanded - collapsed)).clamp(0.0, 1.0);
-          return _buildShrinkableHeader(theme, expanded, current, t);
+          return _buildShrinkableHeader(
+              expanded, current, t, expandedHeader, collapsedHeader);
         },
       ),
     );
@@ -545,7 +554,12 @@ class AnimeHomePageState extends State<AnimeHomePage> {
   /// 展开态完整头与收起态精简栏的过渡：完整头随收缩淡出并上移，
   /// 精简栏从底部淡入（带不透明底，遮住下层重叠的展开态内容）。
   Widget _buildShrinkableHeader(
-      ThemeData theme, double expanded, double current, double t) {
+    double expanded,
+    double current,
+    double t,
+    Widget expandedHeader,
+    Widget collapsedHeader,
+  ) {
     return ClipRect(
       child: SizedBox(
         height: current,
@@ -569,7 +583,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
                       minHeight: 0,
                       maxHeight: expanded,
                       alignment: Alignment.topCenter,
-                      child: _buildExpandedHeader(theme, expanded),
+                      child: expandedHeader,
                     ),
                   ),
                 ),
@@ -585,7 +599,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
                   child: IgnorePointer(
                     key: const ValueKey('anime-header-collapsed-guard'),
                     ignoring: t < 0.5,
-                    child: _buildCollapsedHeader(theme),
+                    child: collapsedHeader,
                   ),
                 ),
               ),

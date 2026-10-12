@@ -554,6 +554,12 @@ class HomePageState extends State<HomePage> {
     final expanded =
         (isDesktop ? 136.0 : (isTablet ? 184.0 : 176.0)) + textSlack + topPad;
     final collapsed = kToolbarHeight + topPad;
+    // 两态头部实例在页面 build 里创建一次，delegate 每帧只重算 Opacity/Transform
+    // 外壳（与动漫首页同一处理）：SliverPersistentHeader 的 delegate 每次
+    // constraints 变化都会重跑 builder，此前每次都重建整块头部（搜索框 / 分类
+    // 胶囊 / Apple 风格 BackdropFilter），是桌面端滚动掉帧的主要来源。
+    final expandedHeader = _buildExpandedHeader(theme, expanded);
+    final collapsedHeader = _buildCollapsedHeader(theme);
     return SliverPersistentHeader(
       pinned: true,
       delegate: HomeHeaderDelegate(
@@ -563,7 +569,8 @@ class HomePageState extends State<HomePage> {
           final current = (expanded - shrinkOffset).clamp(collapsed, expanded);
           final t =
               ((expanded - current) / (expanded - collapsed)).clamp(0.0, 1.0);
-          return _buildShrinkableHeader(theme, expanded, current, t);
+          return _buildShrinkableHeader(
+              expanded, current, t, expandedHeader, collapsedHeader);
         },
       ),
     );
@@ -573,7 +580,12 @@ class HomePageState extends State<HomePage> {
   /// 精简栏从底部淡入（极简/小米带不透明底，遮住下层重叠的展开态内容；
   /// 苹果是半透明毛玻璃，靠 pinned 头部画在滚过它的内容之上）。
   Widget _buildShrinkableHeader(
-      ThemeData theme, double expanded, double current, double t) {
+    double expanded,
+    double current,
+    double t,
+    Widget expandedHeader,
+    Widget collapsedHeader,
+  ) {
     return ClipRect(
       child: SizedBox(
         height: current,
@@ -597,7 +609,7 @@ class HomePageState extends State<HomePage> {
                       minHeight: 0,
                       maxHeight: expanded,
                       alignment: Alignment.topCenter,
-                      child: _buildExpandedHeader(theme, expanded),
+                      child: expandedHeader,
                     ),
                   ),
                 ),
@@ -613,7 +625,7 @@ class HomePageState extends State<HomePage> {
                   child: IgnorePointer(
                     key: const ValueKey('home-header-collapsed-guard'),
                     ignoring: t < 0.5,
-                    child: _buildCollapsedHeader(theme),
+                    child: collapsedHeader,
                   ),
                 ),
               ),

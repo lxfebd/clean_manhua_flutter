@@ -613,7 +613,7 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                   ? Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: Text(
-                        '匹配 ${filterVideoEpisodes(d.episodes, _filter).length}',
+                        '匹配 ${_filtered(d.episodes).length}',
                         style: TextStyle(
                           fontSize: 11.5,
                           color: theme.colorScheme.primary,
@@ -675,12 +675,41 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
     );
   }
 
+  List<VideoEpisode>? _filterSrc;
+  String _filterKey = '';
+  List<VideoEpisode> _filterCache = const [];
+
+  /// 过滤结果记忆化：此前一次 build 里 [filterVideoEpisodes] 被调两次
+  /// （头部「匹配 N」一次、网格数据源一次），千集作品每次 O(n) 全量扫描。
+  List<VideoEpisode> _filtered(List<VideoEpisode> eps) {
+    if (!identical(eps, _filterSrc) || _filterKey != _filter) {
+      _filterSrc = eps;
+      _filterKey = _filter;
+      _filterCache = filterVideoEpisodes(eps, _filter);
+    }
+    return _filterCache;
+  }
+
   /// 选集按播放源（season）分组渲染：每组一个源名 + 集数头，下面是该源的剧集网格。
   /// 仅当存在多个源时才显示分组头，单源时退化为原来的扁平网格。
   List<Widget> _buildEpisodeSlivers(ThemeData theme, VideoDetail d) {
     final scheme = theme.colorScheme;
     // 搜索过滤：标题/集数模糊匹配；过滤后重算分页（集数变少自动退化为单页）。
-    final flat = filterVideoEpisodes(d.episodes, _filter);
+    final flat = _filtered(d.episodes);
+    // 格内标记此前都是 O(n)：indexOf(全量列表) + any(续播记录) + taskOf(下载表)。
+    // 一屏 60 格 × 千集 = 每次 build 上万次比较（滚动逐帧发生）。改为每次
+    // build 预计算一次索引与集合，格内 O(1) 查表。
+    final flatIndex = <VideoEpisode, int>{
+      for (var i = 0; i < d.episodes.length; i++) d.episodes[i]: i,
+    };
+    final watchedKeys = <String>{
+      for (final r in _videoRecords) '${r.season}:${r.episode}',
+    };
+    final dlPrefix = '${widget.source.id}/${widget.detail.video.id}/';
+    final dlDone = <String>{
+      for (final e in VideoDownloadManager.instance.notifier.value.entries)
+        if (e.value.state == 'done' && e.value.localPath != null) e.key,
+    };
     final out = <Widget>[
       // 选集搜索框：数百集番剧按标题/集数关键词定位（与章节搜索对齐）。
       SliverToBoxAdapter(
@@ -810,7 +839,7 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
               final ep = pageEps[i];
               // 用原始全量列表找下标：过滤后列表位置 ≠ 播放器索引，
               // 切集/高亮须基于全量集序。
-              final flatIdx = widget.detail.episodes.indexOf(ep);
+              final flatIdx = flatIndex[ep] ?? -1;
               final isOpening = _openingIndex == flatIdx;
               final isCurrent =
                   ep.season == _curSeason && ep.episode == _curEpisode;
@@ -822,15 +851,11 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
               // 当前集/上次看的集已用强调色，不再叠勾避免视觉噪音。
               final isWatched = !isCurrent &&
                   !isHistory &&
-                  _videoRecords.any((r) =>
-                      r.season == ep.season && r.episode == ep.episode);
+                  watchedKeys.contains('${ep.season}:${ep.episode}');
               // 已下载标记：该集本地已存（下载任务 done + 文件在）。
               // 与已看勾对称放右下，下载态一眼可辨（离线可看）。
-              final dl = VideoDownloadManager.instance.taskOf(
-                  '${widget.source.id}/${widget.detail.video.id}/${ep.season}-${ep.episode}');
-              final isDownloaded = dl != null &&
-                  dl.state == 'done' &&
-                  dl.localPath != null;
+              final isDownloaded =
+                  dlDone.contains('$dlPrefix${ep.season}-${ep.episode}');
               final showTitle =
                   ep.title.isNotEmpty && !ep.title.startsWith('第');
               return Material(

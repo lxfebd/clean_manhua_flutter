@@ -517,10 +517,30 @@ class MangaAnimeTabs extends StatefulWidget {
   State<MangaAnimeTabs> createState() => MangaAnimeTabsState();
 }
 
-class MangaAnimeTabsState extends State<MangaAnimeTabs> {
+class MangaAnimeTabsState extends State<MangaAnimeTabs>
+    with SingleTickerProviderStateMixin {
   final GlobalKey<HomePageState> _homeKey = GlobalKey<HomePageState>();
   final GlobalKey<AnimeHomePageState> _animeKey = GlobalKey<AnimeHomePageState>();
   final GlobalKey<NovelHomePageState> _novelKey = GlobalKey<NovelHomePageState>();
+
+  /// 切 tab 的淡入动画。初值 1.0：冷启动不该有一次「整个内容区淡入」。
+  late final AnimationController _tabAnim = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 180),
+    value: 1.0,
+  );
+
+  @override
+  void didUpdateWidget(covariant MangaAnimeTabs oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.type != widget.type) _tabAnim.forward(from: 0.0);
+  }
+
+  @override
+  void dispose() {
+    _tabAnim.dispose();
+    super.dispose();
+  }
 
   /// 刷新当前可见页（主壳 Ctrl+R 入口）。
   void refreshCurrent() {
@@ -562,6 +582,13 @@ class MangaAnimeTabsState extends State<MangaAnimeTabs> {
   @override
   Widget build(BuildContext context) {
     final idx = widget.type.clamp(0, _pages.length - 1);
-    return _pages[idx];
+    // 切 tab 时新页淡入。刻意不用 AnimatedSwitcher：它会在过渡期间同时挂载
+    // 新旧两页，改变这里「只挂载可见页」的语义（另两页的 GlobalKey 状态与
+    // 网络加载时机都会变）。FadeTransition 只加一层过渡，child 实例不变，
+    // 不触发任何重新挂载。
+    return FadeTransition(
+      opacity: CurvedAnimation(parent: _tabAnim, curve: Curves.easeOut),
+      child: _pages[idx],
+    );
   }
 }
