@@ -193,11 +193,6 @@ class _MetaSection extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final d = detail;
     final style = context.uiStyle;
-    final metaParts = <String>[
-      if ((d.author ?? '').isNotEmpty) '${d.author} 著',
-      if ((d.type ?? '').isNotEmpty) d.type!,
-      if ((d.area ?? '').isNotEmpty) d.area!,
-    ];
     return Padding(
       padding: EdgeInsets.fromLTRB(
         Responsive.pagePadding(context),
@@ -246,20 +241,6 @@ class _MetaSection extends StatelessWidget {
                         height: 1.3,
                       ),
                     ),
-                    if (metaParts.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 5),
-                        child: Text(
-                          metaParts.join(' · '),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            height: 1.5,
-                            color: scheme.onSurface.withValues(alpha: 0.55),
-                          ),
-                        ),
-                      ),
                     const SizedBox(height: 10),
                     Wrap(
                       spacing: 6,
