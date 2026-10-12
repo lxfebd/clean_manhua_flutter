@@ -11,7 +11,17 @@ class HomeFeedPaging {
   HomeFeedPaging._();
 
   /// 滚动距底部多少像素内视为触底。
-  static const double bottomThreshold = 400;
+  ///
+  /// 400 时下一页要等到几乎贴底才发起，用户到达底部后必须站着等一次网络往返
+  /// （AGE 首页实测 1.2~2.5s）。提到 900 ≈ 提前一屏发起，到底时数据已在本地。
+  static const double bottomThreshold = 900;
+
+  /// 视口外的预取距离（px），传给首页系 CustomScrollView.cacheExtent。
+  ///
+  /// 默认 250 只够提前约一行：卡片构建太晚，封面要等到快滚到它才开始下载，
+  /// 快速下滑时整片灰占位。1400 ≈ 提前 4~5 行开始构建，图片请求提前发起；
+  /// 并发仍受 asset 通道上限（每域名 6）约束，不会把请求队列打满。
+  static const double prefetchCacheExtent = 1400;
 
   /// 源站分页偶发返回重复条目（同一作品跨页重复）：按 id 去重后渲染。
   /// 同时避免网格内多个同 tag Hero 触发「multiple heroes」崩溃。

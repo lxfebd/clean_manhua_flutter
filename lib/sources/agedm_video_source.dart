@@ -70,25 +70,31 @@ class AgedMVideoSource extends VideoSource {
   Future<List<ComicItem>> listByCategory(String categoryId, int page) async {
     // 第 1 页 = 首页精选（真实封面） + 目录页第 1 页（去重合并）。
     // 若第 1 页只返回精选而第 2 页从目录第 2 页起，目录第 1 页的条目会被跳过。
+    //
+    // 两个请求必须并发发起：串行实测 www.agedm.io 1.29s + /catalog 1.24s
+    // ≈ 2.5s 才凑齐首屏数据，封面要在这之后才开始下载，首屏白等一倍时间。
     final out = <ComicItem>[];
     final seen = <String>{};
-    if (page == 1) {
-      try {
-        final html =
-            await Net.get(_base, headers: const {'Cookie': 'adult=1'});
-        for (final it in _parseCards(html)) {
-          if (seen.add(it.id)) out.add(it);
-        }
-      } catch (_) {
-        // 首页失败不阻塞目录页数据
-      }
-    }
     // 目录页支持翻页：categoryId 末段即页码（all-all-all-all-all-time-1），
     // 替换为当前 page 后请求 /catalog/ 分页列表，避免第 2 页起返回空。
     final cat = _pageCategory(categoryId, page);
-    final html =
-        await Net.get('$_base/catalog/$cat', headers: const {'Cookie': 'adult=1'});
-    for (final it in _parseCatalog(html)) {
+    final homeFut =
+        page == 1 ? Net.get(_base, headers: const {'Cookie': 'adult=1'}) : null;
+    final catalogFut =
+        Net.get('$_base/catalog/$cat', headers: const {'Cookie': 'adult=1'});
+    // 首页失败不阻塞目录页数据（单独吞掉）；目录页失败照常抛给上层处理。
+    var homeItems = const <ComicItem>[];
+    if (homeFut != null) {
+      try {
+        homeItems = _parseCards(await homeFut);
+      } catch (_) {
+        homeItems = const <ComicItem>[];
+      }
+    }
+    for (final it in homeItems) {
+      if (seen.add(it.id)) out.add(it);
+    }
+    for (final it in _parseCatalog(await catalogFut)) {
       if (seen.add(it.id)) out.add(it);
     }
     return out;

@@ -321,6 +321,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
     final isDesktop = DesktopUi.isDesktopPlatform;
     final scrollView = CustomScrollView(
       controller: _scrollCtrl,
+      cacheExtent: HomeFeedPaging.prefetchCacheExtent,
       physics: isDesktop
           ? const ScrollPhysics(parent: ClampingScrollPhysics())
           : const AlwaysScrollableScrollPhysics(

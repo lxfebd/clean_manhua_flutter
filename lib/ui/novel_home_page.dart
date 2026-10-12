@@ -214,6 +214,7 @@ class NovelHomePageState extends State<NovelHomePage> {
         },
         child: CustomScrollView(
           controller: _scrollCtrl,
+          cacheExtent: HomeFeedPaging.prefetchCacheExtent,
           physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
           SliverAppBar(

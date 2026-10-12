@@ -320,6 +320,7 @@ class HomePageState extends State<HomePage> {
     final isDesktop = DesktopUi.isDesktopPlatform;
     final scrollView = CustomScrollView(
       controller: _scrollCtrl,
+      cacheExtent: HomeFeedPaging.prefetchCacheExtent,
       physics: isDesktop
           ? const ScrollPhysics(parent: ClampingScrollPhysics())
           : const AlwaysScrollableScrollPhysics(

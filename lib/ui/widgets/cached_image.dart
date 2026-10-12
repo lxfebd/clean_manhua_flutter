@@ -124,6 +124,19 @@ class _CachedImageState extends State<CachedImage> {
       });
   }
 
+  /// 解码完成后淡入，而不是从占位「啪」地换成实图——封面观感粗糙的主要来源。
+  /// frameBuilder 在首帧就绪前保持透明，就绪后 220ms 淡入。
+  static Widget _fadeIn(
+      BuildContext context, Widget child, int? frame, bool wasSynchronouslyLoaded) {
+    if (wasSynchronouslyLoaded) return child;
+    return AnimatedOpacity(
+      opacity: frame == null ? 0.0 : 1.0,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     Widget img;
@@ -178,6 +191,7 @@ class _CachedImageState extends State<CachedImage> {
           gaplessPlayback: true,
           filterQuality: FilterQuality.medium,
           cacheWidth: cw,
+          frameBuilder: _fadeIn,
         );
       } else {
         mem = LayoutBuilder(
@@ -190,6 +204,7 @@ class _CachedImageState extends State<CachedImage> {
               gaplessPlayback: true,
               filterQuality: FilterQuality.medium,
               cacheWidth: cw,
+              frameBuilder: _fadeIn,
             );
           },
         );
