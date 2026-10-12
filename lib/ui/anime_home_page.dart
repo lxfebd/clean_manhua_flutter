@@ -90,6 +90,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
     _scrollCtrl.addListener(_onScroll);
     _loadSourceCats();
     _loadWatchedEpisodes();
+    _seedSnapshot();
     _refresh();
     _loadSources();
   }
@@ -254,6 +255,9 @@ class AnimeHomePageState extends State<AnimeHomePage> {
         }
       });
       _maybeAutoLoadMore();
+      // 首屏榜单落盘：下次冷启动先用它打底，首帧即有内容，不再必等一次完整
+      // 网络往返（AGE 首页实测 ≈1.2 秒）。
+      if (next == 1 && _mode == 'rank') _saveSnapshot(_items);
     } catch (e) {
       ErrorLogger.instance.warn('anime home loadMore failed: $e');
       if (mounted && token == _loadToken) {
@@ -272,6 +276,43 @@ class AnimeHomePageState extends State<AnimeHomePage> {
     _mode = mode;
     if (categoryId != null) _categoryId = categoryId;
     _refresh();
+  }
+
+  /// 动漫首页榜单快照文件名：仅 rank 模式读写。
+  String get _snapshotKey => 'anime_snapshot_rank_${_source.id}';
+
+  /// 冷启动本地快照打底：先渲染上次成功缓存的榜单，网络成功后覆盖。
+  /// 弱网/离线时首页不再空白，首帧内容立即可见（对齐漫画首页已有行为）。
+  Future<void> _seedSnapshot() async {
+    if (_mode != 'rank') return;
+    try {
+      final raw = await LocalStore.readJson(_snapshotKey);
+      if (raw is! List || raw.isEmpty) return;
+      final items = HomeFeedPaging.dedupById(raw
+          .whereType<Map>()
+          .map((m) => ComicItem.fromMap(Map<String, dynamic>.from(m)))
+          .toList());
+      // 网络首屏已先到 / 已切源：不再打底，避免串源。
+      if (!mounted || items.isEmpty || _items.isNotEmpty) return;
+      setState(() {
+        _items.addAll(items);
+        _error = null;
+      });
+    } catch (e) {
+      // 快照损坏/缺失：静默忽略，走正常网络加载
+      ErrorLogger.instance.warn('anime seedSnapshot failed: $e');
+    }
+  }
+
+  /// 网络首屏成功后落盘，供下次冷启动打底。
+  Future<void> _saveSnapshot(List<ComicItem> items) async {
+    try {
+      await LocalStore.writeJson(_snapshotKey,
+          HomeFeedPaging.dedupById(items).map((e) => e.toMap()).toList());
+    } catch (e) {
+      // 写快照失败不影响主流程
+      ErrorLogger.instance.warn('anime saveSnapshot failed: $e');
+    }
   }
 
   /// 去重逻辑已收敛为 [HomeFeedPaging.dedupById]（home/anime 同用一份）。
