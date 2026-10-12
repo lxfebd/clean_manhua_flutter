@@ -76,6 +76,13 @@ class Dm5Source extends ComicSource {
     var status = '';
     final st = _statusRe.firstMatch(body);
     if (st != null) status = st.group(1) ?? '';
+    // 更新时间：<span class="detail-list-title-3">09月01号 </span>
+    String? updatedAt;
+    final up = _updatedRe.firstMatch(body);
+    if (up != null) {
+      final v = htmlUnescape(up.group(1) ?? '').trim();
+      if (v.isNotEmpty) updatedAt = v;
+    }
     // 作者：<p class="detail-main-info-author">作者：<a>小林有吾 </a>
     var author = '';
     final au = _authorRe.firstMatch(body);
@@ -96,6 +103,7 @@ class Dm5Source extends ComicSource {
       status: status,
       author: author,
       tags: tags,
+      updatedAt: updatedAt,
     );
   }
 
@@ -167,6 +175,9 @@ class Dm5Source extends ComicSource {
   // 状态：<span class="detail-list-title-1">连载中</span>
   static final _statusRe = RegExp(
       r'class="detail-list-title-1"[^>]*>([^<]+)</span>');
+  // 更新时间：<span class="detail-list-title-3">09月01号 </span>
+  static final _updatedRe = RegExp(
+      r'class="detail-list-title-3"[^>]*>([^<]+)</span>');
   // 作者：<p class="detail-main-info-author">作者：<a href="...">小林有吾 </a> </p>
   static final _authorRe = RegExp(
       r'class="detail-main-info-author">作者：<a[^>]*>([^<]+)</a>');
