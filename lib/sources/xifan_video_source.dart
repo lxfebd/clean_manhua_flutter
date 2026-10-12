@@ -47,7 +47,17 @@ class XifanVideoSource extends VideoSource {
   /// 详情页解析出的剧集映射：videoId → (episode → epid + 线路代码)。
   /// playUrl(videoId, season, episode) 不携带剧集列表，靠此缓存还原 epid；
   /// 缓存未命中时重新请求详情页补充。
+  ///
+  /// 上限保护：FIFO 淘汰，避免长时间浏览大量作品时驻留全部详情页解析结果。
+  static const int _epCacheMax = 64;
   static final Map<String, Map<int, _EpMap>> _epCache = {};
+
+  static void _cacheEps(String videoId, Map<int, _EpMap> mapping) {
+    if (_epCache.length >= _epCacheMax && !_epCache.containsKey(videoId)) {
+      _epCache.remove(_epCache.keys.first);
+    }
+    _epCache[videoId] = mapping;
+  }
 
   @override
   String get id => 'xifan';
@@ -115,18 +125,14 @@ class XifanVideoSource extends VideoSource {
     final views = m['view_count'];
     return ComicItem(
       (m['id']?.toString() ?? ''),
-      _cleanTitle((m['title'] as String? ?? '').trim()),
+      // 列表标题原样保留：站点用年份括号区分同名重制版（实测「福星小子(1981)」
+      // 与「福星小子」id=898 是两部作品），清洗会让它们在列表里无法分辨。
+      (m['title'] as String? ?? '').trim(),
       (m['cover_url'] as String? ?? '').trim(),
     )
       ..score = (score is num && score > 0) ? score.toString() : null
       ..hits = (views is num && views > 0) ? views.toString() : null
-      ..rank = _rank(m)
       ..remarks = _remarks(m);
-  }
-
-  static String? _rank(Map<String, dynamic> m) {
-    final r = m['rank'];
-    return (r is num && r > 0) ? r.toString() : null;
   }
 
   static String? _remarks(Map<String, dynamic> m) {
@@ -170,7 +176,7 @@ class XifanVideoSource extends VideoSource {
         ld?['description'] as String? ?? htmlUnescape(_first(_descRe, html));
 
     final parsed = _parseEpisodes(html);
-    if (parsed.episodes.isNotEmpty) _epCache[videoId] = parsed.mapping;
+    if (parsed.episodes.isNotEmpty) _cacheEps(videoId, parsed.mapping);
 
     final countryRaw = ld?['countryOfOrigin'];
     final country = countryRaw is String
@@ -216,7 +222,7 @@ class XifanVideoSource extends VideoSource {
         headers: {'Accept': 'text/html'}, timeout: const Duration(seconds: 20));
     final parsed = _parseEpisodes(html);
     if (parsed.episodes.isEmpty) throw Exception('稀饭：未找到剧集信息');
-    _epCache[videoId] = parsed.mapping;
+    _cacheEps(videoId, parsed.mapping);
     final found = _epCache[videoId]?[episode];
     if (found == null) throw Exception('稀饭：未找到第 $episode 集的播放地址');
     return _playPath(videoId, found);
@@ -306,16 +312,22 @@ class XifanVideoSource extends VideoSource {
     final episodes = <VideoEpisode>[];
     final mapping = <int, _EpMap>{};
     final seen = <int>{};
-    for (final m in _playRe.allMatches(html)) {
+    final matches = _playRe.allMatches(html).toList();
+    for (var i = 0; i < matches.length; i++) {
+      final m = matches[i];
       final epid = int.tryParse(m.group(1) ?? '');
       final source = m.group(2) ?? '';
       if (epid == null || source.isEmpty) continue;
-      // 从该剧集链接之后取集号与子标题（700 字符内足够容纳一个 <li>）。
-      final end = m.end + 700 < html.length ? m.end + 700 : html.length;
+      // 解析窗口：700 字符足够容纳一个剧集 <li>（真实快照实测 ~650）；
+      // 同时截止在下一个 play 链接之前，绝不跨项取邻居的集号。
+      var end = m.end + 700 < html.length ? m.end + 700 : html.length;
+      if (i + 1 < matches.length && matches[i + 1].start < end) {
+        end = matches[i + 1].start;
+      }
       final tail = html.substring(m.end, end);
-      // 「立即观看」按钮的 href 也是 /play/{epid}，但后面是 <button> 而非
-      // 剧集项（<span class="...">第...集</span>）；无集号直接跳过，
-      // 不占 seen 位，否则列表项（epid 相同）会被误去重。
+      // 「立即观看」按钮的 href 也是 /play/{epid}（嵌在首集卡片内，其后紧跟
+      // <button>），且与真正剧集项 epid 相同；按钮之后 700 字符内没有集号
+      // span，据此跳过——不占 seen 位，否则真正的首集列表项会被误去重。
       final numM = _epNumRe.firstMatch(tail);
       final epNum = int.tryParse(numM?.group(1) ?? '');
       if (epNum == null || !seen.add(epid)) continue;
@@ -342,11 +354,24 @@ class XifanVideoSource extends VideoSource {
     return t.isEmpty ? null : htmlUnescape(t);
   }
 
+  /// 标题清洗。JSON-LD 的 name 已是干净标题；只有当它缺失、退回 `<title>`
+  /// 时才需要去噪——实测新站 `<title>` 统一为「{标题} ({年份}) · 稀饭动漫 Next」
+  /// （588/946/2068/3170/3240 五例一致），故只去站点后缀与年份尾巴。
+  ///
+  /// 旧站遗留的 `split(' - ')` 与 `_完结` 类后缀正则在实测 600 条标题中
+  /// 命中 0 次，且会误伤以「OVA / 剧场版 / SP」结尾的合法标题
+  /// （如「少女与战车 剧场版」），已删除。
+  static final RegExp _siteSuffixRe = RegExp(r'\s*[·|]\s*稀饭动漫.*$');
+  static final RegExp _yearTailRe = RegExp(r'\s*\((?:\d{4}|\d{4}\s*[-–]\s*\d{4})\)\s*$');
+
+  @visibleForTesting
+  static String cleanTitleForTest(String raw) => _cleanTitle(raw);
+
   static String _cleanTitle(String raw) {
-    var t = raw.split(' - ').first.trim();
-    t = t.replaceAll(
-        RegExp(r'_(完结|连载中|完结旧番|更新中|TV版|剧场版|OVA|SP)\s*$'), '');
-    return t;
+    return raw
+        .replaceAll(_siteSuffixRe, '')
+        .replaceAll(_yearTailRe, '')
+        .trim();
   }
 
   static String _collapse(String s) => s.replaceAll(RegExp(r'\s+'), ' ').trim();

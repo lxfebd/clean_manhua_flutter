@@ -248,27 +248,8 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                         fontSize: 18,
                         fontWeight: FontWeight.w800,
                         color: theme.colorScheme.onSurface)),
-                const SizedBox(height: 6),
-                Text(
-                  [
-                    if (d.area != null) d.area!,
-                    if (d.lang != null) d.lang!,
-                    if (d.year != null) d.year!,
-                    if (d.type != null) d.type!,
-                    if (d.video.score != null &&
-                        d.video.score!.isNotEmpty &&
-                        d.video.score != '0')
-                      '评分 ${d.video.score}',
-                    if (d.video.remarks != null &&
-                        d.video.remarks!.isNotEmpty)
-                      d.video.remarks!,
-                    if (d.episodes.isNotEmpty) EpisodeListPage._epCountLabel(d),
-                  ].where((s) => s.isNotEmpty).join(' · '),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.65),
-                  ),
-                ),
+                // 元信息（地区/语言/年份/类型/评分/备注/集数）统一由右侧面板
+                // _VideoMetaCard 逐项展示，左侧不再用「·」合并行重复。
                 if (d.tags.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Wrap(
