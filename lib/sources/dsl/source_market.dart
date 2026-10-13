@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../net/error_logger.dart';
 import '../../net/http_client.dart';
 import '../../net/local_store.dart';
+import '../../utils/market_index_urls.dart';
 import 'custom_source_def.dart';
 import 'custom_source_store.dart';
 
@@ -53,15 +54,6 @@ class MarketSourceEntry {
 class SourceMarket {
   SourceMarket._();
 
-  /// 索引主地址（GitHub raw）。国内网络对 raw.githubusercontent.com 常限速
-  /// 到 8-10s 甚至超时，故配 jsDelivr CDN 镜像，按序回退（见 [fetchIndex]）。
-  static const String _indexUrl =
-      'https://raw.githubusercontent.com/lxfebd/xingmanxia-sources/main/index.json';
-
-  /// jsDelivr 镜像（与主 URL 同内容，CDN 国内可达性更好）。
-  static const String _indexMirror =
-      'https://cdn.jsdelivr.net/gh/lxfebd/xingmanxia-sources@main/index.json';
-
   /// 索引本地缓存域：网络失败时回退，避免整源市场空白。
   static const String _cacheFile = 'source_market_index';
 
@@ -73,10 +65,10 @@ class SourceMarket {
   /// 到后立即在内存里跑 [_parse]，只有解析成功才写缓存。
   static Future<List<MarketSourceEntry>> fetchIndex() async {
     try {
-      // raw 限速时整体可能很慢（实测 8-10s），放宽到 30s；镜像回退按序尝试。
+      // 候选按序回退：raw 被重置时 github.com/jsDelivr 别名常常还通。
       final bytes = await Net.getBytesMirrors(
-        [_indexUrl, _indexMirror],
-        timeout: const Duration(seconds: 30),
+        kMarketIndexUrls,
+        timeout: kMarketIndexTimeout,
       );
       final text = utf8.decode(bytes);
       // 先解析、解析成功才落盘；避免坏索引覆盖已有好缓存
