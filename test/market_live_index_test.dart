@@ -27,10 +27,11 @@ void main() {
     final text = utf8.decode(bytes);
     final entries = SourceMarket.parseIndex(text);
 
-    // 线上至少要有这些源（缺一个就是发布事故/源站下线被跳过）
+    // 线上至少要有这些源（缺一个就是发布事故/源站下线被跳过）。
+    // ashan_yy（鞍山影院）已下架：其 CDN 对任何带 SNI 的 TLS 握手直接 RST，
+    // 浏览器同样进不去，见 test/market_live_video_sources_test.dart 的记录。
     const required = [
       'wche_dm',
-      'ashan_yy',
       'shuhaige_novel',
       'miaobige_novel',
       'quanben5_novel',

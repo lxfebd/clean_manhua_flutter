@@ -2,9 +2,9 @@
   "id": "wche_dm",
   "name": "风车动漫",
   "type": "video",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "星漫匣",
-  "description": "stui 系动漫站（16dns 镜像）。详情页 id 带 166 前缀（如 fcdm/16613410.html），播放页 id 为剥离前缀值（13410），用 detail.idRegex 的 id 命名组做映射。播放页 URL 形如 /co_e/{id}-0-{ep}.html，第二段固定为 0，故 season 恒为 0，必须用 chaptersRe 的 season 命名组抽取（chapters CSS 路径会把 season 固定成 1）。chaptersRe 用负向前瞻排除详情页顶部的「立即播放」按钮（与第 0 集同 href，不排除会顶掉第 01 集的标题）。播放地址是播放页内联脚本变量 var now 的 m3u8 直链。标题尾部混有评分 span，用 titleRe 剥离。",
+  "description": "stui 系动漫站（16dns 镜像）。详情页 id 带 166 前缀（如 fcdm/16613410.html），播放页 id 为剥离前缀值（13410），用 detail.idRegex 的 id 命名组做映射。播放页 URL 形如 /co_e/{id}-0-{ep}.html，第二段固定为 0，故 season 恒为 0，必须用 chaptersRe 的 season 命名组抽取（chapters CSS 路径会把 season 固定成 1）。chaptersRe 用负向前瞻排除详情页顶部的「立即播放」按钮（与第 0 集同 href，不排除会顶掉第 01 集的标题）。播放地址是播放页内联脚本变量 var now 的 m3u8 直链。标题尾部混有评分 span，用 titleRe 剥离。分类必须真实存在：站点已不支持无分类号的 /html/-{page}.html（302 回首页），若 categories 缺失，App 会以空串取数，列表反复拿到同一页首页（加载更多失效）。分类从首页导航抽取（1661 日韩 / 1662 欧美 / 1663 国产 / 1664 动漫电影 / 1665 海外）——首页每类只出现一次，分类页出现两次（顶部导航 + 「按分类」筛选行），故 categoriesUrl 取首页；站点的「里番动漫」分类刻意不收录。",
   "baseUrl": "https://www.16dns.com",
   "hosts": [
     "www.16dns.com"
@@ -19,6 +19,13 @@
     "Accept-Language": "zh-CN,zh;q=0.9"
   },
   "requiresLogin": false,
+  "categoriesUrl": "https://www.16dns.com/",
+  "categories": {
+    "regex": "<a href=\"/html/(\\d+)\\.html\"[^>]*>((?:日韩|欧美|国产|海外)动漫|动漫电影)</a>",
+    "url": "r1",
+    "itemName": "r2",
+    "itemUrl": "r1"
+  },
   "categoryListUrl": "https://www.16dns.com/html/{categoryId}-{page}.html",
   "categoryList": {
     "css": "a.stui-vodlist__thumb[data-original]",
