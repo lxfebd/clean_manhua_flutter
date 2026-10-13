@@ -65,8 +65,8 @@ class SourceMarket {
   /// 到后立即在内存里跑 [_parse]，只有解析成功才写缓存。
   static Future<List<MarketSourceEntry>> fetchIndex() async {
     try {
-      // 候选按序回退：raw 被重置时 github.com/jsDelivr 别名常常还通。
-      // totalTimeout：整条链合计上限，全灭时不再挂最坏 5×12=60s。
+      // 候选按序回退：官方直连 → 回源型 GH 代理（返回最新）→ jsDelivr（仅兜底，
+      // 可能 7 天旧缓存）。totalTimeout 给整条链设合计上限，见 kMarketIndexTotalTimeout。
       final bytes = await Net.getBytesMirrors(
         kMarketIndexUrls,
         timeout: kMarketIndexTimeout,
