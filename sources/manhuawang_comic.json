@@ -1,0 +1,57 @@
+{
+  "id": "manhuawang_comic",
+  "name": "漫画网",
+  "type": "comic",
+  "version": "1.0.0",
+  "author": "星漫匣",
+  "description": "漫画网（manhuawang.com）：韩漫/耽美向漫画站，列表带封面与最新话，章节图片走 lazyload 的 data-src 属性。站点「作品分类」里的题材筛选实测无效（各题材返回同一份 SEO 页），只有「连载中/已完结」两档真实生效；/top 各榜单页无分页，故首屏排行取「全部」列表分页（站点默认顺序）。站内搜索为 JS 提交，未配置搜索规则。",
+  "baseUrl": "https://www.manhuawang.com",
+  "hosts": [
+    "https://www.manhuawang.com"
+  ],
+  "headers": {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "zh-CN,zh;q=0.9"
+  },
+  "imageHosts": [
+    "img.ddmhjpg.top"
+  ],
+  "categoriesUrl": "https://www.manhuawang.com/lists",
+  "categories": {
+    "regex": "href=\"/(lists/9/全部/(?:4|1))/1\\.html\"[^>]*>\\s*(连载中|已完结)\\s*<",
+    "itemUrl": "r1",
+    "itemName": "r2"
+  },
+  "categoryListUrl": "https://www.manhuawang.com/{categoryId}/{page}.html",
+  "categoryList": {
+    "css": "div.classification",
+    "name": "h2 a|text",
+    "id": "h2 a|href",
+    "pic": "img|data-src",
+    "content": "p.describe a|text"
+  },
+  "rankUrl": "https://www.manhuawang.com/lists/9/全部/3/{page}.html",
+  "rank": {
+    "css": "div.classification",
+    "name": "h2 a|text",
+    "id": "h2 a|href",
+    "pic": "img|data-src",
+    "content": "p.describe a|text"
+  },
+  "detailUrl": "https://www.manhuawang.com/{id}",
+  "detail": {
+    "title": "h1.title",
+    "cover": "div.ctdbLeft img",
+    "coverAttr": "src",
+    "author": "p.author",
+    "description": "p#worksDesc",
+    "type": "span.labelBox a",
+    "status": "a.status",
+    "chapters": "div#chapterlistload ul li a",
+    "chapterUrl": "href",
+    "picListUrl": "https://www.manhuawang.com/{id}",
+    "picListCss": "img.man_img",
+    "picAttr": "data-src",
+    "picFilter": "^https?://"
+  }
+}

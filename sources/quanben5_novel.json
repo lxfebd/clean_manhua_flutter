@@ -1,0 +1,53 @@
+{
+  "id": "quanben5_novel",
+  "name": "全本小说网",
+  "type": "novel",
+  "version": "1.0.0",
+  "author": "星漫匣",
+  "description": "全本小说网（quanben5.com）：完本小说库，15 个分类分页浏览，目录页一次性给出全部章节（实测一本 2437 章），正文按段落抽取。站点没有独立排行榜页，首屏浏览用「玄幻」分类分页代替榜单；站内搜索需 JS 混淆参数，故不配置搜索规则。",
+  "baseUrl": "https://www.quanben5.com",
+  "hosts": [
+    "https://www.quanben5.com"
+  ],
+  "headers": {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "zh-CN,zh;q=0.9"
+  },
+  "requiresLogin": false,
+  "categoriesUrl": "https://www.quanben5.com/",
+  "categories": {
+    "regex": "href=\"/category/(\\d+)\\.html\"><span>([^<]{2,6})</span>",
+    "itemUrl": "r1",
+    "itemName": "r2"
+  },
+  "categoryListUrl": "https://www.quanben5.com/category/{categoryId}_{page}.html",
+  "categoryList": {
+    "css": "div.pic_txt_list",
+    "name": "h3 a|text",
+    "id": "h3 a|href",
+    "author": "span.author|text",
+    "content": "p.description|text",
+    "pic": "div.pic img|src"
+  },
+  "rankUrl": "https://www.quanben5.com/category/1_{page}.html",
+  "rank": {
+    "css": "div.pic_txt_list",
+    "name": "h3 a|text",
+    "id": "h3 a|href",
+    "author": "span.author|text",
+    "content": "p.description|text",
+    "pic": "div.pic img|src"
+  },
+  "detailUrl": "https://www.quanben5.com/{id}xiaoshuo.html",
+  "detail": {
+    "title": "div.topbar h1",
+    "cover": "div.pic_txt_list div.pic img",
+    "coverAttr": "src",
+    "author": "span.author",
+    "description": "p.description",
+    "chapters": "ul.list li.c3 a",
+    "chapterUrl": "href",
+    "picListUrl": "https://www.quanben5.com/{id}",
+    "picListCss": "div#content p"
+  }
+}

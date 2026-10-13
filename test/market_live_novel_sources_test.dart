@@ -18,6 +18,7 @@ void main() {
   for (final path in const [
     'sources/shuhaige_novel.json',
     'sources/miaobige_novel.json',
+    'sources/quanben5_novel.json',
   ]) {
     test('live 小说源 $path：DSL 校验', () {
       final d = decodeCustomSourceDef(File(path).readAsStringSync());
@@ -52,7 +53,8 @@ void main() {
       expect(chapterId, isNotNull, reason: '正文段落抽取失败');
       expect(paragraphs.length, greaterThan(3));
       expect(paragraphs.first.length, greaterThan(4));
-    }, skip: skip);
+      // 慢源站（如全本小说网 TTFB 可达 10s+）单条链路会超过默认 30s 用例上限
+    }, skip: skip, timeout: const Timeout(Duration(seconds: 150)));
 
     test('live 小说源 $path：分类导航与分类列表', () async {
       final d = decodeCustomSourceDef(File(path).readAsStringSync())!;
@@ -62,6 +64,6 @@ void main() {
       expect(cats.first.id.isNotEmpty, isTrue);
       final list = await src.listByCategory(cats.first.id, 1);
       expect(list.length, greaterThan(2), reason: '分类列表为空');
-    }, skip: skip);
+    }, skip: skip, timeout: const Timeout(Duration(seconds: 120)));
   }
 }
