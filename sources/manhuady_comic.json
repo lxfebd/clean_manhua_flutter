@@ -1,0 +1,55 @@
+{
+  "id": "manhuady_comic",
+  "name": "漫画大院",
+  "type": "comic",
+  "version": "1.0.0",
+  "author": "星漫匣",
+  "description": "漫画大院（manhuady.com）：日漫/国漫综合漫画站，列表、目录与章节页全部是静态 HTML，无需 JS。列表与排行分页形式为 /category/{分类}/p{页}.html（每页 30 条，实测翻页无重复）；「每日更新」与按星期分类的列表固定只给最新 30 条、翻页返回同一页，故分类只暴露真正分页的「全部」与「排行榜」。章节目录取 ul#detail-list-select-1（含全部话数，页面里另一份 #ncp3_ul 是同一目录的封面视图，不重复取）；章节页图片是 img[src^=\"/xinhmg/\"] 的 src 属性（相对路径，由引擎补全为绝对地址）。站内搜索为 JS 提交，未配置搜索规则。",
+  "baseUrl": "https://www.manhuady.com",
+  "hosts": [
+    "https://www.manhuady.com"
+  ],
+  "headers": {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "zh-CN,zh;q=0.9"
+  },
+  "imageHosts": [
+    "www.manhuady.com"
+  ],
+  "categoriesUrl": "https://www.manhuady.com/category/cate/p1.html",
+  "categories": {
+    "regex": "<a[^>]{0,60}href=\"/category/(cate|rank)(?:\\.html)?\"[^>]{0,60}>\\s*(作品分类|排行榜)\\s*</a>",
+    "itemUrl": "r1",
+    "itemName": "r2"
+  },
+  "categoryListUrl": "https://www.manhuady.com/category/{categoryId}/p{page}.html",
+  "categoryList": {
+    "css": "li.comic-item-jp",
+    "name": "p.comic-name",
+    "id": "a|href",
+    "pic": "img|data-src",
+    "content": "p.comic-tip"
+  },
+  "rankUrl": "https://www.manhuady.com/category/rank/p{page}.html",
+  "rank": {
+    "css": "li.comic-item-jp",
+    "name": "p.comic-name",
+    "id": "a|href",
+    "pic": "img|data-src",
+    "content": "p.comic-tip"
+  },
+  "detailUrl": "https://www.manhuady.com/{id}",
+  "detail": {
+    "title": "h1.title",
+    "cover": "meta[property=og:image]",
+    "coverAttr": "content",
+    "author": ".ncp1b_author",
+    "description": ".desc",
+    "type": "span.labelBox a",
+    "chapters": "#detail-list-select-1 a",
+    "chapterUrl": "href",
+    "picListUrl": "https://www.manhuady.com/{id}",
+    "picListCss": "img[src^=\"/xinhmg/\"]",
+    "picAttr": "src"
+  }
+}

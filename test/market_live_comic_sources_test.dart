@@ -18,6 +18,7 @@ void main() {
 
   for (final path in const [
     'sources/manhuawang_comic.json',
+    'sources/manhuady_comic.json',
   ]) {
     test('live 漫画源 $path：DSL 校验', () {
       final d = decodeCustomSourceDef(File(path).readAsStringSync());
@@ -35,6 +36,13 @@ void main() {
       expect(rank.first.name.trim().isNotEmpty, isTrue);
       // 封面缺失时列表卡片会走 picFallback/占位，这里要求真实取到封面
       expect(rank.first.pic, contains('http'), reason: '列表封面抽取失败');
+
+      // 排行是漫画首页的默认模式：翻页必须真的换内容，否则「加载更多」重复同一页
+      final rank2 = await src.rank(2);
+      expect(
+          rank2.map((e) => e.id).toSet().intersection(rank.map((e) => e.id).toSet()),
+          isEmpty,
+          reason: '排行第 2 页与第 1 页内容相同：分页无效');
 
       final detail = await src.detail(rank.first.id);
       expect(detail.name.trim().isNotEmpty, isTrue, reason: '标题抽取失败');

@@ -36,6 +36,7 @@ void main() {
       'miaobige_novel',
       'quanben5_novel',
       'manhuawang_comic',
+      'manhuady_comic',
     ];
     final ids = entries.map((e) => e.def.id).toSet();
     for (final id in required) {
