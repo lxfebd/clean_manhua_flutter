@@ -57,7 +57,10 @@ void main() {
     // ignore: avoid_print
     print('videoSources ids: $ids');
     expect(ids, contains('wche_dm'), reason: '风车动漫必须被注册');
-    // ashan_yy（鞍山影院）已从市场下架、内置源也已移除，不再要求注册；
-    // 其定义文件保留在 sources/ 作离线快照，装入仅用于验证多源 restore。
+    // 鞍山影院有两份：内置 ashanyy（Dart 类）与市场 DSL 版 ashan_yy（下划线，
+    // id 不同）。addVideoSource 的名称去重只作用于 builtinIds 内的 id，DSL 版
+    // 不在其中，因此可正常注册——这里断言它确实被装上了。
+    expect(ids, contains('ashan_yy'), reason: '鞍山影院（DSL 版）必须被注册');
+    expect(ids, contains('ashanyy'), reason: '鞍山影院（内置版）应始终在册');
   });
 }

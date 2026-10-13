@@ -19,9 +19,13 @@ void main() {
   final liveOn = (Platform.environment['XM_LIVE'] ?? '').trim() == '1';
   final skip = liveOn ? null : '设置 XM_LIVE=1 才跑真实站点验证';
 
-  // 离线可查：DSL 结构校验不依赖网络，始终跑
+  // 离线可查：DSL 结构校验不依赖网络，始终跑。
+  // ashan_yy 是**鞍山影院（DSL 版）**：站点被 SNI 重置、且需代理，所以只有
+  // 结构校验、没有 live 用例（live 会恒红）；结构校验仍要跑，否则索引里带着
+  // 一个字段写坏的定义没人拦（market_live_index_test 也已断言它必须被注册）。
   for (final path in const [
     'sources/wche_dm.json',
+    'sources/ashan_yy.json',
   ]) {
     test('视频源 $path：DSL 校验', () {
       final d = decodeCustomSourceDef(File(path).readAsStringSync());
