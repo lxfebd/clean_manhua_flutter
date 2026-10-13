@@ -50,7 +50,10 @@ app.*.map.json
 /android/app/*.keystore
 
 # ===== 本地调试残留（非产品代码，勿入库）=====
-/tool/
+# 忽略的是目录**内容**而非目录本身（`/tool/` 会让下面 ! 反选彻底失效），
+# 签名脚本必须入库：否则「索引是怎么签名的」无人可复现，验签形同摆设。
+/tool/*
+!/tool/sign_index.dart
 /screenshots/
 /screens/
 tool_*.py

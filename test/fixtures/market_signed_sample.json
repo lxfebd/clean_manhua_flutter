@@ -1,0 +1,505 @@
+{
+  "name": "星漫匣源市场 / 能力市场",
+  "sources": [
+    {
+      "id": "wche_dm",
+      "name": "风车动漫",
+      "type": "video",
+      "version": "1.0.1",
+      "author": "星漫匣",
+      "description": "stui 系动漫站（16dns 镜像）。详情页 id 带 166 前缀（如 fcdm/16613410.html），播放页 id 为剥离前缀值（13410），用 detail.idRegex 的 id 命名组做映射。播放页 URL 形如 /co_e/{id}-0-{ep}.html，第二段固定为 0，故 season 恒为 0，必须用 chaptersRe 的 season 命名组抽取（chapters CSS 路径会把 season 固定成 1）。chaptersRe 用负向前瞻排除详情页顶部的「立即播放」按钮（与第 0 集同 href，不排除会顶掉第 01 集的标题）。播放地址是播放页内联脚本变量 var now 的 m3u8 直链。标题尾部混有评分 span，用 titleRe 剥离。分类必须真实存在：站点已不支持无分类号的 /html/-{page}.html（302 回首页），若 categories 缺失，App 会以空串取数，列表反复拿到同一页首页（加载更多失效）。分类从首页导航抽取（1661 日韩 / 1662 欧美 / 1663 国产 / 1664 动漫电影 / 1665 海外）——首页每类只出现一次，分类页出现两次（顶部导航 + 「按分类」筛选行），故 categoriesUrl 取首页；站点的「里番动漫」分类刻意不收录。",
+      "baseUrl": "https://www.16dns.com",
+      "hosts": [
+        "www.16dns.com"
+      ],
+      "imageHosts": [
+        "www.mdzypic.com",
+        "tu.moduzytupian.com",
+        "www.moduzytuuu.com"
+      ],
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "zh-CN,zh;q=0.9"
+      },
+      "requiresLogin": false,
+      "categoriesUrl": "https://www.16dns.com/",
+      "categories": {
+        "regex": "<a href=\"/html/(\\d+)\\.html\"[^>]*>((?:日韩|欧美|国产|海外)动漫|动漫电影)</a>",
+        "url": "r1",
+        "itemName": "r2",
+        "itemUrl": "r1"
+      },
+      "categoryListUrl": "https://www.16dns.com/html/{categoryId}-{page}.html",
+      "categoryList": {
+        "css": "a.stui-vodlist__thumb[data-original]",
+        "id": "href",
+        "name": "title",
+        "pic": "data-original"
+      },
+      "detailUrl": "https://www.16dns.com/{id}",
+      "detail": {
+        "title": "h1.title",
+        "titleRe": "^(.*?\\S)\\s*\\d{1,2}\\.\\d$",
+        "cover": "div.stui-content__thumb img",
+        "coverAttr": "data-original",
+        "description": "p.desc",
+        "chaptersRe": "<a[^>]*href=\"(?<href>/co_e/\\d+-(?<season>\\d+)-\\d+\\.html)\"[^>]*>(?!立即播放)(?<title>[^<]+)</a>",
+        "idRegex": "166(?<id>\\d+)",
+        "picListUrl": "https://www.16dns.com/co_e/{id}-0-{episode}.html",
+        "picListRe": "var\\s+now=\"([^\"]+)\"",
+        "m3u8Rewrite": {
+          "kkzycdn.com:65": "play.modujx16.com",
+          "https://kkzycdn.com:65": "https://play.modujx16.com"
+        }
+      }
+    },
+    {
+      "id": "demo.dsl.biquge",
+      "name": "笔趣阁 演示源（通用结构）",
+      "type": "novel",
+      "version": "1.0.0",
+      "author": "星漫匣官方",
+      "description": "源市场演示源：笔趣阁系通用结构（搜索表 + 章节目录 + 正文段落），验证源市场一键安装全链路与 novel 型 DSL 解析。",
+      "baseUrl": "https://www.wenku8.net",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "zh-CN,zh;q=0.9"
+      },
+      "searchUrl": "https://www.wenku8.net/modules/article/search.php?searchkey={keyword}",
+      "search": {
+        "css": "table#novelist tr.grid",
+        "name": "td a|text",
+        "id": "td a|href"
+      },
+      "categoriesUrl": "https://www.wenku8.net/catindex.html",
+      "categories": {
+        "css": "div.nav a",
+        "itemName": "text",
+        "itemUrl": "href"
+      },
+      "categoryListUrl": "https://www.wenku8.net/cat/{categoryId}.html",
+      "categoryList": {
+        "css": "ul.booklist li",
+        "name": "a|text",
+        "id": "a|href"
+      },
+      "detailUrl": "https://www.wenku8.net/{id}",
+      "detail": {
+        "title": "h1.book-title",
+        "description": "p.info",
+        "chapters": "div.listmain dd a",
+        "chapterUrl": "href",
+        "picListUrl": "https://www.wenku8.net/{id}",
+        "picListCss": "div#content p"
+      }
+    },
+    {
+      "id": "demo.dsl.manhua",
+      "name": "漫画演示源（通用结构）",
+      "type": "comic",
+      "version": "1.0.0",
+      "author": "星漫匣官方",
+      "description": "源市场演示源：标准漫画站通用结构（分类列表 + 章节目录 + 章节图片），验证源市场一键安装全链路与 comic 型 DSL 解析。",
+      "baseUrl": "https://www.mangabz.com",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "zh-CN,zh;q=0.9"
+      },
+      "picHeaders": {
+        "Referer": "https://www.mangabz.com/"
+      },
+      "categoryListUrl": "https://www.mangabz.com/mangalist/{page}.html",
+      "categoryList": {
+        "css": "div.mh-item",
+        "name": "p.title a|text",
+        "id": "p.title a|href",
+        "url": "p.title a|href",
+        "pic": "img.lazy|data-original"
+      },
+      "detailUrl": "https://www.mangabz.com/{id}",
+      "detail": {
+        "title": "h1.book-title",
+        "description": ".book-desc",
+        "chapters": ".chapter-list a",
+        "chapterUrl": "href",
+        "picListUrl": "https://www.mangabz.com/{id}",
+        "picListCss": ".read-img img",
+        "picAttr": "data-original"
+      }
+    },
+    {
+      "id": "demo.dsl.regex",
+      "name": "正则抽取演示源",
+      "type": "comic",
+      "version": "1.0.0",
+      "author": "星漫匣官方",
+      "description": "源市场演示源：正则行式抽取（regex + r1/r2/r3 捕获组），验证 DSL 正则抽取通道（列表/章节/图片全用正则）。",
+      "baseUrl": "https://www.mangabz.com",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "zh-CN,zh;q=0.9"
+      },
+      "categoryListUrl": "https://www.mangabz.com/mangalist/{page}.html",
+      "categoryList": {
+        "regex": "<a href=\"([^\"]+)\" title=\"([^\"]+)\">[^<]*</a>[\\s\\S]*?<img data-src=\"([^\"]+)\"",
+        "id": "r1",
+        "name": "r2",
+        "pic": "r3",
+        "url": "r1"
+      },
+      "searchUrl": "https://www.mangabz.com/search/{keyword}.html",
+      "search": {
+        "regex": "<a href=\"([^\"]+)\" title=\"([^\"]+)\">[^<]*</a>[\\s\\S]*?<img data-src=\"([^\"]+)\"",
+        "id": "r1",
+        "name": "r2",
+        "pic": "r3",
+        "url": "r1"
+      },
+      "detailUrl": "https://www.mangabz.com/{id}",
+      "detail": {
+        "title": "h1.book-title",
+        "description": ".book-desc",
+        "chaptersRe": "<a href=\"(?<href>[^\"]+)\"[^>]*>(?<title>[^<]+)</a>",
+        "picListUrl": "https://www.mangabz.com/{id}",
+        "picListRe": "<img src=\"([^\"]+)\"",
+        "picAttr": "src"
+      }
+    },
+    {
+      "id": "demo.dsl.category",
+      "name": "分类导航演示源",
+      "type": "comic",
+      "version": "1.0.0",
+      "author": "星漫匣官方",
+      "description": "源市场演示源：分类导航（categoriesUrl + categories），验证分类页下拉与分类内容列表。",
+      "baseUrl": "https://www.mangabz.com",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "zh-CN,zh;q=0.9"
+      },
+      "categoriesUrl": "https://www.mangabz.com/classify.html",
+      "categories": {
+        "css": "div.nav a",
+        "itemName": "text",
+        "itemUrl": "href"
+      },
+      "categoryListUrl": "https://www.mangabz.com/cat/{categoryId}.html",
+      "categoryList": {
+        "css": "div.pic",
+        "name": "p a|text",
+        "id": "p a|href",
+        "url": "p a|href",
+        "pic": "img|data-original"
+      },
+      "detailUrl": "https://www.mangabz.com/{id}",
+      "detail": {
+        "title": "h1.book-title",
+        "description": ".book-desc",
+        "chapters": ".chapter-list a",
+        "chapterUrl": "href",
+        "picListUrl": "https://www.mangabz.com/{id}",
+        "picListCss": ".read-img img",
+        "picAttr": "data-original"
+      }
+    },
+    {
+      "id": "shuhaige_novel",
+      "name": "书海阁小说",
+      "type": "novel",
+      "version": "1.0.0",
+      "author": "星漫匣",
+      "description": "书海阁小说网：总点击/推荐/收藏/最近更新四榜浏览，详情页带完整章节目录，正文按段落抽取。站点搜索为 JS 提交且对本机返回「找不到您要搜索的内容」，故不配置搜索规则。",
+      "baseUrl": "https://www.shuhaige.net",
+      "hosts": [
+        "https://www.shuhaige.net"
+      ],
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "zh-CN,zh;q=0.9"
+      },
+      "categoriesUrl": "https://www.shuhaige.net/",
+      "categories": {
+        "regex": "href=\"/((?:allvisit|allvote|goodnum|lastupdate)/)\" target=\"_blank\">([^<]{2,8})<",
+        "itemUrl": "r1",
+        "itemName": "r2"
+      },
+      "categoryListUrl": "https://www.shuhaige.net/{categoryId}{page}.html",
+      "categoryList": {
+        "css": "div.novelslist2 ul li",
+        "name": "span.s2 a|text",
+        "id": "span.s2 a|href",
+        "author": "span.s4|text",
+        "content": "span.s3 a|text"
+      },
+      "rankUrl": "https://www.shuhaige.net/allvisit/{page}.html",
+      "rank": {
+        "css": "div.novelslist2 ul li",
+        "name": "span.s2 a|text",
+        "id": "span.s2 a|href",
+        "author": "span.s4|text",
+        "content": "span.s3 a|text"
+      },
+      "detailUrl": "https://www.shuhaige.net/{id}",
+      "detail": {
+        "title": "div#info h1",
+        "cover": "div#fmimg img",
+        "coverAttr": "src",
+        "author": "div#info p a|text",
+        "description": "div#intro p|text",
+        "chapters": "div#list dl dd a",
+        "chapterUrl": "href",
+        "picListUrl": "https://www.shuhaige.net/{id}",
+        "picListCss": "div#content p"
+      }
+    },
+    {
+      "id": "miaobige_novel",
+      "name": "妙笔阁小说",
+      "type": "novel",
+      "version": "1.0.0",
+      "author": "星漫匣",
+      "description": "妙笔阁（笔趣阁系）：按分类浏览 + 总点击榜，详情页带完整章节目录，正文按段落抽取并过滤版权提示/推广行。站内搜索为 JS 提交且对本机无结果，故不配置搜索规则。",
+      "baseUrl": "https://www.miaobige.com",
+      "hosts": [
+        "https://www.miaobige.com"
+      ],
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "zh-CN,zh;q=0.9"
+      },
+      "categoriesUrl": "https://www.miaobige.com/",
+      "categories": {
+        "regex": "href=\"/((?:xuanhuan|wuxia|dushi|lishi|youxi|kehuan|xuanyi|qita|guyan|xianyan|huanqing|qingchun|wangluo|mmkehuan)/)\">([^<]{2,8})</a>",
+        "itemUrl": "r1",
+        "itemName": "r2"
+      },
+      "categoryListUrl": "https://www.miaobige.com/{categoryId}{page}.html",
+      "categoryList": {
+        "css": "div#newscontent div.l ul li",
+        "name": "span.s2 a|text",
+        "id": "span.s2 a|href",
+        "author": "span.s4|text",
+        "content": "span.s3 a|text"
+      },
+      "rankUrl": "https://www.miaobige.com/top/allvisit_{page}.html",
+      "rank": {
+        "css": "div.novelslist2 ul li",
+        "name": "span.s2 a|text",
+        "id": "span.s2 a|href",
+        "author": "span.s4|text",
+        "content": "span.s3 a|text"
+      },
+      "detailUrl": "https://www.miaobige.com/{id}",
+      "detail": {
+        "title": "div#info h1",
+        "cover": "div#fmimg img",
+        "coverAttr": "src",
+        "author": "div#info p a|text",
+        "description": "div#intro p|text",
+        "chapters": "div#list dl dd a",
+        "chapterUrl": "href",
+        "picListUrl": "https://www.miaobige.com/{id}",
+        "picListCss": "div#content p",
+        "picFilter": "^(?!如果此书|喜欢.{0,24}请大家收藏)"
+      }
+    },
+    {
+      "id": "quanben5_novel",
+      "name": "全本小说网",
+      "type": "novel",
+      "version": "1.0.0",
+      "author": "星漫匣",
+      "description": "全本小说网（quanben5.com）：完本小说库，15 个分类分页浏览，目录页一次性给出全部章节（实测一本 2437 章），正文按段落抽取。站点没有独立排行榜页，首屏浏览用「玄幻」分类分页代替榜单；站内搜索需 JS 混淆参数，故不配置搜索规则。",
+      "baseUrl": "https://www.quanben5.com",
+      "hosts": [
+        "https://www.quanben5.com"
+      ],
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "zh-CN,zh;q=0.9"
+      },
+      "requiresLogin": false,
+      "categoriesUrl": "https://www.quanben5.com/",
+      "categories": {
+        "regex": "href=\"/category/(\\d+)\\.html\"><span>([^<]{2,6})</span>",
+        "itemUrl": "r1",
+        "itemName": "r2"
+      },
+      "categoryListUrl": "https://www.quanben5.com/category/{categoryId}_{page}.html",
+      "categoryList": {
+        "css": "div.pic_txt_list",
+        "name": "h3 a|text",
+        "id": "h3 a|href",
+        "author": "span.author|text",
+        "content": "p.description|text",
+        "pic": "div.pic img|src"
+      },
+      "rankUrl": "https://www.quanben5.com/category/1_{page}.html",
+      "rank": {
+        "css": "div.pic_txt_list",
+        "name": "h3 a|text",
+        "id": "h3 a|href",
+        "author": "span.author|text",
+        "content": "p.description|text",
+        "pic": "div.pic img|src"
+      },
+      "detailUrl": "https://www.quanben5.com/{id}xiaoshuo.html",
+      "detail": {
+        "title": "div.topbar h1",
+        "cover": "div.pic_txt_list div.pic img",
+        "coverAttr": "src",
+        "author": "span.author",
+        "description": "p.description",
+        "chapters": "ul.list li.c3 a",
+        "chapterUrl": "href",
+        "picListUrl": "https://www.quanben5.com/{id}",
+        "picListCss": "div#content p"
+      }
+    },
+    {
+      "id": "manhuawang_comic",
+      "name": "漫画网",
+      "type": "comic",
+      "version": "1.0.0",
+      "author": "星漫匣",
+      "description": "漫画网（manhuawang.com）：韩漫/耽美向漫画站，列表带封面与最新话，章节图片走 lazyload 的 data-src 属性。站点「作品分类」里的题材筛选实测无效（各题材返回同一份 SEO 页），只有「连载中/已完结」两档真实生效；/top 各榜单页无分页，故首屏排行取「全部」列表分页（站点默认顺序）。站内搜索为 JS 提交，未配置搜索规则。",
+      "baseUrl": "https://www.manhuawang.com",
+      "hosts": [
+        "https://www.manhuawang.com"
+      ],
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "zh-CN,zh;q=0.9"
+      },
+      "imageHosts": [
+        "img.ddmhjpg.top"
+      ],
+      "categoriesUrl": "https://www.manhuawang.com/lists",
+      "categories": {
+        "regex": "href=\"/(lists/9/全部/(?:4|1))/1\\.html\"[^>]*>\\s*(连载中|已完结)\\s*<",
+        "itemUrl": "r1",
+        "itemName": "r2"
+      },
+      "categoryListUrl": "https://www.manhuawang.com/{categoryId}/{page}.html",
+      "categoryList": {
+        "css": "div.classification",
+        "name": "h2 a|text",
+        "id": "h2 a|href",
+        "pic": "img|data-src",
+        "content": "p.describe a|text"
+      },
+      "rankUrl": "https://www.manhuawang.com/lists/9/全部/3/{page}.html",
+      "rank": {
+        "css": "div.classification",
+        "name": "h2 a|text",
+        "id": "h2 a|href",
+        "pic": "img|data-src",
+        "content": "p.describe a|text"
+      },
+      "detailUrl": "https://www.manhuawang.com/{id}",
+      "detail": {
+        "title": "h1.title",
+        "cover": "div.ctdbLeft img",
+        "coverAttr": "src",
+        "author": "p.author",
+        "description": "p#worksDesc",
+        "type": "span.labelBox a",
+        "status": "a.status",
+        "chapters": "div#chapterlistload ul li a",
+        "chapterUrl": "href",
+        "picListUrl": "https://www.manhuawang.com/{id}",
+        "picListCss": "img.man_img",
+        "picAttr": "data-src",
+        "picFilter": "^https?://"
+      }
+    },
+    {
+      "id": "manhuady_comic",
+      "name": "漫画大院",
+      "type": "comic",
+      "version": "1.0.0",
+      "author": "星漫匣",
+      "description": "漫画大院（manhuady.com）：日漫/国漫综合漫画站，列表、目录与章节页全部是静态 HTML，无需 JS。列表与排行分页形式为 /category/{分类}/p{页}.html（每页 30 条，实测翻页无重复）；「每日更新」与按星期分类的列表固定只给最新 30 条、翻页返回同一页，故分类只暴露真正分页的「全部」与「排行榜」。章节目录取 ul#detail-list-select-1（含全部话数，页面里另一份 #ncp3_ul 是同一目录的封面视图，不重复取）；章节页图片是 img[src^=\"/xinhmg/\"] 的 src 属性（相对路径，由引擎补全为绝对地址）。站内搜索为 JS 提交，未配置搜索规则。",
+      "baseUrl": "https://www.manhuady.com",
+      "hosts": [
+        "https://www.manhuady.com"
+      ],
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "zh-CN,zh;q=0.9"
+      },
+      "imageHosts": [
+        "www.manhuady.com"
+      ],
+      "categoriesUrl": "https://www.manhuady.com/category/cate/p1.html",
+      "categories": {
+        "regex": "<a[^>]{0,60}href=\"/category/(cate|rank)(?:\\.html)?\"[^>]{0,60}>\\s*(作品分类|排行榜)\\s*</a>",
+        "itemUrl": "r1",
+        "itemName": "r2"
+      },
+      "categoryListUrl": "https://www.manhuady.com/category/{categoryId}/p{page}.html",
+      "categoryList": {
+        "css": "li.comic-item-jp",
+        "name": "p.comic-name",
+        "id": "a|href",
+        "pic": "img|data-src",
+        "content": "p.comic-tip"
+      },
+      "rankUrl": "https://www.manhuady.com/category/rank/p{page}.html",
+      "rank": {
+        "css": "li.comic-item-jp",
+        "name": "p.comic-name",
+        "id": "a|href",
+        "pic": "img|data-src",
+        "content": "p.comic-tip"
+      },
+      "detailUrl": "https://www.manhuady.com/{id}",
+      "detail": {
+        "title": "h1.title",
+        "cover": "meta[property=og:image]",
+        "coverAttr": "content",
+        "author": ".ncp1b_author",
+        "description": ".desc",
+        "type": "span.labelBox a",
+        "chapters": "#detail-list-select-1 a",
+        "chapterUrl": "href",
+        "picListUrl": "https://www.manhuady.com/{id}",
+        "picListCss": "img[src^=\"/xinhmg/\"]",
+        "picAttr": "src"
+      }
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "ai.colorize.ddcolor",
+      "name": "AI 上色",
+      "category": "ai",
+      "version": "1.0.0",
+      "author": "星漫匣上色团队",
+      "description": "本地 DDColor 黑白漫画上色（桌面端，权重运行期下载）",
+      "weights": [
+        {
+          "name": "ddcolor.tflite",
+          "url": "https://github.com/lxfebd/xingmanxia-sources/releases/download/models-v1/ddcolor_fp32.tflite",
+          "sizeBytes": 225863636,
+          "sha256": "c08aa1f86d84c7c514b6e80e8925a75a7dd51fa17df670c85610b28b7b813cc7"
+        }
+      ]
+    },
+    {
+      "id": "ai.frame.rife",
+      "name": "AI 插帧",
+      "category": "video",
+      "version": "1.0.0",
+      "author": "星漫匣插帧团队",
+      "description": "本地 RIFE 视频补帧（桌面端，引擎运行期下载）",
+      "artifact": {
+        "url": "https://github.com/lxfebd/xingmanxia-sources/releases/download/models-v1/rife-engine-win.zip",
+        "sha256": {
+          "windows-x64": "f2df934b53d157f0c21bea21bc921cb22ce5e9d1781f6538d2825b5d05d0cf98"
+        }
+      }
+    }
+  ],
+  "_sig": "Tzbr5RilUYqY6iMG2yJV8LaiKlbb36KRyyG11n98mioRYE6jOqan2pU3R55FkKw9VxeiWt7BvSW8qlvOCpRCPQ=="
+}

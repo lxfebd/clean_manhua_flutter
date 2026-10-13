@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../net/http_client.dart';
 import '../net/local_store.dart';
+import '../utils/index_signature.dart';
 import '../utils/market_index_urls.dart';
 import 'capability_artifact_store.dart';
 import 'capability_plugin.dart';
@@ -87,6 +88,11 @@ class CapabilityMarket {
         totalTimeout: kMarketIndexTotalTimeout,
       );
       final text = utf8.decode(bytes);
+      // 来源校验（签名）：与源市场同一把公钥、同一策略——篡改拒绝、未签名
+      // 告警放行。校验在解析与落盘之前，坏索引进不了缓存。
+      if (!checkIndexOrTrust(text, what: '能力市场')) {
+        throw const FormatException('能力市场索引签名校验失败');
+      }
       // 先解析、解析成功才落盘；避免坏索引覆盖已有好缓存（与源市场一致，
       // 旧实现在这里先 _cache 再 _parse，解析失败会留下坏缓存污染离线回退）。
       final parsed = _parse(text);

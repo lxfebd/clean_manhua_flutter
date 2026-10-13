@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../net/error_logger.dart';
 import '../../net/http_client.dart';
 import '../../net/local_store.dart';
+import '../../utils/index_signature.dart';
 import '../../utils/market_index_urls.dart';
 import 'custom_source_def.dart';
 import 'custom_source_store.dart';
@@ -73,6 +74,12 @@ class SourceMarket {
         totalTimeout: kMarketIndexTotalTimeout,
       );
       final text = utf8.decode(bytes);
+      // 来源校验（签名）：篡改视为拉取失败走 catch 回退缓存，且**绝不落盘**，
+      // 坏索引连缓存都污染不了。未签名暂告警放行，见 checkIndexOrTrust。
+      // 缓存路径不再验签：缓存只写入过验签通过的内容，是本机可信数据。
+      if (!checkIndexOrTrust(text, what: '源市场')) {
+        throw const FormatException('源市场索引签名校验失败');
+      }
       // 先解析、解析成功才落盘；避免坏索引覆盖已有好缓存
       final parsed = _parse(text);
       await _cache(text);

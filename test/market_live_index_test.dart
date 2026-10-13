@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xingmanxia/net/http_client.dart';
 import 'package:xingmanxia/sources/dsl/source_market.dart';
+import 'package:xingmanxia/utils/index_signature.dart';
 import 'package:xingmanxia/utils/market_index_urls.dart';
 
 /// 远端**已发布**索引的实时校验：用源市场自己的取数路径（主地址 + jsDelivr 镜像
@@ -26,11 +27,21 @@ void main() {
         timeout: kMarketIndexTimeout,
         totalTimeout: kMarketIndexTotalTimeout);
     final text = utf8.decode(bytes);
+
+    // 线上索引必须已签名且验签通过：这条断言闭合「发布流程真的签了名」。
+    // 只要有人改了 index.json 没重签就 push，这里立刻红——而不是等真机
+    // 市场靠 checkIndexOrTrust 打一条没人看的 debugPrint。
+    expect(verifyIndexSignature(text), IndexSignatureStatus.valid,
+        reason: '线上索引未签名或验签失败：发布时漏跑 tool/sign_index.dart，'
+            '或内容被篡改');
+
     final entries = SourceMarket.parseIndex(text);
 
     // 线上至少要有这些源（缺一个就是发布事故/源站下线被跳过）。
-    // ashan_yy（鞍山影院）已下架：其 CDN 对任何带 SNI 的 TLS 握手直接 RST，
-    // 浏览器同样进不去，见 test/market_live_video_sources_test.dart 的记录。
+    // ashan_yy（鞍山影院）**不在此列**：它已从**市场索引**下架——其 CDN 对任何
+    // 带 SNI 的 TLS 握手直接 RST，浏览器同样进不去（见 da4e2b5 提交记录）。
+    // 注意它仍作为**内置 DSL 孪生源**保留在 App 里（sources/ashan_yy.json，
+    // restorePlugins 会注册），所以这里断言的是「市场」而非「内置」。
     const required = [
       'wche_dm',
       'shuhaige_novel',
