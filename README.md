@@ -36,7 +36,7 @@ flutter build web --release     # Web 端（alpha）：静态产物 build/web（
 
 **漫画（4）**：动漫屋(DM5) ✅(国内免登录默认源) ｜ 豆包 ✅ ｜ 禁漫JM ⚠️(反爬+图片解扰) ｜ MangaDex ✅(英文兜底)
 
-**视频（5）**：AGE动漫 ✅ ｜ TvTFun ✅(需优选IP) ｜ 稀饭动漫 ✅(新站 next.xifanacg.com，WebView 播放页) ｜ Anime1 ✅(WebView播放) ｜ 风车动漫 ✅(WebView兜底)
+**视频（6）**：AGE动漫 ✅ ｜ TvTFun ✅(需优选IP) ｜ 稀饭动漫 ✅(新站 next.xifanacg.com，WebView 播放页) ｜ Anime1 ✅(WebView播放) ｜ 风车动漫 ✅(WebView兜底) ｜ 鞍山影院 ✅(仅分类浏览)
 
 **小说（2）**：笔趣阁 ✅(多镜像可换) ｜ 新笔趣阁 ✅(Base64 章节解密)
 
@@ -126,7 +126,7 @@ flutter build web --release     # Web 端（alpha）：静态产物 build/web（
 - 📋 **书单导入与海报导出**：剪贴板文本解析 + 跨源搜索入架；封面网格 PNG 海报（固定白底 780 宽 3 列，RepaintBoundary 截图）接入系统分享面板
 - 📝 **本章摘要**：小说阅读器底部面板——拆句 + 首尾位置加权 + 关键词加权取 topK，纯规则零模型依赖、离线可用
 - 🔗 **自定义源 DSL 绑定视频/小说**：`DslVideoSource`/`DslNovelSource` 复用同一套 DSL 规则接入视频与小说源接口，并补启动补检与本地推荐
-- 🎬 **新视频源**：风车动漫（16dns，WebView 兜底）；鞍山影院（dainyew）内置源已移除——其 CDN 对任何带 SNI 的 TLS 握手直接 RST（2026-10-13 实测），装上也是死源
+- 🎬 **新视频源**：风车动漫（16dns，WebView 兜底）+ 鞍山影院（dainyew，暂仅分类浏览）
 - ⚡ **移动端播放器性能回归**：恢复 `display-resample` 显示同步（治 60Hz 屏一顿一顿，无音轨保持默认）+ 回归 mpv 默认管线 + 禁漫解扰信号量并发收紧为 2/预取收紧
 - 🕸️ **Web beta io 收口**：设置页/工具箱平台功能灰置替代报错；书架动漫下载卡片、小说导入文件读取、阅读器图片/下载/本地文件链路补 web 守卫，`dart:io` 崩溃面清零
 - 🛡️ **技术债加固**：WebDAV 密钥升级 PBKDF2（v2 写入 + v1 兼容解密）；本地导入目录时序守卫；备份契约统一 + schema 迁移框架；锁超时对齐、RateLimiter 排队上限、下载索引防抖；dead code 清理 + regression 测试入库
