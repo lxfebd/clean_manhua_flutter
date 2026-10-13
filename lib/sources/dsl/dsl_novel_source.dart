@@ -22,7 +22,6 @@ import 'html_parser.dart';
 ///   （不命中的段落跳过）。
 ///
 /// 未实现（接口默认/空实现，jobs/shelf 走本地书架）：
-/// - `rank`：返回空列表。
 /// - 上下章导航：返回 null。
 ///
 /// 网络统一走全局 Net（http_client.dart）。
@@ -71,8 +70,15 @@ class DslNovelSource extends NovelSource with DslEngineMixin {
     return _runList(url, rule);
   }
 
+  // ---- 排行榜（与漫画/视频引擎共用 rankUrl + rank 规则）----
+  // 小说首页未输入关键词时只调 rank()：这里若固定返回空，市场安装的 novel 源
+  // 首屏就永远是空列表（装了却看不到内容），所以按 DSL rank 规则实现。
   @override
-  Future<List<ComicItem>> rank(int page) async => const [];
+  Future<List<ComicItem>> rank(int page) async {
+    final rule = def.rankRule;
+    if (rule == null || def.rankUrl == null) return const [];
+    return _runList(pageUrl(def.rankUrl!, null, page), rule);
+  }
 
   // ---- 搜索（复用列表规则）----
   @override
@@ -228,7 +234,9 @@ class DslNovelSource extends NovelSource with DslEngineMixin {
       if (name.isEmpty) continue;
       final id = extractId(extract(e, rule.id), '');
       if (id.isEmpty) continue;
-      final pic = extract(e, rule.pic);
+      // 未配置 pic 规则时不要取条目文本：extract 的空字段会回退成 innerText，
+      // 榜单行（无封面）会把整行文字当 URL 送进 abs() 抛 FormatException。
+      final pic = rule.pic.isEmpty ? '' : extract(e, rule.pic);
       items.add(ComicItem(id, name, pic.isEmpty ? '' : abs(url, pic))
         ..author = opt(e, rule.author)
         ..content = opt(e, rule.content));

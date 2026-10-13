@@ -86,7 +86,9 @@ class DslComicSource extends ComicSource with DslEngineMixin {
         if (name.isEmpty) continue;
         final id = extractId(extract(e, rule.id), '');
         if (id.isEmpty) continue;
-        final pic = extract(e, rule.pic);
+        // 未配置 pic 规则时不要取条目文本（extract 空字段回退 innerText，
+        // 会把整行文字当 URL 送进 abs() 抛 FormatException）。
+        final pic = rule.pic.isEmpty ? '' : extract(e, rule.pic);
         items.add(ComicItem(id, name, pic.isEmpty ? '' : abs(url, pic))
           ..yname = opt(e, rule.yname)
           ..score = opt(e, rule.score)

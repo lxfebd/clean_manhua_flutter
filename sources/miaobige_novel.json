@@ -1,0 +1,51 @@
+{
+  "id": "miaobige_novel",
+  "name": "妙笔阁小说",
+  "type": "novel",
+  "version": "1.0.0",
+  "author": "星漫匣",
+  "description": "妙笔阁（笔趣阁系）：按分类浏览 + 总点击榜，详情页带完整章节目录，正文按段落抽取并过滤版权提示/推广行。站内搜索为 JS 提交且对本机无结果，故不配置搜索规则。",
+  "baseUrl": "https://www.miaobige.com",
+  "hosts": [
+    "https://www.miaobige.com"
+  ],
+  "headers": {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "zh-CN,zh;q=0.9"
+  },
+  "categoriesUrl": "https://www.miaobige.com/",
+  "categories": {
+    "regex": "href=\"/((?:xuanhuan|wuxia|dushi|lishi|youxi|kehuan|xuanyi|qita|guyan|xianyan|huanqing|qingchun|wangluo|mmkehuan)/)\">([^<]{2,8})</a>",
+    "itemUrl": "r1",
+    "itemName": "r2"
+  },
+  "categoryListUrl": "https://www.miaobige.com/{categoryId}{page}.html",
+  "categoryList": {
+    "css": "div#newscontent div.l ul li",
+    "name": "span.s2 a|text",
+    "id": "span.s2 a|href",
+    "author": "span.s4|text",
+    "content": "span.s3 a|text"
+  },
+  "rankUrl": "https://www.miaobige.com/top/allvisit_{page}.html",
+  "rank": {
+    "css": "div.novelslist2 ul li",
+    "name": "span.s2 a|text",
+    "id": "span.s2 a|href",
+    "author": "span.s4|text",
+    "content": "span.s3 a|text"
+  },
+  "detailUrl": "https://www.miaobige.com/{id}",
+  "detail": {
+    "title": "div#info h1",
+    "cover": "div#fmimg img",
+    "coverAttr": "src",
+    "author": "div#info p a|text",
+    "description": "div#intro p|text",
+    "chapters": "div#list dl dd a",
+    "chapterUrl": "href",
+    "picListUrl": "https://www.miaobige.com/{id}",
+    "picListCss": "div#content p",
+    "picFilter": "^(?!如果此书|喜欢.{0,24}请大家收藏)"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "id": "shuhaige_novel",
+  "name": "书海阁小说",
+  "type": "novel",
+  "version": "1.0.0",
+  "author": "星漫匣",
+  "description": "书海阁小说网：总点击/推荐/收藏/最近更新四榜浏览，详情页带完整章节目录，正文按段落抽取。站点搜索为 JS 提交且对本机返回「找不到您要搜索的内容」，故不配置搜索规则。",
+  "baseUrl": "https://www.shuhaige.net",
+  "hosts": [
+    "https://www.shuhaige.net"
+  ],
+  "headers": {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "zh-CN,zh;q=0.9"
+  },
+  "categoriesUrl": "https://www.shuhaige.net/",
+  "categories": {
+    "regex": "href=\"/((?:allvisit|allvote|goodnum|lastupdate)/)\" target=\"_blank\">([^<]{2,8})<",
+    "itemUrl": "r1",
+    "itemName": "r2"
+  },
+  "categoryListUrl": "https://www.shuhaige.net/{categoryId}{page}.html",
+  "categoryList": {
+    "css": "div.novelslist2 ul li",
+    "name": "span.s2 a|text",
+    "id": "span.s2 a|href",
+    "author": "span.s4|text",
+    "content": "span.s3 a|text"
+  },
+  "rankUrl": "https://www.shuhaige.net/allvisit/{page}.html",
+  "rank": {
+    "css": "div.novelslist2 ul li",
+    "name": "span.s2 a|text",
+    "id": "span.s2 a|href",
+    "author": "span.s4|text",
+    "content": "span.s3 a|text"
+  },
+  "detailUrl": "https://www.shuhaige.net/{id}",
+  "detail": {
+    "title": "div#info h1",
+    "cover": "div#fmimg img",
+    "coverAttr": "src",
+    "author": "div#info p a|text",
+    "description": "div#intro p|text",
+    "chapters": "div#list dl dd a",
+    "chapterUrl": "href",
+    "picListUrl": "https://www.shuhaige.net/{id}",
+    "picListCss": "div#content p"
+  }
+}
