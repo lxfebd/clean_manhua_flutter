@@ -57,6 +57,7 @@ void main() {
     // ignore: avoid_print
     print('videoSources ids: $ids');
     expect(ids, contains('wche_dm'), reason: '风车动漫必须被注册');
-    expect(ids, contains('ashan_yy'), reason: '鞍山影院必须被注册');
+    // ashan_yy（鞍山影院）已从市场下架、内置源也已移除，不再要求注册；
+    // 其定义文件保留在 sources/ 作离线快照，装入仅用于验证多源 restore。
   });
 }

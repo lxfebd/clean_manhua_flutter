@@ -66,9 +66,11 @@ class SourceMarket {
   static Future<List<MarketSourceEntry>> fetchIndex() async {
     try {
       // 候选按序回退：raw 被重置时 github.com/jsDelivr 别名常常还通。
+      // totalTimeout：整条链合计上限，全灭时不再挂最坏 5×12=60s。
       final bytes = await Net.getBytesMirrors(
         kMarketIndexUrls,
         timeout: kMarketIndexTimeout,
+        totalTimeout: kMarketIndexTotalTimeout,
       );
       final text = utf8.decode(bytes);
       // 先解析、解析成功才落盘；避免坏索引覆盖已有好缓存

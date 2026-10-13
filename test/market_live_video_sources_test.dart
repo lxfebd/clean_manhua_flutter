@@ -22,7 +22,6 @@ void main() {
   // 离线可查：DSL 结构校验不依赖网络，始终跑
   for (final path in const [
     'sources/wche_dm.json',
-    'sources/ashan_yy.json',
   ]) {
     test('视频源 $path：DSL 校验', () {
       final d = decodeCustomSourceDef(File(path).readAsStringSync());
@@ -78,24 +77,4 @@ void main() {
     expect(url, startsWith('http'), reason: '播放地址不是可用 URL');
     expect(url, isNot(contains('base64')), reason: '取到的是编码后的占位内容');
   }, skip: skip, timeout: const Timeout(Duration(seconds: 180)));
-
-  // 鞍山影院（dainyew）不参与实时验证：2026-10-13 实测该 CDN 边缘对**任何带
-  // SNI 的 TLS ClientHello** 直接 RST（SNI=www.dainyew.com / dainyew.com /
-  // CNAME 目标 9bmv7frj.n.cdnxxx.vip 全部 Connection was reset；只有对 IP
-  // 154.39.66.113 不带 SNI 才 200）。浏览器同样进不去，故该源已从线上索引下架，
-  // 定义文件与离线解析测试保留，站点恢复后可重新上架。
-  test('live 视频源 sources/ashan_yy.json：列表 → 详情 → 剧集 → 播放地址',
-      () async {
-    final d = decodeCustomSourceDef(File('sources/ashan_yy.json').readAsStringSync())!;
-    final src = DslVideoSource(d);
-    final list = await src.listByCategory('', 1);
-    expect(list.length, greaterThan(3));
-    final detail = await src.detail(list.first.id);
-    expect(detail.episodes, isNotEmpty);
-    final url = await src.playUrl(
-        list.first.id, detail.episodes.first.season, detail.episodes.first.episode);
-    expect(url, startsWith('http'));
-  },
-      skip: '站点 TLS 被重置（带 SNI 的握手一律 RST，2026-10-13 实测），已从市场索引下架',
-      timeout: const Timeout(Duration(seconds: 180)));
 }

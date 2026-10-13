@@ -79,13 +79,18 @@ class CapabilityMarket {
     try {
       // 与源市场共用同一份索引地址候选：raw 被重置时 github.com/jsDelivr
       // 别名常常还通（见 lib/utils/market_index_urls.dart）。
+      // totalTimeout：整条链合计上限，全灭时不再挂最坏 5×12=60s。
       final bytes = await Net.getBytesMirrors(
         kMarketIndexUrls,
         timeout: kMarketIndexTimeout,
+        totalTimeout: kMarketIndexTotalTimeout,
       );
       final text = utf8.decode(bytes);
+      // 先解析、解析成功才落盘；避免坏索引覆盖已有好缓存（与源市场一致，
+      // 旧实现在这里先 _cache 再 _parse，解析失败会留下坏缓存污染离线回退）。
+      final parsed = _parse(text);
       await _cache(text);
-      return _parse(text);
+      return parsed;
     } catch (e) {
       final cached = await _readCache();
       if (cached != null) return _parse(cached);

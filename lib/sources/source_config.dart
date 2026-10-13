@@ -159,13 +159,6 @@ class SourceConfigStore {
           hosts: ['https://www.16dns.com'],
         ),
         const SourceConfig(
-          engineId: 'ashanyy',
-          id: 'ashanyy',
-          name: '鞍山影院',
-          tier: SourceTier.fallback,
-          hosts: ['https://www.dainyew.com'],
-        ),
-        const SourceConfig(
           engineId: 'xifan',
           id: 'xifan',
           name: '稀饭动漫',

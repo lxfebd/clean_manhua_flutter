@@ -23,7 +23,8 @@ void main() {
   test('线上源市场索引：可拉取、条目全部通过校验', () async {
     // 用市场自己的地址候选与超时，测的就是 App 实际会走的那条路
     final bytes = await Net.getBytesMirrors(kMarketIndexUrls,
-        timeout: kMarketIndexTimeout);
+        timeout: kMarketIndexTimeout,
+        totalTimeout: kMarketIndexTotalTimeout);
     final text = utf8.decode(bytes);
     final entries = SourceMarket.parseIndex(text);
 

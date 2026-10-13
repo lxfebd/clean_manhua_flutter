@@ -582,19 +582,51 @@ class Net {
   /// 但 jsDelivr 等 CDN 镜像可达。每个候选独立走 [_getBytesOnce]
   /// （各自 timeout），互不影响；首 URL 成功即短路，不浪费流量。
   /// 与 [_getBytesOnce] 一致，每个候选都受所在域名令牌桶限流。
+  ///
+  /// [totalTimeout]：整条镜像链的总预算。给定时，所有候选合计耗时不超过
+  /// 该值——每个候选的实际超时取「min(自身 timeout, 剩余预算)」，到点即抛
+  /// [TimeoutException]，避免 N 个候选各吃满 timeout 把调用方卡死
+  /// （源市场/能力市场 5 个候选 × 12s = 最坏 60s，见 market_index_urls.dart）。
   static Future<List<int>> getBytesMirrors(List<String> urls,
-      {Map<String, String>? headers, Duration? timeout, int? maxBytes}) async {
+      {Map<String, String>? headers,
+      Duration? timeout,
+      int? maxBytes,
+      Duration? totalTimeout}) async {
     if (urls.isEmpty) throw ArgumentError('urls 不能为空');
+    final deadline = totalTimeout == null
+        ? null
+        : DateTime.now().add(totalTimeout);
     Object? lastErr;
     for (final u in urls) {
+      if (deadline != null &&
+          DateTime.now().isAfter(deadline)) {
+        throw TimeoutException('镜像链总预算 $totalTimeout 已耗尽', totalTimeout);
+      }
       try {
-        return await _getBytesOnce(u, headers, proxy: null, timeout: timeout, maxBytes: maxBytes);
+        final per = Net.candidateBudget(timeout, deadline);
+        return await _getBytesOnce(u, headers,
+            proxy: null, timeout: per, maxBytes: maxBytes);
       } catch (e) {
         lastErr = e;
       }
     }
     if (lastErr is Exception) throw lastErr;
     throw StateError('镜像全部失败');
+  }
+
+  /// 单个候选的实际超时 = min(自身 timeout, 距总预算 deadline 的剩余时间)。
+  /// 无总预算时返回原 timeout（兼容旧调用方）。
+  /// 剩余时间为负/零（预算已耗尽）返回 null——由调用方在进入下一候选前抛
+  /// TimeoutException 兜住，这里不抛是为了让纯函数可单测。
+  @visibleForTesting
+  static Duration? candidateBudget(
+      Duration? timeout, DateTime? deadline, {DateTime? now}) {
+    if (deadline == null) return timeout;
+    final n = now ?? DateTime.now();
+    final remaining = deadline.difference(n);
+    if (remaining.isNegative || remaining == Duration.zero) return null;
+    if (timeout == null) return remaining;
+    return timeout < remaining ? timeout : remaining;
   }
 
   static Future<List<int>> _getBytesOnce(String urlStr,

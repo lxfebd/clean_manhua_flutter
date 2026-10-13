@@ -27,3 +27,11 @@ const List<String> kMarketIndexUrls = [
 /// 每个都吃满 30s 会让市场页最坏挂 150s。12s 是「慢通仍能命中」与
 /// 「全灭时不至于把 UI 卡死」之间的取值。
 const Duration kMarketIndexTimeout = Duration(seconds: 12);
+
+/// 整条镜像链的总预算（5 个候选的合计上限）。
+///
+/// 单个候选超时只是「这一个网址最多等多久」，5 个全灭时市场页仍会挂最坏
+/// 5 × 12 = 60s。给 [Net.getBytesMirrors] 传 totalTimeout 后，整条链合计不
+/// 超过该值——预算内慢通的候选仍能命中，全灭时把「市场打不开」从 60s
+/// 压到 20s 内，UI 不再长时间假死。
+const Duration kMarketIndexTotalTimeout = Duration(seconds: 20);
