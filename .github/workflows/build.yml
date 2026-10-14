@@ -135,6 +135,11 @@ jobs:
   nightly:
     if: github.ref_type == 'branch' && (github.ref_name == 'main' || github.ref_name == 'master')
     runs-on: ubuntu-latest
+    # Publish Pre-release 步骤要创建 Release —— d18f455 的「permissions
+    # cleanup」把这 job 的 contents: write 误删了，默认 token 只读，
+    # softprops/action-gh-release 立刻 403（10-11 之后 nightly 全红的根因）。
+    permissions:
+      contents: write
     concurrency:
       group: nightly-debug-apk
       cancel-in-progress: true
