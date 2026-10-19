@@ -145,7 +145,7 @@ void main() async {
     // 写入本地日志（不改变既有行为，仅记录）。
     // ProviderScope：Riverpod 渐进批次 C——主题/风格全局状态已迁入
     // ThemeController（lib/ui/theme_controller.dart），其余页面维持 setState。
-    runApp(const ProviderScope(child: YingManHeApp()));
+    runApp(const ProviderScope(child: XingManXiaApp()));
   }, (error, stack) {
     try {
       ErrorLogger.instance.logError('Uncaught: $error', stack: stack.toString());
@@ -249,14 +249,14 @@ Future<void> _safeInit(String name, Future<void> Function() task) async {
   }
 }
 
-class YingManHeApp extends ConsumerStatefulWidget {
-  const YingManHeApp({super.key});
+class XingManXiaApp extends ConsumerStatefulWidget {
+  const XingManXiaApp({super.key});
 
   @override
-  ConsumerState<YingManHeApp> createState() => _YingManHeAppState();
+  ConsumerState<XingManXiaApp> createState() => _XingManXiaAppState();
 }
 
-class _YingManHeAppState extends ConsumerState<YingManHeApp>
+class _XingManXiaAppState extends ConsumerState<XingManXiaApp>
     with WidgetsBindingObserver {
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
 

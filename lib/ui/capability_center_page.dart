@@ -12,9 +12,7 @@ import 'widgets/app_toast.dart';
 import 'keyboard_shortcuts.dart';
 
 /// 能力中心：查看/启用/禁用已安装的能力插件（内置 + 市场）。
-///
-/// M1 阶段仅展示内置能力（阅读统计等），市场条目（AI 上色/插帧）后续接入
-/// CapabilityMarket 后在此列表上方合并展示。每个能力卡片：
+/// 能力中心展示全部已注册能力（内置 + 市场条目，平台门闸过滤），每个能力卡片：
 /// - 启用/禁用开关（setEnabled → onEnable/onDisable + persist）
 /// - 卸载按钮（仅非 builtin 显示；内置能力不可卸载）
 /// - 描述 / 作者 / 版本 / 分类

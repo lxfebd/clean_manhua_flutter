@@ -60,7 +60,7 @@ List<HistoryEntry> filterHistory(
   ];
 }
 
-/// 动画记录过滤纯函数：按片名匹配（空 = 原样返回）。
+/// 动漫记录过滤纯函数：按片名匹配（空 = 原样返回）。
 /// 语义与书签/下载 Tab 过滤一致，独立便于单元测试。
 List<VideoRecord> filterVideoRecords(
     List<VideoRecord> records, String filter) {
@@ -86,7 +86,7 @@ List<ComicBookmark> filterBookmarks(
   ];
 }
 
-/// 动画记录累计追番集数：所有记录「最后播放到的集数」之和。
+/// 动漫记录累计追番集数：所有记录「最后播放到的集数」之和。
 /// 每次播放推进/换剧都会刷新该集记录（按 sourceId/videoId 聚合），
 /// 累计值体现「追番投入」；空表返回 0。纯函数便于单测。
 int totalEpisodesWatched(List<VideoRecord> records) {
@@ -147,7 +147,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
   // 书签 Tab 搜索（独立于收藏 Tab 搜索，各自持有输入态）。
   final _bookmarkFilterCtrl = TextEditingController();
   String _bookmarkFilter = '';
-  // 动画记录 Tab 搜索（番剧多了按标题定位；独立持有输入态）。
+  // 动漫记录 Tab 搜索（番剧多了按标题定位；独立持有输入态）。
   final _videoFilterCtrl = TextEditingController();
   String _videoFilter = '';
   // 最近阅读 Tab 搜索（独立持有输入态；对齐其它 Tab 搜索框）。
@@ -574,7 +574,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                   ],
                 ),
               ),
-            // 横向 Tab（最近阅读/我的收藏/动画记录/下载）
+            // 横向 Tab（最近阅读/我的收藏/动漫记录/下载）
             _tabBar(),
             // 收藏 Tab：搜索 + 标签/状态筛选 + 排序
             if (_tab == 1 && _items.isNotEmpty) _shelfFilterBar(),
@@ -592,7 +592,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
       case 1:
         return '我的收藏';
       case 2:
-        return '动画记录';
+        return '动漫记录';
       case 3:
         return '下载';
       default:
@@ -891,7 +891,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
   }
 
   /// 视频记录列表
-  /// 动画记录 Tab 搜索框（镜像书签/下载 Tab 搜索框样式；本地内存过滤）。
+  /// 动漫记录 Tab 搜索框（镜像书签/下载 Tab 搜索框样式；本地内存过滤）。
   Widget _buildVideoSearchField(ColorScheme scheme) {
     return TextField(
       controller: _videoFilterCtrl,
@@ -899,7 +899,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
       style: TextStyle(fontSize: 13.5, color: scheme.onSurface),
       decoration: InputDecoration(
         isDense: true,
-        hintText: '搜索动画记录（片名）',
+        hintText: '搜索动漫记录（片名）',
         hintStyle: TextStyle(
           fontSize: 13,
           color: scheme.onSurface.withValues(alpha: 0.4),
@@ -930,11 +930,11 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     );
   }
 
-  /// 动画记录列表（搜索过滤后的可见条目；空过滤 = 全量）。
+  /// 动漫记录列表（搜索过滤后的可见条目；空过滤 = 全量）。
   List<VideoRecord> get _visibleVideos =>
       filterVideoRecords(_videos, _videoFilter);
 
-  /// 动画记录 Tab：标题搜索 + 列表（与收藏/书签 Tab 的搜索框对齐）。
+  /// 动漫记录 Tab：标题搜索 + 列表（与收藏/书签 Tab 的搜索框对齐）。
   Widget _buildVideoList(ColorScheme scheme) {
     if (_videos.isEmpty) {
       return const SliverToBoxAdapter(
@@ -942,7 +942,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
           padding: EdgeInsets.only(top: 120),
           child: _TabEmpty(
             icon: Icons.ondemand_video_rounded,
-            text: '还没有动画观看记录',
+            text: '还没有动漫观看记录',
             subtitle: '在动漫频道看过的内容会自动出现在这里',
           ),
         ),
@@ -992,7 +992,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
               ),
             ),
           ),
-          // 动画记录搜索框：番剧多时按片名定位（不重复显示在清空行内）。
+          // 动漫记录搜索框：番剧多时按片名定位（不重复显示在清空行内）。
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.only(bottom: 8),
@@ -1006,7 +1006,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                 padding: const EdgeInsets.only(top: 48),
                 child: Center(
                   child: Text(
-                    '没有匹配「${_videoFilter.trim()}」的动画记录',
+                    '没有匹配「${_videoFilter.trim()}」的动漫记录',
                     style: TextStyle(
                       fontSize: 13,
                       color: scheme.onSurface.withValues(alpha: 0.55),
@@ -1082,7 +1082,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
               ),
             )
           else ...[
-            // 列表头：数量 + 清空入口（与最近阅读/动画记录 Tab 同款）。
+            // 列表头：数量 + 清空入口（与最近阅读/动漫记录 Tab 同款）。
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.only(top: 8, bottom: 8),
@@ -1801,7 +1801,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
               padding: EdgeInsets.only(top: 80),
               child: _TabEmpty(
                 icon: Icons.ondemand_video_rounded,
-                text: '还没有动画观看记录',
+                text: '还没有动漫观看记录',
                 subtitle: '在动漫频道看过的内容会自动出现在这里',
               ),
             ),
@@ -2077,7 +2077,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     reload();
   }
 
-  /// 清空全部手动书签（含确认；与最近阅读/动画记录 Tab 的清空入口对称）。
+  /// 清空全部手动书签（含确认；与最近阅读/动漫记录 Tab 的清空入口对称）。
   Future<void> _confirmClearBookmarks() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -2185,14 +2185,14 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     }
   }
 
-  /// 清空全部动画观看记录（含确认；与最近阅读/下载 Tab 的清空入口对称）。
+  /// 清空全部动漫观看记录（含确认；与最近阅读/下载 Tab 的清空入口对称）。
   Future<void> _confirmClearVideos() async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.sheet)),
-        title: const Text('清空动画记录'),
-        content: Text('确定清空全部 ${_videos.length} 条动画观看记录？此操作不可恢复。'),
+        title: const Text('清空动漫记录'),
+        content: Text('确定清空全部 ${_videos.length} 条动漫观看记录？此操作不可恢复。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -2209,7 +2209,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
       await LocalStore.clearVideoRecords();
       await reload();
       if (!mounted) return;
-      AppToast.info(context, '已清空动画记录');
+      AppToast.info(context, '已清空动漫记录');
     }
   }
 
@@ -2707,7 +2707,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
           children: [
             _tabItem('最近阅读', 0),
             _tabItem('我的收藏', 1),
-            _tabItem('动画记录', 2),
+            _tabItem('动漫记录', 2),
             _tabItem('下载', 3),
             _tabItem('书签', 4),
           ],

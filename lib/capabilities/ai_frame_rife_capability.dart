@@ -15,7 +15,7 @@ import 'process_timeout.dart';
 
 /// AI 视频插帧能力（RIFE 引擎，桌面专属插件）。
 ///
-/// 技术路线（docs/frame-interpolation-research.md §2.2 定案，2026-09-18 实测修正）：
+/// 技术路线（仓库外 内部资料/docs/frame-interpolation-research.md §2.2 定案，2026-09-18 实测修正）：
 /// - 模型：RIFE v4.6（Real-Time Intermediate Flow Estimation，双帧输入 →
 ///   中间帧输出），ncnn .bin/.param 格式（flownet.bin + flownet.param）。
 /// - 引擎：**rife.exe 子进程**（不用 FFI 裸调 ncnn dll）——子进程崩溃不伤
@@ -26,7 +26,7 @@ import 'process_timeout.dart';
 ///   `<modeldir> <w> <h> <threads> <midbase> <in0.rgb> <in1.rgb> [...]` →
 ///   读 `<midbase>_0.rgb`。支持一次批量多帧（每对相邻帧插 1 中间帧）。
 ///
-/// 边界（与 AiColorizePlugin 对齐，docs/colorizer-capability-contract.md）：
+/// 边界（与 AiColorizePlugin 对齐，仓库外 内部资料/docs/colorizer-capability-contract.md）：
 /// - **调用不占主线程**：子进程跑在独立进程，主线程零阻塞；超时/失败降级
 ///   原速播放，不打断观看、不抛异常。
 /// - **版本钉死**：artifact/weights 带精确 SHA256，绝不自动滚动 latest。

@@ -37,7 +37,7 @@ SetCompressor /SOLID lzma
   !define APP_VERSION "0.0.0"
 !endif
 
-!define PRODUCT_EXE "yingmanhe_clean.exe"
+!define PRODUCT_EXE "xingmanxia.exe"
 !define PRODUCT_DIR "XingManXia"
 !define UNINSTALL_KEY "XingManXia"
 !define UNINSTALL_EXE "Uninstall XingManXia.exe"

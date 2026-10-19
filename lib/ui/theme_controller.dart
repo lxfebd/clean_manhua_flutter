@@ -7,7 +7,7 @@ import 'style_scope.dart';
 
 /// 主题/风格全局状态（Riverpod 渐进批次 C 第一阶段）。
 ///
-/// 迁移自 [YingManHeAppState] 的四字段（`_themeMode`/`_themeId`/
+/// 迁移自 [XingManXiaAppState] 的四字段（`_themeMode`/`_themeId`/
 /// `_uiStyleOverride`/`_loaded`）：原 setState 同步生效 → 这里
 /// StateNotifier 同步改 state；原「先 setState 立即生效 → 再异步落盘」
 /// 的双写拆成：setter 只改内存（UI 立即重建），持久化由调用方自行

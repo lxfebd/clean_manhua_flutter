@@ -8,7 +8,7 @@ import 'capability_plugin_manager.dart';
 
 /// AI 漫画上色能力（M4 契约落地：metadata shell，只读对接 colorizer）。
 ///
-/// 边界（见 docs/colorizer-capability-contract.md §2）：
+/// 边界（见仓库外 内部资料/docs/colorizer-capability-contract.md §2）：
 /// - 能力边界定在 `ColorizerManager.colorize(rgb, w, h)`，不深入到
 ///   `ColorizerBackend.inferAsync` 之下。
 /// - **主 isolate 直调 ColorizerManager**，不包 `CapabilityRuntime.run`：
