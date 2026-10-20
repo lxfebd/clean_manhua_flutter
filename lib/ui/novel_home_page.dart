@@ -234,8 +234,7 @@ class NovelHomePageState extends State<NovelHomePage> {
             // 改为显示当前栏目标题（桌面应用标准顶栏）。
             title: DesktopUi.isDesktopPlatform
                 ? Text('小说',
-                    style: TextStyle(
-                        fontSize: 16,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w700,
                         color: scheme.onSurface))
                 : TypeSegment(type: widget.type, onChanged: widget.onTypeChanged),
@@ -253,8 +252,7 @@ class NovelHomePageState extends State<NovelHomePage> {
                 children: [
                   Expanded(
                     child: Text('我的小说书架',
-                        style: TextStyle(
-                            fontSize: 16,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.w700,
                             color: scheme.onSurface)),
                   ),
@@ -499,8 +497,10 @@ class NovelHomePageState extends State<NovelHomePage> {
                 icon: Icon(Icons.refresh_rounded,
                     size: 18, color: scheme.primary),
                 label: Text('加载失败，点击重试',
-                    style: TextStyle(
-                        fontSize: 12.5, color: scheme.primary)),
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(color: scheme.primary)),
               ),
             ),
           ),
@@ -511,8 +511,7 @@ class NovelHomePageState extends State<NovelHomePage> {
             padding: const EdgeInsets.symmetric(vertical: 14),
             child: Center(
               child: Text('已经到底啦',
-                  style: TextStyle(
-                      fontSize: 12,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: scheme.onSurface.withValues(alpha: 0.35))),
             ),
           ),
@@ -567,12 +566,12 @@ class NovelHomePageState extends State<NovelHomePage> {
           _loadNovels();
         }
       },
-      style: TextStyle(fontSize: 13.5, color: scheme.onSurface),
+      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+          color: scheme.onSurface),
       decoration: InputDecoration(
         isDense: true,
         hintText: '搜索当前源小说…',
-        hintStyle: TextStyle(
-          fontSize: 13,
+        hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
           color: scheme.onSurface.withValues(alpha: 0.4),
         ),
         prefixIcon: Icon(
@@ -725,7 +724,8 @@ class _NovelCard extends StatelessWidget {
           Text(item.name,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12.5, color: scheme.onSurface)),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurface)),
         ],
       ),
     );
@@ -776,15 +776,15 @@ class _ShelfCard extends StatelessWidget {
           Text(d.name,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12.5, color: scheme.onSurface)),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurface)),
           if (history != null) ...[
             const SizedBox(height: 3),
             Text(
               '上次读到：${history!.chapterTitle}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 10.5,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 color: scheme.primary.withValues(alpha: 0.85),
               ),
             ),
@@ -849,8 +849,7 @@ class _LocalShelfCard extends StatelessWidget {
                         size: 36, color: scheme.primary),
                     const SizedBox(height: 6),
                     Text('$chapters 章',
-                        style: TextStyle(
-                            fontSize: 11,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color: scheme.onSurface.withValues(alpha: 0.5))),
                   ],
                 ),
@@ -861,7 +860,8 @@ class _LocalShelfCard extends StatelessWidget {
           Text(name,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12.5, color: scheme.onSurface)),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurface)),
         ],
       ),
     );

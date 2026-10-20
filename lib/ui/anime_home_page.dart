@@ -128,10 +128,10 @@ class AnimeHomePageState extends State<AnimeHomePage> {
             Padding(
               padding: const EdgeInsets.all(14),
               child: Text('切换番剧源',
-                  style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 15,
-                      color: Theme.of(ctx).colorScheme.onSurface)),
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: Theme.of(ctx).colorScheme.onSurface,
+                      )),
             ),
             Flexible(
               child: ListView(
@@ -147,7 +147,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
                             ? Theme.of(ctx).colorScheme.primary
                             : Theme.of(ctx).colorScheme.onSurface.withValues(alpha: 0.4),
                       ),
-                      title: Text(s.name, style: const TextStyle(fontSize: 14)),
+                      title: Text(s.name, style: Theme.of(ctx).textTheme.bodyMedium),
                       onTap: () {
                         Navigator.pop(ctx);
                         _switchSource(s);
@@ -510,9 +510,10 @@ class AnimeHomePageState extends State<AnimeHomePage> {
                   icon: Icon(Icons.refresh_rounded,
                       size: 16, color: Theme.of(context).colorScheme.primary),
                   label: Text('加载失败，点此重试',
-                      style: TextStyle(
-                          fontSize: 12.5,
-                          color: Theme.of(context).colorScheme.primary)),
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(color: Theme.of(context).colorScheme.primary)),
                 ),
               ),
             ),
@@ -748,8 +749,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
                             _source.name,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 12,
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               fontWeight: FontWeight.w700,
                               color: scheme.primary,
                             ),
@@ -852,7 +852,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
                 color: scheme.primary.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(999),
+                borderRadius: BorderRadius.circular(R.pill),
                 border: Border.all(
                   color: scheme.primary.withValues(alpha: 0.22),
                   width: 0.8,
@@ -870,8 +870,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
                       _source.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12.5,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         fontWeight: FontWeight.w700,
                         color: scheme.primary,
                       ),
@@ -925,11 +924,11 @@ class AnimeHomePageState extends State<AnimeHomePage> {
           _keyword = v;
           _switchMode('search');
         },
-        style: TextStyle(fontSize: 13.5, color: scheme.onSurface),
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+          color: scheme.onSurface),
         decoration: InputDecoration(
           hintText: '搜索动漫、剧场版…',
-          hintStyle: TextStyle(
-            fontSize: 13,
+          hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
             color: T.color(scheme.onSurface, TextTier.low,
                 brightness: scheme.brightness),
           ),
@@ -1024,14 +1023,15 @@ class AnimeHomePageState extends State<AnimeHomePage> {
                         const SizedBox(width: 4),
                       Text(
                         c.name,
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: _categoryId == c.id && _mode == 'category'
-                              ? FontWeight.w700
-                              : FontWeight.w500,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontWeight:
+                              _categoryId == c.id && _mode == 'category'
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
                           color: _categoryId == c.id && _mode == 'category'
                               ? Colors.white
-                              : theme.colorScheme.onSurface.withValues(alpha: 0.85),
+                              : theme.colorScheme.onSurface
+                                  .withValues(alpha: 0.85),
                         ),
                       ),
                     ],

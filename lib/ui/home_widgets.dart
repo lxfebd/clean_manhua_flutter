@@ -667,8 +667,7 @@ class _ComicCardState extends State<_ComicCard> {
                       widget.item.author!,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 9,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: Colors.white,
                       ),
                     ),
@@ -690,8 +689,7 @@ class _ComicCardState extends State<_ComicCard> {
                       widget.item.remarks!,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 8.5,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w600,
                       ),

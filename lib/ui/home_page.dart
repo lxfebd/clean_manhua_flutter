@@ -478,8 +478,10 @@ class HomePageState extends State<HomePage> {
                   icon: Icon(Icons.refresh_rounded,
                       size: 18, color: theme.colorScheme.primary),
                   label: Text('加载失败，点击重试',
-                      style: TextStyle(
-                          fontSize: 12.5, color: theme.colorScheme.primary)),
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(color: theme.colorScheme.primary)),
                 ),
               ),
             ),
@@ -491,10 +493,10 @@ class HomePageState extends State<HomePage> {
               padding: const EdgeInsets.symmetric(vertical: 16),
               child: Center(
                 child: Text('已经到底啦',
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: theme.colorScheme.onSurface
-                            .withValues(alpha: 0.35))),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurface
+                          .withValues(alpha: 0.35),
+                    )),
               ),
             ),
           ),

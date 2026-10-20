@@ -98,10 +98,9 @@ class _AnimeCardState extends State<_AnimeCard> {
                           color: scheme.secondary,
                           borderRadius: BorderRadius.circular(4),
                         ),
-                        child: const Text(
+                        child: Text(
                           '动漫',
-                          style: TextStyle(
-                            fontSize: 9,
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             fontWeight: FontWeight.w800,
                             color: Colors.white,
                           ),
@@ -129,8 +128,7 @@ class _AnimeCardState extends State<_AnimeCard> {
                               const SizedBox(width: 2),
                               Text(
                                 widget.item.score!,
-                                style: const TextStyle(
-                                  fontSize: 10,
+                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
                                   fontWeight: FontWeight.w700,
                                   color: Colors.amber,
                                 ),
@@ -152,8 +150,7 @@ class _AnimeCardState extends State<_AnimeCard> {
                           ),
                           child: Text(
                             '已看 ${widget.watchedEpisodes} 集',
-                            style: const TextStyle(
-                              fontSize: 9,
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
                               fontWeight: FontWeight.w700,
                               color: Colors.white,
                             ),
@@ -183,8 +180,7 @@ class _AnimeCardState extends State<_AnimeCard> {
                             widget.item.remarks!,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 9.5,
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
                               fontWeight: FontWeight.w600,
                               color: Colors.white,
                             ),
@@ -230,8 +226,7 @@ class _AnimeCardState extends State<_AnimeCard> {
                   widget.item.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style:TextStyle(
-                    fontSize: 12.5,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     height: 1.2,
                     fontWeight: FontWeight.w600,
                     color: scheme.onSurface,
@@ -328,8 +323,7 @@ class _LetterCover extends StatelessWidget {
                   t,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11.5,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     height: 1.22,
                     fontWeight: FontWeight.w700,
                     color: Colors.white,
@@ -351,8 +345,7 @@ class _LetterCover extends StatelessWidget {
                       remark!,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 8.5,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         fontWeight: FontWeight.w600,
                         color: Colors.white,
                       ),
