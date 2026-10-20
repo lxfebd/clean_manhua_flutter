@@ -9,6 +9,7 @@ import 'episode_batch_download_sheet.dart';
 import 'episode_grouping.dart';
 import 'native_player_page.dart';
 import 'responsive.dart';
+import 'style_tokens.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/back_circle_button.dart';
 import 'widgets/cached_image.dart';
@@ -228,7 +229,9 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                 const SizedBox(height: 10),
                 Expanded(
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
+                    borderRadius: BorderRadius.circular(
+                      StyleTokens.heroRadius(context, 18),
+                    ),
                     child: Container(
                       width: double.infinity,
                       color: theme.colorScheme.surfaceContainerHighest,
@@ -262,7 +265,9 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                               horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
                             color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(20),
+                            borderRadius: BorderRadius.circular(
+                              StyleTokens.controlRadiusOr(context, 20),
+                            ),
                             border: Border.all(
                               color: theme.colorScheme.primary.withValues(alpha: 0.25),
                               width: 0.6,
@@ -293,7 +298,8 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                   style: FilledButton.styleFrom(
                     minimumSize: const Size.fromHeight(46),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
+                        borderRadius: BorderRadius.circular(
+                            StyleTokens.controlRadiusOr(context, 12))),
                   ),
                 ),
               ],
@@ -323,7 +329,9 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                 decoration: BoxDecoration(
                   color: theme.colorScheme.surfaceContainerHighest
                       .withValues(alpha: 0.5),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(
+                    StyleTokens.cardRadiusOr(context, 14),
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -440,7 +448,9 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
                             color: Colors.black.withValues(alpha: 0.45),
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(
+                              StyleTokens.controlRadiusOr(context, 12),
+                            ),
                             border: Border.all(color: Colors.white.withValues(alpha: 0.2), width: 0.5),
                           ),
                           child: Text(d.type!,
@@ -460,7 +470,9 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
                               color: theme.colorScheme.primary.withValues(alpha: 0.7),
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(
+                                StyleTokens.controlRadiusOr(context, 12),
+                              ),
                             ),
                             child: Text(d.video.remarks!,
                                 maxLines: 1,
@@ -508,7 +520,9 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                                   horizontal: 8, vertical: 3),
                               decoration: BoxDecoration(
                                 color: Colors.white.withValues(alpha: 0.16),
-                                borderRadius: BorderRadius.circular(20),
+                                borderRadius: BorderRadius.circular(
+                                  StyleTokens.controlRadiusOr(context, 20),
+                                ),
                                 border: Border.all(
                                   color: Colors.white
                                       .withValues(alpha: 0.22),
@@ -552,7 +566,8 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(46),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                    borderRadius: BorderRadius.circular(
+                        StyleTokens.controlRadiusOr(context, 12))),
               ),
             ),
           ),
@@ -568,7 +583,9 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                   decoration: BoxDecoration(
                     color: theme.colorScheme.surfaceContainerHighest
                         .withValues(alpha: 0.5),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(
+                      StyleTokens.cardRadiusOr(context, 14),
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -766,7 +783,9 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
               contentPadding:
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(
+                  StyleTokens.controlRadiusOr(context, 8),
+                ),
                 borderSide: BorderSide.none,
               ),
             ),
@@ -822,7 +841,9 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
               height: 16,
               decoration: BoxDecoration(
                 color: scheme.primary,
-                borderRadius: BorderRadius.circular(2),
+                borderRadius: BorderRadius.circular(
+                  StyleTokens.controlRadiusOr(context, 2),
+                ),
               ),
             ),
             const SizedBox(width: 8),
@@ -886,7 +907,9 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                         : scheme.surfaceContainerHighest
                             .withValues(alpha: 0.55),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(
+                    StyleTokens.controlRadiusOr(context, 12),
+                  ),
                   side: BorderSide(
                     color: isCurrent ? scheme.primary : Colors.transparent,
                     width: 1.2,
@@ -1053,7 +1076,9 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
               ? Colors.transparent
               : theme.colorScheme.surfaceContainerHighest
                   .withValues(alpha: 0.8),
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(
+            StyleTokens.controlRadiusOr(context, 10),
+          ),
         ),
         child: Icon(icon,
             size: 20,
@@ -1097,7 +1122,9 @@ class _VideoMetaCard extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
         decoration: BoxDecoration(
           color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(
+            StyleTokens.cardRadiusOr(context, 12),
+          ),
         ),
         child: Wrap(
           spacing: 16,

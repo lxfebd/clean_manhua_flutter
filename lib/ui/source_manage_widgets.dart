@@ -35,13 +35,17 @@ class _SourceCard extends StatelessWidget {
         return Material(
           color: Colors.transparent,
           child: InkWell(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(
+              StyleTokens.cardRadiusOr(context, 14),
+            ),
             onTap: onTap,
             child: Container(
               padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
               decoration: BoxDecoration(
                 color: scheme.surface,
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(
+                  StyleTokens.cardRadiusOr(context, 14),
+                ),
                 border: Border.all(
                   color:
                       enabled
@@ -64,7 +68,9 @@ class _SourceCard extends StatelessWidget {
                                   scheme.onSurface.withValues(alpha: 0.25),
                                 ],
                       ),
-                      borderRadius: BorderRadius.circular(13),
+                      borderRadius: BorderRadius.circular(
+                        StyleTokens.controlRadiusOr(context, 13),
+                      ),
                     ),
                     child: Icon(
                       Icons.public_rounded,
@@ -108,7 +114,9 @@ class _SourceCard extends StatelessWidget {
                                         : scheme.onSurface.withValues(
                                           alpha: 0.08,
                                         ),
-                                borderRadius: BorderRadius.circular(6),
+                                borderRadius: BorderRadius.circular(
+                                  StyleTokens.controlRadiusOr(context, 6),
+                                ),
                               ),
                               child: Text(
                                 _tierLabel(),
@@ -275,7 +283,11 @@ class _SourceEditDialogState extends State<_SourceEditDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(
+          StyleTokens.sheetRadiusOr(context, 14),
+        ),
+      ),
       title: Text('编辑「${widget.config.name}」'),
       content: SingleChildScrollView(
         child: Column(
@@ -393,7 +405,11 @@ class _SourceEditDialogState extends State<_SourceEditDialog> {
               horizontal: 10,
               vertical: 8,
             ),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(
+                StyleTokens.controlRadiusOr(context, 10),
+              ),
+            ),
           ),
         ),
       ],
@@ -484,7 +500,9 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
       builder:
           (_) => AlertDialog(
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.sheetRadiusOr(context, 14),
+              ),
             ),
             title: const Text('删除自定义源'),
             content: Text('删除「${def.name}」将移除其解析规则，书架中的收藏不受影响。确定？'),
@@ -542,7 +560,9 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
       builder:
           (_) => AlertDialog(
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.sheetRadiusOr(context, 14),
+              ),
             ),
             title: Text(title),
             content: TextField(
@@ -554,7 +574,9 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
               decoration: InputDecoration(
                 labelText: label,
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(
+                    StyleTokens.controlRadiusOr(context, 10),
+                  ),
                 ),
               ),
             ),
@@ -581,7 +603,9 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
       builder:
           (_) => AlertDialog(
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.sheetRadiusOr(context, 14),
+              ),
             ),
             title: Text(title),
             content: SizedBox(
@@ -611,7 +635,11 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
     final theme = Theme.of(context);
     final defs = _defs;
     return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(
+          StyleTokens.sheetRadiusOr(context, 16),
+        ),
+      ),
       title: Row(
         children: [
           const Icon(Icons.extension_rounded, size: 20),
@@ -715,13 +743,17 @@ class _CustomSourceTile extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(
+          StyleTokens.controlRadiusOr(context, 10),
+        ),
       ),
       child: Row(
         children: [
           Expanded(
             child: InkWell(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.controlRadiusOr(context, 8),
+              ),
               onTap: onEdit,
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
@@ -864,7 +896,11 @@ class _CustomSourceEditorDialogState extends State<CustomSourceEditorDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(
+          StyleTokens.sheetRadiusOr(context, 14),
+        ),
+      ),
       title: Text(widget.def == null ? '新建自定义源' : '编辑「${widget.def!.name}」'),
       content: SizedBox(
         width: 640,
@@ -878,7 +914,9 @@ class _CustomSourceEditorDialogState extends State<CustomSourceEditorDialog> {
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
                   color: theme.colorScheme.error.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(
+                    StyleTokens.controlRadiusOr(context, 8),
+                  ),
                 ),
                 child: Text(
                   _error!,
@@ -903,7 +941,9 @@ class _CustomSourceEditorDialogState extends State<CustomSourceEditorDialog> {
                   alignLabelWithHint: true,
                   hintText: 'JSON DSL 定义，字段说明见提示',
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(
+                      StyleTokens.controlRadiusOr(context, 10),
+                    ),
                   ),
                 ),
               ),
