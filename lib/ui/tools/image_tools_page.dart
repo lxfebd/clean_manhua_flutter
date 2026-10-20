@@ -320,8 +320,7 @@ class _ImageToolsPageState extends State<ImageToolsPage> {
                       color: scheme.onSurface.withValues(alpha: 0.06)),
                 ),
                 child: Text(_msg,
-                    style: TextStyle(
-                        fontSize: 12.5,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: scheme.onSurface.withValues(alpha: 0.75))),
               ),
             ],
@@ -345,8 +344,8 @@ class _ImageToolsPageState extends State<ImageToolsPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(title,
-              style: const TextStyle(
-                  fontSize: 15, fontWeight: FontWeight.w700)),
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700)),
           const SizedBox(height: 12),
           body,
         ],

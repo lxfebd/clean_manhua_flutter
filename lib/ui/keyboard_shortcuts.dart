@@ -125,8 +125,7 @@ class _ShortcutHelpOverlayState extends State<ShortcutHelpOverlay> {
                               padding: const EdgeInsets.only(top: 12, bottom: 6),
                               child: Text(
                                 g.label,
-                                style: TextStyle(
-                                  fontSize: 12.5,
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                   fontWeight: FontWeight.w600,
                                   color: scheme.primary,
                                 ),
@@ -142,8 +141,7 @@ class _ShortcutHelpOverlayState extends State<ShortcutHelpOverlay> {
                                       width: 190,
                                       child: Text(
                                         s.keys.join(' / '),
-                                        style: TextStyle(
-                                          fontSize: 12.5,
+                                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                           fontFeatures: const [
                                             FontFeature.tabularFigures()
                                           ],
@@ -154,8 +152,7 @@ class _ShortcutHelpOverlayState extends State<ShortcutHelpOverlay> {
                                     Expanded(
                                       child: Text(
                                         s.action,
-                                        style: TextStyle(
-                                          fontSize: 12.5,
+                                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                           color: scheme.onSurface,
                                         ),
                                       ),

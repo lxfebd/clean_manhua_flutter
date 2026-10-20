@@ -236,9 +236,8 @@ class _BatchDownloadSheetBodyState<E>
                 children: [
                   Text(
                     widget.title,
-                    style: TextStyle(
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w700,
-                      fontSize: 15,
                       color: scheme.onSurface,
                     ),
                   ),
@@ -316,10 +315,8 @@ class _BatchDownloadSheetBodyState<E>
                             : '准备中…',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: scheme.onSurface,
-                        ),
+                        style: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(color: scheme.onSurface),
                       ),
                     ),
                   ],
@@ -331,14 +328,13 @@ class _BatchDownloadSheetBodyState<E>
                 child: TextField(
                   controller: _filterCtrl,
                   onChanged: (v) => setState(() => _filter = v),
-                  style: const TextStyle(fontSize: 13.5),
+                  style: Theme.of(context).textTheme.bodyMedium,
                   decoration: InputDecoration(
                     isDense: true,
                     hintText: '搜索标题',
-                    hintStyle: TextStyle(
-                      fontSize: 13,
-                      color: scheme.onSurface.withValues(alpha: 0.4),
-                    ),
+                    hintStyle: Theme.of(context).textTheme.bodyMedium
+                        ?.copyWith(
+                            color: scheme.onSurface.withValues(alpha: 0.4)),
                     prefixIcon: Icon(
                       Icons.search_rounded,
                       size: 18,
@@ -385,10 +381,10 @@ class _BatchDownloadSheetBodyState<E>
                             _filter.trim().isEmpty
                                 ? '暂无内容'
                                 : '没有匹配「$_filter」的内容',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: scheme.onSurface.withValues(alpha: 0.55),
-                            ),
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                    color: scheme.onSurface
+                                        .withValues(alpha: 0.55)),
                           ),
                         ],
                       ),
@@ -410,7 +406,7 @@ class _BatchDownloadSheetBodyState<E>
                           ),
                           title: Text(
                             widget.titleOf(e, idx),
-                            style: TextStyle(fontSize: 13),
+                            style: Theme.of(context).textTheme.bodyMedium,
                           ),
                           subtitle: widget.subtitleOf(e, idx, taken: taken),
                           dense: true,

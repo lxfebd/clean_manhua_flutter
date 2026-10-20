@@ -206,11 +206,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     duration: const Duration(milliseconds: 380),
                     child: Text(
                       '设置',
-                      style: TextStyle(
-                        fontSize: DesktopUi.isDesktopPlatform ? 26 : 21,
-                        fontWeight: FontWeight.w700,
-                        color: theme.colorScheme.onSurface,
-                      ),
+                      style: Theme.of(context)
+                          .textTheme
+                          .displaySmall
+                          ?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: theme.colorScheme.onSurface),
                     ),
                   ),
                   const SizedBox(height: 20),

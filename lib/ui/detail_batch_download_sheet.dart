@@ -173,15 +173,17 @@ class _QualitySelectorState extends State<_QualitySelector> {
           const SizedBox(width: 10),
           Expanded(
             child: SegmentedButton<DownloadQuality>(
-              segments: const [
+              segments: [
                 ButtonSegment(
                   value: DownloadQuality.original,
-                  label: Text('原画', style: TextStyle(fontSize: 12)),
+                  label: Text('原画',
+                      style: Theme.of(context).textTheme.bodySmall),
                   icon: Icon(Icons.hd_rounded, size: 16),
                 ),
                 ButtonSegment(
                   value: DownloadQuality.compact,
-                  label: Text('省空间', style: TextStyle(fontSize: 12)),
+                  label: Text('省空间',
+                      style: Theme.of(context).textTheme.bodySmall),
                   icon: Icon(Icons.photo_size_select_small_rounded, size: 16),
                 ),
               ],
@@ -190,7 +192,7 @@ class _QualitySelectorState extends State<_QualitySelector> {
               style: ButtonStyle(
                 visualDensity: VisualDensity.compact,
                 textStyle: WidgetStatePropertyAll(
-                  TextStyle(fontSize: 12),
+                  Theme.of(context).textTheme.bodySmall,
                 ),
               ),
               onSelectionChanged: (s) {

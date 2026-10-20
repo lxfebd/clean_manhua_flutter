@@ -635,13 +635,11 @@ class DesktopPageHeader extends StatelessWidget {
                   title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.2,
-                    height: 1.2,
-                    color: scheme.onSurface,
-                  ),
+                  style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.2,
+                      height: 1.2,
+                      color: scheme.onSurface),
                 ),
                 if (subtitle != null) ...[
                   const SizedBox(height: 2),
@@ -649,10 +647,8 @@ class DesktopPageHeader extends StatelessWidget {
                     subtitle!,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: scheme.onSurface.withValues(alpha: 0.5),
-                    ),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurface.withValues(alpha: 0.5)),
                   ),
                 ],
               ],
@@ -720,10 +716,8 @@ Future<void> showContextMenu(
             ],
             Text(
               it.label,
-              style: TextStyle(
-                fontSize: 13,
-                color: it.destructive ? scheme.error : scheme.onSurface,
-              ),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: it.destructive ? scheme.error : scheme.onSurface),
             ),
           ],
         ),
@@ -1071,11 +1065,9 @@ class SectionHeader extends StatelessWidget {
             ),
             child: Text(
               '$count',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: scheme.onSurface.withValues(alpha: 0.65),
-              ),
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: scheme.onSurface.withValues(alpha: 0.65)),
             ),
           ),
         ],

@@ -41,8 +41,7 @@ Future<void> showEpisodeBatchDownloadSheet(
         taken == true
             ? Text(
                 '已下载',
-                style: TextStyle(
-                  fontSize: 11,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   color: Theme.of(context)
                       .colorScheme
                       .primary

@@ -190,10 +190,10 @@ class _MiniPlayerState extends State<MiniPlayer> {
                         widget.handoff.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white),
+                        style: Theme.of(context).textTheme.labelSmall
+                            ?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white),
                       ),
                     ),
                     IconButton(

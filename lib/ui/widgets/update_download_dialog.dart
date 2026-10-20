@@ -126,7 +126,7 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
                     // 固定文案保留在后半段指引下一步操作。
                     ? '${_state.error ?? '下载失败'}\n请稍后从「设置 → 检查更新」重试，或到 GitHub Releases 手动下载。'
                     : '后台下载中，关闭本窗口不会中断\n返回界面或退出 App 均继续下载',
-                style: const TextStyle(fontSize: 12.5),
+                style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 16),
               ClipRRect(
@@ -144,14 +144,13 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
                         ? '${_fmt(_state.received)} / ${_fmt(_state.total)}'
                             '（${(_state.progress * 100).toStringAsFixed(0)}%）'
                         : '已下载 ${_fmt(_state.received)}',
-                    style: const TextStyle(fontSize: 11.5),
+                    style: Theme.of(context).textTheme.labelSmall,
                   ),
                   const Spacer(),
                   if (_state.speed.isNotEmpty)
                     Text(
                       _state.speed,
-                      style: TextStyle(
-                        fontSize: 11.5,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: Theme.of(
                           context,
                         ).colorScheme.onSurface.withValues(alpha: 0.5),

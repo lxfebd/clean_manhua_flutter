@@ -18,8 +18,7 @@ class SectionLabel extends StatelessWidget {
     if (style == UIStyle.apple) {
       return Text(
         label,
-        style: TextStyle(
-          fontSize: 13,
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
           fontWeight: FontWeight.w600,
           color: T.color(scheme.onSurface, TextTier.mid,
               brightness: theme.brightness),
@@ -44,8 +43,7 @@ class SectionLabel extends StatelessWidget {
         const SizedBox(width: 8),
         Text(
           label,
-          style: TextStyle(
-            fontSize: 13,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
             fontWeight: FontWeight.w700,
             color: labelColor,
           ),

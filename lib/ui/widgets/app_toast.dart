@@ -41,7 +41,8 @@ class AppToast {
           duration: duration,
           error: error,
           radius: toastRadius,
-          action: action));
+          action: action,
+          context: context));
   }
 
   /// 无 context 提示：经 [messengerKey] 弹全局 toast。
@@ -71,7 +72,11 @@ class AppToast {
     required bool error,
     required double radius,
     SnackBarAction? action,
+    BuildContext? context,
   }) {
+    final textStyle = context != null
+        ? Theme.of(context).textTheme.bodyMedium
+        : const TextStyle(fontSize: 13.5);
     return SnackBar(
       content: Row(
         mainAxisSize: MainAxisSize.min,
@@ -83,7 +88,7 @@ class AppToast {
           ],
           Flexible(
             child: Text(message,
-                style: const TextStyle(color: Colors.white, fontSize: 13.5)),
+                style: textStyle?.copyWith(color: Colors.white)),
           ),
         ],
       ),

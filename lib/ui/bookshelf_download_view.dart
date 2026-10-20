@@ -176,13 +176,12 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
               const SizedBox(height: 8),
               Text(
                 '匹配 ${manga.length + anime.length} 条下载',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.55),
-                ),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.55),
+                    ),
               ),
             ],
             const SizedBox(height: 12),
@@ -246,12 +245,13 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
     return TextField(
       controller: _filterCtrl,
       onChanged: (v) => setState(() => _filter = v),
-      style: TextStyle(fontSize: 13.5, color: scheme.onSurface),
+      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: scheme.onSurface,
+          ),
       decoration: InputDecoration(
         isDense: true,
         hintText: '搜索下载（书名 / 动漫名 / 集数）',
-        hintStyle: TextStyle(
-          fontSize: 13,
+        hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
           color: scheme.onSurface.withValues(alpha: 0.4),
         ),
         prefixIcon: Icon(
@@ -284,8 +284,7 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
   /// 与分区徽标同为全量口径（不受搜索过滤影响），过滤态另由「匹配 N 条」提示。
   Widget _summaryRow(BuildContext context, int totalManga, int totalAnime) {
     final scheme = Theme.of(context).colorScheme;
-    final style = TextStyle(
-      fontSize: 12,
+    final style = Theme.of(context).textTheme.bodySmall?.copyWith(
       color: scheme.onSurface.withValues(alpha: 0.55),
     );
     return Padding(
@@ -522,7 +521,7 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
             ListTile(
               leading: const Icon(Icons.delete_outline_rounded, size: 20),
               title: Text('删除本话「${d.chapterTitle}」',
-                  style: const TextStyle(fontSize: 14)),
+                  style: Theme.of(ctx).textTheme.bodyMedium),
               onTap: () {
                 Navigator.pop(ctx);
                 widget.onRemoveManga(d);
@@ -531,7 +530,7 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
             ListTile(
               leading: const Icon(Icons.delete_sweep_outlined, size: 20),
               title: Text('删除《${d.book.name}》全部下载',
-                  style: const TextStyle(fontSize: 14)),
+                  style: Theme.of(ctx).textTheme.bodyMedium),
               onTap: () {
                 Navigator.pop(ctx);
                 widget.onRemoveMangaBook(d.book);
@@ -558,7 +557,7 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
             ListTile(
               leading: const Icon(Icons.delete_outline_rounded, size: 20),
               title: Text('删除第 ${t.episode} 集「${t.title}」',
-                  style: const TextStyle(fontSize: 14)),
+                  style: Theme.of(ctx).textTheme.bodyMedium),
               onTap: () {
                 Navigator.pop(ctx);
                 widget.onRemoveAnime(t);
@@ -567,7 +566,7 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
             ListTile(
               leading: const Icon(Icons.delete_sweep_outlined, size: 20),
               title: Text('删除《${t.title}》全部下载',
-                  style: const TextStyle(fontSize: 14)),
+                  style: Theme.of(ctx).textTheme.bodyMedium),
               onTap: () {
                 Navigator.pop(ctx);
                 widget.onRemoveAnimeTitle(t);

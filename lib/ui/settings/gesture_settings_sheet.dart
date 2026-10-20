@@ -66,8 +66,7 @@ class GestureSettingsSheetState extends State<GestureSettingsSheet> {
               const SizedBox(height: 16),
               Text(
                 '手势配置',
-                style: TextStyle(
-                  fontSize: 16,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w700,
                   color: scheme.onSurface,
                 ),
@@ -75,8 +74,7 @@ class GestureSettingsSheetState extends State<GestureSettingsSheet> {
               const SizedBox(height: 4),
               Text(
                 '点击阅读器三等分区域触发的操作',
-                style: TextStyle(
-                  fontSize: 12,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: scheme.onSurface.withValues(alpha: 0.5),
                 ),
               ),
@@ -133,8 +131,7 @@ class GestureSettingsSheetState extends State<GestureSettingsSheet> {
       children: [
         Text(
           _regionLabels[region] ?? region,
-          style: TextStyle(
-            fontSize: 13,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
             fontWeight: FontWeight.w600,
             color: scheme.onSurface.withValues(alpha: 0.85),
           ),
@@ -176,8 +173,7 @@ class GestureSettingsSheetState extends State<GestureSettingsSheet> {
         ),
         child: Text(
           _actionLabels[action] ?? action,
-          style: TextStyle(
-            fontSize: 12,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
             fontWeight: active ? FontWeight.w700 : FontWeight.w500,
             color: active ? scheme.onPrimary : scheme.onSurfaceVariant,
           ),

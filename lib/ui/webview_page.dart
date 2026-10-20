@@ -168,8 +168,7 @@ class _WebviewPageState extends State<WebviewPage> {
                     const SizedBox(height: 12),
                     Text(_error!,
                       textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 14,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: scheme.onSurface.withValues(alpha: 0.6),
                       ),
                     ),

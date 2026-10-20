@@ -393,8 +393,7 @@ class _NetworkToolsPageState extends State<NetworkToolsPage>
       ),
       child: SelectableText(
         text,
-        style: TextStyle(
-            fontSize: 13,
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
             height: 1.5,
             color: scheme.onSurface.withValues(alpha: 0.85)),
       ),

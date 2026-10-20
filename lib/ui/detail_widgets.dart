@@ -149,8 +149,7 @@ class _Hero extends StatelessWidget {
                     name,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 26,
+                    style: theme.textTheme.displaySmall?.copyWith(
                       fontWeight: FontWeight.w900,
                       color: Colors.white,
                       height: 1.18,

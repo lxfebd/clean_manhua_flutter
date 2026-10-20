@@ -141,7 +141,7 @@ class _NovelImportPageState extends State<NovelImportPage> {
       appBar: AppBar(
         backgroundColor: scheme.surface,
         foregroundColor: scheme.onSurface,
-        title: const Text('本地导入', style: TextStyle(fontSize: 16)),
+        title: Text('本地导入', style: Theme.of(context).textTheme.titleMedium),
       ),
       body: Center(
         child: ConstrainedBox(
@@ -170,8 +170,7 @@ class _NovelImportPageState extends State<NovelImportPage> {
                 Text(
                   '把本地小说导入书架',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 17,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w700,
                     color: scheme.onSurface,
                   ),
@@ -182,8 +181,7 @@ class _NovelImportPageState extends State<NovelImportPage> {
                   'TXT 自动识别编码与章节标题（第X章/序章/楔子）；'
                   'EPUB 按目录（spine）顺序导入。解析在后台完成，大文件不卡界面。',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     height: 1.6,
                     color: scheme.onSurface.withValues(alpha: 0.65),
                   ),
@@ -366,7 +364,7 @@ class _NovelDetailPageLocalState extends State<NovelDetailPageLocal> {
         foregroundColor: scheme.onSurface,
         title: Text(
           meta?['name'] as String? ?? '本地书',
-          style: const TextStyle(fontSize: 16),
+          style: Theme.of(context).textTheme.titleMedium,
         ),
         actions: [
           IconButton(
@@ -429,24 +427,21 @@ class _NovelDetailPageLocalState extends State<NovelDetailPageLocal> {
                   children: [
                     Text(
                       meta['name'] as String? ?? '',
-                      style: const TextStyle(
-                        fontSize: 17,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 6),
                     Text(
                       '作者：${author.isEmpty ? '未知' : author}',
-                      style: TextStyle(
-                        fontSize: 13,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: scheme.onSurface.withValues(alpha: 0.6),
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       '来源：$sourceName · ${chapters.length} 章',
-                      style: TextStyle(
-                        fontSize: 13,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: scheme.onSurface.withValues(alpha: 0.6),
                       ),
                     ),
@@ -460,8 +455,7 @@ class _NovelDetailPageLocalState extends State<NovelDetailPageLocal> {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Text(
             '目录（${chapters.length} 章）',
-            style: TextStyle(
-              fontSize: 15,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w700,
               color: scheme.onSurface,
             ),
@@ -472,7 +466,9 @@ class _NovelDetailPageLocalState extends State<NovelDetailPageLocal> {
             dense: true,
             title: Text(
               ((chapters[i] as Map)['title'] as String?) ?? '第 ${i + 1} 章',
-              style: TextStyle(fontSize: 14, color: scheme.onSurface),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurface,
+              ),
             ),
             trailing: const Icon(Icons.chevron_right_rounded, size: 18),
             onTap: () => _openChapter(i),

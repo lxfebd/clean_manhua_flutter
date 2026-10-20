@@ -222,7 +222,7 @@ class _TextToolsPageState extends State<TextToolsPage>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(child: SelectableText(text, style: const TextStyle(fontSize: 13))),
+          Expanded(child: SelectableText(text, style: Theme.of(context).textTheme.bodyMedium)),
           IconButton(
             visualDensity: VisualDensity.compact,
             iconSize: 18,

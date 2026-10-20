@@ -130,12 +130,13 @@ class _JmScrambleImageWidgetState extends State<JmScrambleImageWidget> {
           color: Colors.black12,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
-              Icon(Icons.broken_image_outlined,
+            children: [
+              const Icon(Icons.broken_image_outlined,
                   color: Colors.white54, size: 34),
-              SizedBox(height: 8),
+              const SizedBox(height: 8),
               Text('加载失败，点击重试',
-                  style: TextStyle(color: Colors.white54, fontSize: 12)),
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: Colors.white54)),
             ],
           ),
         ),

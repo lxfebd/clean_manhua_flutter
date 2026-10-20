@@ -162,8 +162,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
           ),
           const SizedBox(height: 16),
           Text('阅读设置',
-              style: const TextStyle(
-                  fontSize: 16,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w700,
                   color: Colors.white)),
           const SizedBox(height: 12),
@@ -201,15 +200,15 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
               ),
               const SizedBox(width: 10),
               Text('${(_localDim * 100).round()}%',
-                  style: const TextStyle(
-                      fontSize: 11, color: Colors.white70)),
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: Colors.white70)),
             ],
           ),
           const SizedBox(height: 14),
           // 翻页模式
           Text('翻页模式',
-              style: const TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white)),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600, color: Colors.white)),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -232,8 +231,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
           const SizedBox(height: 16),
           // 画质（真超分 = Lanczos-3 2x 上采样）
           Text('画质增强',
-              style: const TextStyle(
-                  fontSize: 13,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   fontWeight: FontWeight.w600,
                   color: Colors.white)),
           const SizedBox(height: 8),
@@ -258,16 +256,15 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
           const SizedBox(height: 4),
           Text(
             '「高清(2x)」= 真实 Lanczos-3 超分（Isolate 内 2x 上采样），首张慢、之后秒开',
-            style: TextStyle(
-              fontSize: 10,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: Colors.white.withValues(alpha: 0.4),
             ),
           ),
           const SizedBox(height: 16),
           // 自动翻页
           Text('自动翻页',
-              style: const TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white)),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600, color: Colors.white)),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -295,8 +292,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
           const SizedBox(height: 4),
           Text(
             '开启后自动翻页，触摸屏幕或显示菜单时暂停',
-            style: TextStyle(
-              fontSize: 10,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: Colors.white.withValues(alpha: 0.4),
             ),
           ),
@@ -322,10 +318,9 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                         : Colors.white70,
                   ),
                   const SizedBox(width: 10),
-                  const Expanded(
+                  Expanded(
                     child: Text('自动裁边去白边',
-                        style: TextStyle(
-                            fontSize: 13,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             fontWeight: FontWeight.w600,
                             color: Colors.white)),
                   ),
@@ -344,8 +339,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
           const SizedBox(height: 4),
           Text(
             '开启后自动识别并去除漫画页四周白边，最大化内容显示面积',
-            style: TextStyle(
-              fontSize: 10,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: Colors.white.withValues(alpha: 0.4),
             ),
           ),
@@ -434,8 +428,8 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
             Icon(icon, size: 15, color: Colors.white),
             const SizedBox(width: 6),
             Text(label,
-                style: const TextStyle(
-                    fontSize: 13, color: Colors.white)),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Colors.white)),
           ],
         ),
       ),

@@ -226,9 +226,8 @@ class _ChapterListSheetState<E> extends State<ChapterListSheet<E>> {
                       widget.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w700,
-                        fontSize: 15,
                         color: onSurface,
                       ),
                     ),
@@ -238,7 +237,8 @@ class _ChapterListSheetState<E> extends State<ChapterListSheet<E>> {
                       padding: const EdgeInsets.only(left: 8),
                       child: Text(
                         '已缓存 ${widget.cachedIds.length} 话',
-                        style: TextStyle(fontSize: 11, color: scheme.primary),
+                        style: Theme.of(context).textTheme.labelSmall
+                            ?.copyWith(color: scheme.primary),
                       ),
                     ),
                   if (widget.readIds.isNotEmpty)
@@ -246,7 +246,8 @@ class _ChapterListSheetState<E> extends State<ChapterListSheet<E>> {
                       padding: const EdgeInsets.only(left: 8),
                       child: Text(
                         '已读 ${widget.readIds.length} 话',
-                        style: TextStyle(fontSize: 11, color: muted),
+                        style: Theme.of(context).textTheme.labelSmall
+                            ?.copyWith(color: muted),
                       ),
                     ),
                   if (widget.onClose != null)
@@ -276,11 +277,13 @@ class _ChapterListSheetState<E> extends State<ChapterListSheet<E>> {
                 child: TextField(
                   controller: _filterCtrl,
                   onChanged: (v) => setState(() => _filter = v),
-                  style: TextStyle(fontSize: 13.5, color: onSurface),
+                  style: Theme.of(context).textTheme.bodyMedium
+                      ?.copyWith(color: onSurface),
                   decoration: InputDecoration(
                     isDense: true,
                     hintText: '搜索章节标题',
-                    hintStyle: TextStyle(fontSize: 13, color: mutedDim),
+                    hintStyle: Theme.of(context).textTheme.bodyMedium
+                        ?.copyWith(color: mutedDim),
                     prefixIcon: Icon(
                       Icons.search_rounded,
                       size: 18,
@@ -360,7 +363,8 @@ class _ChapterListSheetState<E> extends State<ChapterListSheet<E>> {
               const SizedBox(height: 10),
               Text(
                 '目录加载失败，请重试',
-                style: TextStyle(fontSize: 13, color: muted),
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(color: muted),
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
@@ -384,7 +388,8 @@ class _ChapterListSheetState<E> extends State<ChapterListSheet<E>> {
             const SizedBox(height: 8),
             Text(
               _filter.trim().isEmpty ? '暂无章节' : '没有匹配「$_filter」的章节',
-              style: TextStyle(fontSize: 13, color: muted),
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(color: muted),
             ),
           ],
         ),
@@ -414,8 +419,7 @@ class _ChapterListSheetState<E> extends State<ChapterListSheet<E>> {
           leading: showNumber
               ? Text(
                   '${i + 1}',
-                  style: TextStyle(
-                    fontSize: 12,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     fontWeight: FontWeight.w600,
                     color: active
                         ? Colors.white
@@ -448,8 +452,7 @@ class _ChapterListSheetState<E> extends State<ChapterListSheet<E>> {
                   widget.titleOf(item, index: i),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 13.5,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: active
                         ? (dark ? Colors.white : primary)
                         : onSurface,

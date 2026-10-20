@@ -692,12 +692,13 @@ class HomePageState extends State<HomePage> {
                 '星漫匣',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: isTablet ? 18 : 21,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.5,
-                  color: scheme.onSurface,
-                ),
+                style: (isTablet
+                        ? Theme.of(context).textTheme.titleLarge
+                        : Theme.of(context).textTheme.displaySmall)
+                    ?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.5,
+                        color: scheme.onSurface),
               ),
               const SizedBox(width: 10),
               // 源切换按钮紧贴标题：当前站点一目了然，点击切换。

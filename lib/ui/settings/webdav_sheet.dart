@@ -189,8 +189,7 @@ class WebDavSheetState extends State<WebDavSheet> {
                 const SizedBox(width: 8),
                 Text(
                   'WebDAV 同步',
-                  style: TextStyle(
-                    fontSize: 17,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w700,
                     color: scheme.onSurface,
                   ),
@@ -207,8 +206,7 @@ class WebDavSheetState extends State<WebDavSheet> {
             Text(
               '把收藏、阅读进度、设置同步到你的 WebDAV 网盘\n'
               '（坚果云 / Nextcloud / 群晖 WebDAV 等），实现多端同步。',
-              style: TextStyle(
-                fontSize: 12,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 height: 1.5,
                 color: scheme.onSurfaceVariant,
               ),
@@ -272,8 +270,7 @@ class WebDavSheetState extends State<WebDavSheet> {
                 Expanded(
                   child: Text(
                     '加密同步文件（AES-256-GCM，口令不落盘）',
-                    style: TextStyle(
-                      fontSize: 13,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),
                   ),
@@ -346,8 +343,7 @@ class WebDavSheetState extends State<WebDavSheet> {
                     Expanded(
                       child: Text(
                         _status!,
-                        style: TextStyle(
-                          fontSize: 12.5,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: scheme.onSurface,
                         ),
                       ),

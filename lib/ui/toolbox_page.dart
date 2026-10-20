@@ -1104,8 +1104,8 @@ class ToolboxPageState extends State<ToolboxPage> {
                   Icon(icon, size: 20, color: scheme.primary),
                   const SizedBox(width: 8),
                   Text(title,
-                      style: const TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.w700)),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700)),
                 ],
               ),
               const SizedBox(height: 14),

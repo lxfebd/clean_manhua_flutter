@@ -213,14 +213,13 @@ class _DeviceToolsPageState extends State<DeviceToolsPage>
                     SizedBox(
                       width: 76,
                       child: Text(e.key,
-                          style: TextStyle(
-                              fontSize: 13,
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               color:
                                   scheme.onSurface.withValues(alpha: 0.5))),
                     ),
                     Expanded(
                       child: Text(e.value,
-                          style: const TextStyle(fontSize: 13.5)),
+                          style: Theme.of(context).textTheme.bodyMedium),
                     ),
                   ],
                 ),
@@ -239,8 +238,7 @@ class _DeviceToolsPageState extends State<DeviceToolsPage>
         padding: const EdgeInsets.only(bottom: 40),
         child: Text(
           '$_colorIdx${_colorIdx == 0 ? ' 点击切换 / 长按回到白色' : ''}',
-          style: TextStyle(
-            fontSize: 18,
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
             fontWeight: FontWeight.w700,
             color: _testColors[_colorIdx] == Colors.white
                 ? Colors.black54
@@ -297,8 +295,7 @@ class _DeviceToolsPageState extends State<DeviceToolsPage>
             Text(
               '需要设备磁力计（传感器）支持。\n当前环境 / 模拟器可能无法获取方向数据。',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                  fontSize: 13,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: scheme.onSurface.withValues(alpha: 0.6)),
             ),
           ],
