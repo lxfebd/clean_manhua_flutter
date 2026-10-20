@@ -320,12 +320,11 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
     return TextField(
       controller: _chapterFilterCtrl,
       onChanged: (v) => setState(() => _chapterFilter = v),
-      style: const TextStyle(fontSize: 13.5),
+      style: Theme.of(context).textTheme.bodyMedium,
       decoration: InputDecoration(
         isDense: true,
         hintText: '搜索章节标题',
-        hintStyle: TextStyle(
-          fontSize: 13,
+        hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
           color: scheme.onSurface.withValues(alpha: 0.4),
         ),
         prefixIcon: Icon(
@@ -592,24 +591,21 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                 const SizedBox(height: 12),
                 Text(
                   d.name,
-                  style: const TextStyle(
-                    fontSize: 17,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(height: 6),
                 Text(
                   '作者：${d.author ?? d.comic.author ?? '未知'}',
-                  style: TextStyle(
-                    fontSize: 13,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: scheme.onSurface.withValues(alpha: 0.6),
                   ),
                 ),
                 if (d.status != null)
                   Text(
                     '状态：${d.status}',
-                    style: TextStyle(
-                      fontSize: 13,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: scheme.onSurface.withValues(alpha: 0.6),
                     ),
                   ),
@@ -640,8 +636,7 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                     d.description!,
                     maxLines: _descExpanded ? null : 4,
                     overflow: _descExpanded ? null : TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       height: 1.6,
                       color: scheme.onSurface.withValues(alpha: 0.8),
                     ),
@@ -654,8 +649,7 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                         padding: const EdgeInsets.only(top: 6),
                         child: Text(
                           _descExpanded ? '收起' : '展开',
-                          style: TextStyle(
-                            fontSize: 12.5,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             fontWeight: FontWeight.w600,
                             color: scheme.primary,
                           ),
@@ -678,8 +672,7 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                   children: [
                     Text(
                       '目录（${d.chapters.length} 章）',
-                      style: TextStyle(
-                        fontSize: 15,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w700,
                         color: scheme.onSurface,
                       ),
@@ -695,7 +688,7 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                         icon: const Icon(Icons.stop_circle_rounded, size: 14),
                         label: Text(
                           '缓存中 ${_prefetch!.done}/${_prefetch!.total}',
-                          style: const TextStyle(fontSize: 12.5),
+                          style: Theme.of(context).textTheme.bodySmall,
                         ),
                       )
                     else if (_prefetchStart != null)
@@ -706,8 +699,8 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                         ),
                         onPressed: _prefetchChapters,
                         icon: const Icon(Icons.download_rounded, size: 14),
-                        label: const Text('缓存后续',
-                            style: TextStyle(fontSize: 12.5)),
+                        label: Text('缓存后续',
+                            style: Theme.of(context).textTheme.bodySmall),
                       )
                     else if (_hasResumeInList)
                       TextButton.icon(
@@ -717,8 +710,8 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                         ),
                         onPressed: _jumpToResume,
                         icon: const Icon(Icons.my_location_rounded, size: 14),
-                        label: const Text('定位续读',
-                            style: TextStyle(fontSize: 12.5)),
+                        label: Text('定位续读',
+                            style: Theme.of(context).textTheme.bodySmall),
                       ),
                   ],
                 ),
@@ -740,8 +733,7 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                       dense: true,
                       title: Text(
                         ch.title,
-                        style: TextStyle(
-                          fontSize: 14,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color:
                               isResume ? scheme.primary : scheme.onSurface,
                           fontWeight: isResume ? FontWeight.w600 : null,
@@ -794,24 +786,21 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                     children: [
                       Text(
                         d.name,
-                        style: const TextStyle(
-                          fontSize: 17,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                       const SizedBox(height: 6),
                       Text(
                         '作者：${d.author ?? d.comic.author ?? '未知'}',
-                        style: TextStyle(
-                          fontSize: 13,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: scheme.onSurface.withValues(alpha: 0.6),
                         ),
                       ),
                       if (d.status != null)
                         Text(
                           '状态：${d.status}',
-                          style: TextStyle(
-                            fontSize: 13,
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: scheme.onSurface.withValues(alpha: 0.6),
                           ),
                         ),
@@ -854,8 +843,7 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                     d.description!,
                     maxLines: _descExpanded ? null : 4,
                     overflow: _descExpanded ? null : TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13.5,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       height: 1.6,
                       color: scheme.onSurface.withValues(alpha: 0.8),
                     ),
@@ -868,8 +856,7 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                         padding: const EdgeInsets.only(top: 6),
                         child: Text(
                           _descExpanded ? '收起' : '展开',
-                          style: TextStyle(
-                            fontSize: 12.5,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             fontWeight: FontWeight.w600,
                             color: scheme.primary,
                           ),
@@ -889,8 +876,7 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                 children: [
                   Text(
                     '目录（${d.chapters.length} 章）',
-                    style: TextStyle(
-                      fontSize: 15,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w700,
                       color: scheme.onSurface,
                     ),
@@ -906,7 +892,7 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                       icon: const Icon(Icons.stop_circle_rounded, size: 14),
                       label: Text(
                         '缓存中 ${_prefetch!.done}/${_prefetch!.total}',
-                        style: const TextStyle(fontSize: 12.5),
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
                     )
                   else if (_prefetchStart != null)
@@ -917,8 +903,8 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                       ),
                       onPressed: _prefetchChapters,
                       icon: const Icon(Icons.download_rounded, size: 14),
-                      label: const Text('缓存后续',
-                          style: TextStyle(fontSize: 12.5)),
+                      label: Text('缓存后续',
+                          style: Theme.of(context).textTheme.bodySmall),
                     )
                     else if (_hasResumeInList)
                       TextButton.icon(
@@ -928,8 +914,8 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                         ),
                         onPressed: _jumpToResume,
                         icon: const Icon(Icons.my_location_rounded, size: 14),
-                        label: const Text('定位续读',
-                            style: TextStyle(fontSize: 12.5)),
+                        label: Text('定位续读',
+                            style: Theme.of(context).textTheme.bodySmall),
                       ),
                 ],
               ),
@@ -957,8 +943,7 @@ class _NovelDetailPageState extends ConsumerState<NovelDetailPage> {
                 // 续读章节高亮：主题色文字 + 播放小图标，用户一眼定位追更位。
                 title: Text(
                   ch.title,
-                  style: TextStyle(
-                    fontSize: 14,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: isResume ? scheme.primary : scheme.onSurface,
                     fontWeight: isResume ? FontWeight.w600 : null,
                   ),

@@ -230,12 +230,10 @@ class SideLevelHud extends StatelessWidget {
               child: Text(
                 '${(v * 100).round()}',
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   color: Colors.white,
-                  fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  fontFeatures: [FontFeature.tabularFigures()],
-                ),
+                  fontFeatures: [FontFeature.tabularFigures()]),
               ),
             ),
           ]),
@@ -275,21 +273,20 @@ class SeekPreviewHud extends StatelessWidget {
                   color: Colors.white, size: 24),
               const SizedBox(width: 8),
               Text('${forward ? '+' : '-'}${ds}s',
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700)),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: Colors.white, fontWeight: FontWeight.w700)),
             ]),
             const SizedBox(height: 6),
             RichText(
               text: TextSpan(children: [
                 TextSpan(
                     text: fmtDuration(target),
-                    style: const TextStyle(
-                        color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white, fontWeight: FontWeight.w600)),
                 TextSpan(
                     text: ' / ${fmtDuration(total)}',
-                    style: const TextStyle(color: Colors.white54, fontSize: 13)),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.white54)),
               ]),
             ),
           ]),
@@ -321,8 +318,8 @@ class SpeedBoostHud extends StatelessWidget {
             const SizedBox(width: 6),
             Text(
                 '${rate == rate.roundToDouble() ? rate.toStringAsFixed(0) : rate}x 倍速播放中',
-                style: const TextStyle(
-                    color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Colors.white, fontWeight: FontWeight.w600)),
           ]),
         ),
       ),
@@ -348,9 +345,8 @@ class SrBadge extends StatelessWidget {
         const Icon(Icons.auto_awesome, size: 12, color: PlayerColors.sr),
         const SizedBox(width: 4),
         Text(label,
-            style: const TextStyle(
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 color: PlayerColors.sr,
-                fontSize: 11,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0.4)),
       ]),
@@ -377,9 +373,8 @@ class SyncGuardBadge extends StatelessWidget {
         const Icon(Icons.speed, size: 12, color: amber),
         const SizedBox(width: 4),
         Text(label,
-            style: const TextStyle(
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 color: amber,
-                fontSize: 11,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0.4)),
       ]),
@@ -474,10 +469,10 @@ class _PanelShell extends StatelessWidget {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Row(children: [
               Text(title,
-                  style: const TextStyle(
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       color: Colors.white,
-                      fontSize: 15,
                       fontWeight: FontWeight.w700)),
+              const Spacer(),
               const Spacer(),
               IconButton(
                 visualDensity: VisualDensity.compact,
@@ -535,15 +530,14 @@ class PanelOptionTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(title,
-                    style: TextStyle(
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: selected ? PlayerColors.accent : Colors.white,
-                        fontSize: 14,
                         fontWeight: FontWeight.w600)),
                 if (subtitle != null) ...[
                   const SizedBox(height: 3),
                   Text(subtitle!,
-                      style: const TextStyle(
-                          color: Colors.white38, fontSize: 11, height: 1.3)),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: Colors.white38, height: 1.3)),
                 ],
               ],
             ),
@@ -565,16 +559,16 @@ class PanelOptionTile extends StatelessWidget {
 /// 相同），抽公共后两页共用，消除重复。
 
 /// 定宽时间文本，避免秒数进位时把进度条挤得左右抖动。
-Widget playerTimeText(Duration d, Color color, {required Duration total}) {
+Widget playerTimeText(BuildContext context, Duration d, Color color,
+    {required Duration total}) {
   return SizedBox(
     width: total.inHours > 0 ? 56 : 40,
     child: Text(
       fmtDuration(d),
       textAlign: TextAlign.center,
       maxLines: 1,
-      style: TextStyle(
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(
           color: color,
-          fontSize: 12.5,
           fontWeight: FontWeight.w600,
           fontFeatures: const [FontFeature.tabularFigures()]),
     ),
@@ -602,7 +596,7 @@ Widget playerBarBtn(IconData icon, VoidCallback? onTap,
 }
 
 /// 图标 + 文字的组合按钮，只在全屏下使用。
-Widget playerTextBtn(String text, VoidCallback onTap,
+Widget playerTextBtn(BuildContext context, String text, VoidCallback onTap,
     {bool active = false, IconData? icon}) {
   final color = active ? PlayerColors.sr : Colors.white;
   return Material(
@@ -622,9 +616,8 @@ Widget playerTextBtn(String text, VoidCallback onTap,
           Text(text,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: color,
-                  fontSize: 12.5,
                   fontWeight: FontWeight.w600)),
         ]),
       ),
@@ -651,7 +644,7 @@ Widget playerRoundBtn(IconData icon, VoidCallback onTap,
 }
 
 /// 竖屏面板里的元信息小标签。
-Widget playerMetaChip(ColorScheme scheme, String text,
+Widget playerMetaChip(BuildContext context, ColorScheme scheme, String text,
     {IconData? icon, bool highlight = false}) {
   final fg = highlight
       ? PlayerColors.sr
@@ -670,15 +663,15 @@ Widget playerMetaChip(ColorScheme scheme, String text,
         const SizedBox(width: 4),
       ],
       Text(text,
-          style: TextStyle(
-              fontSize: 11.5, fontWeight: FontWeight.w600, color: fg)),
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              fontWeight: FontWeight.w600, color: fg)),
     ]),
   );
 }
 
 /// 上一集 / 下一集按钮，禁用态自动变灰。
-Widget playerStepBtn(ColorScheme scheme, IconData icon, String label,
-    VoidCallback? onTap) {
+Widget playerStepBtn(BuildContext context, ColorScheme scheme, IconData icon,
+    String label, VoidCallback? onTap) {
   final on = onTap != null;
   final fg = on
       ? scheme.onSurface
@@ -695,8 +688,8 @@ Widget playerStepBtn(ColorScheme scheme, IconData icon, String label,
           Icon(icon, size: 18, color: fg),
           const SizedBox(width: 6),
           Text(label,
-              style: TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w600, color: fg)),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600, color: fg)),
         ]),
       ),
     ),
@@ -704,7 +697,8 @@ Widget playerStepBtn(ColorScheme scheme, IconData icon, String label,
 }
 
 /// 竖屏面板里的迷你功能卡片（图标 + 标签 + 值）。
-Widget playerMiniCard(ColorScheme scheme, IconData icon, String label,
+Widget playerMiniCard(
+    BuildContext context, ColorScheme scheme, IconData icon, String label,
     String value, VoidCallback onTap,
     {bool active = false}) {
   return InkWell(
@@ -730,15 +724,13 @@ Widget playerMiniCard(ColorScheme scheme, IconData icon, String label,
         Text(label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-                fontSize: 11,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 color: scheme.onSurface.withValues(alpha: 0.55))),
         const SizedBox(height: 2),
         Text(value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-                fontSize: 12,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 fontWeight: FontWeight.w700,
                 color: active ? PlayerColors.sr : scheme.onSurface)),
       ]),

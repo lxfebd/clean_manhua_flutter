@@ -528,12 +528,12 @@ class _HistorySheetState extends State<_HistorySheet> {
                   TextField(
                     controller: _filterCtrl,
                     onChanged: (v) => setState(() => _filter = v),
-                    style: TextStyle(fontSize: 13.5, color: scheme.onSurface),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: scheme.onSurface),
                     decoration: InputDecoration(
                       isDense: true,
                       hintText: '搜索书名 / 章节',
-                      hintStyle: TextStyle(
-                        fontSize: 13,
+                      hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: scheme.onSurface.withValues(alpha: 0.4),
                       ),
                       prefixIcon: Icon(
@@ -602,8 +602,7 @@ class _HistoryList extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 24),
           child: Text(
             '没有匹配「$filter」的记录',
-            style: TextStyle(
-              fontSize: 13,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: scheme.onSurface.withValues(alpha: 0.55),
             ),
           ),

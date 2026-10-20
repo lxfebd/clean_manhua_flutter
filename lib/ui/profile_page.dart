@@ -105,8 +105,7 @@ class ProfilePageState extends ConsumerState<ProfilePage> {
                   size: 44, color: scheme.onSurface.withValues(alpha: 0.3)),
               const SizedBox(height: 12),
               Text('个人页数据加载失败',
-                  style: TextStyle(
-                      fontSize: 14,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: scheme.onSurface.withValues(alpha: 0.6))),
               const SizedBox(height: 14),
               FilledButton.icon(

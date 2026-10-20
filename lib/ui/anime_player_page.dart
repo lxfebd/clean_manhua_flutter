@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
@@ -1820,8 +1820,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
               const SizedBox(height: 18),
               Text(_desktopInitFailed ? '网页播放器不可用' : '该线路需要网页播放',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontSize: 18,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w700,
                       color: scheme.onSurface)),
               const SizedBox(height: 10),
@@ -1834,8 +1833,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                         '网页播放器。你可以用系统浏览器打开继续观看，'
                         '或在下方切到支持 App 内原生播放的线路。',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                    fontSize: 13,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     height: 1.5,
                     color: scheme.onSurfaceVariant),
               ),
@@ -1883,8 +1881,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Text('本集其它线路',
-                      style: TextStyle(
-                          fontSize: 13,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           fontWeight: FontWeight.w700,
                           color: scheme.onSurface)),
                 ),
@@ -1919,7 +1916,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                   ep.episode == _curEpisode ? scheme.primary : null,
             ),
             child: Text(ep.title.isEmpty ? '第${ep.episode}集' : ep.title,
-                style: const TextStyle(fontSize: 12.5)),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith()),
           ),
       ],
     );
@@ -2095,13 +2092,13 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                   const Icon(Icons.wifi_off_rounded,
                       color: Colors.white54, size: 34),
                   const SizedBox(height: 12),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 32),
-                    child: Text(
-                      _webError!,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white54, fontSize: 12),
-                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      child: Text(
+                        _webError!,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.white54)),
                   ),
                   const SizedBox(height: 16),
                   FilledButton.icon(
@@ -2133,8 +2130,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                   const SizedBox(height: 12),
                   Text(
                     _resolving ? '解析直链中…' : '加载中…',
-                    style: const TextStyle(color: Colors.white54, fontSize: 12),
-                  ),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.white54)),
                 ],
               ),
             ),
@@ -2275,30 +2272,29 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           Text(widget.title,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   color: scheme.onSurface,
-                  fontSize: 16,
                   fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           Wrap(spacing: 6, runSpacing: 6, children: [
-            if (eps.isNotEmpty) playerMetaChip(scheme, _epLabel()),
+            if (eps.isNotEmpty) playerMetaChip(context, scheme, _epLabel()),
             if (_srLevel > 0)
-              playerMetaChip(scheme, _srName,
+              playerMetaChip(context, scheme, _srName,
                   icon: Icons.auto_awesome_rounded, highlight: true),
             if (_speed != 1.0)
-              playerMetaChip(scheme, '${trimSpeed(_speed)}x',
+              playerMetaChip(context, scheme, '${trimSpeed(_speed)}x',
                   icon: Icons.speed_rounded),
           ]),
           if (multi) ...[
             const SizedBox(height: 12),
             Row(children: [
               Expanded(
-                child: playerStepBtn(scheme, Icons.skip_previous_rounded, '上一集',
+                child: playerStepBtn(context, scheme, Icons.skip_previous_rounded, '上一集',
                     _hasPrev ? () => _goToAdjacent(-1) : null),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: playerStepBtn(scheme, Icons.skip_next_rounded, '下一集',
+                child: playerStepBtn(context, scheme, Icons.skip_next_rounded, '下一集',
                     _hasNext ? () => _goToAdjacent(1) : null),
               ),
             ]),
@@ -2307,7 +2303,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           if (eps.isNotEmpty)
             Row(children: [
               Expanded(
-                child: playerStepBtn(scheme, Icons.fullscreen_rounded, '全屏播放',
+                child: playerStepBtn(context, scheme, Icons.fullscreen_rounded, '全屏播放',
                     _toggleFullscreen),
               ),
             ]),
@@ -2316,16 +2312,16 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           const SizedBox(height: 10),
           Row(children: [
             Expanded(
-                child: playerMiniCard(scheme, Icons.speed_rounded, '倍速',
+                child: playerMiniCard(context, scheme, Icons.speed_rounded, '倍速',
                     '${trimSpeed(_speed)}x', _showSpeedPanel)),
             const SizedBox(width: 10),
             Expanded(
-                child: playerMiniCard(scheme, Icons.auto_awesome_rounded, '画质增强(滤镜)',
+                child: playerMiniCard(context, scheme, Icons.auto_awesome_rounded, '画质增强(滤镜)',
                     _srName, _showSrPanel,
                     active: _srLevel > 0)),
             const SizedBox(width: 10),
             Expanded(
-                child: playerMiniCard(scheme, Icons.tune_rounded, '快速增强',
+                child: playerMiniCard(context, scheme, Icons.tune_rounded, '快速增强',
                     _srLevel > 0 ? '已开启' : '已关闭', () => _cycleSr(),
                     active: _srLevel > 0)),
           ]),
@@ -2336,25 +2332,22 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           if (eps.isNotEmpty) ...[
             const SizedBox(height: 18),
             Row(children: [
-              Text('选集',
-                  style: TextStyle(
-                      color: scheme.onSurface,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700)),
+            Text('选集',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurface,
+                    fontWeight: FontWeight.w700)),
               const SizedBox(width: 8),
               Text(_episodeCountLabel(),
-                  style: TextStyle(
-                      color: scheme.onSurface.withValues(alpha: 0.5),
-                      fontSize: 12)),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurface.withValues(alpha: 0.5))),
               const Spacer(),
               if (eps.length > _gridLimit)
                 GestureDetector(
                   onTap: _showEpisodePanel,
                   child: Row(children: [
                     Text('全部',
-                        style: TextStyle(
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: PlayerColors.accent,
-                            fontSize: 12.5,
                             fontWeight: FontWeight.w600)),
                     const Icon(Icons.chevron_right_rounded,
                         size: 18, color: PlayerColors.accent),
@@ -2400,14 +2393,13 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           child: Text(name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: scheme.onSurface,
-                  fontSize: 13,
                   fontWeight: FontWeight.w700)),
         ),
         Text('$count 集',
-            style: TextStyle(
-                color: scheme.onSurface.withValues(alpha: 0.5), fontSize: 11.5)),
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: scheme.onSurface.withValues(alpha: 0.5))),
       ]),
     );
   }
@@ -2436,8 +2428,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
             textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 12.5,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
               fontWeight: cur ? FontWeight.w700 : FontWeight.w500,
               color: cur ? PlayerColors.accent : scheme.onSurface,
             ),
@@ -2488,15 +2479,13 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
           Text(widget.description!,
               maxLines: _descExpanded ? null : 3,
               overflow: _descExpanded ? null : TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: 13,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   height: 1.6,
                   color: scheme.onSurface.withValues(alpha: 0.85))),
           const SizedBox(height: 4),
           Row(mainAxisAlignment: MainAxisAlignment.end, children: [
             Text(_descExpanded ? '收起' : '展开',
-                style: TextStyle(
-                    fontSize: 12,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: scheme.primary,
                     fontWeight: FontWeight.w600)),
             Icon(_descExpanded ? Icons.expand_less : Icons.expand_more,
@@ -2554,9 +2543,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                       child: Text('网页画质增强(滤镜)',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               color: scheme.onSurface,
-                              fontSize: 14.5,
                               fontWeight: FontWeight.w700)),
                     ),
                     const SizedBox(width: 8),
@@ -2570,22 +2558,20 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                               : scheme.onSurface.withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(4),
                         ),
-                        child: Text(_srName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w700,
-                                color: on
-                                    ? PlayerColors.sr
-                                    : scheme.onSurface.withValues(alpha: 0.6))),
+                         child: Text(_srName,
+                             maxLines: 1,
+                             overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: on
+                                      ? PlayerColors.sr
+                                      : scheme.onSurface.withValues(alpha: 0.6))),
                       ),
                     ),
                   ]),
                   const SizedBox(height: 4),
                   Text('基于 CSS 滤镜，开销极小；卡顿请关闭',
-                      style: TextStyle(
-                          fontSize: 11.5,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
                           height: 1.3,
                           color: scheme.onSurface.withValues(alpha: 0.6))),
                 ]),
@@ -2656,8 +2642,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
               child: Text(widget.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontSize: 14.5,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       fontWeight: FontWeight.w700,
                       color: Colors.white)),
             ),
@@ -2698,8 +2683,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                   _hasNext ? () => _goToAdjacent(1) : null),
               const SizedBox(width: 8),
               Text(_formatDuration(_fsPos),
-                  style: const TextStyle(
-                      color: Colors.white70, fontSize: 11.5)),
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: Colors.white70)),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -2734,14 +2719,14 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                 ),
               ),
               Text(_formatDuration(_fsDur),
-                  style: const TextStyle(
-                      color: Colors.white70, fontSize: 11.5)),
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: Colors.white70)),
               const Spacer(),
-              playerTextBtn('${trimSpeed(_speed)}x', _showSpeedPanel,
+              playerTextBtn(context, '${trimSpeed(_speed)}x', _showSpeedPanel,
                   icon: Icons.speed_rounded),
-              playerTextBtn('画质增强', _showSrPanel,
+              playerTextBtn(context, '画质增强', _showSrPanel,
                   icon: Icons.auto_awesome_rounded, active: _srLevel > 0),
-              playerTextBtn('选集', _showEpisodePanel,
+              playerTextBtn(context, '选集', _showEpisodePanel,
                   icon: Icons.playlist_play_rounded),
               playerBarBtn(Icons.fullscreen_exit_rounded, _exitFullscreen),
             ]),
@@ -2884,11 +2869,10 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                 '提示：网页端仅为 CSS 滤镜增强，并非真实超分辨率；跨域播放器内的视频可能无法生效。\n'
                 '需要真正超分请使用「App 内原生播放器」（捕获直链后自动进入，'
                 'Anime4K CNN 超分）。',
-                style: TextStyle(
-                  fontSize: 12,
-                  height: 1.5,
-                  color: Theme.of(context)
-                      .colorScheme
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    height: 1.5,
+                    color: Theme.of(context)
+                        .colorScheme
                       .onSurface
                       .withValues(alpha: 0.55),
                 ),
@@ -2933,16 +2917,12 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                   child: Text(g.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
                           color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700)),
-                ),
-                Text('${g.eps.length} 集',
-                    style: const TextStyle(
-                        color: Colors.white54, fontSize: 11.5)),
-              ]),
+                          fontWeight: FontWeight.w700))),
+                  ]),
             ));
+
           }
           children.add(Wrap(
             spacing: 8,
@@ -2972,8 +2952,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                     textAlign: TextAlign.center,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12.5,
+                    style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
                       fontWeight: cur ? FontWeight.w700 : FontWeight.w500,
                       color: cur ? PlayerColors.accent : Colors.white,
                     ),

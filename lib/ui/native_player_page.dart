@@ -505,12 +505,12 @@ class _NativePlayerPageState extends State<NativePlayerPage>
             children: [
               Row(children: [
                 Text(label,
-                    style: const TextStyle(
-                        color: Colors.white, fontSize: 13)),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white)),
                 const Spacer(),
                 Text(display,
-                    style: const TextStyle(
-                        color: Colors.white38, fontSize: 12)),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.white38)),
               ]),
               Slider(
                 value: value.clamp(min, max),
@@ -2526,10 +2526,12 @@ class _NativePlayerPageState extends State<NativePlayerPage>
             const SizedBox(height: 14),
             Text(_failMsg,
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white70, fontSize: 15)),
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Colors.white70)),
             const SizedBox(height: 6),
-            const Text('可切换为网页播放',
-                style: TextStyle(color: Colors.white38, fontSize: 12)),
+            Text('可切换为网页播放',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.white38)),
             const SizedBox(height: 20),
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -2697,8 +2699,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                   const SizedBox(height: 12),
                   Text(
                     _bufferText(),
-                    style: const TextStyle(
-                        color: Colors.white70, fontSize: 12.5),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.white70),
                   ),
                 ],
               ),
@@ -2831,7 +2833,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                   size: 16, color: PlayerColors.accent),
               const SizedBox(width: 6),
               Text('上次看到 ${fmtDuration(_resumeAt!)}，点击续播',
-                  style: const TextStyle(color: Colors.white, fontSize: 12.5)),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Colors.white)),
             ]),
           ),
         ),
@@ -2878,8 +2881,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                 Text(widget.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: _fullscreen ? 14.5 : 13,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w700,
                         color: Colors.white)),
                 // 竖屏下方面板里已经写了集数，顶部就不重复了
@@ -2887,7 +2889,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                   Text(_epLabel(),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 11, color: Colors.white60)),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: Colors.white60)),
                 // 全屏时显示真实渲染信息（每 2 秒从 mpv 采样，非硬编码）：
                 // 输出分辨率（超分/缩放后的真实值）+ 输出帧率（源帧率）。
                 // 没有采样到就不显示，绝不推断。
@@ -2903,8 +2906,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                       ].join(' · '),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontSize: 10.5,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
                           color: Colors.white54,
                           fontFeatures: [FontFeature.tabularFigures()]),
                     ),
@@ -2914,9 +2916,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           ),
           if (_fullscreen) ...[
             Text(_clock,
-                style: const TextStyle(
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Colors.white70,
-                    fontSize: 12,
                     fontWeight: FontWeight.w600)),
             const SizedBox(width: 6),
             // 画中画：缩小到悬浮小窗继续播放（全屏时更靠前，号角清晰）
@@ -2997,9 +2998,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                 _togglePlay),
             Text(
               '${fmtDuration(_pos)} / ${fmtDuration(_dur)}',
-              style: const TextStyle(
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 color: Colors.white,
-                fontSize: 11,
                 fontFeatures: [FontFeature.tabularFigures()],
               ),
             ),
@@ -3059,7 +3059,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Row(children: [
             const SizedBox(width: 4),
-            playerTimeText(_pos, Colors.white, total: _dur),
+            playerTimeText(context, _pos, Colors.white, total: _dur),
             const SizedBox(width: 10),
             Expanded(
               child: PlayerProgressBar(
@@ -3083,7 +3083,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
               ),
             ),
             const SizedBox(width: 10),
-            playerTimeText(_dur, Colors.white60, total: _dur),
+            playerTimeText(context, _dur, Colors.white60, total: _dur),
             const SizedBox(width: 4),
           ]),
           const SizedBox(height: 4),
@@ -3100,20 +3100,20 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                     _hasNext ? () => _goRelative(1) : null),
               ],
               const Spacer(),
-              playerTextBtn('${trimSpeed(_speed)}x', _showSpeedPanel,
+              playerTextBtn(context, '${trimSpeed(_speed)}x', _showSpeedPanel,
                   icon: Icons.speed_rounded),
               if (!_srAndroidOff)
-                playerTextBtn(_srFault != null ? '未生效' : (_sr.enabled ? _sr.name : '超分'),
+                playerTextBtn(context, _srFault != null ? '未生效' : (_sr.enabled ? _sr.name : '超分'),
                     _showSrPanel,
                     icon: Icons.auto_awesome_rounded, active: _sr.enabled),
-              playerTextBtn(_fitNames[_fitIndex], _showFitPanel,
+              playerTextBtn(context, _fitNames[_fitIndex], _showFitPanel,
                   icon: Icons.aspect_ratio_rounded, active: _fitIndex != 0),
               // 多音轨时展示音轨切换；单音轨不占位
               if (_audioTracks.length > 2)
-                playerTextBtn('音轨', _showAudioTrackPanel,
+                playerTextBtn(context, '音轨', _showAudioTrackPanel,
                     icon: Icons.music_note_rounded),
               if (widget.episodes.isNotEmpty)
-                playerTextBtn('选集', _showEpisodePanel,
+                playerTextBtn(context, '选集', _showEpisodePanel,
                     icon: Icons.playlist_play_rounded),
               // 系统画中画：仅本机原生通道安装成功（Android 8+ 且系统支持）
               // 显示；不支持时不渲染入口，避免点了静默失败。非 Android 走
@@ -3146,43 +3146,42 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           Text(widget.title,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   color: scheme.onSurface,
-                  fontSize: 16,
                   fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           Wrap(spacing: 6, runSpacing: 6, children: [
-            if (widget.episodes.isNotEmpty) playerMetaChip(scheme, _epLabel()),
+            if (widget.episodes.isNotEmpty) playerMetaChip(context, scheme, _epLabel()),
             // 画面实际渲染尺寸（mpv `dwidth`/`dheight`，VO 真正绘制的尺寸），
             // 每 2 秒从 mpv 采样，不硬编码推断。
             // ⚠️ 不要用 video-out-params 充当这个值：它在滤镜链就截断了，
             // Anime4K 在更后面的 VO 着色器阶段执行，拿它永远是源尺寸。
             if (_outW > 0 && _outH > 0)
-              playerMetaChip(scheme, '$_outW×$_outH', icon: Icons.hd_rounded),
+              playerMetaChip(context, scheme, '$_outW×$_outH', icon: Icons.hd_rounded),
             // 真实渲染帧率：estimated-vf-fps 是滤镜链估计的实际输出帧率
             //（插帧已移除，约等于源容器帧率）。
             if (_outFps > 0)
-              playerMetaChip(
+              playerMetaChip(context, 
                   scheme,
                   '${_outFps >= 60 ? (_outFps >= 120 ? _outFps.toStringAsFixed(0) : _outFps.toStringAsFixed(1)) : _outFps.toStringAsFixed(1)} fps',
                   icon: Icons.speed_rounded),
             if (_speed != 1.0)
-              playerMetaChip(scheme, '${trimSpeed(_speed)}x',
+              playerMetaChip(context, scheme, '${trimSpeed(_speed)}x',
                   icon: Icons.speed_rounded),
             if (_sr.enabled)
-              playerMetaChip(scheme, _srFault != null ? '超分未生效' : _sr.name,
+              playerMetaChip(context, scheme, _srFault != null ? '超分未生效' : _sr.name,
                   icon: Icons.auto_awesome_rounded, highlight: true),
           ]),
           if (multi) ...[
             const SizedBox(height: 12),
             Row(children: [
               Expanded(
-                child: playerStepBtn(scheme, Icons.skip_previous_rounded, '上一集',
+                child: playerStepBtn(context, scheme, Icons.skip_previous_rounded, '上一集',
                     _hasPrev ? () => _goRelative(-1) : null),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: playerStepBtn(scheme, Icons.skip_next_rounded, '下一集',
+                child: playerStepBtn(context, scheme, Icons.skip_next_rounded, '下一集',
                     _hasNext ? () => _goRelative(1) : null),
               ),
             ]),
@@ -3194,16 +3193,16 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           ],
           Row(children: [
             Expanded(
-                child: playerMiniCard(scheme, Icons.speed_rounded, '倍速',
+                child: playerMiniCard(context, scheme, Icons.speed_rounded, '倍速',
                     '${trimSpeed(_speed)}x', _showSpeedPanel)),
             const SizedBox(width: 10),
             Expanded(
-                child: playerMiniCard(scheme, Icons.aspect_ratio_rounded, '画面',
+                child: playerMiniCard(context, scheme, Icons.aspect_ratio_rounded, '画面',
                     _fitNames[_fitIndex], _showFitPanel)),
             if (!_srAndroidOff) ...[
               const SizedBox(width: 10),
               Expanded(
-                  child: playerMiniCard(
+                  child: playerMiniCard(context, 
                       scheme,
                       Icons.tune_rounded,
                       '画质增强',
@@ -3215,7 +3214,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
           const SizedBox(height: 10),
           Row(children: [
             Expanded(
-                child: playerMiniCard(
+                child: playerMiniCard(context, 
                     scheme,
                     Icons.subtitles_rounded,
                     '字幕',
@@ -3227,24 +3226,21 @@ class _NativePlayerPageState extends State<NativePlayerPage>
             const SizedBox(height: 18),
             Row(children: [
               Text('选集',
-                  style: TextStyle(
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: scheme.onSurface,
-                      fontSize: 14,
                       fontWeight: FontWeight.w700)),
               const SizedBox(width: 8),
               Text(_episodeCountLabel(),
-                  style: TextStyle(
-                      color: scheme.onSurface.withValues(alpha: 0.5),
-                      fontSize: 12)),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurface.withValues(alpha: 0.5))),
               const Spacer(),
               if (widget.episodes.length > _gridLimit)
                 GestureDetector(
                   onTap: _showEpisodePanel,
                   child: Row(children: [
                     Text('全部',
-                        style: TextStyle(
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: PlayerColors.accent,
-                            fontSize: 12.5,
                             fontWeight: FontWeight.w600)),
                     const Icon(Icons.chevron_right_rounded,
                         size: 18, color: PlayerColors.accent),
@@ -3309,9 +3305,8 @@ child: Icon(Icons.auto_awesome,
                       child: Text('Anime4K 超分',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               color: scheme.onSurface,
-                              fontSize: 14.5,
                               fontWeight: FontWeight.w700)),
                     ),
                     const SizedBox(width: 8),
@@ -3329,8 +3324,7 @@ child: Icon(Icons.auto_awesome,
                           on ? (fault != null ? '未生效' : _sr.name) : '关闭',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontSize: 10.5,
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
                               fontWeight: FontWeight.w700,
                               color: on
                                   ? PlayerColors.sr
@@ -3340,8 +3334,7 @@ child: Icon(Icons.auto_awesome,
                   ]),
                   const SizedBox(height: 4),
                   Text(fault ?? _sr.desc,
-                      style: TextStyle(
-                          fontSize: 11.5,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
                           height: 1.3,
                           color: fault != null
                               ? const Color(0xFFFF8A65)
@@ -3384,8 +3377,7 @@ child: Icon(Icons.auto_awesome,
             textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 12.5,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
               fontWeight: cur ? FontWeight.w700 : FontWeight.w500,
               color: cur ? PlayerColors.accent : scheme.onSurface,
             ),
@@ -3407,15 +3399,13 @@ child: Icon(Icons.auto_awesome,
           child: Text(name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: scheme.onSurface,
-                  fontSize: 13,
                   fontWeight: FontWeight.w700)),
         ),
         Text('$count 集',
-            style: TextStyle(
-                color: scheme.onSurface.withValues(alpha: 0.5),
-                fontSize: 11.5)),
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: scheme.onSurface.withValues(alpha: 0.5))),
       ]),
     );
   }
@@ -3471,13 +3461,13 @@ child: Icon(Icons.auto_awesome,
               dense: true,
               value: _enhance,
               activeThumbColor: PlayerColors.sr,
-              title: const Text('画质增强',
-                  style: TextStyle(
+               title: Text('画质增强',
+                  style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
                       color: Colors.white,
-                      fontSize: 14,
                       fontWeight: FontWeight.w600)),
-              subtitle: const Text('去色带 + 高质量缩放核，开销极小',
-                  style: TextStyle(color: Colors.white38, fontSize: 11)),
+               subtitle: Text('去色带 + 高质量缩放核，开销极小',
+                  style: Theme.of(ctx).textTheme.labelSmall?.copyWith(
+                      color: Colors.white38)),
               onChanged: (v) {
                 _setEnhance(v);
                 setSheet(() {});
@@ -3496,8 +3486,8 @@ child: Icon(Icons.auto_awesome,
                   Expanded(
                     child: Text(
                       '着色器未生效：$_srFault',
-                      style: const TextStyle(
-                          color: Color(0xFFFF8A65), fontSize: 10.5, height: 1.3),
+                      style: Theme.of(ctx).textTheme.labelSmall?.copyWith(
+                          color: Color(0xFFFF8A65), height: 1.3),
                     ),
                   ),
                 ]),
@@ -3509,8 +3499,8 @@ child: Icon(Icons.auto_awesome,
               Expanded(
                 child: Text(
                   _srHintText(),
-                  style: const TextStyle(
-                      color: Colors.white30, fontSize: 10.5, height: 1.3),
+                  style: Theme.of(ctx).textTheme.labelSmall?.copyWith(
+                      color: Colors.white30, height: 1.3),
                 ),
               ),
             ]),
@@ -3640,8 +3630,9 @@ child: Icon(Icons.auto_awesome,
                 },
               ),
             const SizedBox(height: 6),
-            const Text('支持 SRT 字幕（UTF-8 / UTF-16 编码），倍速下自动同步',
-                style: TextStyle(color: Colors.white30, fontSize: 11)),
+            Text('支持 SRT 字幕（UTF-8 / UTF-16 编码），倍速下自动同步',
+                style: Theme.of(ctx).textTheme.labelSmall?.copyWith(
+                    color: Colors.white30)),
           ]),
         );
       }),
@@ -3686,9 +3677,8 @@ child: Icon(Icons.auto_awesome,
                     ),
                     child: Text(
                       '${trimSpeed(s)}x',
-                      style: TextStyle(
+                      style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
                         color: sel ? PlayerColors.accent : Colors.white,
-                        fontSize: 13,
                         fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
                       ),
                     ),
@@ -3707,8 +3697,9 @@ child: Icon(Icons.auto_awesome,
                   },
                 )),
             const SizedBox(height: 6),
-            const Text('提示：画面上长按可临时 3x 快进',
-                style: TextStyle(color: Colors.white30, fontSize: 11)),
+            Text('提示：画面上长按可临时 3x 快进',
+                style: Theme.of(ctx).textTheme.labelSmall?.copyWith(
+                    color: Colors.white30)),
           ]),
         );
       }),
@@ -3755,10 +3746,11 @@ child: Icon(Icons.auto_awesome,
         final current = p?.state.track.audio;
         final list = tracks.isEmpty ? <AudioTrack>[] : tracks;
         if (list.isEmpty) {
-          return const Padding(
-            padding: EdgeInsets.all(14),
+          return Padding(
+            padding: const EdgeInsets.all(14),
             child: Text('当前片源未提供多音轨',
-                style: TextStyle(color: Colors.white38, fontSize: 12)),
+                style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                    color: Colors.white38)),
           );
         }
         return Column(mainAxisSize: MainAxisSize.min, children: [
@@ -3802,14 +3794,13 @@ child: Icon(Icons.auto_awesome,
                   child: Text(g.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
                           color: Colors.white,
-                          fontSize: 13,
                           fontWeight: FontWeight.w700)),
                 ),
                 Text('${g.eps.length} 集',
-                    style: const TextStyle(
-                        color: Colors.white54, fontSize: 11.5)),
+                    style: Theme.of(ctx).textTheme.labelSmall?.copyWith(
+                        color: Colors.white54)),
               ]),
             ));
           }
@@ -3843,8 +3834,7 @@ child: Icon(Icons.auto_awesome,
                     textAlign: TextAlign.center,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12.5,
+                    style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
                       fontWeight: cur ? FontWeight.w700 : FontWeight.w500,
                       color: cur ? PlayerColors.accent : Colors.white,
                     ),
@@ -4020,8 +4010,8 @@ child: Icon(Icons.auto_awesome,
                 '分辨率：${_vw > 0 ? '${_vw}x$_vh' : '获取中'}\n'
                 '时长：${fmtDuration(_dur)}\n'
                 '手势：左右滑动进度 · 左上下亮度 · 右上下音量 · 长按 3x',
-                style: const TextStyle(
-                    color: Colors.white38, fontSize: 11, height: 1.6),
+                style: Theme.of(ctx).textTheme.labelSmall?.copyWith(
+                    color: Colors.white38, height: 1.6),
               ),
             ),
           ]),
