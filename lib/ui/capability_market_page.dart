@@ -375,9 +375,7 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
                               controller: _searchCtrl,
                               onChanged:
                                   (v) => setState(() => _query = v.trim()),
-                              style: Theme.of(
-                                context,
-                              ).textTheme.bodySmall?.copyWith(),
+                              style: Theme.of(context).textTheme.bodySmall,
                               decoration: InputDecoration(
                                 hintText: '搜索能力名称/分类',
                                 hintStyle: Theme.of(
@@ -739,7 +737,7 @@ class _CapabilityMarketTileState extends State<_CapabilityMarketTile> {
                 ),
                 child: Text(
                   '卸载',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(),
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
               )
               else if (widget.installing)
@@ -762,7 +760,7 @@ class _CapabilityMarketTileState extends State<_CapabilityMarketTile> {
                   ),
                   child: Text(
                     isUpdate ? '更新' : '安装',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(),
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
         ],

@@ -249,7 +249,7 @@ class _MainShellState extends ConsumerState<MainShell>
               if (info.notes != null && info.notes!.isNotEmpty) ...[
                 Text(
                   info.notes!,
-                  style: Theme.of(ctx).textTheme.bodySmall?.copyWith(),
+                  style: Theme.of(ctx).textTheme.bodySmall,
                 ),
                 const SizedBox(height: 12),
               ],

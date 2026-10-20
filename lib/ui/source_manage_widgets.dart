@@ -87,7 +87,7 @@ class _SourceCard extends StatelessWidget {
                                 cfg.name,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                   fontWeight: FontWeight.w700,
                                   color: scheme.onSurface,
                                 ),

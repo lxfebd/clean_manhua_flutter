@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
@@ -1820,7 +1820,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
               const SizedBox(height: 18),
               Text(_desktopInitFailed ? '网页播放器不可用' : '该线路需要网页播放',
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w700,
                       color: scheme.onSurface)),
               const SizedBox(height: 10),
@@ -1916,7 +1916,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                   ep.episode == _curEpisode ? scheme.primary : null,
             ),
             child: Text(ep.title.isEmpty ? '第${ep.episode}集' : ep.title,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith()),
+                style: Theme.of(context).textTheme.bodySmall),
           ),
       ],
     );

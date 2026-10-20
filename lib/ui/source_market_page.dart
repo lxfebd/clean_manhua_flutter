@@ -453,9 +453,7 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
                               controller: _searchCtrl,
                               onChanged:
                                   (v) => setState(() => _query = v.trim()),
-                              style: Theme.of(
-                                context,
-                              ).textTheme.bodySmall?.copyWith(),
+                              style: Theme.of(context).textTheme.bodySmall,
                               decoration: InputDecoration(
                                 hintText: '搜索源名称/类型',
                                 hintStyle: Theme.of(
@@ -747,9 +745,7 @@ class _SourceTile extends StatelessWidget {
                         )
                         : Text(
                             '卸载',
-                            style: Theme.of(
-                              context,
-                            ).textTheme.bodySmall?.copyWith(),
+                            style: Theme.of(context).textTheme.bodySmall,
                           ),
               )
               : FilledButton.tonal(
@@ -769,9 +765,7 @@ class _SourceTile extends StatelessWidget {
                         )
                         : Text(
                           isUpdate ? '更新' : '安装',
-                          style: Theme.of(
-                            context,
-                          ).textTheme.bodySmall?.copyWith(),
+                          style: Theme.of(context).textTheme.bodySmall,
                         ),
               ),
         ],

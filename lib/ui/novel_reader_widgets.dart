@@ -75,7 +75,7 @@ class _NovelReaderSettingsSheetState
             Text('阅读设置',
                 style: Theme.of(context)
                     .textTheme
-                    .titleLarge
+                    .titleMedium
                     ?.copyWith(
                         fontWeight: FontWeight.w700,
                         color:
@@ -331,7 +331,7 @@ class _NovelTtsSheet extends StatelessWidget {
             Text('朗读设置',
                 style: Theme.of(context)
                     .textTheme
-                    .titleLarge
+                    .titleMedium
                     ?.copyWith(
                         fontWeight: FontWeight.w700,
                         color:

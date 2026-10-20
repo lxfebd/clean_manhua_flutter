@@ -285,7 +285,7 @@ class SeekPreviewHud extends StatelessWidget {
                         color: Colors.white, fontWeight: FontWeight.w600)),
                 TextSpan(
                     text: ' / ${fmtDuration(total)}',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Colors.white54)),
               ]),
             ),
@@ -472,7 +472,6 @@ class _PanelShell extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       color: Colors.white,
                       fontWeight: FontWeight.w700)),
-              const Spacer(),
               const Spacer(),
               IconButton(
                 visualDensity: VisualDensity.compact,

@@ -2881,7 +2881,10 @@ class _NativePlayerPageState extends State<NativePlayerPage>
                 Text(widget.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    style: (_fullscreen
+                            ? Theme.of(context).textTheme.titleMedium
+                            : Theme.of(context).textTheme.bodyMedium)
+                        ?.copyWith(
                         fontWeight: FontWeight.w700,
                         color: Colors.white)),
                 // 竖屏下方面板里已经写了集数，顶部就不重复了
