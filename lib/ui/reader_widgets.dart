@@ -533,7 +533,9 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: Colors.black54,
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(
+                      StyleTokens.controlRadiusOr(context, 20),
+                    ),
                   ),
                   child: const Icon(Icons.refresh_rounded,
                       color: Colors.white70, size: 26),
@@ -679,7 +681,9 @@ class _ReaderPageIndicator extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
               color: Colors.black.withValues(alpha: 0.35),
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.controlRadiusOr(context, 20),
+              ),
             ),
             child: Text(
               label,
@@ -745,7 +749,9 @@ class _ReaderToolbar extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(25),
+                    borderRadius: BorderRadius.circular(
+                      StyleTokens.controlRadiusOr(context, 25),
+                    ),
                     border: Border.all(
                         color: Colors.white.withValues(alpha: 0.08)),
                     boxShadow: [
@@ -828,7 +834,9 @@ class _ToolBtn extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(
+        StyleTokens.controlRadiusOr(context, 20),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(6),
         child: Icon(
@@ -875,7 +883,9 @@ class _CatalogSheet extends StatelessWidget {
                 height: 4,
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: BorderRadius.circular(
+                    StyleTokens.controlRadiusOr(context, 2),
+                  ),
                 ),
               ),
             ),
@@ -905,13 +915,17 @@ class _CatalogSheet extends StatelessWidget {
                       final active = i == current;
                       return InkWell(
                         onTap: () => onSelect(i),
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(
+                          StyleTokens.controlRadiusOr(context, 8),
+                        ),
                         child: Container(
                           decoration: BoxDecoration(
                             color: active
                                 ? Theme.of(context).colorScheme.primary
                                 : Colors.white.withValues(alpha: 0.08),
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(
+                              StyleTokens.controlRadiusOr(context, 8),
+                            ),
                           ),
                           alignment: Alignment.center,
                           child: Text(

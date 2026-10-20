@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../style_tokens.dart';
+
 /// ── 播放器通用配色 ──────────────────────────────────────────
 class PlayerColors {
   PlayerColors._();
@@ -200,7 +202,9 @@ class SideLevelHud extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 14),
           decoration: BoxDecoration(
             color: const Color(0xD9000000),
-            borderRadius: BorderRadius.circular(23),
+            borderRadius: BorderRadius.circular(
+              StyleTokens.sheetRadiusOr(context, 23),
+            ),
           ),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Icon(icon, color: tint, size: 20),
@@ -210,7 +214,9 @@ class SideLevelHud extends StatelessWidget {
               width: 5,
               height: 104,
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(3),
+                borderRadius: BorderRadius.circular(
+                  StyleTokens.controlRadiusOr(context, 3),
+                ),
                 child: Stack(children: [
                   Container(color: PlayerColors.track),
                   Align(
@@ -265,7 +271,9 @@ class SeekPreviewHud extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
           decoration: BoxDecoration(
             color: const Color(0xCC000000),
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(
+              StyleTokens.controlRadiusOr(context, 10),
+            ),
           ),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Row(mainAxisSize: MainAxisSize.min, children: [
@@ -310,7 +318,9 @@ class SpeedBoostHud extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
             color: const Color(0xCC000000),
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(
+              StyleTokens.controlRadiusOr(context, 20),
+            ),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             const Icon(Icons.keyboard_double_arrow_right_rounded,
@@ -338,7 +348,9 @@ class SrBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: PlayerColors.sr.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(
+          StyleTokens.controlRadiusOr(context, 6),
+        ),
         border: Border.all(color: PlayerColors.sr.withValues(alpha: 0.6)),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -366,7 +378,9 @@ class SyncGuardBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: amber.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(
+          StyleTokens.controlRadiusOr(context, 6),
+        ),
         border: Border.all(color: amber.withValues(alpha: 0.65)),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -403,7 +417,9 @@ class CostBar extends StatelessWidget {
                     ? const Color(0xFFFF7043)
                     : PlayerColors.sr)
                 : Colors.white24,
-            borderRadius: BorderRadius.circular(2),
+            borderRadius: BorderRadius.circular(
+              StyleTokens.controlRadiusOr(context, 2),
+            ),
           ),
         );
       }),
@@ -510,13 +526,17 @@ class PanelOptionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(
+        StyleTokens.cardRadiusOr(context, 10),
+      ),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
         margin: const EdgeInsets.only(bottom: 6),
         decoration: BoxDecoration(
           color: selected ? PlayerColors.accent.withValues(alpha: 0.16) : null,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(
+            StyleTokens.cardRadiusOr(context, 10),
+          ),
           border: Border.all(
             color: selected
                 ? PlayerColors.accent.withValues(alpha: 0.8)
@@ -602,7 +622,9 @@ Widget playerTextBtn(BuildContext context, String text, VoidCallback onTap,
     color: Colors.transparent,
     child: InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(
+        StyleTokens.controlRadiusOr(context, 8),
+      ),
       child: Container(
         height: 40,
         padding: const EdgeInsets.symmetric(horizontal: 9),
@@ -654,7 +676,9 @@ Widget playerMetaChip(BuildContext context, ColorScheme scheme, String text,
       color: highlight
           ? PlayerColors.sr.withValues(alpha: 0.12)
           : scheme.surfaceContainerHighest.withValues(alpha: 0.6),
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: BorderRadius.circular(
+        StyleTokens.controlRadiusOr(context, 6),
+      ),
     ),
     child: Row(mainAxisSize: MainAxisSize.min, children: [
       if (icon != null) ...[
@@ -677,10 +701,14 @@ Widget playerStepBtn(BuildContext context, ColorScheme scheme, IconData icon,
       : scheme.onSurface.withValues(alpha: 0.3);
   return Material(
     color: scheme.surfaceContainerHighest.withValues(alpha: on ? 0.55 : 0.25),
-    borderRadius: BorderRadius.circular(10),
+    borderRadius: BorderRadius.circular(
+      StyleTokens.controlRadiusOr(context, 10),
+    ),
     child: InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(
+        StyleTokens.controlRadiusOr(context, 10),
+      ),
       child: SizedBox(
         height: 40,
         child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -702,11 +730,15 @@ Widget playerMiniCard(
     {bool active = false}) {
   return InkWell(
     onTap: onTap,
-    borderRadius: BorderRadius.circular(12),
+    borderRadius: BorderRadius.circular(
+      StyleTokens.cardRadiusOr(context, 12),
+    ),
     child: Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(
+          StyleTokens.cardRadiusOr(context, 12),
+        ),
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
         border: Border.all(
             color: active
