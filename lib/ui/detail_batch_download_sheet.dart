@@ -66,8 +66,7 @@ Future<void> showBatchDownloadSheet(
       if (taken == true) {
         return Text(
           '已下载',
-          style: TextStyle(
-            fontSize: 11,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
             color: scheme.primary.withValues(alpha: 0.7),
           ),
         );
@@ -75,8 +74,7 @@ Future<void> showBatchDownloadSheet(
       if (readIds.contains(ch.id)) {
         return Text(
           '已读',
-          style: TextStyle(
-            fontSize: 11,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
             color: scheme.onSurface.withValues(alpha: 0.55),
           ),
         );
@@ -168,8 +166,7 @@ class _QualitySelectorState extends State<_QualitySelector> {
         children: [
           Text(
             '画质',
-            style: TextStyle(
-              fontSize: 12,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: scheme.onSurface.withValues(alpha: 0.6),
             ),
           ),

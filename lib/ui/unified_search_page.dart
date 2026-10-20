@@ -13,6 +13,7 @@ import 'detail_page.dart';
 import 'novel_detail_page.dart';
 import 'reader_page.dart';
 import 'responsive.dart';
+import 'tokens.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/motion.dart';
@@ -357,18 +358,19 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
                                 controller: _searchCtrl,
                                 textInputAction: TextInputAction.search,
                                 onSubmitted: (_) => _search(),
-                                style: TextStyle(
-                                  fontSize: 14,
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                   color: scheme.onSurface,
                                 ),
                                 decoration: InputDecoration(
                                   hintText: '搜索所有源…',
-                                  hintStyle: TextStyle(
-                                    fontSize: 13.5,
-                                    color: scheme.onSurface.withValues(
-                                      alpha: 0.4,
-                                    ),
-                                  ),
+                                  hintStyle: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(
+                                        color: scheme.onSurface.withValues(
+                                          alpha: 0.4,
+                                        ),
+                                      ),
                                   prefixIcon: Icon(
                                     Icons.search_rounded,
                                     size: 20,
@@ -432,8 +434,7 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
               children: [
                 Text(
                   '搜索历史',
-                  style: TextStyle(
-                    fontSize: 13,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                     color: scheme.onSurface.withValues(alpha: 0.7),
                   ),
@@ -441,8 +442,7 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
                 const SizedBox(width: 6),
                 Text(
                   '长按删除',
-                  style: TextStyle(
-                    fontSize: 11,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
                     color: scheme.onSurface.withValues(alpha: 0.35),
                   ),
                 ),
@@ -479,8 +479,7 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
                     ),
                     child: Text(
                       '清空',
-                      style: TextStyle(
-                        fontSize: 12,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: scheme.error.withValues(alpha: 0.9),
                       ),
                     ),
@@ -497,7 +496,8 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
                   GestureDetector(
                     onLongPress: () => _removeHistory(h),
                     child: ActionChip(
-                      label: Text(h, style: const TextStyle(fontSize: 12.5)),
+                      label: Text(h,
+                          style: Theme.of(context).textTheme.bodySmall),
                       avatar: Icon(
                         Icons.history_rounded,
                         size: 15,
@@ -534,16 +534,14 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
             const SizedBox(height: 12),
             Text(
               '没有找到相关结果',
-              style: TextStyle(
-                fontSize: 14,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: scheme.onSurface.withValues(alpha: 0.6),
               ),
             ),
             const SizedBox(height: 6),
             Text(
               '换个关键词试试，或检查是否有拼写/空格',
-              style: TextStyle(
-                fontSize: 12.5,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: scheme.onSurface.withValues(alpha: 0.4),
               ),
             ),
@@ -624,8 +622,7 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
             child: Center(
               child: Text(
                 '当前类型没有结果，点「全部」查看完整结果',
-                style: TextStyle(
-                  fontSize: 12.5,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: scheme.onSurface.withValues(alpha: 0.5),
                 ),
               ),
@@ -684,8 +681,7 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
           Expanded(
             child: Text(
               '$_failedCount 个源请求失败，已展示其余源结果',
-              style: TextStyle(
-                fontSize: 12,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: scheme.onSurface.withValues(alpha: 0.55),
               ),
             ),
@@ -710,7 +706,8 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
             icon: Icon(Icons.refresh_rounded, size: 16, color: scheme.primary),
             label: Text(
               '加载更多失败，点此重试',
-              style: TextStyle(fontSize: 12.5, color: scheme.primary),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: scheme.primary),
             ),
           ),
         ),
@@ -746,8 +743,7 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
         child: Center(
           child: Text(
             '已经到底啦',
-            style: TextStyle(
-              fontSize: 12,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: scheme.onSurface.withValues(alpha: 0.35),
             ),
           ),
@@ -776,8 +772,7 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
               Text(
                 '从左侧选择一部作品查看详情',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: scheme.onSurface.withValues(alpha: 0.45),
                 ),
               ),
@@ -816,8 +811,7 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
           textAlign: TextAlign.center,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 17,
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
             fontWeight: FontWeight.w700,
             color: scheme.onSurface,
           ),
@@ -829,8 +823,7 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
             textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 12.5,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: scheme.onSurface.withValues(alpha: 0.6),
             ),
           ),
@@ -842,8 +835,7 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
             textAlign: TextAlign.center,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 12,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: scheme.onSurface.withValues(alpha: 0.45),
             ),
           ),
@@ -883,8 +875,7 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
                 Text(
                   '详情加载失败',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12.5,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: scheme.onSurface.withValues(alpha: 0.4),
                   ),
                 ),
@@ -916,8 +907,7 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
               d.description!,
               maxLines: 8,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12.5,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 height: 1.6,
                 color: scheme.onSurface.withValues(alpha: 0.7),
               ),

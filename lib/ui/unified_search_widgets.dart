@@ -99,7 +99,7 @@ class _UnifiedCardState extends State<_UnifiedCard> {
                 ..translateByDouble(0.0, _hover ? -4 : 0, 0.0, 1.0),
           width: size,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(R.card),
             // Minimalist：卡片无投影，悬停仅微位移反馈。
             boxShadow: const [],
             // 双栏模式：选中项用主题色描边标明当前预览对象。
@@ -109,7 +109,7 @@ class _UnifiedCardState extends State<_UnifiedCard> {
                     : null,
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(R.card),
             child: Container(
               color: scheme.surface,
               child: Column(
@@ -130,8 +130,7 @@ class _UnifiedCardState extends State<_UnifiedCard> {
                       widget.item.name,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 11,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         fontWeight: FontWeight.w600,
                         color: scheme.onSurface,
                         height: 1.3,
@@ -167,14 +166,14 @@ class _FilterChipBtn extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return InkWell(
       onTap: enabled ? onTap : null,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(R.control),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
           color: active
               ? scheme.primary.withValues(alpha: 0.14)
               : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(R.control),
           border: Border.all(
             color: active
                 ? scheme.primary.withValues(alpha: 0.6)
@@ -183,8 +182,7 @@ class _FilterChipBtn extends StatelessWidget {
         ),
         child: Text(
           label,
-          style: TextStyle(
-            fontSize: 12.5,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: !enabled
                 ? scheme.onSurface.withValues(alpha: 0.3)
                 : active

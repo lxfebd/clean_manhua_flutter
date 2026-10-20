@@ -421,12 +421,14 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                                           children: [
                                             Text(
                                               '查看全部 ${_detail!.chapters.length} 话',
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w500,
-                                                color: scheme.onSurface
-                                                    .withValues(alpha: 0.6),
-                                              ),
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w500,
+                                                    color: scheme.onSurface
+                                                        .withValues(alpha: 0.6),
+                                                  ),
                                             ),
                                             Icon(
                                               Icons.keyboard_arrow_down_rounded,
@@ -471,11 +473,13 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                                             const SizedBox(width: 4),
                                             Text(
                                               '批量下载',
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w600,
-                                                color: scheme.primary,
-                                              ),
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w600,
+                                                    color: scheme.primary,
+                                                  ),
                                             ),
                                           ],
                                         ),
@@ -564,11 +568,13 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                                   name,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w700,
-                                    color: scheme.onSurface,
-                                  ),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleLarge
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                        color: scheme.onSurface,
+                                      ),
                                 ),
                               );
                             },
@@ -751,12 +757,14 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                                     metaParts.join(' · '),
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 12.5,
-                                      color: scheme.onSurface.withValues(
-                                        alpha: 0.55,
-                                      ),
-                                    ),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(
+                                          color: scheme.onSurface.withValues(
+                                            alpha: 0.55,
+                                          ),
+                                        ),
                                   ),
                                 ],
                                 const SizedBox(height: 10),
@@ -947,8 +955,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                       children: [
                         Text(
                           '查看全部 ${d.chapters.length} 话',
-                          style: TextStyle(
-                            fontSize: 12.5,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: scheme.onSurface.withValues(alpha: 0.6),
                           ),
                         ),
@@ -987,8 +994,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                         const SizedBox(width: 4),
                         Text(
                           '批量下载',
-                          style: TextStyle(
-                            fontSize: 12.5,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             fontWeight: FontWeight.w600,
                             color: scheme.primary,
                           ),

@@ -26,6 +26,7 @@ import 'reader_providers.dart';
 import 'responsive.dart';
 import 'style_scope.dart';
 import 'theme_controller.dart';
+import 'tokens.dart';
 import 'source_manage_page.dart';
 import 'keyboard_shortcuts.dart';
 import 'widgets/app_toast.dart';
@@ -132,8 +133,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               const SizedBox(height: 12),
               Text(
                 '设置加载失败',
-                style: TextStyle(
-                  fontSize: 14,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                 ),
               ),
@@ -193,8 +193,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           const SizedBox(width: 4),
                           Text(
                             '返回',
-                            style: TextStyle(
-                              fontSize: 13,
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               color: theme.colorScheme.onSurface.withValues(
                                 alpha: 0.55,
                               ),
@@ -707,19 +706,24 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                                 children: [
                                   TextSpan(
                                     text: '涙不再为你而流  ',
-                                    style: TextStyle(
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w600,
-                                      color: theme.colorScheme.onSurface,
-                                    ),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w600,
+                                          color: theme.colorScheme.onSurface,
+                                        ),
                                   ),
                                   TextSpan(
                                     text: '@lxfebd',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: theme.colorScheme.primary,
-                                      decoration: TextDecoration.underline,
-                                    ),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelSmall
+                                        ?.copyWith(
+                                          color: theme.colorScheme.primary,
+                                          decoration:
+                                              TextDecoration.underline,
+                                        ),
                                   ),
                                 ],
                               ),
@@ -728,8 +732,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           const SizedBox(height: 4),
                           Text(
                             'github.com/lxfebd',
-                            style: TextStyle(
-                              fontSize: 10,
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
                               color: theme.colorScheme.onSurface.withValues(
                                 alpha: 0.5,
                               ),
@@ -749,11 +752,13 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                             ),
                             child: Text(
                               '星漫匣 · ${UpdateChecker.currentVersion()}',
-                              style: TextStyle(
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w700,
-                                color: theme.colorScheme.primary,
-                              ),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelSmall
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: theme.colorScheme.primary,
+                                  ),
                             ),
                           ),
                         ],
@@ -847,8 +852,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     padding: const EdgeInsets.only(bottom: 12),
                     child: Text(
                       prompt,
-                      style: TextStyle(
-                        fontSize: 13,
+                      style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
                         color: Theme.of(ctx).colorScheme.onSurfaceVariant,
                       ),
                     ),
@@ -981,9 +985,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         builder:
             (ctx) => AlertDialog(
               title: const Text('导入备份'),
-              content: const Text(
-                '导入将覆盖当前本地的书架、阅读历史与设置数据，且不可撤销。\n\n确定继续吗？',
-                style: TextStyle(fontSize: 13.5, height: 1.6),
+              content: Builder(
+                builder: (bctx) => Text(
+                  '导入将覆盖当前本地的书架、阅读历史与设置数据，且不可撤销。\n\n确定继续吗？',
+                  style: Theme.of(bctx)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(height: 1.6),
+                ),
               ),
               actions: [
                 TextButton(
@@ -1085,7 +1094,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                                   : Theme.of(ctx).colorScheme.onSurfaceVariant,
                         ),
                         const SizedBox(width: 12),
-                        Text(f.label, style: const TextStyle(fontSize: 14)),
+                        Text(f.label, style: Theme.of(ctx).textTheme.bodyMedium),
                       ],
                     ),
                   ),
@@ -1189,13 +1198,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (info.notes != null && info.notes!.isNotEmpty) ...[
-                    Text(info.notes!, style: const TextStyle(fontSize: 12.5)),
+                    Text(info.notes!, style: Theme.of(ctx).textTheme.bodySmall),
                     const SizedBox(height: 12),
                   ],
                   Text(
                     '当前版本：v${UpdateChecker.currentVersion()}',
-                    style: TextStyle(
-                      fontSize: 11.5,
+                    style: Theme.of(ctx).textTheme.labelSmall?.copyWith(
                       color: Theme.of(
                         ctx,
                       ).colorScheme.onSurface.withValues(alpha: 0.6),
@@ -1289,8 +1297,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 '因使用本应用或其聚合内容产生的任何纠纷与损失，应用开发者不承担任何责任。\n\n'
                 '5. 如认为任何内容侵犯了您的合法权益，请通过源站渠道联系权利人下架，'
                 '应用开发者会尽力配合处理。',
-                style: TextStyle(
-                  fontSize: 13,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   height: 1.6,
                   color: Theme.of(
                     context,
@@ -1326,8 +1333,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 '3. 更新检查仅向 GitHub Releases 请求版本信息，不发送任何个人数据。\n\n'
                 '4. 若您在「网络工具」中配置了代理，之后的所有网络请求将通过该代理'
                 '转发，请确保您的代理环境安全可信。',
-                style: TextStyle(
-                  fontSize: 13,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   height: 1.6,
                   color: Theme.of(
                     context,

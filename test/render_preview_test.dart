@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:xingmanxia/ui/bookshelf_page.dart';
 import 'package:xingmanxia/ui/home_page.dart';
@@ -39,7 +40,12 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
-      MaterialApp(debugShowCheckedModeBanner: false, home: widget),
+      ProviderScope(
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          home: widget,
+        ),
+      ),
     );
     // 让入场动画 + 网络失败/重试退避全部落定，再出图
     await tester.pumpAndSettle(const Duration(milliseconds: 50));

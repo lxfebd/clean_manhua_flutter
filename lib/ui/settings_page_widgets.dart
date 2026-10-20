@@ -25,8 +25,7 @@ class _ThemeSelector extends StatelessWidget {
               const SizedBox(width: 12),
               Text(
                 '主题色',
-                style: TextStyle(
-                  fontSize: 14,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   fontWeight: FontWeight.w600,
                   color: scheme.onSurface,
                 ),
@@ -81,8 +80,7 @@ class _ThemeSelector extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text(
                         _names[i],
-                        style: TextStyle(
-                          fontSize: 10,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
                           color: scheme.onSurface.withValues(alpha: 0.6),
                         ),
                       ),
@@ -139,8 +137,7 @@ class _UiStyleSelector extends StatelessWidget {
               const SizedBox(width: 12),
               Text(
                 'UI 风格',
-                style: TextStyle(
-                  fontSize: 14,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   fontWeight: FontWeight.w600,
                   color: scheme.onSurface,
                 ),
@@ -152,8 +149,7 @@ class _UiStyleSelector extends StatelessWidget {
             padding: const EdgeInsets.only(left: 32),
             child: Text(
               current == null ? '当前：$autoLabel（按平台自适应）' : '当前：${current!.label}',
-              style: TextStyle(
-                fontSize: 12,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: scheme.onSurface.withValues(alpha: 0.5),
               ),
             ),
@@ -201,7 +197,7 @@ class _StyleOption extends StatelessWidget {
           color: selected
               ? scheme.primary.withValues(alpha: 0.1)
               : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(R.control),
           border: Border.all(
             color: selected ? scheme.primary : scheme.outlineVariant,
             width: selected ? 1.4 : 1,
@@ -210,8 +206,7 @@ class _StyleOption extends StatelessWidget {
         child: Text(
           label,
           textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 12.5,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
             fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
             color: selected ? scheme.primary : scheme.onSurface.withValues(alpha: 0.65),
           ),
@@ -264,8 +259,7 @@ class _SliderTile extends StatelessWidget {
           Expanded(
             child: Text(
               title,
-              style: TextStyle(
-                fontSize: 14,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 fontWeight: FontWeight.w600,
                 color: scheme.onSurface,
               ),
@@ -276,8 +270,7 @@ class _SliderTile extends StatelessWidget {
             child: Text(
               display,
               textAlign: TextAlign.right,
-              style: TextStyle(
-                fontSize: 12,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 fontWeight: FontWeight.w600,
                 color: scheme.primary,
               ),

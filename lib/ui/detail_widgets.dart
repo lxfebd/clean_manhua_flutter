@@ -95,8 +95,7 @@ class _Hero extends StatelessWidget {
                       ),
                       child: Text(
                         (status?.isNotEmpty == true) ? status! : '连载中',
-                        style: const TextStyle(
-                          fontSize: 10,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
                           fontWeight: FontWeight.w800,
                           color: Colors.white,
                           letterSpacing: 1.2,
@@ -123,10 +122,9 @@ class _Hero extends StatelessWidget {
                           width: 0.5,
                         ),
                       ),
-                      child: const Text(
+                      child: Text(
                         'COMIC',
-                        style: TextStyle(
-                          fontSize: 9,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
                           fontWeight: FontWeight.w800,
                           color: Colors.white,
                           letterSpacing: 2,
@@ -235,8 +233,7 @@ class _MetaSection extends StatelessWidget {
                   children: [
                     Text(
                       d.name,
-                      style: const TextStyle(
-                        fontSize: 17,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w700,
                         height: 1.3,
                       ),
@@ -309,8 +306,7 @@ class _StatusPill extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: const TextStyle(
-          fontSize: 10.5,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
           fontWeight: FontWeight.w600,
           color: Colors.white,
         ),
@@ -342,8 +338,7 @@ class _CountPill extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: TextStyle(
-          fontSize: 10.5,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
           fontWeight: FontWeight.w500,
           color: scheme.onSurface.withValues(alpha: 0.6),
         ),
@@ -406,7 +401,7 @@ class _MetaCard extends StatelessWidget {
                 runSpacing: 8,
                 children: [
                   for (final (k, v) in rows)
-                    _metaItem(scheme, k, v),
+                    _metaItem(context, scheme, k, v),
                 ],
               ),
             if (d.tags.isNotEmpty) ...[
@@ -415,7 +410,7 @@ class _MetaCard extends StatelessWidget {
                 spacing: 6,
                 runSpacing: 6,
                 children: [
-                  for (final t in d.tags) _tagChip(scheme, style, t),
+                  for (final t in d.tags) _tagChip(context, scheme, style, t),
                 ],
               ),
             ],
@@ -425,21 +420,19 @@ class _MetaCard extends StatelessWidget {
     );
   }
 
-  Widget _metaItem(ColorScheme scheme, String k, String v) {
+  Widget _metaItem(BuildContext context, ColorScheme scheme, String k, String v) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           '$k：',
-          style: TextStyle(
-            fontSize: 12,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: scheme.onSurface.withValues(alpha: 0.5),
           ),
         ),
         Text(
           v,
-          style: TextStyle(
-            fontSize: 12,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
             fontWeight: FontWeight.w500,
             color: scheme.onSurface.withValues(alpha: 0.85),
           ),
@@ -448,7 +441,8 @@ class _MetaCard extends StatelessWidget {
     );
   }
 
-  Widget _tagChip(ColorScheme scheme, UIStyle style, String t) {
+  Widget _tagChip(
+      BuildContext context, ColorScheme scheme, UIStyle style, String t) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
       decoration: BoxDecoration(
@@ -459,8 +453,7 @@ class _MetaCard extends StatelessWidget {
       ),
       child: Text(
         t,
-        style: TextStyle(
-          fontSize: 11,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
           fontWeight: FontWeight.w500,
           color: scheme.primary,
         ),
@@ -502,8 +495,7 @@ class _DescCardState extends State<_DescCard> {
             desc,
             maxLines: _expanded ? null : 4,
             overflow: _expanded ? null : TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 13,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               height: 1.75,
               color: scheme.onSurface.withValues(alpha: 0.75),
             ),
@@ -515,8 +507,7 @@ class _DescCardState extends State<_DescCard> {
                 padding: const EdgeInsets.only(top: 6),
                 child: Text(
                   _expanded ? '收起' : '展开',
-                  style: TextStyle(
-                    fontSize: 12.5,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     fontWeight: FontWeight.w600,
                     color: scheme.primary,
                   ),
@@ -565,8 +556,7 @@ class _ChapterHeader extends StatelessWidget {
               behavior: HitTestBehavior.opaque,
               child: Text(
                 '全部 $count',
-                style: TextStyle(
-                  fontSize: 12,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   fontWeight: FontWeight.w600,
                   color: scheme.primary,
                 ),
@@ -580,7 +570,8 @@ class _ChapterHeader extends StatelessWidget {
                 children: [
                   Text(
                     descending ? '倒序' : '正序',
-                    style: TextStyle(fontSize: 11, color: scheme.primary),
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: scheme.primary),
                   ),
                   const SizedBox(width: 4),
                   Icon(
@@ -649,8 +640,7 @@ class _ChapterTileState extends State<_ChapterTile> {
                     : widget.chapter.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13.5,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   fontWeight:
                       widget.current ? FontWeight.w700 : FontWeight.w500,
                   color: scheme.onSurface,
@@ -660,8 +650,7 @@ class _ChapterTileState extends State<_ChapterTile> {
             if (widget.current) ...[
               Text(
                 '续读',
-                style: TextStyle(
-                  fontSize: 11,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   fontWeight: FontWeight.w600,
                   color: scheme.primary,
                 ),
