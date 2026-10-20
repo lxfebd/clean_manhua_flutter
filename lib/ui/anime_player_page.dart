@@ -2411,7 +2411,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
       key: cur ? _curEpKey : null,
       child: InkWell(
         onTap: () => _switchToEpisode(e.season, e.episode),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(
+          StyleTokens.cardRadiusOr(context, 8),
+        ),
         child: Container(
           constraints: const BoxConstraints(minWidth: 54),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
@@ -2419,7 +2421,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
             color: cur
                 ? PlayerColors.accent.withValues(alpha: 0.15)
                 : scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(
+              StyleTokens.cardRadiusOr(context, 8),
+            ),
             border: Border.all(
                 color: cur ? PlayerColors.accent : Colors.transparent),
           ),
@@ -2468,12 +2472,16 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   Widget _descCard(ColorScheme scheme) {
     return InkWell(
       onTap: () => setState(() => _descExpanded = !_descExpanded),
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(
+        StyleTokens.cardRadiusOr(context, 14),
+      ),
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(
+            StyleTokens.cardRadiusOr(context, 14),
+          ),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(widget.description!,
@@ -2500,11 +2508,15 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
     final on = _srLevel > 0;
     return InkWell(
       onTap: _showSrPanel,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(
+        StyleTokens.cardRadiusOr(context, 14),
+      ),
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(
+            StyleTokens.cardRadiusOr(context, 14),
+          ),
           gradient: on
               ? LinearGradient(colors: [
                   PlayerColors.sr.withValues(alpha: 0.20),
@@ -2525,7 +2537,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
               color: on
                   ? PlayerColors.sr.withValues(alpha: 0.22)
                   : scheme.onSurface.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.controlRadiusOr(context, 10),
+              ),
             ),
             child: Icon(Icons.auto_awesome,
                 size: 20,
@@ -2556,7 +2570,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                           color: on
                               ? PlayerColors.sr.withValues(alpha: 0.2)
                               : scheme.onSurface.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(4),
+                          borderRadius: BorderRadius.circular(
+                            StyleTokens.controlRadiusOr(context, 4),
+                          ),
                         ),
                          child: Text(_srName,
                              maxLines: 1,
@@ -2934,7 +2950,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                   Navigator.of(ctx).pop();
                   if (!cur) _switchToEpisode(e.season, e.episode);
                 },
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(
+                  StyleTokens.cardRadiusOr(context, 8),
+                ),
                 child: Container(
                   constraints: const BoxConstraints(minWidth: 56),
                   padding:
@@ -2943,7 +2961,9 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
                     color: cur
                         ? PlayerColors.accent.withValues(alpha: 0.18)
                         : Colors.white10,
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(
+                      StyleTokens.cardRadiusOr(context, 8),
+                    ),
                     border: Border.all(
                         color: cur ? PlayerColors.accent : Colors.transparent),
                   ),

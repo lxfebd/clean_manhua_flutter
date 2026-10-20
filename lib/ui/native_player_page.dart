@@ -30,6 +30,7 @@ import 'player_body.dart';
 import 'player_status_text.dart';
 import 'player_utils.dart';
 import 'responsive.dart';
+import 'style_tokens.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/danmaku_overlay.dart';
 import 'widgets/player_widgets.dart';
@@ -2815,7 +2816,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(
+            StyleTokens.sheetRadiusOr(context, 20),
+          ),
           onTap: () {
             _seekTo(_resumeAt!);
             setState(() => _resumeTipVisible = false);
@@ -2825,7 +2828,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
             decoration: BoxDecoration(
               color: const Color(0xCC000000),
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.sheetRadiusOr(context, 20),
+              ),
               border: Border.all(color: PlayerColors.accent.withValues(alpha: 0.7)),
             ),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -3263,11 +3268,15 @@ class _NativePlayerPageState extends State<NativePlayerPage>
     final fault = _srFault;
     return InkWell(
       onTap: _showSrPanel,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(
+        StyleTokens.cardRadiusOr(context, 14),
+      ),
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(
+            StyleTokens.cardRadiusOr(context, 14),
+          ),
           gradient: on
               ? LinearGradient(colors: [
                   PlayerColors.sr.withValues(alpha: 0.20),
@@ -3290,7 +3299,9 @@ class _NativePlayerPageState extends State<NativePlayerPage>
               color: on
                   ? PlayerColors.sr.withValues(alpha: 0.22)
                   : scheme.onSurface.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.controlRadiusOr(context, 10),
+              ),
             ),
 child: Icon(Icons.auto_awesome,
                 size: 20,
@@ -3321,7 +3332,9 @@ child: Icon(Icons.auto_awesome,
                           color: on
                               ? PlayerColors.sr.withValues(alpha: 0.2)
                               : scheme.onSurface.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(4),
+                          borderRadius: BorderRadius.circular(
+                            StyleTokens.controlRadiusOr(context, 4),
+                          ),
                         ),
                         child: Text(
                           on ? (fault != null ? '未生效' : _sr.name) : '关闭',
@@ -3363,7 +3376,9 @@ child: Icon(Icons.auto_awesome,
       key: cur ? _curEpKey : null,
       child: InkWell(
         onTap: widget.resolveUrl == null || cur ? null : () => _switchTo(e),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(
+          StyleTokens.cardRadiusOr(context, 8),
+        ),
         child: Container(
           constraints: const BoxConstraints(minWidth: 54),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
@@ -3371,7 +3386,9 @@ child: Icon(Icons.auto_awesome,
             color: cur
                 ? PlayerColors.accent.withValues(alpha: 0.15)
                 : scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(
+              StyleTokens.cardRadiusOr(context, 8),
+            ),
             border: Border.all(
                 color: cur ? PlayerColors.accent : Colors.transparent),
           ),
@@ -3662,7 +3679,9 @@ child: Icon(Icons.auto_awesome,
                     _setSpeed(s);
                     setSheet(() {});
                   },
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(
+                    StyleTokens.cardRadiusOr(context, 18),
+                  ),
                   child: Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 18, vertical: 9),
@@ -3670,7 +3689,9 @@ child: Icon(Icons.auto_awesome,
                       color: sel
                           ? PlayerColors.accent.withValues(alpha: 0.22)
                           : Colors.white10,
-                      borderRadius: BorderRadius.circular(18),
+                      borderRadius: BorderRadius.circular(
+                        StyleTokens.cardRadiusOr(context, 18),
+                      ),
                       border: Border.all(
                         color: sel
                             ? PlayerColors.accent
@@ -3819,7 +3840,9 @@ child: Icon(Icons.auto_awesome,
                         Navigator.of(ctx).pop();
                         if (!cur) _switchTo(e);
                       },
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(
+                  StyleTokens.cardRadiusOr(context, 8),
+                ),
                 child: Container(
                   constraints: const BoxConstraints(minWidth: 56),
                   padding:
@@ -3828,7 +3851,9 @@ child: Icon(Icons.auto_awesome,
                     color: cur
                         ? PlayerColors.accent.withValues(alpha: 0.18)
                         : Colors.white10,
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(
+                      StyleTokens.cardRadiusOr(context, 8),
+                    ),
                     border: Border.all(
                         color: cur ? PlayerColors.accent : Colors.transparent),
                   ),
