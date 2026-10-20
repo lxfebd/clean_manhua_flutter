@@ -892,7 +892,6 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     );
   }
 
-  /// 视频记录列表
   /// 动漫记录 Tab 搜索框（镜像书签/下载 Tab 搜索框样式；本地内存过滤）。
   Widget _buildVideoSearchField(ColorScheme scheme) {
     return TextField(

@@ -645,7 +645,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                         SettingsRow(
                           icon: Icons.keyboard_alt_rounded,
                           title: '键盘快捷键',
-                          subtitle: '全局 / 漫画阅读器 / 小说阅读器 / 视频播放器',
+                          subtitle: '全局 / 漫画阅读器 / 小说阅读器 / 动漫播放器',
                           onTap:
                               () => Navigator.of(context).push(
                                 PageRouteBuilder<void>(
