@@ -87,8 +87,7 @@ class _SourceCard extends StatelessWidget {
                                 cfg.name,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 14.5,
+                                style: Theme.of(context).textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.w700,
                                   color: scheme.onSurface,
                                 ),
@@ -113,8 +112,7 @@ class _SourceCard extends StatelessWidget {
                               ),
                               child: Text(
                                 _tierLabel(),
-                                style: TextStyle(
-                                  fontSize: 9.5,
+                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
                                   fontWeight: FontWeight.w700,
                                   color:
                                       cfg.tier == SourceTier.primary
@@ -147,8 +145,7 @@ class _SourceCard extends StatelessWidget {
                           firstHost,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 11,
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color:
                                 enabled
                                     ? scheme.onSurface.withValues(alpha: 0.55)
@@ -302,10 +299,10 @@ class _SourceEditDialogState extends State<_SourceEditDialog> {
               children: [
                 Text(
                   '需要登录',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: theme.colorScheme.onSurface,
-                  ),
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(color: theme.colorScheme.onSurface),
                 ),
                 Switch(
                   value: _requiresLogin,
@@ -314,10 +311,10 @@ class _SourceEditDialogState extends State<_SourceEditDialog> {
                 const SizedBox(width: 16),
                 Text(
                   '层级',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: theme.colorScheme.onSurface,
-                  ),
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(color: theme.colorScheme.onSurface),
                 ),
                 const SizedBox(width: 8),
                 DropdownButton<SourceTier>(
@@ -380,8 +377,7 @@ class _SourceEditDialogState extends State<_SourceEditDialog> {
       children: [
         Text(
           label,
-          style: TextStyle(
-            fontSize: 11.5,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
             fontWeight: FontWeight.w600,
             color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
           ),
@@ -390,7 +386,7 @@ class _SourceEditDialogState extends State<_SourceEditDialog> {
         TextField(
           controller: c,
           maxLines: maxLines,
-          style: const TextStyle(fontSize: 12.5),
+          style: Theme.of(context).textTheme.bodySmall,
           decoration: InputDecoration(
             isDense: true,
             contentPadding: const EdgeInsets.symmetric(
@@ -552,7 +548,9 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
             content: TextField(
               controller: c,
               maxLines: 8,
-              style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                fontFamily: 'monospace',
+              ),
               decoration: InputDecoration(
                 labelText: label,
                 border: OutlineInputBorder(
@@ -591,8 +589,7 @@ class _CustomSourceManageDialogState extends State<CustomSourceManageDialog> {
               child: SingleChildScrollView(
                 child: SelectableText(
                   json,
-                  style: const TextStyle(
-                    fontSize: 11.5,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
                     fontFamily: 'monospace',
                     height: 1.4,
                   ),
@@ -735,8 +732,7 @@ class _CustomSourceTile extends StatelessWidget {
                       def.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 13.5,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w700,
                         color: scheme.onSurface,
                       ),
@@ -746,8 +742,7 @@ class _CustomSourceTile extends StatelessWidget {
                       def.baseUrl,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 10.5,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: scheme.onSurface.withValues(alpha: 0.5),
                       ),
                     ),
@@ -887,8 +882,7 @@ class _CustomSourceEditorDialogState extends State<CustomSourceEditorDialog> {
                 ),
                 child: Text(
                   _error!,
-                  style: TextStyle(
-                    fontSize: 11.5,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
                     color: theme.colorScheme.error,
                   ),
                 ),
@@ -900,8 +894,7 @@ class _CustomSourceEditorDialogState extends State<CustomSourceEditorDialog> {
                 controller: _controller,
                 maxLines: null,
                 expands: true,
-                style: const TextStyle(
-                  fontSize: 12,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   fontFamily: 'monospace',
                   height: 1.45,
                 ),
@@ -919,8 +912,7 @@ class _CustomSourceEditorDialogState extends State<CustomSourceEditorDialog> {
             Text(
               '占位符：{id} 详情ID / {page} 页码 / {keyword} 搜索词 / {categoryId} 分类。\n'
               '抽取：css 或 regex；解密链 decrypt：b64 | aes:KEY,IV | replace:OLD>NEW | re:PATTERN|REPL。',
-              style: TextStyle(
-                fontSize: 10.5,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                 height: 1.4,
               ),

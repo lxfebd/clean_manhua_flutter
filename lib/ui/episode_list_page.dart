@@ -245,8 +245,7 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                 Text(d.video.name,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: 18,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w800,
                         color: theme.colorScheme.onSurface)),
                 // 元信息（地区/语言/年份/类型/评分/备注/集数）统一由右侧面板
@@ -270,10 +269,13 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                             ),
                           ),
                           child: Text(t,
-                              style: TextStyle(
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w500,
-                                  color: theme.colorScheme.primary)),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelSmall
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w500,
+                                    color: theme.colorScheme.primary,
+                                  )),
                         ),
                     ],
                   ),
@@ -330,8 +332,7 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                       d.description!,
                       maxLines: _expanded ? null : 4,
                       overflow: _expanded ? null : TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 13,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         height: 1.6,
                         color: theme.colorScheme.onSurface
                             .withValues(alpha: 0.85),
@@ -343,8 +344,7 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                       children: [
                         Text(
                           _expanded ? '收起' : '展开',
-                          style: TextStyle(
-                            fontSize: 12,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.primary,
                             fontWeight: FontWeight.w600,
                           ),
@@ -381,10 +381,13 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                           size: 15, color: theme.colorScheme.primary),
                       const SizedBox(width: 4),
                       Text('上次：第${_videoRecords.first.episode}集',
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: theme.colorScheme.primary,
-                              fontWeight: FontWeight.w600)),
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(
+                                color: theme.colorScheme.primary,
+                                fontWeight: FontWeight.w600,
+                              )),
                     ]),
                   )
                 : null,
@@ -443,7 +446,12 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                           child: Text(d.type!,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w600)),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelSmall
+                                  ?.copyWith(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w600)),
                         ),
                       if (d.type != null && d.video.remarks != null) const SizedBox(width: 6),
                       if (d.video.remarks != null)
@@ -457,7 +465,12 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                             child: Text(d.video.remarks!,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w700)),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelSmall
+                                    ?.copyWith(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w700)),
                           ),
                         ),
                     ],
@@ -475,8 +488,7 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                       d.video.name,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 22,
+                      style: Theme.of(context).textTheme.displaySmall?.copyWith(
                         fontWeight: FontWeight.w900,
                         color: Colors.white,
                         letterSpacing: 0.3,
@@ -505,12 +517,14 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                               ),
                               child: Text(
                                 t,
-                                style: TextStyle(
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.white
-                                      .withValues(alpha: 0.92),
-                                ),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelSmall
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.white
+                                          .withValues(alpha: 0.92),
+                                    ),
                               ),
                             ),
                         ],
@@ -563,8 +577,7 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                         d.description!,
                         maxLines: _expanded ? null : 4,
                         overflow: _expanded ? null : TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           height: 1.6,
                           color: theme.colorScheme.onSurface
                               .withValues(alpha: 0.85),
@@ -576,8 +589,7 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                         children: [
                           Text(
                             _expanded ? '收起' : '展开',
-                            style: TextStyle(
-                              fontSize: 12,
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: theme.colorScheme.primary,
                               fontWeight: FontWeight.w600,
                             ),
@@ -614,11 +626,13 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                       padding: const EdgeInsets.only(right: 8),
                       child: Text(
                         '匹配 ${_filtered(d.episodes).length}',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          color: theme.colorScheme.primary,
-                          fontWeight: FontWeight.w600,
-                        ),
+                        style: Theme.of(context)
+                            .textTheme
+                            .labelSmall
+                            ?.copyWith(
+                              color: theme.colorScheme.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
                       ),
                     )
                   : Row(
@@ -639,10 +653,13 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                                   size: 15, color: theme.colorScheme.primary),
                               const SizedBox(width: 4),
                               Text('上次：第${_videoRecords.first.episode}集',
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: theme.colorScheme.primary,
-                                      fontWeight: FontWeight.w600)),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: theme.colorScheme.primary,
+                                        fontWeight: FontWeight.w600,
+                                      )),
                             ]),
                           ),
                         const SizedBox(width: 12),
@@ -659,10 +676,13 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                                 size: 15, color: theme.colorScheme.primary),
                             const SizedBox(width: 4),
                             Text('批量下载',
-                                style: TextStyle(
-                                    fontSize: 12,
-                                    color: theme.colorScheme.primary,
-                                    fontWeight: FontWeight.w600)),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
+                                      color: theme.colorScheme.primary,
+                                      fontWeight: FontWeight.w600,
+                                    )),
                           ]),
                         ),
                       ],
@@ -718,12 +738,12 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
           child: TextField(
             controller: _filterCtrl,
             onChanged: (v) => setState(() => _filter = v),
-            style: TextStyle(fontSize: 13.5, color: scheme.onSurface),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: scheme.onSurface),
             decoration: InputDecoration(
               isDense: true,
               hintText: '搜索剧集（标题 / 集数）',
-              hintStyle: TextStyle(
-                fontSize: 13,
+              hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: scheme.onSurface.withValues(alpha: 0.4),
               ),
               prefixIcon: Icon(
@@ -762,8 +782,7 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                 _filter.trim().isEmpty
                     ? '暂无剧集'
                     : '没有匹配「$_filter」的剧集',
-                style: TextStyle(
-                  fontSize: 13,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: scheme.onSurface.withValues(alpha: 0.55),
                 ),
               ),
@@ -811,15 +830,16 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
               child: Text(g.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      fontSize: 15,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w700,
                       color: scheme.onSurface)),
             ),
             Text('本线路共 $total 集',
-                style: TextStyle(
-                    fontSize: 11.5,
-                    color: scheme.onSurface.withValues(alpha: 0.5))),
+                style: Theme.of(context)
+                    .textTheme
+                    .labelSmall
+                    ?.copyWith(
+                        color: scheme.onSurface.withValues(alpha: 0.5))),
           ]),
         ),
       ));
@@ -916,15 +936,17 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                                     '第${ep.episode}集',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: isCurrent
-                                          ? FontWeight.w800
-                                          : FontWeight.w700,
-                                      color: isCurrent
-                                          ? scheme.primary
-                                          : scheme.onSurface,
-                                    ),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          fontWeight: isCurrent
+                                              ? FontWeight.w800
+                                              : FontWeight.w700,
+                                          color: isCurrent
+                                              ? scheme.primary
+                                              : scheme.onSurface,
+                                        ),
                                   ),
                                   if (showTitle) ...[
                                     const SizedBox(height: 2),
@@ -932,14 +954,16 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                                       ep.title,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: isCurrent
-                                            ? scheme.primary
-                                                .withValues(alpha: 0.8)
-                                            : scheme.onSurface
-                                                .withValues(alpha: 0.5),
-                                      ),
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelSmall
+                                          ?.copyWith(
+                                            color: isCurrent
+                                                ? scheme.primary
+                                                    .withValues(alpha: 0.8)
+                                                : scheme.onSurface
+                                                    .withValues(alpha: 0.5),
+                                          ),
                                     ),
                                   ],
                                 ],
@@ -992,10 +1016,13 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 14),
                   child: Text('${page + 1} / $pageCount',
-                      style: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
-                          color: scheme.onSurface.withValues(alpha: 0.6))),
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: scheme.onSurface.withValues(alpha: 0.6),
+                          )),
                 ),
                 _pageBtn(
                     theme,
@@ -1082,15 +1109,13 @@ class _VideoMetaCard extends StatelessWidget {
                 children: [
                   Text(
                     '$k：',
-                    style: TextStyle(
-                      fontSize: 12,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: scheme.onSurface.withValues(alpha: 0.5),
                     ),
                   ),
                   Text(
                     v,
-                    style: TextStyle(
-                      fontSize: 12,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       fontWeight: FontWeight.w500,
                       color: scheme.onSurface.withValues(alpha: 0.85),
                     ),

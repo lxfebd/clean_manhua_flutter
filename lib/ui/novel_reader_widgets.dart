@@ -73,10 +73,13 @@ class _NovelReaderSettingsSheetState
             ),
             const SizedBox(height: 18),
             Text('阅读设置',
-                style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: Theme.of(context).colorScheme.onSurface)),
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color:
+                            Theme.of(context).colorScheme.onSurface)),
             const SizedBox(height: 18),
             _row('字号',
                 children: [
@@ -133,24 +136,30 @@ class _NovelReaderSettingsSheetState
                 Row(
                   children: [
                     Text('色温',
-                        style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withValues(alpha: 0.85))),
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodyMedium
+                            ?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withValues(alpha: 0.85),
+                            )),
                     const SizedBox(width: 8),
                     Text(
                       widget.colorTemp == 0
                           ? '关闭'
                           : '${(6500 - widget.colorTemp * 35)}K',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.5)),
+                      style: Theme.of(context)
+                          .textTheme
+                          .labelSmall
+                          ?.copyWith(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withValues(alpha: 0.5),
+                          ),
                     ),
                   ],
                 ),
@@ -191,22 +200,28 @@ class _NovelReaderSettingsSheetState
                 Row(
                   children: [
                     Text('亮度',
-                        style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withValues(alpha: 0.85))),
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodyMedium
+                            ?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withValues(alpha: 0.85),
+                            )),
                     const SizedBox(width: 8),
                     Text(
                       '${(widget.brightness * 100).round()}%',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.5)),
+                      style: Theme.of(context)
+                          .textTheme
+                          .labelSmall
+                          ?.copyWith(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withValues(alpha: 0.5),
+                          ),
                     ),
                   ],
                 ),
@@ -248,13 +263,16 @@ class _NovelReaderSettingsSheetState
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
-            style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.85))),
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.85),
+                )),
         const SizedBox(height: 8),
         Wrap(
           spacing: 6,
@@ -311,21 +329,27 @@ class _NovelTtsSheet extends StatelessWidget {
             ),
             const SizedBox(height: 18),
             Text('朗读设置',
-                style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: Theme.of(context).colorScheme.onSurface)),
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color:
+                            Theme.of(context).colorScheme.onSurface)),
             const SizedBox(height: 18),
             Row(
               children: [
                 Text('语速',
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withValues(alpha: 0.85))),
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.85),
+                        )),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Wrap(
@@ -386,8 +410,7 @@ class _TtsRateChip extends StatelessWidget {
         ),
         child: Text(
           label,
-          style: TextStyle(
-            fontSize: 12,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
             fontWeight: active ? FontWeight.w700 : FontWeight.w500,
             color: active
                 ? Theme.of(context).colorScheme.onPrimary
@@ -421,30 +444,39 @@ class _SummarySheet extends StatelessWidget {
                     size: 18, color: scheme.primary),
                 const SizedBox(width: 8),
                 Text('本章摘要',
-                    style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                        color: scheme.onSurface)),
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: scheme.onSurface)),
                 const Spacer(),
                 Text('本地生成',
-                    style: TextStyle(
-                        fontSize: 11,
-                        color: scheme.onSurface.withValues(alpha: 0.45))),
+                    style: Theme.of(context)
+                        .textTheme
+                        .labelSmall
+                        ?.copyWith(
+                            color: scheme.onSurface
+                                .withValues(alpha: 0.45))),
               ],
             ),
             const SizedBox(height: 4),
             Text(
               title,
-              style: TextStyle(
-                  fontSize: 12.5,
-                  color: scheme.onSurface.withValues(alpha: 0.55)),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(
+                      color: scheme.onSurface.withValues(alpha: 0.55)),
             ),
             const SizedBox(height: 14),
             if (sentences.isEmpty)
               Text('本章暂无内容可摘要',
-                  style: TextStyle(
-                      fontSize: 13,
-                      color: scheme.onSurface.withValues(alpha: 0.6)))
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(
+                          color: scheme.onSurface.withValues(alpha: 0.6)))
             else
               for (var i = 0; i < sentences.length; i++)
                 Padding(
@@ -454,18 +486,24 @@ class _SummarySheet extends StatelessWidget {
                     children: [
                       Text(
                         '${i + 1}. ',
-                        style: TextStyle(
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w700,
-                            color: scheme.primary),
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodyMedium
+                            ?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: scheme.primary),
                       ),
                       Expanded(
                         child: Text(
                           sentences[i],
-                          style: TextStyle(
-                              fontSize: 13.5,
-                              height: 1.55,
-                              color: scheme.onSurface.withValues(alpha: 0.85)),
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyMedium
+                              ?.copyWith(
+                                height: 1.55,
+                                color: scheme.onSurface
+                                    .withValues(alpha: 0.85),
+                              ),
                         ),
                       ),
                     ],
@@ -474,9 +512,11 @@ class _SummarySheet extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               '摘要由本地算法生成，仅作快速回顾参考。',
-              style: TextStyle(
-                  fontSize: 11,
-                  color: scheme.onSurface.withValues(alpha: 0.4)),
+              style: Theme.of(context)
+                  .textTheme
+                  .labelSmall
+                  ?.copyWith(
+                      color: scheme.onSurface.withValues(alpha: 0.4)),
             ),
           ],
         ),

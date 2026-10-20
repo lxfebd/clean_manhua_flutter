@@ -38,10 +38,12 @@ class _ProxyTabState extends State<_ProxyTab> {
           '格式：http://127.0.0.1:7890（仅支持 HTTP 隧道代理，'
           'dart:io 不支持 socks5/socks4，请勿填写 socks:// 地址）。'
           '启用代理后 Android 端自动跳过 Cronet 快速路径，保证代理生效。',
-          style: TextStyle(
-              fontSize: 12.5,
-              height: 1.5,
-              color: scheme.onSurface.withValues(alpha: 0.6)),
+          style: Theme.of(context)
+              .textTheme
+              .bodySmall
+              ?.copyWith(
+                height: 1.5,
+                color: scheme.onSurface.withValues(alpha: 0.6)),
         ),
         const SizedBox(height: 12),
         TextField(
@@ -114,9 +116,11 @@ class _ProxyTabState extends State<_ProxyTab> {
                   active ? '代理已启用：${widget.proxy}' : '当前直连（未启用代理）',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      fontSize: 13,
-                      color: scheme.onSurface.withValues(alpha: 0.85)),
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(
+                          color: scheme.onSurface.withValues(alpha: 0.85)),
                 ),
               ),
             ],
@@ -256,7 +260,8 @@ class _CfPickerTabState extends State<_CfPickerTab> {
           children: [
             for (final d in _knownDomains)
               ActionChip(
-                label: Text(d, style: const TextStyle(fontSize: 12)),
+                label: Text(d,
+                    style: Theme.of(context).textTheme.bodySmall),
                 visualDensity: VisualDensity.compact,
                 onPressed: () {
                   _domainCtrl.text = d;
@@ -283,16 +288,21 @@ class _CfPickerTabState extends State<_CfPickerTab> {
           const SizedBox(height: 6),
           Text(
             '已探测 $_done/$_total 个候选 IP',
-            style: TextStyle(
-                fontSize: 12, color: scheme.onSurface.withValues(alpha: 0.6)),
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(
+                    color: scheme.onSurface.withValues(alpha: 0.6)),
           ),
         ],
         if (_results.isNotEmpty) ...[
           const SizedBox(height: 14),
           Text('扫描结果（按延迟升序，最多显示 15 个）',
-              style: TextStyle(
-                  fontSize: 12,
-                  color: scheme.onSurface.withValues(alpha: 0.6))),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(
+                      color: scheme.onSurface.withValues(alpha: 0.6))),
           const SizedBox(height: 6),
           Container(
             decoration: BoxDecoration(
@@ -309,16 +319,22 @@ class _CfPickerTabState extends State<_CfPickerTab> {
                     leading: SizedBox(
                       width: 28,
                       child: Text('${i + 1}',
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: scheme.primary.withValues(alpha: 0.8))),
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(
+                                  color: scheme.primary
+                                      .withValues(alpha: 0.8))),
                     ),
                     title: Text(_results[i].ip,
-                        style: const TextStyle(fontSize: 13)),
+                        style: Theme.of(context).textTheme.bodyMedium),
                     trailing: Text('${_results[i].latencyMs} ms',
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: scheme.onSurface.withValues(alpha: 0.7))),
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodySmall
+                            ?.copyWith(
+                                color: scheme.onSurface
+                                    .withValues(alpha: 0.7))),
                     onTap: () => setState(() => _applyCount = i + 1),
                     selected: i < _applyCount,
                     selectedTileColor: scheme.primaryContainer.withValues(alpha: 0.4),
@@ -348,9 +364,11 @@ class _CfPickerTabState extends State<_CfPickerTab> {
         if (_appliedIps.isNotEmpty) ...[
           const SizedBox(height: 16),
           Text('$_appliedDomain 当前直连 IP（$_appliedIps.length 个）',
-              style: TextStyle(
-                  fontSize: 12,
-                  color: scheme.onSurface.withValues(alpha: 0.6))),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(
+                      color: scheme.onSurface.withValues(alpha: 0.6))),
           const SizedBox(height: 6),
           _outBox(scheme, _appliedIps.join('\n')),
           const SizedBox(height: 8),
@@ -375,8 +393,7 @@ class _CfPickerTabState extends State<_CfPickerTab> {
       ),
       child: SelectableText(
         text,
-        style: TextStyle(
-            fontSize: 13,
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
             height: 1.5,
             color: scheme.onSurface.withValues(alpha: 0.85)),
       ),
@@ -520,10 +537,12 @@ class _SourceCheckTabState extends State<_SourceCheckTab> {
         Text(
           '检测所有启用源的 HTTPS 连通性与延迟（TCP 443 + TLS 握手）。'
           '不可达的源可到「源管理」换镜像，或到「优选IP」加速。',
-          style: TextStyle(
-              fontSize: 12.5,
-              height: 1.5,
-              color: scheme.onSurface.withValues(alpha: 0.6)),
+          style: Theme.of(context)
+              .textTheme
+              .bodySmall
+              ?.copyWith(
+                height: 1.5,
+                color: scheme.onSurface.withValues(alpha: 0.6)),
         ),
         const SizedBox(height: 12),
         ElevatedButton.icon(
@@ -543,16 +562,20 @@ class _SourceCheckTabState extends State<_SourceCheckTab> {
               value: _total == 0 ? null : _done / _total),
           const SizedBox(height: 6),
           Text('已检测 $_done/$_total 个主机',
-              style: TextStyle(
-                  fontSize: 12,
-                  color: scheme.onSurface.withValues(alpha: 0.6))),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(
+                      color: scheme.onSurface.withValues(alpha: 0.6))),
         ],
         if (_results.isNotEmpty) ...[
           const SizedBox(height: 14),
           Text('结果（可达 ${_results.where((r) => r.ok).length}/${_results.length}）',
-              style: TextStyle(
-                  fontSize: 12,
-                  color: scheme.onSurface.withValues(alpha: 0.6))),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(
+                      color: scheme.onSurface.withValues(alpha: 0.6))),
           const SizedBox(height: 6),
           Container(
             decoration: BoxDecoration(
@@ -597,13 +620,12 @@ class _SourceCheckTabState extends State<_SourceCheckTab> {
             child: Text('${r.name} · ${r.host}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 13)),
+                style: Theme.of(context).textTheme.bodyMedium),
           ),
           const SizedBox(width: 8),
           Text(
             r.ok ? '${r.latencyMs} ms' : (r.error ?? '不可达'),
-            style: TextStyle(
-                fontSize: 12,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: r.ok
                     ? scheme.onSurface.withValues(alpha: 0.7)
                     : okColor),

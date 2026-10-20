@@ -189,8 +189,7 @@ class _SourceManagePageState extends State<SourceManagePage> {
                         const SizedBox(width: 4),
                         Text(
                           '数据源管理',
-                          style: TextStyle(
-                            fontSize: 21,
+                          style: Theme.of(context).textTheme.displaySmall?.copyWith(
                             fontWeight: FontWeight.w800,
                             color: theme.colorScheme.onSurface,
                           ),
@@ -234,8 +233,7 @@ class _SourceManagePageState extends State<SourceManagePage> {
                     ),
                     child: Text(
                       '源 = 引擎代码（随版本）+ 此配置（可改，免发版）。域名失效时在此替换即可。',
-                      style: TextStyle(
-                        fontSize: 11.5,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: theme.colorScheme.onSurface.withValues(
                           alpha: 0.55,
                         ),

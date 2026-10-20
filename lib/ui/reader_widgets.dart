@@ -164,7 +164,10 @@ class _ImageViewState extends State<_ImageView>
         child: Center(
           child: Text(
             'Web 端不支持本地文件阅读',
-            style: TextStyle(color: Colors.white54, fontSize: 12),
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: Colors.white54),
           ),
         ),
       );
@@ -216,8 +219,7 @@ class _ImageViewState extends State<_ImageView>
               child: Center(
                 child: Text(
                   '共 ${widget.totalPages} 页',
-                  style: TextStyle(
-                    fontSize: 11,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
                     color: Colors.white.withValues(alpha: 0.4),
                   ),
                 ),
@@ -254,8 +256,7 @@ class _ImageViewState extends State<_ImageView>
             child: Center(
               child: Text(
                 '共 ${widget.totalPages} 页',
-                style: TextStyle(
-                  fontSize: 11,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   color: Colors.white.withValues(alpha: 0.4),
                 ),
               ),
@@ -641,8 +642,7 @@ class _ReaderTopBar extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 13,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       fontWeight: FontWeight.w500,
                       color: Colors.white,
                     ),
@@ -683,7 +683,10 @@ class _ReaderPageIndicator extends StatelessWidget {
             ),
             child: Text(
               label,
-              style: const TextStyle(fontSize: 12, color: Colors.white),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: Colors.white),
             ),
           ),
         ),
@@ -878,8 +881,7 @@ class _CatalogSheet extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             Text('本话目录 · 共 ${urls.length} 页',
-                style: const TextStyle(
-                    fontSize: 15,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                     color: Colors.white)),
             const SizedBox(height: 12),
@@ -914,8 +916,7 @@ class _CatalogSheet extends StatelessWidget {
                           alignment: Alignment.center,
                           child: Text(
                             '${i + 1}',
-                            style: TextStyle(
-                              fontSize: 12,
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               fontWeight:
                                   active ? FontWeight.w700 : FontWeight.w500,
                               color: active
@@ -982,9 +983,9 @@ class _NextChapterFooter extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               '已到底部',
-              style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.white.withValues(alpha: 0.5)),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Colors.white.withValues(alpha: 0.5),
+              ),
             ),
             const SizedBox(height: 16),
             FilledButton.icon(

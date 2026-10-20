@@ -704,7 +704,7 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
         backgroundColor: bgColor,
         foregroundColor: scheme.onSurface,
         title: Text(_content?.title ?? widget.title,
-            style: const TextStyle(fontSize: 15)),
+            style: Theme.of(context).textTheme.titleMedium),
         actions: [
           if (_content != null)
             IconButton(
@@ -739,10 +739,10 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
                   ),
                   child: Text(
                     '缓存数据，可能非最新',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: scheme.primary,
-                    ),
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(color: scheme.primary),
                   ),
                 ),
               ),
@@ -755,9 +755,12 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
                       const CircularProgressIndicator(strokeWidth: 2),
                       const SizedBox(height: 14),
                       Text(_content != null ? '正在加载下一章…' : '正在加载…',
-                          style: TextStyle(
-                              fontSize: 12.5,
-                              color: scheme.onSurface.withValues(alpha: 0.5))),
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(
+                                  color: scheme.onSurface
+                                      .withValues(alpha: 0.5))),
                     ],
                   ),
                 )
@@ -848,10 +851,13 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
                                 const SizedBox(width: 8),
                                 Text(
                                   '$pct%',
-                                  style: TextStyle(
-                                    fontSize: 10.5,
-                                    color: scheme.onSurface.withValues(alpha: 0.5),
-                                  ),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelSmall
+                                      ?.copyWith(
+                                        color: scheme.onSurface
+                                            .withValues(alpha: 0.5),
+                                      ),
                                 ),
                               ],
                             );

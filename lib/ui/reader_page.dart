@@ -1370,7 +1370,8 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
           value: _ReaderMenuAction.catalog,
           child: ListTile(
             leading: Icon(Icons.list_alt_rounded, size: 20),
-            title: const Text('目录', style: TextStyle(fontSize: 13.5)),
+            title: Text('目录',
+                style: Theme.of(context).textTheme.bodyMedium),
             dense: true,
             contentPadding: EdgeInsets.zero,
           ),
@@ -1380,7 +1381,8 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
             value: _ReaderMenuAction.chapters,
             child: ListTile(
               leading: Icon(Icons.swap_horiz_rounded, size: 20),
-              title: const Text('切换章节', style: TextStyle(fontSize: 13.5)),
+              title: Text('切换章节',
+                style: Theme.of(context).textTheme.bodyMedium),
               dense: true,
               contentPadding: EdgeInsets.zero,
             ),
@@ -1389,7 +1391,8 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
           value: _ReaderMenuAction.settings,
           child: ListTile(
             leading: Icon(Icons.tune_rounded, size: 20),
-            title: const Text('阅读设置', style: TextStyle(fontSize: 13.5)),
+            title: Text('阅读设置',
+                style: Theme.of(context).textTheme.bodyMedium),
             dense: true,
             contentPadding: EdgeInsets.zero,
           ),
@@ -1400,7 +1403,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
             child: ListTile(
               leading: Icon(Icons.download_rounded, size: 20),
               title: Text(_downloaded ? '已下载' : '下载当前话',
-                  style: const TextStyle(fontSize: 13.5)),
+                  style: Theme.of(context).textTheme.bodyMedium),
               dense: true,
               contentPadding: EdgeInsets.zero,
             ),
@@ -1411,7 +1414,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
             leading: Icon(_bookmarked ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
                 size: 20, color: _bookmarked ? Colors.amber : null),
             title: Text(_bookmarked ? '取消书签' : '书签当前页',
-                style: const TextStyle(fontSize: 13.5)),
+                style: Theme.of(context).textTheme.bodyMedium),
             dense: true,
             contentPadding: EdgeInsets.zero,
           ),
