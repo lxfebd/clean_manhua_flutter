@@ -247,13 +247,15 @@ class _MainShellState extends ConsumerState<MainShell>
             mainAxisSize: MainAxisSize.min,
             children: [
               if (info.notes != null && info.notes!.isNotEmpty) ...[
-                Text(info.notes!, style: const TextStyle(fontSize: 12.5)),
+                Text(
+                  info.notes!,
+                  style: Theme.of(ctx).textTheme.bodySmall?.copyWith(),
+                ),
                 const SizedBox(height: 12),
               ],
               Text(
                 '当前版本：v${UpdateChecker.currentVersion()}',
-                style: TextStyle(
-                  fontSize: 11.5,
+                style: Theme.of(ctx).textTheme.labelSmall?.copyWith(
                   color: Theme.of(ctx)
                       .colorScheme
                       .onSurface

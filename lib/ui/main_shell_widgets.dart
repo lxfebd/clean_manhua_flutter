@@ -54,8 +54,8 @@ class _AdaptiveNavigationRail extends StatelessWidget {
                         const SizedBox(width: 10),
                         Text(
                           '星漫匣',
-                          style: TextStyle(
-                            fontSize: 15.5,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(
                             fontWeight: FontWeight.w700,
                             letterSpacing: 0.5,
                             color: scheme.onSurface,
@@ -228,8 +228,7 @@ class _NavigationRailItem extends StatelessWidget {
               Expanded(
                 child: Text(
                   label,
-                  style: TextStyle(
-                    fontSize: 14,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     height: 1.0,
                     letterSpacing: 0.2,
                     fontWeight:
@@ -274,8 +273,7 @@ class _NavigationRailItem extends StatelessWidget {
               const SizedBox(height: 5),
               Text(
                 label,
-                style: TextStyle(
-                  fontSize: 11.5,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   height: 1.0,
                   letterSpacing: 0.2,
                   fontWeight:
@@ -480,8 +478,7 @@ class _Item extends StatelessWidget {
                     const SizedBox(height: 2),
                     AnimatedDefaultTextStyle(
                       duration: const Duration(milliseconds: 200),
-                      style: TextStyle(
-                        fontSize: 10,
+                      style: Theme.of(context).textTheme.labelSmall!.copyWith(
                         height: 1.1,
                         letterSpacing: 0.2,
                         fontWeight: isOn ? FontWeight.w600 : FontWeight.w500,
