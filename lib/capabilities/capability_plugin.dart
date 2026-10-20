@@ -60,8 +60,8 @@ class CapabilityPlugin {
   });
 
   /// 当前平台是否支持本能力（能力中心/市场按此过滤，manager 注册/恢复按此
-  /// 门闸）。默认全平台；子类按引擎分发渠道覆盖（如 AI 插帧仅 Windows——
-  /// rife.exe + rife-engine-win.zip 无其他平台产物）。
+  /// 门闸）。默认全平台；子类按引擎分发渠道覆盖（如 AI 上色仅 Windows——
+  /// tflite 引擎包无其他平台产物）。
   bool get isSupportedOnCurrentPlatform => true;
 
   /// 安装/卸载钩子。默认空实现，子类可覆盖做资源初始化/清理。

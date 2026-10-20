@@ -681,8 +681,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                 children: [
                   Text(
                     '共 ${_recent.length} 条',
-                    style: TextStyle(
-                      fontSize: 12,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: T.color(scheme.onSurface, TextTier.low,
                           brightness: scheme.brightness),
                     ),
@@ -711,10 +710,13 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                 child: Center(
                   child: Text(
                     '没有匹配「${_recentFilter.trim()}」的阅读记录',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: scheme.onSurface.withValues(alpha: 0.55),
-                    ),
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(
+                          color:
+                              scheme.onSurface.withValues(alpha: 0.55),
+                        ),
                   ),
                 ),
               ),
@@ -747,12 +749,12 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     return TextField(
       controller: _recentFilterCtrl,
       onChanged: (v) => setState(() => _recentFilter = v),
-      style: TextStyle(fontSize: 13.5, color: scheme.onSurface),
+      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+          color: scheme.onSurface),
       decoration: InputDecoration(
         isDense: true,
         hintText: '搜索最近阅读（书名 / 章节）',
-        hintStyle: TextStyle(
-          fontSize: 13,
+        hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
           color: scheme.onSurface.withValues(alpha: 0.4),
         ),
         prefixIcon: Icon(
@@ -896,12 +898,12 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     return TextField(
       controller: _videoFilterCtrl,
       onChanged: (v) => setState(() => _videoFilter = v),
-      style: TextStyle(fontSize: 13.5, color: scheme.onSurface),
+      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+          color: scheme.onSurface),
       decoration: InputDecoration(
         isDense: true,
         hintText: '搜索动漫记录（片名）',
-        hintStyle: TextStyle(
-          fontSize: 13,
+        hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
           color: scheme.onSurface.withValues(alpha: 0.4),
         ),
         prefixIcon: Icon(
@@ -965,8 +967,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                 children: [
                   Text(
                     '共 ${_videos.length} 部',
-                    style: TextStyle(
-                      fontSize: 12,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: T.color(scheme.onSurface, TextTier.low,
                           brightness: scheme.brightness),
                     ),
@@ -975,8 +976,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                     const SizedBox(width: 8),
                     Text(
                       '· 累计 ${totalEpisodesWatched(_videos)} 集',
-                      style: TextStyle(
-                        fontSize: 12,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: T.color(scheme.onSurface, TextTier.low,
                             brightness: scheme.brightness),
                       ),
@@ -1007,10 +1007,13 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                 child: Center(
                   child: Text(
                     '没有匹配「${_videoFilter.trim()}」的动漫记录',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: scheme.onSurface.withValues(alpha: 0.55),
-                    ),
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(
+                          color:
+                              scheme.onSurface.withValues(alpha: 0.55),
+                        ),
                   ),
                 ),
               ),
@@ -1063,8 +1066,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
                   '匹配 ${filtered.length} 条书签',
-                  style: TextStyle(
-                    fontSize: 12,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: T.color(scheme.onSurface, TextTier.low,
                         brightness: scheme.brightness),
                   ),
@@ -1090,8 +1092,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                   children: [
                     Text(
                       '共 ${_bookmarks.length} 条',
-                      style: TextStyle(
-                        fontSize: 12,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: T.color(scheme.onSurface, TextTier.low,
                             brightness: scheme.brightness),
                       ),
@@ -1126,12 +1127,12 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     return TextField(
       controller: _bookmarkFilterCtrl,
       onChanged: (v) => setState(() => _bookmarkFilter = v),
-      style: TextStyle(fontSize: 13.5, color: scheme.onSurface),
+      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+          color: scheme.onSurface),
       decoration: InputDecoration(
         isDense: true,
         hintText: '搜索书签（书名 / 章节）',
-        hintStyle: TextStyle(
-          fontSize: 13,
+        hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
           color: scheme.onSurface.withValues(alpha: 0.4),
         ),
         prefixIcon: Icon(
@@ -1648,11 +1649,9 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                         children: [
                           Text(
                             '共 ${_recent.length} 条',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color:
-                                  T.color(scheme.onSurface, TextTier.low,
-                                      brightness: scheme.brightness),
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: T.color(scheme.onSurface, TextTier.low,
+                                  brightness: scheme.brightness),
                             ),
                           ),
                           const Spacer(),
@@ -2305,7 +2304,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                           : Theme.of(ctx).colorScheme.onSurfaceVariant,
                     ),
                     title: Text(f['name'] as String,
-                        style: const TextStyle(fontSize: 14)),
+                        style: Theme.of(ctx).textTheme.bodyMedium),
                     trailing: sel
                         ? Icon(Icons.chevron_right_rounded,
                             size: 18,
@@ -2424,7 +2423,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                     leading: const Icon(Icons.folder_outlined,
                         size: 20, color: Colors.amber),
                     title: Text(f['name'] as String,
-                        style: const TextStyle(fontSize: 14)),
+                        style: Theme.of(ctx).textTheme.bodyMedium),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -2457,9 +2456,9 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     child: Text('还没有分类，输入名称创建一个吧',
-                        style: TextStyle(
-                            fontSize: 12.5,
-                            color: Theme.of(ctx).colorScheme.onSurfaceVariant)),
+                        style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                        )),
                   ),
               ],
             ),
@@ -2779,7 +2778,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                 _searchQuery = v;
                 _onFilterChanged();
               },
-              style: const TextStyle(fontSize: 13.5),
+              style: Theme.of(context).textTheme.bodyMedium,
               decoration: InputDecoration(
                 hintText: '搜索收藏（标题 / 作者）',
                 prefixIcon:
@@ -2890,7 +2889,9 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                 size: 14, color: scheme.onSurfaceVariant),
             const SizedBox(width: 5),
             Text('管理分类',
-                style: TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant)),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                )),
           ],
         ),
       ),
@@ -2957,7 +2958,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                       : scheme.onSurfaceVariant,
                 ),
                 const SizedBox(width: 8),
-                Text(labels[i], style: const TextStyle(fontSize: 13)),
+                Text(labels[i], style: Theme.of(context).textTheme.bodyMedium),
               ],
             ),
           ),
@@ -2993,7 +2994,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                   color: scheme.onSurfaceVariant,
                 ),
                 const SizedBox(width: 8),
-                Text(items[i], style: const TextStyle(fontSize: 13)),
+                Text(items[i], style: Theme.of(context).textTheme.bodyMedium),
               ],
             ),
           ),

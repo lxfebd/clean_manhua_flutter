@@ -233,20 +233,6 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     });
 
-    test('AiFrameRifePlugin 平台门闸：非 Windows 全 false，Windows true',
-        () async {
-      final mgr = CapabilityPluginManager.instance;
-      debugDefaultTargetPlatformOverride = TargetPlatform.android;
-      expect(mgr.isSupportedOnCurrentPlatform('ai.frame.rife'), isFalse);
-      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
-      expect(mgr.isSupportedOnCurrentPlatform('ai.frame.rife'), isFalse);
-      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
-      expect(mgr.isSupportedOnCurrentPlatform('ai.frame.rife'), isFalse);
-      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
-      expect(mgr.isSupportedOnCurrentPlatform('ai.frame.rife'), isTrue);
-      debugDefaultTargetPlatformOverride = null;
-    });
-
     test('平台支持查询：全平台 utility.stats 各平台恒 true', () {
       // registerBuiltin 加 gate 后 utility.stats（全平台能力）在所有平台仍注册。
       // 这里锁死「加 gate 没有误伤全平台能力」。

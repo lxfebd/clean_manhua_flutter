@@ -17,7 +17,7 @@ import 'demo_native_loader.dart';
 /// 与 [ChapterStatsPlugin] 的区别：这是第一个带 `artifact` 的能力——probe
 /// 会真实检查/下载 .dll，在独立 Isolate 内加载并调用导出函数（经
 /// [demoNativeSum] 条件导入，web 端无 FFI 返回明确失败）。
-/// 真实 AI 能力（上色/插帧）走同一通道，仅 artifact 指向不同库。
+/// 真实 AI 能力（上色）走同一通道，仅 artifact 指向不同库。
 class DemoNativePlugin extends CapabilityPlugin {
   /// 演示 DLL 的 SHA256（test/assets/demo_native/demo_math.dll 编译产物）。
   /// 变更 DLL 内容时必须同步更新，否则 probe 校验失败（版本钉死）。

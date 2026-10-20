@@ -4,7 +4,6 @@ import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import '../utils/colorizer_manager.dart';
 import 'ai_colorize_capability.dart';
-import 'ai_frame_rife_capability.dart';
 import 'builtin_capabilities.dart';
 import 'capability_artifact_store.dart';
 import 'capability_plugin.dart';
@@ -42,7 +41,7 @@ class CapabilityPluginManager {
   /// 市场安装的能力 id 集合（持久化；批量拆除内置能力区分 builtin 标志）。
   final Set<String> _installed = {};
 
-  /// 被用户显式卸载的预置能力 id（AI 上色/插帧元数据壳随版本预注册，
+  /// 被用户显式卸载的预置能力 id（AI 上色元数据壳随版本预注册，
   /// 卸载后不得在下次启动被 restore 重建；重新从市场安装则解除）。
   final Set<String> _removed = {};
 
@@ -83,22 +82,20 @@ class CapabilityPluginManager {
   /// 能力是否启用（异步版，与源插件签名对齐）。
   Future<bool> isEnabled(String id) async => isEnabledSync(id);
 
-  /// 预置能力壳（随版本发布的实现类，如 AI 上色/插帧）：平台支持判定与
+  /// 预置能力壳（随版本发布的实现类，如 AI 上色）：平台支持判定与
   /// 版本语义的事实源。restore 只在平台支持时把它们注册进 _registry；
   /// 市场条目安装前也查这里（远端条目不携带平台声明）。
   static final Map<String, CapabilityPlugin> _presetShells = () {
     final c = AiColorizePlugin();
-    final r = AiFrameRifePlugin();
-    return <String, CapabilityPlugin>{c.id: c, r.id: r};
+    return <String, CapabilityPlugin>{c.id: c};
   }();
 
   /// 全部内置能力（P1-11 单入口）：普通内置（ChapterStats/DemoNative）+
-  /// 预置原生壳（AI 上色/插帧，市场可安装但随版本预注册元数据）。
+  /// 预置原生壳（AI 上色，市场可安装但随版本预注册元数据）。
   static final List<CapabilityPlugin> _builtinPlugins = [
     ChapterStatsPlugin(),
     DemoNativePlugin(),
     AiColorizePlugin(),
-    AiFrameRifePlugin(),
   ];
 
   /// 当前平台是否支持指定能力：注册实例优先，未注册查预置壳
@@ -133,7 +130,7 @@ class CapabilityPluginManager {
   }
 
   /// 卸载能力（内置能力不可卸载）：bind 收回 + onUninstall + 本地构件
-  /// （artifact/权重）清理 + 移出注册表。预置能力（AI 上色/插帧壳）卸载
+  /// （artifact/权重）清理 + 移出注册表。预置能力（AI 上色壳）卸载
   /// 后记入 _removed，防止 restore 下次启动重建。
   Future<bool> uninstall(String id) async {
     final p = _registry[id];
@@ -262,8 +259,8 @@ class CapabilityPluginManager {
   /// 不落盘、不可卸载。注册闪存索引，供能力中心 UI 统一枚举。幂等。
   ///
   /// 全部内置能力在此单入口注册（P1-11）：普通内置 + 预置原生壳
-  /// （AI 上色/插帧）。平台门闸：`isSupportedOnCurrentPlatform` 为 false
-  /// 的能力不注册（如插帧仅 Windows，手机/Web 能力中心不显示，也不可被
+  /// （AI 上色）。平台门闸：`isSupportedOnCurrentPlatform` 为 false
+  /// 的能力不注册（如 AI 上色仅 Windows，手机/Web 能力中心不显示，也不可被
   /// 卸载记入 removed——那会静默删掉桌面端壳）。用户已显式卸载的
   /// （[_removed]）不重建，保证「卸载了下次启动不再冒出来」。
   ///

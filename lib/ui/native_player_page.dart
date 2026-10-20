@@ -400,7 +400,7 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   SrPreset get _sr => Anime4KManager.presetById(_srId);
 
   /// 超分（Anime4K）仅保留桌面端：手机端不做超分（2026-09-16 用户决策，
-  /// AI 超分与插帧只在电脑端做）。移动端强制隐藏入口并锁定为 off。
+  /// AI 超分只在电脑端做；插帧已彻底移除）。移动端强制隐藏入口并锁定为 off。
   /// 用 [DesktopUi.isDesktopPlatform] 判定（测试可覆盖），而非 dart:io
   /// [Platform]——后者在 `flutter test` 下恒报宿主机，widget 测试会误判。
   bool get _srAndroidOff => !DesktopUi.isDesktopPlatform;
@@ -1672,7 +1672,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   /// 倍速防线：本函数**探测显示时钟 + 音轨**，两者都可靠才用 display-resample，
   /// 任一不可靠则退回 `audio` 同步（恒 1 倍速）。mpv 原生 `interpolation`
   /// （旧「补帧」档）已于 2026-09-19 移除——它不是 AI 插帧，且在显示时钟
-  /// 不可靠的机器上无法安全生效；真插帧走 VapourSynth/RIFE 引擎链。
+  /// 不可靠的机器上无法安全生效；插帧能力已彻底移除（2026-10-20 决策），
+  /// 本函数不再涉及任何补帧。
   Future<void> _applySync() async {
     final native = _player?.platform;
     if (native is! NativePlayer) return;

@@ -68,8 +68,8 @@ Future<void> killProcessTree(Process proc) async {
 /// [runProcessWithTimeout] 的 drain 变体（P1-14）：只排空 stdout/stderr 不收集。
 ///
 /// 收集输出的版本（[runProcessWithTimeout]）适用于输出量小的场景（解压报错、
-/// zip 等）；插帧这类每帧都有大体积二进制的进程**必须**只 drain——不 drain
-/// 会让管道缓冲填满，阻塞子进程直接卡死。返回的 [ProcessResult] 携带退出码，
+/// zip 等）；**大体积二进制输出**的进程（如逐帧导出流水线）**必须**只 drain——
+/// 不 drain 会让管道缓冲填满，阻塞子进程直接卡死。返回的 [ProcessResult] 携带退出码，
 /// out/err 为空（进程输出已丢弃）。
 Future<ProcessResult> runProcessWithTimeoutDrained(
   String executable,
@@ -110,7 +110,7 @@ String processStderrText(ProcessResult r) {
 String psSingleQuote(String s) => "'${s.replaceAll("'", "''")}'";
 
 /// Expand-Archive 命令串（路径全部经 [psSingleQuote] 包裹，防注入）。
-/// 抽成函数供 ffmpeg / rife 两处解压共用，避免各拼各的再拼错。
+/// 抽成函数供 ffmpeg 等能力引擎包解压共用，避免各拼各的再拼错。
 String psExpandArchiveCommand(String zipPath, String destinationPath) =>
     'Expand-Archive -LiteralPath ${psSingleQuote(zipPath)} '
     '-DestinationPath ${psSingleQuote(destinationPath)} -Force';

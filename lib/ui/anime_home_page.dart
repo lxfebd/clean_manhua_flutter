@@ -927,7 +927,7 @@ class AnimeHomePageState extends State<AnimeHomePage> {
         },
         style: TextStyle(fontSize: 13.5, color: scheme.onSurface),
         decoration: InputDecoration(
-          hintText: '搜索番剧、剧场版…',
+          hintText: '搜索动漫、剧场版…',
           hintStyle: TextStyle(
             fontSize: 13,
             color: T.color(scheme.onSurface, TextTier.low,

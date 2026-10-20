@@ -38,7 +38,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     expect(find.text('键盘快捷键'), findsOneWidget);
-    expect(find.text('视频播放器'), findsOneWidget);
+    expect(find.text('动漫播放器'), findsOneWidget);
     // Esc 关闭面板（overlay 自带全局 handler，无需焦点）
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump();
@@ -54,7 +54,7 @@ void main() {
     expect(find.text('全局'), findsOneWidget);
     expect(find.text('漫画阅读器'), findsOneWidget);
     expect(find.text('小说阅读器'), findsOneWidget);
-    expect(find.text('视频播放器'), findsOneWidget);
+    expect(find.text('动漫播放器'), findsOneWidget);
     // 关键动作
     expect(find.text('播放 / 暂停'), findsOneWidget);
     expect(find.text('快退 / 快进 10 秒'), findsOneWidget);

@@ -10,7 +10,7 @@ import 'capability_runtime.dart';
 /// 统计逻辑在 [Isolate.run] 内执行，长文本也不卡主线程。
 ///
 /// 接入方式：作为内置能力由 CapabilityPluginManager 注册（非市场条目），
-/// 后续真实能力（AI 上色/插帧）走同一接口，仅实现正文不同。
+/// 后续真实能力（AI 上色）走同一接口，仅实现正文不同。
 class ChapterStatsPlugin extends CapabilityPlugin {
   ChapterStatsPlugin()
       : super(

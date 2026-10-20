@@ -249,7 +249,7 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
       style: TextStyle(fontSize: 13.5, color: scheme.onSurface),
       decoration: InputDecoration(
         isDense: true,
-        hintText: '搜索下载（书名 / 番剧名 / 集数）',
+        hintText: '搜索下载（书名 / 动漫名 / 集数）',
         hintStyle: TextStyle(
           fontSize: 13,
           color: scheme.onSurface.withValues(alpha: 0.4),

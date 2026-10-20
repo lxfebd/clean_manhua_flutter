@@ -227,7 +227,7 @@ const groupedShortcuts = <_ShortcutGroup>[
     _ShortcutItem(['T'], '开始 / 暂停朗读'),
     _ShortcutItem(['Esc'], '返回'),
   ]),
-  _ShortcutGroup('视频播放器', [
+  _ShortcutGroup('动漫播放器', [
     _ShortcutItem(['Space'], '播放 / 暂停'),
     _ShortcutItem(['←', '→'], '快退 / 快进 10 秒'),
     _ShortcutItem(['↑', '↓'], '音量 + / -'),

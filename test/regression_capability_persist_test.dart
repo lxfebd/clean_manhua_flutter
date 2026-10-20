@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:xingmanxia/capabilities/ai_colorize_capability.dart';
-import 'package:xingmanxia/capabilities/ai_frame_rife_capability.dart';
 import 'package:xingmanxia/capabilities/capability_plugin.dart';
 import 'package:xingmanxia/capabilities/capability_plugin_manager.dart';
 import 'package:xingmanxia/capabilities/capability_market.dart';
@@ -148,33 +147,19 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     });
 
-    // 2026-09-30 P3 平台门闸：插帧仅 Windows，手机/Web 不得注册、不得从
-    // 市场安装（装一个 Windows exe 引擎的壳对手机无意义，且卸载会静默删
+    // 2026-09-30 P3 平台门闸：AI 上色仅 Windows，手机/Web 不得注册、不得从
+    // 市场安装（装一个 Windows 引擎的壳对手机无意义，且卸载会静默删
     // 掉桌面端壳）。
-    test('插帧平台门闸：非 Windows 不注册、市场安装被拒', () async {
+    test('AI 上色平台门闸：非 Windows 不注册、市场安装被拒', () async {
       final mgr = CapabilityPluginManager.instance;
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
       // 模拟手机侧 restore：预置壳按平台门闸不注册。
       await mgr.restore();
-      expect(mgr.byId('ai.frame.rife'), isNull);
-      // 手机侧从市场安装 rife → 拒绝（isSupportedOnCurrentPlatform 门闸）。
-      expect(
-        await CapabilityMarket.install(MarketCapabilityEntry(
-          id: 'ai.frame.rife',
-          name: 'AI 插帧',
-          category: 'video',
-          version: '1.0.0',
-          author: '星漫匣插帧团队',
-        )),
-        isFalse,
-      );
-      expect(mgr.byId('ai.frame.rife'), isNull);
-      // 平台支持查询：未注册时按预置壳判定（插帧 false，未知 id 默认 true）。
-      expect(mgr.isSupportedOnCurrentPlatform('ai.frame.rife'), isFalse);
+      // 平台支持查询：未注册时按预置壳判定（上色 false，未知 id 默认 true）。
+      expect(mgr.isSupportedOnCurrentPlatform('ai.colorize.ddcolor'), isFalse);
       expect(mgr.isSupportedOnCurrentPlatform('utility.stats'), isTrue);
       // 上色同为仅桌面壳：手机侧不得注册、市场安装被拒。
       expect(mgr.byId('ai.colorize.ddcolor'), isNull);
-      expect(mgr.isSupportedOnCurrentPlatform('ai.colorize.ddcolor'), isFalse);
       expect(
         await CapabilityMarket.install(MarketCapabilityEntry(
           id: 'ai.colorize.ddcolor',
@@ -187,11 +172,9 @@ void main() {
       );
       expect(mgr.byId('ai.colorize.ddcolor'), isNull);
       // 还原：restore 已幂等执行（_restored 不会再跑），Windows 侧直接 install
-      // 验证支持路径——插帧壳回到注册表，避免影响其他用例。
+      // 验证支持路径——上色壳回到注册表，避免影响其他用例。
       debugDefaultTargetPlatformOverride = TargetPlatform.windows;
-      await mgr.install(AiFrameRifePlugin());
       await mgr.install(AiColorizePlugin());
-      expect(mgr.byId('ai.frame.rife'), isNotNull);
       expect(mgr.byId('ai.colorize.ddcolor'), isNotNull);
       debugDefaultTargetPlatformOverride = null;
     });

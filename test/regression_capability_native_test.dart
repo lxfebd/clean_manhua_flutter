@@ -52,7 +52,7 @@ void main() {
   group('CapabilityArtifactStore.isValidId（目录穿越锁死）', () {
     test('合法 id：字母开头 + 点/下划线/连字符', () {
       for (final id in [
-        'ai.frame.rife',
+        'ai.frame.demo',
         'utility_native',
         'cap-1',
         '1x', // 数字开头也放行（仍非 . / ..）
