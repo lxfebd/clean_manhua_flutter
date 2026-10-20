@@ -103,7 +103,7 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
             content: Text(
               '卸载「${entry.name}」将移除其本地权重与配置。\n'
               '再次使用时需重新下载权重。',
-              style: const TextStyle(fontSize: 13.5, height: 1.6),
+              style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(height: 1.6),
             ),
             actions: [
               TextButton(
@@ -154,7 +154,7 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
               '来源：${entry.author}\n\n'
               'AI 能力可能下载较大模型权重（数十~数百 MB），'
               '请确认网络环境与存储空间。',
-              style: const TextStyle(fontSize: 13.5, height: 1.6),
+              style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(height: 1.6),
             ),
             actions: [
               TextButton(
@@ -194,7 +194,9 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
           (ctx) => AlertDialog(
             title: Text(
               entry.name,
-              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+              style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
             content: SizedBox(
               width: 420,
@@ -205,8 +207,7 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
                   children: [
                     Text(
                       '${entry.id} · v${entry.version}',
-                      style: TextStyle(
-                        fontSize: 12,
+                      style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurface.withValues(
                           alpha: 0.55,
                         ),
@@ -215,8 +216,7 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
                     const SizedBox(height: 4),
                     Text(
                       '${_capCategory(entry.category)} · ${entry.author}',
-                      style: TextStyle(
-                        fontSize: 12,
+                      style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurface.withValues(
                           alpha: 0.55,
                         ),
@@ -228,7 +228,9 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
                         padding: const EdgeInsets.only(top: 10),
                         child: Text(
                           entry.description!,
-                          style: const TextStyle(fontSize: 13, height: 1.55),
+                          style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
+                            height: 1.55,
+                          ),
                         ),
                       ),
                     if (entry.weights.isNotEmpty)
@@ -236,8 +238,7 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
                         padding: const EdgeInsets.only(top: 14, bottom: 6),
                         child: Text(
                           '依赖权重（下载后 SHA256 校验）',
-                          style: TextStyle(
-                            fontSize: 12.5,
+                          style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
                             fontWeight: FontWeight.w700,
                             color: theme.colorScheme.onSurface.withValues(
                               alpha: 0.8,
@@ -272,8 +273,8 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
                                     child: Text(
                                       w.name,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontSize: 12.5,
+                                      style: Theme.of(ctx).textTheme.bodySmall
+                                          ?.copyWith(
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
@@ -282,8 +283,8 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
                                     w.sizeBytes >= 1024 * 1024
                                         ? '${(w.sizeBytes / (1024 * 1024)).toStringAsFixed(1)}MB'
                                         : '${(w.sizeBytes / 1024).toStringAsFixed(0)}KB',
-                                    style: TextStyle(
-                                      fontSize: 11.5,
+                                    style: Theme.of(ctx).textTheme.labelSmall
+                                        ?.copyWith(
                                       color: theme.colorScheme.onSurface
                                           .withValues(alpha: 0.55),
                                     ),
@@ -359,8 +360,8 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
                         const SizedBox(width: 4),
                         Text(
                           '能力市场',
-                          style: TextStyle(
-                            fontSize: 21,
+                          style: Theme.of(context).textTheme.displaySmall
+                              ?.copyWith(
                             fontWeight: FontWeight.w800,
                             color: theme.colorScheme.onSurface,
                           ),
@@ -374,11 +375,14 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
                               controller: _searchCtrl,
                               onChanged:
                                   (v) => setState(() => _query = v.trim()),
-                              style: const TextStyle(fontSize: 12.5),
+                              style: Theme.of(
+                                context,
+                              ).textTheme.bodySmall?.copyWith(),
                               decoration: InputDecoration(
                                 hintText: '搜索能力名称/分类',
-                                hintStyle: TextStyle(
-                                  fontSize: 12,
+                                hintStyle: Theme.of(
+                                  context,
+                                ).textTheme.bodySmall?.copyWith(
                                   color: theme.colorScheme.onSurface.withValues(
                                     alpha: 0.4,
                                   ),
@@ -432,8 +436,7 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
                     ),
                     child: Text(
                       'AI/视频/实用能力市场。权重按需下载，安装前请阅读风险提示。',
-                      style: TextStyle(
-                        fontSize: 11.5,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: theme.colorScheme.onSurface.withValues(
                           alpha: 0.55,
                         ),
@@ -475,8 +478,9 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
               Text(
                 '$_error',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 12,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
                 ),
               ),
@@ -506,8 +510,7 @@ class _CapabilityMarketPageState extends State<CapabilityMarketPage> {
       return Center(
         child: Text(
           '没有匹配「$_query」的能力',
-          style: TextStyle(
-            fontSize: 13,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
             color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
           ),
         ),
@@ -664,8 +667,8 @@ class _CapabilityMarketTileState extends State<_CapabilityMarketTile> {
                       child: Text(
                         entry.name,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 15,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -673,8 +676,7 @@ class _CapabilityMarketTileState extends State<_CapabilityMarketTile> {
                     const SizedBox(width: 6),
                     Text(
                       'v${entry.version}',
-                      style: TextStyle(
-                        fontSize: 11,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: theme.colorScheme.onSurface.withValues(
                           alpha: 0.5,
                         ),
@@ -688,8 +690,7 @@ class _CapabilityMarketTileState extends State<_CapabilityMarketTile> {
                     entry.description!,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       height: 1.4,
                       color: theme.colorScheme.onSurface.withValues(
                         alpha: 0.65,
@@ -700,8 +701,7 @@ class _CapabilityMarketTileState extends State<_CapabilityMarketTile> {
                 Text(
                   '${_categoryLabel(entry.category)} · ${entry.author}'
                   '${_weightSummary(entry.weights).isNotEmpty ? ' · ${_weightSummary(entry.weights)}' : ''}',
-                  style: TextStyle(
-                    fontSize: 11,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
                   ),
                 ),
@@ -723,8 +723,7 @@ class _CapabilityMarketTileState extends State<_CapabilityMarketTile> {
           if (!widget.supported)
             Text(
               '当前平台不支持',
-              style: TextStyle(
-                fontSize: 11.5,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.35),
               ),
             )
@@ -738,7 +737,10 @@ class _CapabilityMarketTileState extends State<_CapabilityMarketTile> {
                     vertical: 6,
                   ),
                 ),
-                child: const Text('卸载', style: TextStyle(fontSize: 12)),
+                child: Text(
+                  '卸载',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(),
+                ),
               )
               else if (widget.installing)
                 const Padding(
@@ -760,7 +762,7 @@ class _CapabilityMarketTileState extends State<_CapabilityMarketTile> {
                   ),
                   child: Text(
                     isUpdate ? '更新' : '安装',
-                    style: const TextStyle(fontSize: 12.5),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(),
                   ),
                 ),
         ],

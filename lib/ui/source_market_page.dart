@@ -109,7 +109,7 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
             content: Text(
               '卸载「${entry.name}」将移除其解析规则。\n'
               '书架中已收藏的作品不受影响，但将无法继续更新/阅读新章节。',
-              style: const TextStyle(fontSize: 13.5, height: 1.6),
+              style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(height: 1.6),
             ),
             actions: [
               TextButton(
@@ -172,7 +172,7 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
             content: SingleChildScrollView(
               child: Text(
                 sb.toString(),
-                style: const TextStyle(fontSize: 13.5, height: 1.6),
+                style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(height: 1.6),
               ),
             ),
             actions: [
@@ -218,7 +218,9 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
         return AlertDialog(
           title: Text(
             '${entry.name} v${entry.version}',
-            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
           ),
           content: SizedBox(
             width: 420,
@@ -230,8 +232,7 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
                   Text(
                     '${entry.type}源 · ${entry.provider}'
                     '${entry.author.isNotEmpty ? ' · ${entry.author}' : ''}',
-                    style: TextStyle(
-                      fontSize: 12,
+                    style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurface.withValues(
                         alpha: 0.55,
                       ),
@@ -243,7 +244,9 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
                       padding: const EdgeInsets.only(top: 10),
                       child: Text(
                         entry.description!,
-                        style: const TextStyle(fontSize: 13, height: 1.55),
+                        style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
+                          height: 1.55,
+                        ),
                       ),
                     ),
                   if (def.picHeaders.isNotEmpty)
@@ -251,8 +254,7 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
                       padding: const EdgeInsets.only(top: 8),
                       child: Text(
                         '图片防盗链：${def.picHeaders.entries.map((e) => '${e.key}=${e.value}').join(', ')}',
-                        style: TextStyle(
-                          fontSize: 11.5,
+                        style: Theme.of(ctx).textTheme.labelSmall?.copyWith(
                           color: theme.colorScheme.onSurface.withValues(
                             alpha: 0.6,
                           ),
@@ -263,8 +265,7 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
                     padding: const EdgeInsets.only(top: 14, bottom: 6),
                     child: Text(
                       '能力',
-                      style: TextStyle(
-                        fontSize: 12.5,
+                      style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
                         fontWeight: FontWeight.w700,
                         color: theme.colorScheme.onSurface.withValues(
                           alpha: 0.8,
@@ -290,8 +291,7 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
                           ),
                           label: Text(
                             label,
-                            style: TextStyle(
-                              fontSize: 11.5,
+                            style: Theme.of(ctx).textTheme.labelSmall?.copyWith(
                               color: theme.colorScheme.onSurface.withValues(
                                 alpha: ok ? 0.85 : 0.4,
                               ),
@@ -314,8 +314,7 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
                     padding: const EdgeInsets.only(top: 14, bottom: 6),
                     child: Text(
                       '抽取方式',
-                      style: TextStyle(
-                        fontSize: 12.5,
+                      style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
                         fontWeight: FontWeight.w700,
                         color: theme.colorScheme.onSurface.withValues(
                           alpha: 0.8,
@@ -380,8 +379,7 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
             width: 56,
             child: Text(
               label,
-              style: TextStyle(
-                fontSize: 12,
+              style: theme.textTheme.bodySmall?.copyWith(
                 fontWeight: FontWeight.w600,
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
               ),
@@ -390,8 +388,7 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
           Expanded(
             child: Text(
               value,
-              style: TextStyle(
-                fontSize: 12,
+              style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.75),
               ),
             ),
@@ -441,8 +438,8 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
                         const SizedBox(width: 4),
                         Text(
                           '源市场',
-                          style: TextStyle(
-                            fontSize: 21,
+                          style: Theme.of(context).textTheme.displaySmall
+                              ?.copyWith(
                             fontWeight: FontWeight.w800,
                             color: theme.colorScheme.onSurface,
                           ),
@@ -456,11 +453,14 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
                               controller: _searchCtrl,
                               onChanged:
                                   (v) => setState(() => _query = v.trim()),
-                              style: const TextStyle(fontSize: 12.5),
+                              style: Theme.of(
+                                context,
+                              ).textTheme.bodySmall?.copyWith(),
                               decoration: InputDecoration(
                                 hintText: '搜索源名称/类型',
-                                hintStyle: TextStyle(
-                                  fontSize: 12,
+                                hintStyle: Theme.of(
+                                  context,
+                                ).textTheme.bodySmall?.copyWith(
                                   color: theme.colorScheme.onSurface.withValues(
                                     alpha: 0.4,
                                   ),
@@ -512,8 +512,7 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
                     ),
                     child: Text(
                       '第三方自定义源市场。安装前请阅读风险提示。',
-                      style: TextStyle(
-                        fontSize: 11.5,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: theme.colorScheme.onSurface.withValues(
                           alpha: 0.55,
                         ),
@@ -555,8 +554,7 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
               Text(
                 '$_error',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 12,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
                 ),
               ),
@@ -587,8 +585,7 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
       return Center(
         child: Text(
           '没有匹配「$_query」的来源',
-          style: TextStyle(
-            fontSize: 13,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
             color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
           ),
         ),
@@ -679,8 +676,8 @@ class _SourceTile extends StatelessWidget {
                       child: Text(
                         entry.name,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 15,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -688,8 +685,7 @@ class _SourceTile extends StatelessWidget {
                     const SizedBox(width: 6),
                     Text(
                       'v${entry.version}',
-                      style: TextStyle(
-                        fontSize: 11,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: theme.colorScheme.onSurface.withValues(
                           alpha: 0.5,
                         ),
@@ -703,8 +699,7 @@ class _SourceTile extends StatelessWidget {
                     entry.description!,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       height: 1.4,
                       color: theme.colorScheme.onSurface.withValues(
                         alpha: 0.65,
@@ -714,8 +709,7 @@ class _SourceTile extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text(
                   '${entry.type}源 · ${entry.provider}${entry.author.isNotEmpty ? ' · ${entry.author}' : ''}',
-                  style: TextStyle(
-                    fontSize: 11,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
                   ),
                 ),
@@ -751,7 +745,12 @@ class _SourceTile extends StatelessWidget {
                           height: 14,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                        : const Text('卸载', style: TextStyle(fontSize: 12)),
+                        : Text(
+                            '卸载',
+                            style: Theme.of(
+                              context,
+                            ).textTheme.bodySmall?.copyWith(),
+                          ),
               )
               : FilledButton.tonal(
                 onPressed: busy ? null : onInstall,
@@ -770,7 +769,9 @@ class _SourceTile extends StatelessWidget {
                         )
                         : Text(
                           isUpdate ? '更新' : '安装',
-                          style: const TextStyle(fontSize: 12.5),
+                          style: Theme.of(
+                            context,
+                          ).textTheme.bodySmall?.copyWith(),
                         ),
               ),
         ],
