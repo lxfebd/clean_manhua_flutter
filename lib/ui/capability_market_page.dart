@@ -628,7 +628,9 @@ class _CapabilityMarketTileState extends State<_CapabilityMarketTile> {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(
+          StyleTokens.cardRadiusOr(context, 14),
+        ),
         border: Border.all(
           color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
         ),

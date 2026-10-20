@@ -17,6 +17,7 @@ import 'reader_prefs_providers.dart';
 import 'bookshelf_providers.dart' show bookshelfDataProvider;
 import 'detail_providers.dart' as detailp;
 import 'responsive.dart';
+import 'style_tokens.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/chapter_list_sheet.dart';
 import 'widgets/reader_settings_sheet.dart';
@@ -735,7 +736,9 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                     color: scheme.primary.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(
+                      StyleTokens.controlRadiusOr(context, 8),
+                    ),
                   ),
                   child: Text(
                     '缓存数据，可能非最新',
@@ -836,7 +839,9 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
                               children: [
                                 Expanded(
                                   child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(1),
+                                    borderRadius: BorderRadius.circular(
+                                      StyleTokens.controlRadiusOr(context, 1),
+                                    ),
                                     child: LinearProgressIndicator(
                                       value: p,
                                       minHeight: 2,

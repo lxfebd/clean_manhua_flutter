@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../net/error_logger.dart';
 import '../../net/local_store.dart';
+import '../style_tokens.dart';
 import '../widgets/app_toast.dart';
 
 /// 手势配置底部抽屉：左侧 / 中间 / 右侧各选一个动作。
@@ -59,7 +60,9 @@ class GestureSettingsSheetState extends State<GestureSettingsSheet> {
                   height: 4,
                   decoration: BoxDecoration(
                     color: scheme.onSurface.withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(2),
+                    borderRadius: BorderRadius.circular(
+                      StyleTokens.controlRadiusOr(context, 2),
+                    ),
                   ),
                 ),
               ),
@@ -155,7 +158,9 @@ class GestureSettingsSheetState extends State<GestureSettingsSheet> {
     final scheme = Theme.of(context).colorScheme;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(
+        StyleTokens.controlRadiusOr(context, 8),
+      ),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(
@@ -163,7 +168,9 @@ class GestureSettingsSheetState extends State<GestureSettingsSheet> {
               active
                   ? scheme.primary
                   : scheme.onSurface.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(
+            StyleTokens.controlRadiusOr(context, 8),
+          ),
           border: Border.all(
             color:
                 active

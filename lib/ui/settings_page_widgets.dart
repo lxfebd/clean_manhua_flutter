@@ -251,7 +251,9 @@ class _SliderTile extends StatelessWidget {
             height: 34,
             decoration: BoxDecoration(
               color: scheme.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.controlRadiusOr(context, 10),
+              ),
             ),
             child: Icon(icon, size: 18, color: scheme.primary),
           ),

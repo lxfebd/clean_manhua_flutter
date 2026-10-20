@@ -5,6 +5,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 
 import '../responsive.dart';
+import '../style_tokens.dart';
 
 /// 设备系统类工具：设备信息、屏幕测试、秒表、指南针。
 class DeviceToolsPage extends StatefulWidget {
@@ -203,7 +204,9 @@ class _DeviceToolsPageState extends State<DeviceToolsPage>
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 decoration: BoxDecoration(
                   color: scheme.surface,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(
+                    StyleTokens.cardRadiusOr(context, 12),
+                  ),
                   border: Border.all(
                       color: scheme.onSurface.withValues(alpha: 0.06)),
                 ),

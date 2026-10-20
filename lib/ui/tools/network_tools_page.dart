@@ -9,6 +9,7 @@ import '../../net/error_logger.dart';
 import '../../net/http_client.dart';
 import '../../sources/source_config.dart';
 import '../responsive.dart';
+import '../style_tokens.dart';
 import '../widgets/app_toast.dart';
 
 part 'network_tools_widgets.dart';
@@ -388,7 +389,9 @@ class _NetworkToolsPageState extends State<NetworkToolsPage>
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: scheme.surface,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(
+          StyleTokens.cardRadiusOr(context, 12),
+        ),
         border: Border.all(color: scheme.onSurface.withValues(alpha: 0.06)),
       ),
       child: SelectableText(

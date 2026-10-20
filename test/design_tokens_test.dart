@@ -144,20 +144,27 @@ void main() {
 
     const excluded = ['ui/tokens.dart'];
 
-    test('fontSize 字面量种类数 ≤ 24（基线 2026-09-03 工具箱页迁移后）', () {
+    test('fontSize 字面量种类数 ≤ 12（基线 2026-10-21 D项第六批全量收尾后）', () {
       final v = distinctLiterals(r'fontSize:\s*([\d.]+)', exclude: excluded);
-      expect(v.length, lessThanOrEqualTo(24),
+      expect(v.length, lessThanOrEqualTo(12),
           reason: '发现 ${v.length} 种 fontSize 字面量：$v\n'
               '新代码请用 Theme.of(context).textTheme（见 TypeScale）；'
-              '迁移后请下调本基线数字。');
+              'D 项第六批已把硬编码 fontSize 全量收尾，剩余 12 种均为功能性豁免'
+              '（阅读器/弹幕/字幕运行时字号、等宽 SHA256 展示、装饰性水印、'
+              '巨型展示数字、导出海报固定配色块、app_toast 无 context 回退分支等，'
+              '见当轮交接文档第四节），迁移后请下调本基线数字。');
     });
 
-    test('BorderRadius.circular 字面量种类数 ≤ 22（基线 2026-09-04 阶段2 迁移后）', () {
+    test('BorderRadius.circular 字面量种类数 ≤ 1（基线 2026-10-21 R项第七批全量迁移后）', () {
       final v = distinctLiterals(r'BorderRadius\.circular\(\s*([\d.]+)',
           exclude: excluded);
-      expect(v.length, lessThanOrEqualTo(22),
+      expect(v.length, lessThanOrEqualTo(1),
           reason: '发现 ${v.length} 种 circular() 半径：$v，'
-              '新代码请用 R.control/card/hero/sheet/pill；迁移后下调基线。');
+              '新代码请用 R.control/card/hero/sheet/pill 或 StyleTokens.*Or；'
+              'R项第七批已把全 lib 的圆角字面量从 22 种收敛到 1 种，'
+              '唯一保留项是 widgets/subtitle_overlay.dart:40 的字幕底板（其配色'
+              '整体与主题脱钩，token 化圆角会造成「圆角随风格变、底色不变」的'
+              '不一致，文件内有注释说明）。除该处外新增字面量一律视为回归。');
     });
 
     test('alpha: 字面量种类数 ≤ 40（基线 2026-09-04 阶段2 迁移后）', () {

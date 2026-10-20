@@ -19,6 +19,7 @@ import 'novel_home_page.dart';
 import 'profile_page.dart';
 import 'responsive.dart';
 import 'style_scope.dart';
+import 'style_tokens.dart';
 import 'tokens.dart';
 import 'toolbox_page.dart';
 import 'unified_search_page.dart';
@@ -238,8 +239,11 @@ class _MainShellState extends ConsumerState<MainShell>
       context: context,
       barrierDismissible: true,
       builder: (ctx) => AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(
+            StyleTokens.sheetRadiusOr(ctx, 14),
+          ),
+        ),
         title: Text('发现新版本 v${info.version}'),
         content: SingleChildScrollView(
           child: Column(

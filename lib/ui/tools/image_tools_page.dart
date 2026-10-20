@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../net/error_logger.dart';
 import '../responsive.dart';
+import '../style_tokens.dart';
 
 /// 图片处理工具：压缩/转换/缩放、加水印、高斯模糊、九宫格切图。
 class ImageToolsPage extends StatefulWidget {
@@ -315,7 +316,9 @@ class _ImageToolsPageState extends State<ImageToolsPage> {
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: scheme.surface,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(
+                    StyleTokens.cardRadiusOr(context, 12),
+                  ),
                   border: Border.all(
                       color: scheme.onSurface.withValues(alpha: 0.06)),
                 ),
@@ -337,7 +340,9 @@ class _ImageToolsPageState extends State<ImageToolsPage> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: scheme.surface,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(
+          StyleTokens.cardRadiusOr(context, 18),
+        ),
         border: Border.all(color: scheme.onSurface.withValues(alpha: 0.06)),
       ),
       child: Column(

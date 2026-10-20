@@ -13,6 +13,7 @@ import 'detail_page.dart';
 import 'novel_detail_page.dart';
 import 'reader_page.dart';
 import 'responsive.dart';
+import 'style_tokens.dart';
 import 'tokens.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/app_toast.dart';
@@ -471,7 +472,9 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
                     await LocalStore.clearSearchHistory();
                     if (mounted) setState(() => _history = []);
                   },
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(
+                    StyleTokens.controlRadiusOr(context, 6),
+                  ),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 8,
@@ -789,7 +792,9 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
         // 封面
         Center(
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(
+              StyleTokens.heroRadius(context, 12),
+            ),
             child: SizedBox(
               width: 132,
               height: 188,
@@ -901,7 +906,9 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: scheme.surfaceContainerLow,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.cardRadiusOr(context, 10),
+              ),
             ),
             child: Text(
               d.description!,

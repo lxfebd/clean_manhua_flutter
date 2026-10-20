@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import '../net/error_logger.dart';
 import '../sources/local_novel_source.dart';
 import 'novel_reader_page.dart';
+import 'style_tokens.dart';
 import 'widgets/app_toast.dart';
 import 'keyboard_shortcuts.dart';
 
@@ -412,7 +413,9 @@ class _NovelDetailPageLocalState extends State<NovelDetailPageLocal> {
                 height: 132,
                 decoration: BoxDecoration(
                   color: scheme.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(
+                    StyleTokens.heroRadius(context, 10),
+                  ),
                 ),
                 child: Icon(
                   Icons.menu_book_rounded,

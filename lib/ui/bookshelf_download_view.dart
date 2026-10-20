@@ -7,6 +7,7 @@ import '../net/download_manager.dart';
 import '../net/local_store.dart';
 import '../net/video_download_manager.dart';
 import 'responsive.dart';
+import 'style_tokens.dart';
 import 'tokens.dart';
 import 'widgets/app_toast.dart';
 
@@ -434,7 +435,9 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
                       children: [
                         Expanded(
                           child: ClipRRect(
-                            borderRadius: BorderRadius.circular(2),
+                            borderRadius: BorderRadius.circular(
+                              StyleTokens.controlRadiusOr(context, 2),
+                            ),
                             child: LinearProgressIndicator(
                               value: (failed || cancelled)
                                   ? null
@@ -668,7 +671,9 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
                       children: [
                         Expanded(
                           child: ClipRRect(
-                            borderRadius: BorderRadius.circular(2),
+                            borderRadius: BorderRadius.circular(
+                              StyleTokens.controlRadiusOr(context, 2),
+                            ),
                             child: LinearProgressIndicator(
                               value: t.progress,
                               minHeight: 4,

@@ -240,7 +240,9 @@ class _ReadingCard extends StatelessWidget {
                       children: [
                         Expanded(
                           child: ClipRRect(
-                            borderRadius: BorderRadius.circular(2),
+                            borderRadius: BorderRadius.circular(
+                              StyleTokens.controlRadiusOr(context, 2),
+                            ),
                             child: LinearProgressIndicator(
                               value: progress,
                               minHeight: 3,

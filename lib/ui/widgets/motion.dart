@@ -144,7 +144,9 @@ class _PressableScaleState extends State<PressableScale> {
       onFocusChange: (f) => setState(() => _focused = f),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(
+            StyleTokens.controlRadiusOr(context, 12),
+          ),
           border: Border.all(
             color: _focused
                 ? Theme.of(context).colorScheme.primary

@@ -461,7 +461,9 @@ class _FeaturedCard extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
                         color: scheme.secondary,
-                        borderRadius: BorderRadius.circular(4),
+                        borderRadius: BorderRadius.circular(
+                          StyleTokens.controlRadiusOr(context, 4),
+                        ),
                       ),
                       child: Text(
                         '精选',
@@ -540,7 +542,9 @@ class AnimatedSmoothIndicator extends StatelessWidget {
               color: i == activeIndex
                   ? color
                   : scheme.onSurface.withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(3),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.controlRadiusOr(context, 3),
+              ),
             ),
           ),
       ],
@@ -661,7 +665,9 @@ class _ComicCardState extends State<_ComicCard> {
                     padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.55),
-                      borderRadius: BorderRadius.circular(4),
+                      borderRadius: BorderRadius.circular(
+                        StyleTokens.controlRadiusOr(context, 4),
+                      ),
                     ),
                     child: Text(
                       widget.item.author!,
@@ -683,7 +689,9 @@ class _ComicCardState extends State<_ComicCard> {
                     padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                     decoration: BoxDecoration(
                       color: scheme.primary.withValues(alpha: 0.9),
-                      borderRadius: BorderRadius.circular(4),
+                      borderRadius: BorderRadius.circular(
+                        StyleTokens.controlRadiusOr(context, 4),
+                      ),
                     ),
                     child: Text(
                       widget.item.remarks!,
@@ -752,7 +760,9 @@ class _SourceSwitchSheet extends StatelessWidget {
                 margin: const EdgeInsets.only(bottom: 10),
                 decoration: BoxDecoration(
                   color: scheme.onSurface.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: BorderRadius.circular(
+                    StyleTokens.controlRadiusOr(context, 2),
+                  ),
                 ),
               ),
             ),

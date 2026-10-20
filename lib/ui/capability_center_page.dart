@@ -7,6 +7,7 @@ import '../capabilities/capability_runtime.dart';
 import '../capabilities/demo_native_capability.dart';
 import '../net/error_logger.dart';
 import 'capability_market_page.dart';
+import 'style_tokens.dart';
 import 'tokens.dart';
 import 'widgets/app_toast.dart';
 import 'keyboard_shortcuts.dart';
@@ -344,7 +345,9 @@ class _CapabilityCard extends StatelessWidget {
                 if (modelProgress != null) ...[
                   const SizedBox(height: 8),
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(2),
+                    borderRadius: BorderRadius.circular(
+                      StyleTokens.controlRadiusOr(context, 2),
+                    ),
                     child: LinearProgressIndicator(
                       value: modelProgressUnknown ? null : modelProgress,
                       minHeight: 4,

@@ -461,7 +461,9 @@ class _Item extends StatelessWidget {
                           scheme.primary.withValues(alpha: 0.1),
                         ],
                       ),
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(
+                        StyleTokens.controlRadiusOr(context, 16),
+                      ),
                     ),
                   ),
                 ),

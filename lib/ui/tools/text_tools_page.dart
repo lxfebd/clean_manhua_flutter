@@ -11,6 +11,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../net/error_logger.dart';
 import '../responsive.dart';
+import '../style_tokens.dart';
 import '../widgets/app_toast.dart';
 
 /// 文本加密类工具：加密(MD5/SHA/Base64)、摩斯密码、长度换算、二维码生成。
@@ -217,7 +218,9 @@ class _TextToolsPageState extends State<TextToolsPage>
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: scheme.onSurface.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(
+          StyleTokens.cardRadiusOr(context, 10),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,

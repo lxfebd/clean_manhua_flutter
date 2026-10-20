@@ -5,6 +5,7 @@ import '../sources/dsl/custom_source_store.dart';
 import '../sources/dsl/source_market.dart';
 import '../net/error_logger.dart';
 import 'responsive.dart';
+import 'style_tokens.dart';
 import 'widgets/app_toast.dart';
 import 'keyboard_shortcuts.dart';
 
@@ -476,14 +477,18 @@ class _SourceMarketPageState extends State<SourceMarketPage> {
                                   vertical: 8,
                                 ),
                                 border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(10),
+                                  borderRadius: BorderRadius.circular(
+                                    StyleTokens.controlRadiusOr(context, 10),
+                                  ),
                                   borderSide: BorderSide(
                                     color: theme.colorScheme.onSurface
                                         .withValues(alpha: 0.15),
                                   ),
                                 ),
                                 enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(10),
+                                  borderRadius: BorderRadius.circular(
+                                    StyleTokens.controlRadiusOr(context, 10),
+                                  ),
                                   borderSide: BorderSide(
                                     color: theme.colorScheme.onSurface
                                         .withValues(alpha: 0.15),
@@ -638,7 +643,9 @@ class _SourceTile extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(
+          StyleTokens.cardRadiusOr(context, 14),
+        ),
         border: Border.all(
           color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
         ),
@@ -651,7 +658,9 @@ class _SourceTile extends StatelessWidget {
             height: 40,
             decoration: BoxDecoration(
               color: theme.colorScheme.primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.controlRadiusOr(context, 10),
+              ),
             ),
             child: Icon(
               entry.type == 'video'

@@ -96,7 +96,9 @@ class _AnimeCardState extends State<_AnimeCard> {
                             horizontal: 5, vertical: 2),
                         decoration: BoxDecoration(
                           color: scheme.secondary,
-                          borderRadius: BorderRadius.circular(4),
+                          borderRadius: BorderRadius.circular(
+                            StyleTokens.controlRadiusOr(context, 4),
+                          ),
                         ),
                         child: Text(
                           '动漫',
@@ -118,7 +120,9 @@ class _AnimeCardState extends State<_AnimeCard> {
                               horizontal: 5, vertical: 2),
                           decoration: BoxDecoration(
                             color: Colors.black.withValues(alpha: 0.6),
-                            borderRadius: BorderRadius.circular(4),
+                            borderRadius: BorderRadius.circular(
+                              StyleTokens.controlRadiusOr(context, 4),
+                            ),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -146,7 +150,9 @@ class _AnimeCardState extends State<_AnimeCard> {
                               horizontal: 5, vertical: 2),
                           decoration: BoxDecoration(
                             color: Colors.black.withValues(alpha: 0.65),
-                            borderRadius: BorderRadius.circular(4),
+                            borderRadius: BorderRadius.circular(
+                              StyleTokens.controlRadiusOr(context, 4),
+                            ),
                           ),
                           child: Text(
                             '已看 ${widget.watchedEpisodes} 集',
@@ -339,7 +345,9 @@ class _LetterCover extends StatelessWidget {
                         horizontal: 5, vertical: 1.5),
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.38),
-                      borderRadius: BorderRadius.circular(4),
+                      borderRadius: BorderRadius.circular(
+                        StyleTokens.controlRadiusOr(context, 4),
+                      ),
                     ),
                     child: Text(
                       remark!,

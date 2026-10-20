@@ -1363,7 +1363,9 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
           globalPos.dx, globalPos.dy, globalPos.dx, globalPos.dy),
       color: scheme.surface,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(
+          StyleTokens.sheetRadiusOr(context, 10),
+        ),
         side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.4)),
       ),
       items: [

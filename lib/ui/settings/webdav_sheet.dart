@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../net/error_logger.dart';
 import '../../net/webdav_sync.dart';
+import '../style_tokens.dart';
 
 /// WebDAV 同步配置面板：服务器地址 / 账号 / 目录 / 加密开关 / 上传下载。
 class WebDavSheet extends StatefulWidget {
@@ -328,7 +329,9 @@ class WebDavSheetState extends State<WebDavSheet> {
                   color: (_statusOk ? scheme.primary : scheme.error).withValues(
                     alpha: 0.08,
                   ),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(
+                    StyleTokens.controlRadiusOr(context, 10),
+                  ),
                 ),
                 child: Row(
                   children: [
@@ -364,7 +367,9 @@ class WebDavSheetState extends State<WebDavSheet> {
       builder:
           (ctx) => AlertDialog(
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.sheetRadiusOr(context, 14),
+              ),
             ),
             title: const Text('拉取远端数据'),
             content: const Text(

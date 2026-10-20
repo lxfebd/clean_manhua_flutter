@@ -110,7 +110,9 @@ class _SourceManagePageState extends State<SourceManagePage> {
       builder:
           (_) => AlertDialog(
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.sheetRadiusOr(context, 14),
+              ),
             ),
             title: const Text('恢复默认配置'),
             content: const Text('将清空所有源的自定义域名/代理等修改，恢复内置默认。确定继续？'),

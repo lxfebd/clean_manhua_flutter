@@ -37,6 +37,10 @@ class SubtitleOverlay extends StatelessWidget {
           decoration: BoxDecoration(
             // 半透明黑底 + 描边，保证任意背景下字幕可读
             color: Colors.black.withValues(alpha: 0.35),
+            // 圆角刻意不迁 StyleTokens：字幕底板整体与主题脱钩（硬编码黑底/
+            // 白字/黑影，见 textColor 与下方 shadow），单独 token 化圆角会让
+            // 小米/苹果风格下出现「圆角随风格变、底色却不随」的不一致观感；
+            // 且字幕按播放进度高频重建，取 context 计算半径属无谓开销。
             borderRadius: BorderRadius.circular(6),
           ),
           child: Text(

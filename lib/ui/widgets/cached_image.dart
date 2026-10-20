@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../net/image_cache.dart';
 import '../../utils/image_super_res.dart';
+import '../style_tokens.dart';
 
 /// 带内存+磁盘缓存的网络图片（封面/列表图）。
 ///
@@ -160,7 +161,9 @@ class _CachedImageState extends State<CachedImage> {
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: Colors.black54,
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(
+                      StyleTokens.controlRadiusOr(context, 20),
+                    ),
                   ),
                   child: const Icon(Icons.refresh_rounded,
                       color: Colors.white70, size: 26),

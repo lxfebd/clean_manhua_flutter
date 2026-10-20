@@ -130,7 +130,9 @@ class _DownloadProgressDialogState extends State<_DownloadProgressDialog> {
               ),
               const SizedBox(height: 16),
               ClipRRect(
-                borderRadius: BorderRadius.circular(3),
+                borderRadius: BorderRadius.circular(
+                  StyleTokens.controlRadiusOr(context, 3),
+                ),
                 child: LinearProgressIndicator(
                   value: failed || done ? null : _state.progress,
                   minHeight: 6,

@@ -1094,7 +1094,9 @@ class ToolboxPageState extends State<ToolboxPage> {
                   height: 4,
                   decoration: BoxDecoration(
                     color: scheme.onSurface.withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(2),
+                    borderRadius: BorderRadius.circular(
+                      StyleTokens.controlRadiusOr(context, 2),
+                    ),
                   ),
                 ),
               ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../sources/comic_source.dart';
+import '../style_tokens.dart';
 import '../tokens.dart';
 
 /// 通用章节目录底部弹窗（P1-3：detail_allChapters / reader_chapterList /
@@ -211,7 +212,9 @@ class _ChapterListSheetState<E> extends State<ChapterListSheet<E>> {
                   height: 4,
                   decoration: BoxDecoration(
                     color: onSurface.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(2),
+                    borderRadius: BorderRadius.circular(
+                      StyleTokens.controlRadiusOr(context, 2),
+                    ),
                   ),
                 ),
               ),

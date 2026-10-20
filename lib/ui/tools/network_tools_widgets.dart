@@ -96,7 +96,9 @@ class _ProxyTabState extends State<_ProxyTab> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             color: scheme.surface,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(
+              StyleTokens.cardRadiusOr(context, 12),
+            ),
             border: Border.all(
                 color: active
                     ? scheme.primary.withValues(alpha: 0.35)
@@ -307,7 +309,9 @@ class _CfPickerTabState extends State<_CfPickerTab> {
           Container(
             decoration: BoxDecoration(
               color: scheme.surface,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.cardRadiusOr(context, 12),
+              ),
               border:
                   Border.all(color: scheme.onSurface.withValues(alpha: 0.06)),
             ),
@@ -388,7 +392,9 @@ class _CfPickerTabState extends State<_CfPickerTab> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: scheme.surface,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(
+          StyleTokens.cardRadiusOr(context, 12),
+        ),
         border: Border.all(color: scheme.onSurface.withValues(alpha: 0.06)),
       ),
       child: SelectableText(
@@ -580,7 +586,9 @@ class _SourceCheckTabState extends State<_SourceCheckTab> {
           Container(
             decoration: BoxDecoration(
               color: scheme.surface,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.cardRadiusOr(context, 12),
+              ),
               border:
                   Border.all(color: scheme.onSurface.withValues(alpha: 0.06)),
             ),

@@ -67,7 +67,9 @@ class _NovelReaderSettingsSheetState
                       .colorScheme
                       .onSurface
                       .withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: BorderRadius.circular(
+                    StyleTokens.controlRadiusOr(context, 2),
+                  ),
                 ),
               ),
             ),
@@ -323,7 +325,9 @@ class _NovelTtsSheet extends StatelessWidget {
                       .colorScheme
                       .onSurface
                       .withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: BorderRadius.circular(
+                    StyleTokens.controlRadiusOr(context, 2),
+                  ),
                 ),
               ),
             ),
@@ -388,7 +392,9 @@ class _TtsRateChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(
+        StyleTokens.controlRadiusOr(context, 8),
+      ),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
         decoration: BoxDecoration(
@@ -398,7 +404,9 @@ class _TtsRateChip extends StatelessWidget {
                   .colorScheme
                   .onSurface
                   .withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(
+            StyleTokens.controlRadiusOr(context, 8),
+          ),
           border: Border.all(
             color: active
                 ? Theme.of(context).colorScheme.primary

@@ -595,7 +595,9 @@ class NovelHomePageState extends State<NovelHomePage> {
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(
+            StyleTokens.controlRadiusOr(context, 8),
+          ),
           borderSide: BorderSide.none,
         ),
       ),

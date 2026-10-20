@@ -7,6 +7,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import '../../net/error_logger.dart';
 import '../../net/local_store.dart';
 import '../../services/player_registry.dart';
+import '../style_tokens.dart';
 import 'player_widgets.dart';
 
 /// 画中画迷你播放器：承接全屏播放器移交过来的 [Player] 实例，
@@ -147,7 +148,9 @@ class _MiniPlayerState extends State<MiniPlayer> {
     return Material(
       color: const Color(0xF0141418),
       elevation: 12,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(
+        StyleTokens.sheetRadiusOr(context, 14),
+      ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: widget.onResume,

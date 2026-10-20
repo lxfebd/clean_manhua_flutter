@@ -156,7 +156,9 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
               height: 4,
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(2),
+                borderRadius: BorderRadius.circular(
+                  StyleTokens.controlRadiusOr(context, 2),
+                ),
               ),
             ),
           ),
@@ -303,7 +305,9 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
               setState(() => _localTrimBorder = !_localTrimBorder);
               widget.onTrimBorderChanged(_localTrimBorder);
             },
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(
+              StyleTokens.controlRadiusOr(context, 10),
+            ),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
               child: Row(
@@ -413,12 +417,16 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
   Widget _ghostBtn(String label, IconData icon, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(
+        StyleTokens.controlRadiusOr(context, 10),
+      ),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(
+            StyleTokens.controlRadiusOr(context, 10),
+          ),
           border:
               Border.all(color: Colors.white.withValues(alpha: 0.14)),
         ),
