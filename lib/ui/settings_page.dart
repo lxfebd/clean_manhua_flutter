@@ -25,6 +25,7 @@ import 'reader_prefs_providers.dart';
 import 'reader_providers.dart';
 import 'responsive.dart';
 import 'style_scope.dart';
+import 'style_tokens.dart';
 import 'theme_controller.dart';
 import 'tokens.dart';
 import 'source_manage_page.dart';
@@ -749,7 +750,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                               color: theme.colorScheme.primary.withValues(
                                 alpha: 0.12,
                               ),
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: BorderRadius.circular(
+                                StyleTokens.controlRadiusOr(context, 6),
+                              ),
                             ),
                             child: Text(
                               '星漫匣 · ${UpdateChecker.currentVersion()}',
@@ -841,7 +844,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       builder:
           (ctx) => AlertDialog(
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.sheetRadiusOr(context, 14),
+              ),
             ),
             title: Text(title),
             content: Column(
@@ -1073,7 +1078,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       builder:
           (ctx) => SimpleDialog(
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.sheetRadiusOr(context, 14),
+              ),
             ),
             title: const Text('收藏更新提醒'),
             children: [
@@ -1190,7 +1197,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       builder:
           (ctx) => AlertDialog(
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.sheetRadiusOr(context, 14),
+              ),
             ),
             title: Text('发现新版本 v${info.version}'),
             content: SingleChildScrollView(
@@ -1245,7 +1254,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       builder:
           (_) => AlertDialog(
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.sheetRadiusOr(context, 14),
+              ),
             ),
             title: Text(title),
             content: Text(content),
@@ -1283,7 +1294,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       builder:
           (_) => AlertDialog(
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.sheetRadiusOr(context, 14),
+              ),
             ),
             title: const Text('免责声明'),
             content: SingleChildScrollView(
@@ -1322,7 +1335,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       builder:
           (_) => AlertDialog(
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(
+                StyleTokens.sheetRadiusOr(context, 14),
+              ),
             ),
             title: const Text('隐私说明'),
             content: SingleChildScrollView(

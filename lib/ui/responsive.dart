@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'style_tokens.dart' as st;
 import 'tokens.dart' as tok;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -736,7 +737,9 @@ Future<void> showContextMenu(
         globalPosition.dx, globalPosition.dy, globalPosition.dx, globalPosition.dy),
     color: scheme.surface,
     shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(
+        st.StyleTokens.sheetRadiusOr(context, 8),
+      ),
       side: BorderSide(color: scheme.outlineVariant, width: 1),
     ),
     elevation: 8,
@@ -860,7 +863,9 @@ class _HoverEffectState extends State<HoverEffect> {
       onFocusChange: (f) => setState(() => _isFocused = f),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(
+            st.StyleTokens.controlRadiusOr(context, 12),
+          ),
           border: Border.all(
             color: _isFocused
                 ? Theme.of(context).colorScheme.primary
@@ -931,7 +936,9 @@ class TypeSegment extends StatelessWidget {
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
         color: scheme.onSurface.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(
+          st.StyleTokens.controlRadiusOr(context, 12),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -964,7 +971,9 @@ class TypeSegment extends StatelessWidget {
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: active ? scheme.primary : Colors.transparent,
-            borderRadius: BorderRadius.circular(9),
+            borderRadius: BorderRadius.circular(
+              st.StyleTokens.controlRadiusOr(context, 9),
+            ),
           ),
           child: Text(
             label,
@@ -1000,7 +1009,9 @@ class SheetHandle extends StatelessWidget {
         decoration: BoxDecoration(
           color:
               Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(2),
+          borderRadius: BorderRadius.circular(
+            st.StyleTokens.controlRadiusOr(context, 2),
+          ),
         ),
       ),
     );
@@ -1060,7 +1071,9 @@ class SectionHeader extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: BorderRadius.circular(
+                st.StyleTokens.controlRadiusOr(context, 6),
+              ),
               border: Border.all(color: scheme.outline, width: 1),
             ),
             child: Text(
