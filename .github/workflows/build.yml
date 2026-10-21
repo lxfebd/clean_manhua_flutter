@@ -173,6 +173,29 @@ jobs:
           yes | sdkmanager --licenses
           sdkmanager "ndk;28.2.13676358" "platforms;android-34" "build-tools;34.0.0"
 
+      # 内测包与正式包**必须同签名**：build.gradle.kts 里 debug/release 都优先用
+      # key.properties 指向的 release 签名。此前 nightly 没有这一步 —— 只在 tag
+      # 构建时注入密钥，于是 main push 出的 debug APK 实际走的是 runner 的
+      # debug 签名；用户装过 nightly 后再装 release 会报「应用未安装/签名不一致」，
+      # 反之亦然。这里补齐注入，让 nightly 与 release 共用同一把发布密钥。
+      - name: Decode signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > android/app/xingmanxia.jks
+            echo "storePassword=$STORE_PASSWORD" > android/key.properties
+            echo "keyPassword=$KEY_PASSWORD" >> android/key.properties
+            echo "keyAlias=$KEY_ALIAS" >> android/key.properties
+            echo "storeFile=xingmanxia.jks" >> android/key.properties
+            echo "✅ 内测包已使用正式签名（与 release 包一致）"
+          else
+            echo "⚠️ 未配置签名密钥，内测包将使用 debug 签名（与 release 包不兼容）"
+          fi
+
       - name: Pub get
         run: flutter pub get
 

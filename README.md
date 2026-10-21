@@ -44,6 +44,16 @@ flutter build web --release     # Web 端（alpha）：静态产物 build/web（
 
 ## 更新日志
 
+### v1.5.6（2026-10-21）
+
+- 🎨 **设计系统全量落地（D + R 两批收官）**：
+  - **字号（D 项）**：全项目硬编码 `fontSize` 迁移到 `Theme.of(context).textTheme` 语义槽位（6 档 TypeScale）—— 六批共迁移约 **330 处**，覆盖首页系 / 详情 / 搜索 / 书架 / 播放器 / 设置 / 下载 / 工具 / 阅读器全部页面。手机/平板分档 + 三风格阶梯对全体组件生效；剩余 14 处均为功能性豁免（阅读器/弹幕/字幕运行时字号、等宽 SHA256 展示、装饰水印等，交接文档有清单）。
+  - **圆角（R 项）**：全项目硬编码 `BorderRadius.circular()` 迁移到 `StyleTokens.*Or(context, 原值)` / `R.of()` 语义槽位（control/card/hero/sheet 四档 × 三风格）—— 共迁移 **108 处 / 45 文件**，硬编码圆角字面量从 131 处收敛到 **1 处**（唯一保留：字幕底板，配色整体与主题脱钩）。
+  - **效果**：切换「极简 / 小米 / 苹果」三风格，圆角与字号现在真正跟随风格档位变化（小米超椭圆大圆角 14/20/28、苹果 iOS 圆角 10/12/16/28、极简保持原观感）。
+- 🔒 **测试棘轮收紧**：`design_tokens_test` 把「圆角字面量种类数 ≤22 → ≤1」「fontSize 种类数 ≤24 → ≤12」——迁移成果固化为门禁，新增硬编码回归立刻报警。
+- 🖥️ **CI 签名统一**：nightly（main push 内测包）补上「Decode signing key」注入步骤——此前只有打 tag 的 release 构建用正式密钥，nightly 实际走 runner debug 签名，导致「装过内测包再装正式包报签名不一致」；现在两者共用同一把发布密钥，可互相覆盖安装。
+- 🧪 **验证**：`flutter analyze` 0 issues；全量 **1020 通过 / 33 跳过**；MuMu 模拟器（Android 15）三风格像素级验证：极简 vs 小米 0.76% / 极简 vs 苹果 3.39% 差异，差异位置与设计对应（苹果毛玻璃区、小米胶囊区），无布局破相。
+
 ### v1.5.5（2026-10-13）
 
 - 🔍 **详情精细化**：漫画/动漫详情页新增元信息卡 + 标签云；`ComicDetail` 扩展 `tags/year/updatedAt/hits`，各源补抓 author/tags/status/area/type/lang——覆盖 禁漫JM、MangaDex、豆包、动漫屋(DM5)、AGE动漫、dsl 自定义源、稀饭动漫；AGE 详情元信息解析修正（此前 tags/状态漏抓）。

@@ -138,3 +138,7 @@ tmpprobe/
 /analysis_out.txt
 # 内部路线图/交接文档（不入库，与 README 公开介绍区分）
 /docs/
+
+# ===== 本地调试截图（UI 探针产物，勿入库）=====
+/screen_shots/
+/screenshot/
