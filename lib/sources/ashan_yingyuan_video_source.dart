@@ -28,7 +28,12 @@ import 'video_source.dart';
 /// 防 SEO 垃圾：列表只收录 id 形如 `/{ns}/{纯数字}.html` 的条目。垃圾页的特征是
 /// 数字 id 前多一段随机目录（`/mtv/dvgesudtgc/324622.html`），会被此规则过滤。
 class AshanYingyuanVideoSource extends VideoSource {
-  static const String _base = 'https://www.dainyew.com';
+  /// 2026-11-04 实测：站点 **HTTPS 握手直接失败**（curl `000` / 0.18s，
+  /// Dart `HandshakeException`），但 **HTTP 正常**（200 / ~1.2s，返回的正是
+  /// 鞍山影院首页，且不跳转 HTTPS）。故改用 HTTP——App 已开
+  /// `usesCleartextTraffic=true`，明文可用。
+  /// 若日后站点恢复 HTTPS，把这里与 source_config.dart 的 hosts 一起改回。
+  static const String _base = 'http://www.dainyew.com';
 
   static const _ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
       'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -51,8 +56,17 @@ class AshanYingyuanVideoSource extends VideoSource {
   static final RegExp _cardPicRe = RegExp(r'data-original="([^"]*)"');
   static final RegExp _cardRemarkRe =
       RegExp(r'<span class="pic-text[^"]*">([^<]*)</span>');
+  /// 卡片详情链接：`<a class="thumb-link" href="/({ns})/({id}).html">`
+  ///
+  /// 2026-11-04：站点命名空间已扩到 `bdfcs`（原来只写死
+  /// news/dvd/cctv/mtv/tv/pptv/vedio，导致新片全被过滤、分类页恒返回 0 条）。
+  /// 这里放宽成「任意单段小写命名空间 + 纯数字 id」：
+  /// - 防 SEO 垃圾仍然成立——垃圾页的数字 id 前有两段以上
+  ///   （`/mtv/dvgesudtgc/324622.html`），单段规则匹配不到；
+  /// - 分页链接 `/listnew/1.html` 虽形如单段+数字，但它**不带
+  ///   `class="thumb-link"`**，不会被本正则命中。
   static final RegExp _cardLinkRe = RegExp(
-    r'<a class="thumb-link" href="(/(?:news|dvd|cctv|mtv|tv|pptv|vedio)/(\d+)\.html)"',
+    r'<a class="thumb-link" href="(/([a-z]{2,12})/(\d+)\.html)"',
   );
 
   /// 标题：`<h1 class="title"><span >标题</span><span class="score…">5.0</span></h1>`

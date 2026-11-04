@@ -163,7 +163,9 @@ class SourceConfigStore {
           id: 'ashanyy',
           name: '鞍山影院',
           tier: SourceTier.fallback,
-          hosts: ['https://www.dainyew.com'],
+          // 2026-11-04：站点 HTTPS 握手失败、HTTP 正常（详见
+          // ashan_yingyuan_video_source.dart 的 _base 注释）。
+          hosts: ['http://www.dainyew.com'],
         ),
         const SourceConfig(
           engineId: 'xifan',

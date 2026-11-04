@@ -110,5 +110,15 @@ void main() {
           .firstWhere((c) => c.engineId == 'tvtfun');
       expect(cfg.tier, TvTfunVideoSource().tier);
     });
+
+    test('ashanyy 内置配置走 HTTP（站点 HTTPS 握手已失效）', () {
+      final cfg = SourceConfigStore.defaults()
+          .firstWhere((c) => c.engineId == 'ashanyy');
+      expect(cfg.hosts, isNotEmpty);
+      expect(cfg.hosts.every((h) => h.startsWith('http://')), isTrue,
+          reason: '2026-11-04 实测 dainyew.com 的 HTTPS 握手直接失败、'
+              'HTTP 200 正常；改回 https 会让鞍山影院再次整源不可用。'
+              '（App 已开 usesCleartextTraffic=true，明文可用）');
+    });
   });
 }
