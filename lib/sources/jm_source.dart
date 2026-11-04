@@ -11,6 +11,21 @@ import 'source_config.dart';
 
 /// 禁漫天堂源（App API 版）。
 ///
+/// ## 2026-11-04 实测：所有域名均被 Cloudflare 边缘挑战拦截（非代码缺陷）
+/// - 5 个内置域名中 4 个返回 **HTTP 403 + Cloudflare「Just a moment...」**
+///   JS 挑战页（`__cf_chl`），1 个（cdnutc.me）不可达；
+/// - 另测 18comic.vip / 18comic.org / jmcomic.me / 18comic-18comic.org /
+///   cdngwc.me / cdnboy.net 全部不可达（DNS 被拦/站点下线）。
+///
+/// 结论：这是 **Cloudflare 人机挑战**，不是 token/请求头问题——本源的
+/// `token`/`tokenparam` 签名与 AES 解密链路本身是好的，但请求在 CDN 边缘
+/// 就被拦下，拿不到 JSON。纯 HTTP 抓取无法通过（需真实浏览器执行 JS 质询）。
+///
+/// 若要恢复，只能走「WebView 加载站点 → 由浏览器完成挑战 → 复用其 Cookie」的
+/// 通道（与本项目 wchedm/xifan 的 WebView 播放思路类似），工程量大且易被站点
+/// 再次收紧；本源已处于 `fallback` 档、不是默认源，故保留实现与域名配置，
+/// 待有确定的浏览器通道方案再接入，避免做「看起来能跑但必然 403」的伪修复。
+///
 /// 协议参照 hect0x7/JMComic-Crawler-Python 的 JmApiClient：
 ///   1. 请求带 `token` (MD5) 与 `tokenparam` (ts,ver) 头；
 ///   2. 响应 data 是 AES-256-ECB 加密的 JSON（key = MD5("{ts}{secret}").hex utf-8）；

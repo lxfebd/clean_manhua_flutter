@@ -102,9 +102,9 @@ class BiqugeNovelSource extends NovelSource {
       RegExp(r'<meta[^>]+name="author"[^>]+content="([^"]+)"');
   static final RegExp _h1Re = RegExp(r'<h1[^>]*>([^<]+)</h1>');
 
-  /// 正文容器：`<div  id="txt" class="txt"> … </div>`
-  static final RegExp _contentRe =
-      RegExp(r'<div\s+id="txt"[^>]*>([\s\S]*?)</div>', caseSensitive: false);
+  /// 正文容器起点：`<div  id="txt" class="txt">`（结尾边界见 [_parseContent]）
+  static final RegExp _contentStartRe =
+      RegExp(r'<div\s+id="txt"[^>]*>', caseSensitive: false);
 
   // ── 正文清洗 ────────────────────────────────────────────────────────
   /// 站方插入的广告行：「一秒记住【笔趣阁】biquge365.net，更新快，无弹窗！」
@@ -116,7 +116,11 @@ class BiqugeNovelSource extends NovelSource {
   /// 翻页提示：「（本章未完，请点击下一页继续阅读）」
   static final RegExp _nextHintRe =
       RegExp(r'（本章未完，请点击下一页继续阅读）', caseSensitive: false);
-  static final RegExp _brRe = RegExp(r'<br\s*/?>', caseSensitive: false);
+  /// 分段标记：老章节用 `<br/>`，较新的章节改用 `<p>…</p>`。
+  /// 两者都要当换行处理，否则 `</p>` 那类章节会被并成一个几千字的巨型段落
+  /// （实测某章 paras=2 / 8359 字），阅读体验极差。
+  static final RegExp _brRe =
+      RegExp(r'(<br\s*/?>|</p>|</div>)', caseSensitive: false);
   static final RegExp _tagRe = RegExp(r'<[^>]+>');
   static final RegExp _nbspRe = RegExp(r'&nbsp;|&#160;', caseSensitive: false);
   /// 单独的章节标题行残留（无正文），如「第318章 敲打」
@@ -282,10 +286,32 @@ class BiqugeNovelSource extends NovelSource {
   ///
   /// 站点的多页章节虽然插了「第2/2页」标记，但第 2 页正文同一响应里紧接
   /// 其后，故这里不真抓第二页，只把标记抹掉。
+  ///
+  /// 容器边界不用「第一个 `</div>`」：`#txt` 内可能嵌 `div`（报错层/翻页层），
+  /// 非贪婪正则会在内层提前收尾，正文被截成几十字。改为优先切在
+  /// 版面已知的收尾标记（报错/翻页/遮罩）之前，找不到再退回到 `</div>`。
   List<String> _parseContent(String body) {
-    final m = _contentRe.firstMatch(body);
-    if (m == null) return const [];
-    var raw = m.group(1)!;
+    final startMark = _contentStartRe.firstMatch(body);
+    if (startMark == null) return const [];
+    final from = startMark.end;
+    final rest = body.substring(from);
+
+    var end = rest.length;
+    for (final marker in const [
+      '<div class="baocuo"',
+      '<div id="fanye',
+      '<div class="zhezhao"',
+    ]) {
+      final i = rest.indexOf(marker);
+      if (i >= 0 && i < end) end = i;
+    }
+    if (end == rest.length) {
+      // 没有已知收尾标记时，退回到闭合 div（可能截断，但有内容总比没有好）
+      final j = rest.indexOf('</div>');
+      if (j >= 0) end = j;
+    }
+
+    var raw = rest.substring(0, end);
     raw = raw.replaceAll(_brRe, '\n');
     raw = raw.replaceAll(_tagRe, '');
     raw = raw.replaceAll(_nbspRe, ' ');
@@ -300,6 +326,20 @@ class BiqugeNovelSource extends NovelSource {
       // 单独的章节标题行残留（无正文）跳过
       if (_bareTitleRe.hasMatch(t)) continue;
       out.add(t);
+    }
+
+    // 站点对部分章节（实测为较新的章节）下发**加密正文**：肉眼是可读的
+    // Base64 大块，但 base64 解开后仍非 UTF-8/GBK 明文（服务端加密，页面也
+    // 没有可复用的解密脚本；带 Referer/Cookie 同样只得到密文）。此时若直接
+    // 输出，读者会看到几千字符的乱码。识别出来给一条明确提示，既不假装成功
+    // 也不把垃圾塞进正文。
+    final joined = out.join('');
+    final cjk = RegExp(r'[\u4e00-\u9fa5]').allMatches(joined).length;
+    final looksCipher = cjk < 20 &&
+        joined.length > 80 &&
+        RegExp(r'[A-Za-z0-9+/=]{60,}').hasMatch(joined);
+    if (looksCipher) {
+      return const ['（本章正文由站点加密下发，App 端暂无法解密；可到站点网页端阅读。）'];
     }
     return out;
   }
