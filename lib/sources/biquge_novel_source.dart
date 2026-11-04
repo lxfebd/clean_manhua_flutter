@@ -15,6 +15,20 @@ import 'source_http.dart';
 /// - 搜索：该模板搜索跳转第三方聚合站，本站无搜索接口，返回空列表。
 /// - 注意：主站 xbiquge.com 会 301 到 tobiquge.com，而重定向链在部分 UA/
 ///   header（如 Accept: */*）下连接会被关闭，因此首选直连 tobiquge.com。
+///
+/// ## 2026-11-04 实测：本模板站点已全灭
+/// - `tobiquge.com`：HTTP 302 跳 `http://www.js96110.com.cn/`（江苏反诈拦截页），
+///   HTTPS 直接 TLS 握手失败——站点已被反诈系统接管，不是临时故障。
+/// - `xbiquge.com`：HTTPS 连接 15s 超时，无响应。
+/// - 另测 16 个常见笔趣阁镜像（bqg128 / biquge365 / beqege / biqu5200 / bqg70 /
+///   biquge5200 / xbiquge.la / biquge.info / tobiquge.net / bqg221 / biqugse…），
+///   无一使用本源的 `/bqg/{id}/{cid}.html` + `/rank.html` + `/list-{cat}-{page}/`
+///   模板（要么已挂，要么换成随机路径反爬），因此**无法靠换域名救活**。
+///
+/// 处置：`tier` 由 `primary` 降为 `fallback`——小说首页默认源改为能用的
+/// 新笔趣阁（[XbiqugeNovelSource]，xbiquge.bz 实测正常）。本源保留在源管理页
+/// 供网络环境不同的用户手动启用；若后续找到同模板站点，把域名加进
+/// [_defaultHosts] 并把 tier 调回 primary 即可（解析规则无需改动）。
 class BiqugeNovelSource extends NovelSource {
   static const List<String> _defaultHosts = [
     'https://www.tobiquge.com',
@@ -51,7 +65,10 @@ class BiqugeNovelSource extends NovelSource {
   @override
   String get name => '笔趣阁';
   @override
-  SourceTier get tier => SourceTier.primary;
+  // 2026-11-04：主站 tobiquge/xbiquge 全灭（tobiquge 被反诈页接管），
+  // 同模板镜像无一存活，无法换域名救活。降为 fallback 让小说首页默认
+  // 用新笔趣阁（xbiquge.bz 正常）；保留本源供网络不同的用户手动启用。
+  SourceTier get tier => SourceTier.fallback;
 
   // 站内分类 id → 名称
   static const Map<String, String> _catNames = {

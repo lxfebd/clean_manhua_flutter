@@ -2,6 +2,7 @@ import 'dart:convert';
 import '../models/comic_item.dart';
 import '../net/http_client.dart';
 import 'dsl/html_parser.dart';
+import 'source_config.dart';
 import 'video_source.dart';
 
 /// TvTFun 动漫视频源（www.tvtfun.net）。
@@ -17,6 +18,20 @@ import 'video_source.dart';
 /// - 详情：HTML 页面解析剧集与元信息（年份/地区/标签）
 /// - 播放：返回播放页 URL，由 WebView 加载并拦截 resolve-play-url API，
 ///   获取视频直链后交给 NativePlayer（media_kit）播放
+///
+/// ## 2026-11-04 实测：JSON API 已被站点下线，本源整体失效
+/// - `GET /api/videos?pageIndex=1&pageSize=12` → HTTP 404
+///   `{"code":404,"data":null,"message":"接口不存在"}`
+/// - `GET /api/videos/search?...` 同样 404；`api.tvtfun.net` 域名不存在。
+/// - 站点已改版为 **Nuxt 3 SPA**（首页 286KB SSR，`_nuxt/*.js` 客户端路由），
+///   数据改由 `__NUXT_DATA__` 内嵌载荷承载，且该载荷是 **devalue 索引引用编码**
+///   （对象字段值是指向下标数组的整数）。旧的四段 JSON API + HTML 详情解析
+///   在当前站点上**不可能再命中**。
+///
+/// 处置：`tier` 置为 `disabled`——本源并非默认源（视频默认 AGE），但留在
+/// 源列表里只会让用户选中后必然 404。**要恢复需重写本源**：实现
+/// `__NUXT_DATA__` 的 devalue 解码 + 摸清列表/搜索/详情/剧集四类页面的载荷
+/// 结构，再替换 playUrl 链路；届时把 tier 改回 `fallback` 即可。
 class TvTfunVideoSource extends VideoSource {
   static const String base = 'https://www.tvtfun.net';
 
@@ -50,6 +65,11 @@ class TvTfunVideoSource extends VideoSource {
   String get id => 'tvtfun';
   @override
   String get name => 'TvTFun 番剧';
+  @override
+  // 2026-11-04：站点 JSON API 已下线（/api/videos 返 404「接口不存在」），
+  // 站点改版为 Nuxt 3 SPA，旧解析链路不可能命中。设为 disabled 从源列表
+  // 隐藏，避免用户选中后必然失败；重写解析器后改回 fallback 即可。
+  SourceTier get tier => SourceTier.disabled;
 
   @override
   Future<List<Category>> categories() async => [
