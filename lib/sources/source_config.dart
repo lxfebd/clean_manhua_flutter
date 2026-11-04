@@ -183,10 +183,13 @@ class SourceConfigStore {
           engineId: 'biquge',
           id: 'biquge',
           name: '笔趣阁',
-          tier: SourceTier.primary,
+          // 2026-11-04：旧站 tobiquge.com 已被江苏反诈页接管（302 →
+          // js96110.com.cn）、xbiquge.com 超时，换到 biquge365.net
+          // （经典笔趣阁模板，解析规则见 biquge_novel_source.dart）。
+          // tier 同步降为 fallback：小说首页默认交给新笔趣阁。
+          tier: SourceTier.fallback,
           hosts: [
-            'https://www.tobiquge.com',
-            'https://www.xbiquge.com',
+            'https://www.biquge365.net',
           ],
         ),
         const SourceConfig(

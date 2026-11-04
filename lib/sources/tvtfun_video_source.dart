@@ -1,287 +1,347 @@
 import 'dart:convert';
+
 import '../models/comic_item.dart';
 import '../net/http_client.dart';
-import 'dsl/html_parser.dart';
+import 'dsl/html_parser.dart' show htmlUnescape;
 import 'source_config.dart';
 import 'video_source.dart';
 
 /// TvTFun 动漫视频源（www.tvtfun.net）。
 ///
-/// 数据源配置借鉴自开源聚合追番项目 Animeko（open-ani/animeko）的
-/// 在线源定义（creamycake css1 源集）。
+/// ## 2026-11-04 站点改版：JSON API 全量重写
+/// 站点从 Next.js 改为 **Nuxt 3 SPA**，旧接口（`/api/videos`、
+/// `/api/videos/search`、`/api/videos/resolve-play-url`）全部下线（404
+/// 「接口不存在」）。新版接口从 SSR 的 `__NUXT_DATA__` 载荷与
+/// `_nuxt/*.js` 路由 chunk 中逆向得到（详见各方法注释）：
 ///
-/// 数据流：
-/// - 列表 / 分类 / 搜索：HTTP JSON API
-///     https://www.tvtfun.net/api/videos?pageIndex=N&pageSize=M[&area=X][&tag=Y]
-///     https://www.tvtfun.net/api/videos/search?q=关键词&pageSize=M&page=N
-///   返回 list[].slug / name / pic / remarks / score / tag / area / year
-/// - 详情：HTML 页面解析剧集与元信息（年份/地区/标签）
-/// - 播放：返回播放页 URL，由 WebView 加载并拦截 resolve-play-url API，
-///   获取视频直链后交给 NativePlayer（media_kit）播放
+/// | 用途 | 接口 |
+/// |---|---|
+/// | 列表/筛选 | `GET /api/client/anime?page&pageSize&tag&area&year&order` |
+/// | 搜索 | `GET /api/client/anime?keyword=...&page` |
+/// | 筛选维度 | `GET /api/client/site-modules/video-filter` |
+/// | 首页热门 | `GET /api/client/site-modules/video-hot-rank` |
+/// | 最近更新 | `GET /api/client/site-modules/video-recent?page&limit` |
+/// | 详情（含剧集） | `GET /api/client/anime/{slug}` |
+/// | 播放线路 | `GET /api/client/anime/watch/{slug}/{ep}/playback` |
+/// | 线路解析 | `POST /api/site-auth/playback-resolve` |
 ///
-/// ## 2026-11-04 实测：JSON API 已被站点下线，本源整体失效
-/// - `GET /api/videos?pageIndex=1&pageSize=12` → HTTP 404
-///   `{"code":404,"data":null,"message":"接口不存在"}`
-/// - `GET /api/videos/search?...` 同样 404；`api.tvtfun.net` 域名不存在。
-/// - 站点已改版为 **Nuxt 3 SPA**（首页 286KB SSR，`_nuxt/*.js` 客户端路由），
-///   数据改由 `__NUXT_DATA__` 内嵌载荷承载，且该载荷是 **devalue 索引引用编码**
-///   （对象字段值是指向下标数组的整数）。旧的四段 JSON API + HTML 详情解析
-///   在当前站点上**不可能再命中**。
+/// ## 播放为什么走 WebView 而不是自己解析直链
+/// `playback-resolve` 有**人机验证门闸**：`GET /api/site-auth/playback-access`
+/// 返回 `{"enabled":true,"verified":false,"cap":{...}}`（站点 `/cap/` 验证
+/// 组件），未验证时 resolve 直接 403「请先完成播放验证」，且验证状态绑定在
+/// 浏览器会话里（原生 HTTP 客户端拿不到）。因此在 App 内无法静默解析直链。
 ///
-/// 处置：`tier` 置为 `disabled`——本源并非默认源（视频默认 AGE），但留在
-/// 源列表里只会让用户选中后必然 404。**要恢复需重写本源**：实现
-/// `__NUXT_DATA__` 的 devalue 解码 + 摸清列表/搜索/详情/剧集四类页面的载荷
-/// 结构，再替换 playUrl 链路；届时把 tier 改回 `fallback` 即可。
+/// 处置：`playUrl()` 返回站内播放页 `/watch/{slug}/{ep}`，交给 WebView：
+/// 用户在网页里完成一次验证后，站点自带的 artplayer 正常起播；同时
+/// `anime_player_page` 的注入脚本会拦截 m3u8/mp4 响应并把直链交给原生播放器
+/// （可走 Anime4K 超分），拦截不到时退化为网页内播放，两条路都能看。
+///
+/// 列表/搜索/详情**不经过验证**，全部走原生 JSON，速度与原生源一致。
 class TvTfunVideoSource extends VideoSource {
   static const String base = 'https://www.tvtfun.net';
 
-  /// Cloudflare 优选 IP，用于绕过 DNS 解析失败。
-  /// 模拟器/部分网络环境无法解析 tvtfun.net 的 DNS，使用此 IP 直连。
+  /// Cloudflare 优选 IP，用于绕过 DNS 解析失败/污染（沿用旧实现）。
   static const String cloudflareIp = '104.16.150.186';
 
-  /// 匹配剧集链接：<a href=".../play?...">任意内容</a>
-  /// 提取 href 和显示的文本内容（如"第01集"）
-  static final RegExp _epRe = RegExp(
-      r'<a[^>]+href="(/video/[^"]+/play[^"]*)"[^>]*>([\s\S]*?)</a>',
-      dotAll: true);
+  /// 每页条数。接口实测 `pageSize` 可调（`limit` 会 400）。
+  static const int _pageSize = 30;
 
-  static final RegExp _titleRe = RegExp(r'<title>([^<]+)</title>');
-  static final RegExp _descRe = RegExp(
-      r'<meta[^>]+name="description"[^>]+content="([^"]+)"', dotAll: true);
-  static final RegExp _ogImageRe = RegExp(
-      r'<meta[^>]+property="og:image"[^>]+content="([^"]+)"');
+  /// 分组缓存：`'$slug|$season|$episode'` → 站内 `watchPath`。
+  /// `playUrl` 只拿得到 (slug, season, episode)，而站点的播放键是
+  /// `watchPath` 末段（不一定等于集号），故在 `detail()` 时建立映射。
+  final Map<String, String> _watchPath = {};
 
-  /// 服务端渲染的元信息行：<span ...>年份</span><span class="truncate">2026</span>
-  static final RegExp _metaRowRe = RegExp(
-      r'<span class="shrink-0 text-white/50">([^<]+)</span>'
-      r'<span class="truncate">([^<]+)</span>');
-
-  /// Next.js RSC 内嵌 JSON 里的 tag 字段：..."tag":"动画,动作冒险,奇幻",...
-  /// （RSC payload 是 JS 字符串，双引号被转义为 \"）
-  static final RegExp _embeddedTagRe = RegExp(
-      r'\\"tag\\":\\"([^"\\]+)\\"');
+  /// 分类缓存：`video-filter` 是静态维度表，拉一次即可。
+  List<Category>? _categories;
 
   @override
   String get id => 'tvtfun';
+
   @override
   String get name => 'TvTFun 番剧';
-  @override
-  // 2026-11-04：站点 JSON API 已下线（/api/videos 返 404「接口不存在」），
-  // 站点改版为 Nuxt 3 SPA，旧解析链路不可能命中。设为 disabled 从源列表
-  // 隐藏，避免用户选中后必然失败；重写解析器后改回 fallback 即可。
-  SourceTier get tier => SourceTier.disabled;
 
+  /// 2026-11-04 重写后可正常使用；站点列表/搜索/详情均为纯 JSON。
+  /// （此前因旧 API 全 404 曾临时置为 disabled。）
   @override
-  Future<List<Category>> categories() async => [
-        Category('all', '全部'),
-        Category('jp', '日本'),
-        Category('cn', '国创'),
-        Category('kr', '韩国'),
-        Category('movie', '剧场版'),
-        Category('tag_恋爱', '恋爱'),
-        Category('tag_搞笑', '搞笑'),
-        Category('tag_奇幻', '奇幻'),
-        Category('tag_科幻', '科幻'),
-        Category('tag_治愈', '治愈'),
-        Category('tag_校园', '校园'),
-        Category('tag_战斗', '战斗'),
-        Category('year_2026', '2026年'),
-        Category('year_2025', '2025年'),
-        Category('year_2024', '2024年'),
-        Category('year_2023', '2023年'),
-        Category('year_2022', '2022年'),
-      ];
+  SourceTier get tier => SourceTier.fallback;
 
-  @override
-  Future<List<ComicItem>> listByCategory(String categoryId, int page) async {
-    final params = <String, String>{
-      'pageIndex': page.toString(),
-      'pageSize': '20',
-    };
-    if (categoryId == 'jp') {
-      params['area'] = '日本';
-    } else if (categoryId == 'cn') {
-      params['area'] = '中国';
-    } else if (categoryId == 'kr') {
-      params['area'] = '韩国';
-    } else if (categoryId == 'movie') {
-      params['tag'] = '剧场版';
-    } else if (categoryId.startsWith('tag_')) {
-      params['tag'] = categoryId.substring(4);
-    } else if (categoryId.startsWith('year_')) {
-      params['year'] = categoryId.substring(5);
+  // ── 基础请求 ────────────────────────────────────────────────────────
+
+  /// GET 一个 `{"code":0,"data":{…}}` 形态的接口，返回 `data`。
+  Future<Map<String, dynamic>> _apiGet(
+    String path, {
+    Map<String, String>? query,
+    Duration timeout = const Duration(seconds: 20),
+  }) async {
+    var url = '$base$path';
+    if (query != null && query.isNotEmpty) {
+      final qs = query.entries
+          .map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}')
+          .join('&');
+      url = '$url?$qs';
     }
-    final query = params.entries
-        .map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}')
-        .join('&');
-    final json = jsonDecode(await Net.get('$base/api/videos?$query',
-        headers: const {'Cookie': 'quality=1080'},
-        timeout: const Duration(seconds: 30)));
-    final videos = (json['data']?['videos'] as List? ?? const []);
-    return videos.map<ComicItem>((v) => _toItem(v as Map<String, dynamic>)).toList();
+    final body = await Net.get(
+      url,
+      headers: const {'Accept': 'application/json'},
+      timeout: timeout,
+    );
+    final decoded = jsonDecode(body);
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception('TvTFun：接口返回非 JSON 对象');
+    }
+    final code = decoded['code'];
+    if (code != 0) {
+      // 站点错误体有两种：{"code":400,"message":…} 与
+      // {"error":true,"statusCode":403,"message":…}，都取 message 报出。
+      final msg = decoded['message'] ?? decoded['statusMessage'] ?? '$code';
+      throw Exception('TvTFun：$msg');
+    }
+    final data = decoded['data'];
+    return data is Map<String, dynamic> ? data : const {};
   }
 
+  // ── 分类 ────────────────────────────────────────────────────────────
+
   @override
-  Future<List<ComicItem>> search(String keyword, int page) async {
-    if (keyword.trim().isEmpty) return const [];
-    final url = '$base/api/videos/search'
-        '?q=${Uri.encodeQueryComponent(keyword)}&pageSize=10&page=$page';
-    final json = jsonDecode(await Net.get(url,
-        headers: const {'Cookie': 'quality=1080'},
-        timeout: const Duration(seconds: 30)));
-    final videos = (json['data']?['videos'] as List? ?? const []);
-    return videos
-        .map<ComicItem>((v) => _toItem(v as Map<String, dynamic>))
+  Future<List<Category>> categories() async {
+    final cached = _categories;
+    if (cached != null) return cached;
+
+    // 维度表：rows = [{key:'tag'|'year'|'area'|'order', label, options:[{label,value}]}]
+    // tag 有 100 项、year 55 项，全塞进分类胶囊会挤爆 UI，故各取前 N 项；
+    // order 是排序维度（更新时间/创建时间/播放量/评分），不是内容分类，跳过。
+    try {
+      final data = await _apiGet('/api/client/site-modules/video-filter');
+      final cats = <Category>[Category('all', '全部')];
+      final rows = data['rows'];
+      if (rows is List) {
+        for (final row in rows) {
+          if (row is! Map) continue;
+          final key = row['key']?.toString() ?? '';
+          if (key.isEmpty || key == 'order') continue;
+          final limit = key == 'tag' ? 16 : (key == 'year' ? 6 : 12);
+          final options = row['options'];
+          if (options is! List) continue;
+          for (final opt in options.take(limit)) {
+            if (opt is! Map) continue;
+            final value = opt['value']?.toString() ?? '';
+            final label = opt['label']?.toString() ?? value;
+            if (value.isEmpty) continue;
+            cats.add(Category('$key:$value', label));
+          }
+        }
+      }
+      return _categories = cats;
+    } catch (_) {
+      // 维度表拉取失败不阻断首页：给出「全部 + 排序」最小可用集。
+      return _categories = [
+        Category('all', '全部'),
+        Category('order:hits', '最多播放'),
+        Category('order:score', '最高评分'),
+      ];
+    }
+  }
+
+  // ── 列表 / 排行 / 搜索 ──────────────────────────────────────────────
+
+  /// 把 `Category.id`（`all` 或 `tag:xxx` / `area:xxx` / `year:xxx` /
+  /// `order:xxx`）解析成接口查询参数。
+  Map<String, String> _filterOf(String categoryId) {
+    final out = <String, String>{};
+    final i = categoryId.indexOf(':');
+    if (i > 0) {
+      final key = categoryId.substring(0, i);
+      final value = categoryId.substring(i + 1);
+      if (value.isNotEmpty &&
+          (key == 'tag' || key == 'area' || key == 'year' || key == 'order')) {
+        out[key] = value;
+      }
+    }
+    return out;
+  }
+
+  Future<List<ComicItem>> _listQuery(
+    Map<String, String> filter,
+    int page, {
+    String? keyword,
+  }) async {
+    final query = <String, String>{
+      'page': '$page',
+      'pageSize': '$_pageSize',
+      if (keyword != null && keyword.trim().isNotEmpty) 'keyword': keyword,
+      ...filter,
+    };
+    final data = await _apiGet('/api/client/anime', query: query);
+    final items = data['items'];
+    if (items is! List) return const [];
+    return items
+        .whereType<Map>()
+        .map((e) => _toItem(Map<String, dynamic>.from(e)))
         .toList();
   }
 
   @override
+  Future<List<ComicItem>> listByCategory(String categoryId, int page) =>
+      _listQuery(_filterOf(categoryId), page);
+
+  @override
+  Future<List<ComicItem>> search(String keyword, int page) {
+    if (keyword.trim().isEmpty) return Future.value(const []);
+    return _listQuery(const {}, page, keyword: keyword);
+  }
+
+  // ── 详情 ────────────────────────────────────────────────────────────
+
+  @override
   Future<VideoDetail> detail(String videoId) async {
-    final html = await Net.get('$base/video/$videoId',
-        headers: const {'Cookie': 'quality=1080'},
-        timeout: const Duration(seconds: 30));
+    final data = await _apiGet(
+      '/api/client/anime/${Uri.encodeComponent(videoId)}',
+      timeout: const Duration(seconds: 30),
+    );
 
-    // 提取标题
-    final title = _extractTitle(html) ?? videoId;
+    final name = htmlUnescape(data['name']?.toString() ?? videoId);
+    final poster = _firstNonEmpty([
+      data['posterUrl'],
+      data['coverUrl'],
+      data['pic'],
+      data['picThumb'],
+    ]);
+    final summary = (data['summary'] ?? data['blurb'])?.toString();
+    final area = data['area']?.toString();
+    final year = data['year']?.toString();
+    final tags = (data['tags'] is List)
+        ? (data['tags'] as List)
+            .map((e) => e?.toString() ?? '')
+            .where((e) => e.isNotEmpty)
+            .toList()
+        : const <String>[];
 
-    // 提取剧集列表
-    final episodes = _parseEpisodes(html);
+    // 状态 → 展示用类型（TV / 剧场版由 totalEpisodes 推断）
+    final total = data['totalEpisodes'];
+    final type = (total is int && total <= 1) ? '剧场版' : 'TV';
 
-    // 提取元信息
-    final description = _first(_descRe, html);
-    final cover = _first(_ogImageRe, html);
-
-    // 年份/地区/语言来自服务端渲染的元信息行
-    String? area;
-    String? year;
-    String? type;
-    String? lang;
-    for (final m in _metaRowRe.allMatches(html)) {
-      final label = m.group(1)?.trim() ?? '';
-      final value = htmlUnescape(m.group(2)?.trim() ?? '');
-      if (label == '年份') year = value;
-      if (label == '地区') area = value;
-      if (label == '类型') type = value;
-      if (label == '语言') lang = value;
+    final episodes = <VideoEpisode>[];
+    final seasons = data['seasons'];
+    if (seasons is List) {
+      for (var si = 0; si < seasons.length; si++) {
+        final season = seasons[si];
+        if (season is! Map) continue;
+        final seasonNo = _asInt(season['seasonNo']) ?? (si + 1);
+        final rawEps = season['episodes'];
+        if (rawEps is! List) continue;
+        for (var ei = 0; ei < rawEps.length; ei++) {
+          final ep = rawEps[ei];
+          if (ep is! Map) continue;
+          final watchPath = ep['watchPath']?.toString() ?? '';
+          if (watchPath.isEmpty) continue;
+          // 站点的 `number` 字段存在重复（特别篇/重制版与正片共用集号，
+          // 航海王实测 number=1 出现 3 次；`watchPath` 才是唯一键）。若按
+          // number 建缓存会互相覆盖、播放串集（选了第 1 集却拉回第 3 个 1）。
+          // 故集号一律取 season 内连续序号（1..N，与站点列表顺序一致）。
+          final epNo = ei + 1;
+          _watchPath['$videoId|$seasonNo|$epNo'] = watchPath;
+          final title = ep['title']?.toString().trim();
+          episodes.add(VideoEpisode(
+            seasonNo,
+            epNo,
+            (title == null || title.isEmpty) ? '第$epNo集' : title,
+          ));
+        }
+      }
     }
+    // 兜底：剧集缺失但 totalEpisodes 已知时，按集号直接生成（playUrl 走
+    // `/watch/{slug}/{n}` 约定，与站点 URL 规则一致）。
+    if (episodes.isEmpty && total is int && total > 0) {
+      for (var n = 1; n <= total; n++) {
+        episodes.add(VideoEpisode(1, n, '第$n集'));
+        _watchPath['$videoId|1|$n'] = '/watch/$videoId/$n';
+      }
+    }
+    episodes.sort((a, b) => a.season != b.season
+        ? a.season.compareTo(b.season)
+        : a.episode.compareTo(b.episode));
 
-    // 标签来自 RSC 内嵌 JSON 的 tag 字段（以逗号分隔）
-    final tags = _embeddedTagRe
-        .firstMatch(html)
-        ?.group(1)
-        ?.split(',')
-        .map((t) => t.trim())
-        .where((t) => t.isNotEmpty)
-        .toList() ??
-        const <String>[];
+    final item = ComicItem(videoId, name, poster ?? '')
+      ..content = summary
+      ..score = data['score']?.toString()
+      ..hits = data['playCount']?.toString()
+      ..remarks = (total is int && total > 0) ? '全$total集' : null;
 
-    final item = ComicItem(videoId, title, cover ?? '')
-      ..lang = lang;
     return VideoDetail(
       item,
       episodes,
-      description: description,
-      cover: cover,
+      description: summary,
+      cover: poster,
       area: area,
       year: year,
       type: type,
-      lang: lang,
       tags: tags,
     );
   }
 
+  // ── 播放 ────────────────────────────────────────────────────────────
+
+  /// 返回站内播放页（非直链）→ 播放器按 `isDirectMediaUrl` 判定后走 WebView。
+  ///
+  /// 播放页内的验证与解析由站点自己完成；注入的 JS 会顺带捕获 m3u8 交给
+  /// 原生播放器。见类注释「播放为什么走 WebView」。
   @override
   Future<String> playUrl(String videoId, int season, int episode) async {
-    final normal = '$base/video/$videoId/play?source=0&episode=$episode';
-    // 默认走真实域名；若网络不可达（DNS 污染/被墙），回退 Cloudflare 优选 IP 直连。
-    // 注意：WebView 直连 IP 受 TLS 证书（SNI=IP 不匹配）限制，可能在部分环境仍失败，
-    // 此时需在网络层解决（可用网络 / 系统 hosts 映射）。
+    final cached = _watchPath['$videoId|$season|$episode'];
+    final path = cached ?? '/watch/$videoId/$episode';
+    // 域名解析失败/被污染时回退 Cloudflare 优选 IP（沿用旧实现的行为）。
     try {
       await Net.get(base, timeout: const Duration(seconds: 10));
+      return '$base$path';
     } catch (_) {
-      return cloudflarePlayUrl(videoId, season, episode);
+      return 'https://$cloudflareIp$path';
     }
-    return normal;
   }
 
   /// 返回使用 Cloudflare 优选 IP 的播放页 URL（绕过 DNS 解析失败）。
   String cloudflarePlayUrl(String videoId, int season, int episode) {
-    final path = '/video/$videoId/play?source=0&episode=$episode';
+    final path = _watchPath['$videoId|$season|$episode'] ?? '/watch/$videoId/$episode';
     return 'https://$cloudflareIp$path';
   }
 
-  /// API 条目 -> ComicItem（带评分 / 更新提示 / 别名等元信息）
+  // ── 条目映射与工具 ──────────────────────────────────────────────────
+
+  /// API 条目 → [ComicItem]。
+  ///
+  /// 新版条目字段：`{id, code, slug, name, originalName, bangumiScore,
+  /// totalEpisodes, posterUrl, coverUrl, tags, summary, hits, playCount}`
   ComicItem _toItem(Map<String, dynamic> v) {
-    final slugStr = v['slug']?.toString() ?? '';
-    final slug = slugStr.isNotEmpty ? slugStr : (v['id']?.toString() ?? '');
-    var cover = (v['pic'] as String? ?? '');
-    // 解码 Next.js 图片代理 URL
-    if (cover.contains('/_next/image')) {
-      final u = Uri.tryParse(cover);
-      final real = u?.queryParameters['url'];
-      if (real != null && real.isNotEmpty) {
-        cover = Uri.decodeComponent(real);
-      }
+    final slug = _firstNonEmpty([v['slug'], v['id']]) ?? '';
+    final poster = _firstNonEmpty([
+      v['posterUrl'],
+      v['coverUrl'],
+      v['pic'],
+      v['picThumb'],
+    ]) ?? '';
+    final total = _asInt(v['totalEpisodes']);
+    final remarks = (total != null && total > 0)
+        ? (total <= 1 ? '剧场版' : '全$total集')
+        : null;
+    return ComicItem(slug, htmlUnescape(v['name']?.toString() ?? ''), poster)
+      ..yname = htmlUnescape(v['originalName']?.toString() ?? '')
+      ..score = v['bangumiScore']?.toString()
+      ..hits = (v['hits'] ?? v['playCount'])?.toString()
+      ..content = v['summary']?.toString()
+      ..remarks = remarks;
+  }
+
+  static String? _firstNonEmpty(List<dynamic> values) {
+    for (final v in values) {
+      final s = v?.toString().trim() ?? '';
+      if (s.isNotEmpty) return s;
     }
-    // 主图 lain.bgm.tv 在部分网络下被 DNS 污染（解析到 Facebook 段 IP 导致
-    // 加载超时）；picThumb 是 QQ 图床（p.qpic.cn）缩略图，国内稳定可达。
-    // 有缩略图时直接用缩略图当主图，lain 图作为降级（加载失败再补），
-    // 避免封面长时间转圈后落到纯色占位图。
-    final thumb = (v['picThumb'] as String? ?? '').trim();
-    final primary = thumb.isNotEmpty ? thumb : cover;
-    final fallback = thumb.isNotEmpty ? cover : '';
-    final score = v['score'];
-    final hits = v['hitsMonth'] ?? v['hits'];
-    return ComicItem(
-      slug,
-      htmlUnescape((v['name'] as String?) ?? ''),
-      primary,
-    )
-      ..yname = htmlUnescape((v['sub'] as String?) ?? '')
-      ..score = score?.toString()
-      ..hits = hits?.toString()
-      ..content = (v['content'] as String?) ?? ''
-      ..remarks = (v['remarks'] as String?) ?? ''
-      ..lang = (v['lang'] as String?) ?? ''
-      // 主图已被换成缩略图时，lain 图作为降级补上（个别条目缩略图缺失时
-      // 走 http_client 的 lain.bgm.tv 优选 IP 直连，绕过 DNS 污染）。
-      ..picFallback = fallback;
+    return null;
   }
 
-  /// 解析剧集列表
-  List<VideoEpisode> _parseEpisodes(String html) {
-    final episodes = <VideoEpisode>[];
-    final seen = <String>{};
-    for (final m in _epRe.allMatches(html)) {
-      final href = m.group(1)?.trim() ?? '';
-      if (!seen.add(href)) continue;
-
-      // 提取显示文本（去除 HTML 标签）
-      var name = m.group(2) ?? '';
-      name = name.replaceAll(RegExp(r'<[^>]+>'), '').trim();
-      name = htmlUnescape(name);
-
-      // 提取集数
-      final epMatch = RegExp(r'episode=(\d+)').firstMatch(href);
-      final ep = int.tryParse(epMatch?.group(1) ?? '') ?? 0;
-
-      episodes.add(VideoEpisode(1, ep, name));
-    }
-    // 按集数排序
-    episodes.sort((a, b) => a.episode.compareTo(b.episode));
-    return episodes;
+  static int? _asInt(dynamic v) {
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v.trim());
+    return null;
   }
-
-  /// 提取标题（去除站点后缀）
-  String? _extractTitle(String html) {
-    final raw = _first(_titleRe, html);
-    if (raw == null) return null;
-    return raw.replaceAll(RegExp(r'\s*[-_|].*$'), '').trim();
-  }
-
-  String? _first(RegExp re, String html) {
-    final m = re.firstMatch(html);
-    return m?.group(1);
-  }
-
 }

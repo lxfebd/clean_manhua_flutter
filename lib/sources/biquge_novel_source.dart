@@ -1,88 +1,151 @@
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                import '../models/comic_item.dart';
+import '../models/comic_item.dart';
 import 'dsl/html_parser.dart' show firstCleanMatch, stripHtmlTags;
 import 'novel_source.dart';
 import 'source_config.dart';
 import 'source_http.dart';
 
-/// 笔趣阁类聚合小说源（xbiquge.com / tobiquge.com 模板）。
+/// 笔趣阁小说源（`www.biquge365.net` 经典笔趣阁模板）。
 ///
-/// 站点结构（2026-08 实测可用）：
-/// - 排行：/rank.html（无分页，整页书单）
-/// - 分类：/list-{catId}-{page}/   （catId: 4都市, 6游戏, 8异界, 9科幻, 10历史…）
-/// - 详情：/bqg/{novelId}/         章节列表在详情页内
-/// - 章节：/bqg/{novelId}/{cid}.html → <div id="content"> 内 <p> 段落
-/// - 封面：og:image（tobiquge.com 图床）
-/// - 搜索：该模板搜索跳转第三方聚合站，本站无搜索接口，返回空列表。
-/// - 注意：主站 xbiquge.com 会 301 到 tobiquge.com，而重定向链在部分 UA/
-///   header（如 Accept: */*）下连接会被关闭，因此首选直连 tobiquge.com。
-///
-/// ## 2026-11-04 实测：本模板站点已全灭
+/// ## 2026-11-04 换站重写
+/// 旧站 tobiquge.com / xbiquge.com **已全灭**：
 /// - `tobiquge.com`：HTTP 302 跳 `http://www.js96110.com.cn/`（江苏反诈拦截页），
-///   HTTPS 直接 TLS 握手失败——站点已被反诈系统接管，不是临时故障。
-/// - `xbiquge.com`：HTTPS 连接 15s 超时，无响应。
-/// - 另测 16 个常见笔趣阁镜像（bqg128 / biquge365 / beqege / biqu5200 / bqg70 /
-///   biquge5200 / xbiquge.la / biquge.info / tobiquge.net / bqg221 / biqugse…），
-///   无一使用本源的 `/bqg/{id}/{cid}.html` + `/rank.html` + `/list-{cat}-{page}/`
-///   模板（要么已挂，要么换成随机路径反爬），因此**无法靠换域名救活**。
+///   HTTPS 直接 TLS 握手失败——站点被反诈系统接管，不是临时故障；
+/// - `xbiquge.com`：HTTPS 15s 超时无响应。
+/// 另测 16 个常见笔趣阁镜像，无一使用旧站 `/bqg/{id}/{cid}.html` 模板，故不换
+/// 域名、直接**换站**：改为 `biquge365.net`（同属经典笔趣阁模板）。
 ///
-/// 处置：`tier` 由 `primary` 降为 `fallback`——小说首页默认源改为能用的
-/// 新笔趣阁（[XbiqugeNovelSource]，xbiquge.bz 实测正常）。本源保留在源管理页
-/// 供网络环境不同的用户手动启用；若后续找到同模板站点，把域名加进
-/// [_defaultHosts] 并把 tier 调回 primary 即可（解析规则无需改动）。
+/// ## 站点结构（2026-11-04 实测）
+/// - 分类：`/sort/{catId}_{page}/`（catId 1-8；第 1 页即 `_1`）
+/// - 详情：`/newbook/{novelId}/`，章节目录整页直出
+///   （`<a href="/chapter/{id}/{cid}.html">第N章 …</a>`）
+/// - 章节：`/chapter/{novelId}/{cid}.html` → 正文在 `<div id="txt">` 内，
+///   以 `<br/>` 分段。**多页章节仍一页直出**：文本中间会插入
+///   `（本章未完，请点击下一页继续阅读）第N章xx(第2/2页)` 之类的标记，但第 2 页
+///   内容紧接其后，无需真的抓第二页，清洗掉标记即可。
+/// - 搜索：站内 `POST /s.php` **自身 SQL 报错**
+///   （`Illegal mix of collations (gbk_bin, utf8mb3_general_ci)`），
+///   服务端根本搜不出结果；与旧实现一致，返回空列表由 UI 兜底。
+/// - 排行：无独立排行榜页，回退分类第 1 页（玄幻魔法）当榜单。
+///
+/// 保留 `id: 'biquge'` / `name: '笔趣阁'` 不变，书架里已收藏的进度不受影响
+/// （`chapterId` 形如 `"novelId|cid"`，与旧实现同构）。
 class BiqugeNovelSource extends NovelSource {
+  /// 主站 + 备用镜像。站点换域名时优先在这里补，解析规则通常无需改动。
   static const List<String> _defaultHosts = [
-    'https://www.tobiquge.com',
-    'https://www.xbiquge.com',
+    'https://www.biquge365.net',
   ];
 
-  // 详情页章节：<a href="/bqg/{novelId}/{cid}.html">章节名</a>
-  static final RegExp _chapterRe =
-      RegExp(r'<a\s+href="/bqg/(\d+)/(\d+)\.html"[^>]*>([^<]+)</a>');
-  static final RegExp _h1Re = RegExp(r'<h1[^>]*>([^<]+)</h1>');
+  /// 已确认死亡的旧域名。**必须在选取 host 时过滤掉**：
+  /// `SourceConfigStore.hostsFor()` 优先返回内置/用户配置里的 hosts，
+  /// 而老用户的 `sources_config.json` 里仍可能存着换站前的那对域名。
+  /// 若不剔除，配置会盖过 [_defaultHosts]，导致「解析器换了站却仍然连旧站」。
+  static const Set<String> _deadHosts = {
+    'https://www.tobiquge.com',
+    'http://www.tobiquge.com',
+    'https://www.xbiquge.com',
+    'http://www.xbiquge.com',
+  };
+
+  /// 站内分类 id → 名称（来自首页导航 `/sort/{id}_1/`）。
+  static const Map<String, String> _catNames = {
+    '1': '玄幻魔法',
+    '2': '仙侠修真',
+    '3': '都市言情',
+    '4': '网游动漫',
+    '5': '科幻小说',
+    '6': '恐怖灵异',
+    '7': '历史军事',
+    '8': '其他小说',
+  };
+
+  /// 主列表条目（`ul.gengxin` 内的更新列表，**分页正确的那一份**）：
+  /// `<li><span class="name">《<a href="/book/{id}/">书名</a>》</span>
+  ///  <span class="jie"><a href="/chapter/{id}/{cid}.html">最新章节</a></span>
+  ///  <span class="zuo">作者</span><span class="time">日期</span></li>`
+  ///
+  /// 注意：页面顶部/侧栏另有一块「本站强推 / 收藏排行」（带封面、每页都相同），
+  /// 早先按「img + h3」抓会一直抓到那份重复数据，导致翻页首条不变。
+  static final RegExp _mainItemRe = RegExp(
+      r'<li>\s*<span class="name">《<a\s+href="/book/(\d+)/"[^>]*>([^<]+)</a>》</span>'
+      r'(?:\s*<span class="jie"><a[^>]*>([^<]*)</a></span>)?'
+      r'(?:\s*<span class="zuo">([^<]*)</span>)?');
+
+  /// 推荐位条目（带封面，仅当主列表为空时兜底）：
+  /// `<a href="/book/{id}/"><img src="…"></a> … <h3><a href="/book/{id}/">书名</a>`
+  static final RegExp _itemRe = RegExp(
+      r'<a\s+href="/book/(\d+)/"[^>]*>\s*<img[^>]+src="([^"]+)"[^>]*>[\s\S]*?'
+      r'<h3[^>]*>\s*<a\s+href="/book/\1/"[^>]*>([^<]+)</a>');
+  /// 无封面的简洁列表（部分栏目只有文字链接）
+  static final RegExp _textItemRe = RegExp(
+      r'<a\s+href="/book/(\d+)/"[^>]*>([^<]{2,40})</a>');
+
+  /// 章节目录：`<a href="/chapter/{novelId}/{cid}.html">第N章 标题</a>`
+  static final RegExp _chapterRe = RegExp(
+      r'<a[^>]*\bhref="/chapter/(\d+)/(\d+)\.html"[^>]*>([^<]+)</a>');
+  /// 过滤目录里的功能按钮（不是章节）
+  static const Set<String> _navLabels = {
+    '开始阅读',
+    '章节目录',
+    '加入书架',
+    '上一章',
+    '下一章',
+    '返回目录',
+  };
+
   static final RegExp _ogTitleRe =
       RegExp(r'<meta[^>]+property="og:title"[^>]+content="([^"]+)"');
   static final RegExp _ogImgRe =
       RegExp(r'<meta[^>]+property="og:image"[^>]+content="([^"]+)"');
-  static final RegExp _descRe =
-      RegExp(r'<meta[^>]+property="og:description"[^>]+content="([^"]+)"');
+  static final RegExp _ogDescRe =
+      RegExp(r'<meta[^>]+property="og:description"[^>]+content="([^"]*)"');
+  static final RegExp _authorRe =
+      RegExp(r'<meta[^>]+name="author"[^>]+content="([^"]+)"');
+  static final RegExp _h1Re = RegExp(r'<h1[^>]*>([^<]+)</h1>');
+
+  /// 正文容器：`<div  id="txt" class="txt"> … </div>`
   static final RegExp _contentRe =
-      RegExp(r'<div[^>]+id="content"[^>]*>([\s\S]*?)</div>',
-          caseSensitive: false);
-  // 下一章：<a href="/bqg/{id}/{cid}.html" class="pageDown">下一章</a>
-  static final RegExp _nextRe =
-      RegExp(r'<a\s+href="[^"]*/bqg/(\d+)/(\d+)\.html"[^>]*class="pageDown"[^>]*>[^<]*下一章</a>');
-  // 上一章：<a href="/bqg/{id}/{cid}.html" class="pageUp">上一章</a>
-  static final RegExp _prevRe =
-      RegExp(r'<a\s+href="[^"]*/bqg/(\d+)/(\d+)\.html"[^>]*class="pageUp"[^>]*>[^<]*上一章</a>');
-  static final RegExp _brRe = RegExp(r'(<br\s*/?>|</p>|&nbsp;)',
-      caseSensitive: false);
-  static final RegExp _htmlCommentRe = RegExp(r'<!--[\s\S]*?-->');
-  static final RegExp _bookLinkRe =
-      RegExp(r'<a\s+href="/bqg/(\d+)/"[^>]*>([^<]+)</a>');
+      RegExp(r'<div\s+id="txt"[^>]*>([\s\S]*?)</div>', caseSensitive: false);
+
+  // ── 正文清洗 ────────────────────────────────────────────────────────
+  /// 站方插入的广告行：「一秒记住【笔趣阁】biquge365.net，更新快，无弹窗！」
+  static final RegExp _adRe =
+      RegExp(r'一秒记住【[^】]*】[^\n<]*', caseSensitive: false);
+  /// 分页标记：「(第1/2页)」
+  static final RegExp _pageMarkRe =
+      RegExp(r'\(第\d+/\d+页\)', caseSensitive: false);
+  /// 翻页提示：「（本章未完，请点击下一页继续阅读）」
+  static final RegExp _nextHintRe =
+      RegExp(r'（本章未完，请点击下一页继续阅读）', caseSensitive: false);
+  static final RegExp _brRe = RegExp(r'<br\s*/?>', caseSensitive: false);
+  static final RegExp _tagRe = RegExp(r'<[^>]+>');
+  static final RegExp _nbspRe = RegExp(r'&nbsp;|&#160;', caseSensitive: false);
+  /// 单独的章节标题行残留（无正文），如「第318章 敲打」
+  static final RegExp _bareTitleRe = RegExp(r'^第\d+章[\s\S]{0,30}$');
 
   @override
   String get id => 'biquge';
+
   @override
   String get name => '笔趣阁';
+
+  /// 换站后已可用；仍保持 `fallback`，让实测更充分的新笔趣阁
+  /// （xbiquge.bz）继续担任小说首页默认源，本源作为可选备用。
   @override
-  // 2026-11-04：主站 tobiquge/xbiquge 全灭（tobiquge 被反诈页接管），
-  // 同模板镜像无一存活，无法换域名救活。降为 fallback 让小说首页默认
-  // 用新笔趣阁（xbiquge.bz 正常）；保留本源供网络不同的用户手动启用。
   SourceTier get tier => SourceTier.fallback;
 
-  // 站内分类 id → 名称
-  static const Map<String, String> _catNames = {
-    '4': '都市小说',
-    '5': '游戏小说',
-    '6': '网游小说',
-    '8': '异界小说',
-    '9': '科幻小说',
-    '10': '历史小说',
-    '11': '武侠小说',
-    '12': '军事小说',
-    '16': '古代言情',
-    '18': '现代言情',
-  };
+  /// 选一个可用 host 并 GET 相对路径。
+  ///
+  /// 优先级：用户在源管理页配置的 host（剔除 [_deadHosts]）→ [_defaultHosts]。
+  /// 这样既尊重用户自定义域名，又不会被换站前的死域名卡住。
+  Future<String> _get(String path) async {
+    final configured = await SourceConfigStore.hostsFor('biquge', _defaultHosts);
+    final alive = configured
+        .map((h) => h.trim())
+        .where((h) => h.isNotEmpty && !_deadHosts.contains(h))
+        .toList();
+    final host = alive.isNotEmpty ? alive.first : _defaultHosts.first;
+    return SourceHttp.getUrl('biquge', '$host$path');
+  }
 
   @override
   Future<List<Category>> categories() async => [
@@ -91,105 +154,181 @@ class BiqugeNovelSource extends NovelSource {
 
   @override
   Future<List<ComicItem>> listByCategory(String categoryId, int page) async {
-    final id = categoryId == 'all' ? '4' : categoryId;
-    return _parseList(
-        await SourceHttp.get('biquge', '/list-$id-$page/',
-            fallbackHosts: _defaultHosts));
+    final id = _catNames.containsKey(categoryId) ? categoryId : '1';
+    return _parseList(await _get('/sort/${id}_$page/'));
   }
 
   @override
   Future<List<ComicItem>> rank(int page) async {
-    // /rank.html 为整页书单（无分页），page>1 时仍返回首页排行。
-    final body = await SourceHttp.get('biquge', '/rank.html',
-        fallbackHosts: _defaultHosts);
-    return _parseList(body);
+    // 无独立排行页：用「玄幻魔法」分类首页当榜单（page>1 时仍回首页）。
+    return _parseList(await _get('/sort/1_1/'));
   }
 
   @override
   Future<List<ComicItem>> search(String keyword, int page) async {
-    // 该模板无站内搜索（搜索框跳第三方聚合站），返回空列表由 UI 兜底。
+    // 站内搜索服务端 SQL 报错（collation 冲突），拿不到结果 → UI 兜底。
     return const [];
   }
 
   @override
   Future<NovelDetail> detail(String novelId) async {
-    final body = await SourceHttp.get('biquge', '/bqg/$novelId/',
-        fallbackHosts: _defaultHosts);
-    final name = firstCleanMatch(_ogTitleRe, body);
+    // /newbook/{id}/ 整页直出章节目录
+    final body = await _get('/newbook/$novelId/');
+
+    // firstCleanMatch 无匹配时返回 ''（非 null），故按「空则回退」逐级取。
+    var name = _cleanText(firstCleanMatch(_ogTitleRe, body));
+    if (name.isEmpty) name = _cleanText(firstCleanMatch(_h1Re, body));
+    if (name.isEmpty) name = novelId;
     final cover = firstCleanMatch(_ogImgRe, body);
-    final desc = firstCleanMatch(_descRe, body);
+    final desc = firstCleanMatch(_ogDescRe, body);
+    final author = firstCleanMatch(_authorRe, body);
+
     final chapters = <NovelChapter>[];
     final seen = <String>{};
     var idx = 0;
     for (final m in _chapterRe.allMatches(body)) {
       final nid = m.group(1)!;
       final cid = m.group(2)!;
-      // 站点在章节列表头部放 cid=0 的无效占位链接（如「/bqg/{id}/0.html」），需跳过
-      if (cid == '0') continue;
-      if (nid != novelId || !seen.add(cid)) continue;
-      chapters.add(
-          NovelChapter('$novelId|$cid', stripHtmlTags(m.group(3)!),
-              index: idx++));
+      if (nid != novelId) continue; // 页面可能有「推荐」区，排除别的书
+      final label = _cleanText(m.group(3) ?? '');
+      if (label.isEmpty || _navLabels.contains(label)) continue;
+      if (!seen.add(cid)) continue;
+      chapters.add(NovelChapter('$novelId|$cid', label, index: idx++));
     }
-    return NovelDetail(
-      ComicItem(novelId, name, cover),
-      chapters,
-      description: desc,
-    );
+
+    final item = ComicItem(novelId, name, cover)
+      ..author = author
+      ..content = desc;
+
+    return NovelDetail(item, chapters, description: desc);
   }
 
   @override
   Future<NovelContent> chapterContent(String chapterId) async {
     // chapterId 形如 "{novelId}|{cid}"
     final sep = chapterId.indexOf('|');
-    if (sep < 0) {
-      return NovelContent(chapterId, '', const []);
-    }
+    if (sep < 0) return NovelContent(chapterId, '', const []);
     final novelId = chapterId.substring(0, sep);
     final cid = chapterId.substring(sep + 1);
-    final body = await SourceHttp.get('biquge', '/bqg/$novelId/$cid.html',
-        fallbackHosts: _defaultHosts);
-    final title = firstCleanMatch(_h1Re, body);
+
+    final body = await _get('/chapter/$novelId/$cid.html');
+    final title = _cleanText(firstCleanMatch(_h1Re, body));
     final paragraphs = _parseContent(body);
-    final prev = _firstGroup(_prevRe, body);
-    final next = _firstGroup(_nextRe, body);
+    final nav = _parseNav(body);
+
     return NovelContent(
       chapterId,
-      stripHtmlTags(title),
+      title,
       paragraphs,
-      prevChapterId: prev != null ? '$novelId|$prev' : null,
-      nextChapterId: next != null ? '$novelId|$next' : null,
+      prevChapterId: nav.$1,
+      nextChapterId: nav.$2,
     );
   }
 
-  List<String> _parseContent(String html) {
-    final m = _contentRe.firstMatch(html);
-    if (m == null) return const [];
-    final raw = m.group(1)!
-        .replaceAll(_htmlCommentRe, '')
-        .replaceAll(_brRe, '\n')
-        .replaceAll(RegExp(r'<[^>]+>'), '')
-        .replaceAll('&nbsp;', ' ')
-        .replaceAll('&amp;', '&')
-        .replaceAll('&quot;', '"')
-        .replaceAll('&#39;', "'");
-    return raw
-        .split('\n')
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty && s != '『加入书签，方便阅读』')
-        .toList();
-  }
+  // ── 解析辅助 ────────────────────────────────────────────────────────
 
-  Future<List<ComicItem>> _parseList(String html) async {
+  List<ComicItem> _parseList(String body) {
     final items = <ComicItem>[];
-    for (final m in _bookLinkRe.allMatches(html)) {
+    final seen = <String>{};
+
+    // 0) 先把页面里「带封面的推荐位」建成 id → 封面 映射。
+    //    主列表（ul.gengxin）本身不含图片，但推荐位常与主列表部分重叠，
+    //    顺手复用封面可让首屏多几张图（拿不到也不影响功能）。
+    final covers = <String, String>{};
+    for (final m in _itemRe.allMatches(body)) {
       final id = m.group(1)!;
-      if (items.any((e) => e.id == id)) continue;
-      items.add(ComicItem(id, stripHtmlTags(m.group(2)!), ''));
+      final src = _absolute(m.group(2) ?? '');
+      if (src.isNotEmpty) covers.putIfAbsent(id, () => src);
+    }
+
+    // 1) 主列表（ul.gengxin）：分页正确，条目无封面（用上面的映射补）
+    for (final m in _mainItemRe.allMatches(body)) {
+      final id = m.group(1)!;
+      if (!seen.add(id)) continue;
+      final title = _cleanText(m.group(2) ?? '');
+      if (title.isEmpty) continue;
+      final latest = _cleanText(m.group(3) ?? '');
+      final author = _cleanText(m.group(4) ?? '');
+      items.add(ComicItem(id, title, covers[id] ?? '')
+        ..author = author.isEmpty ? null : author
+        ..remarks = latest.isEmpty ? null : latest);
+    }
+    if (items.isNotEmpty) return items;
+
+    // 2) 兜底：推荐位（带封面）。仅当页面没有主列表时使用。
+    for (final m in _itemRe.allMatches(body)) {
+      final id = m.group(1)!;
+      if (!seen.add(id)) continue;
+      items.add(ComicItem(
+        id,
+        _cleanText(m.group(3) ?? ''),
+        _absolute(m.group(2) ?? ''),
+      ));
+    }
+    if (items.isNotEmpty) return items;
+
+    // 3) 再兜底：纯文字链接（跳过按钮词）
+    for (final m in _textItemRe.allMatches(body)) {
+      final id = m.group(1)!;
+      final label = _cleanText(m.group(2) ?? '');
+      if (label.isEmpty || _navLabels.contains(label)) continue;
+      if (!seen.add(id)) continue;
+      items.add(ComicItem(id, label, ''));
     }
     return items;
   }
 
-  static String? _firstGroup(RegExp re, String s) =>
-      re.firstMatch(s)?.group(2);
+  /// 正文：按 `<br>` 分段，逐段清洗广告/分页标记/翻页提示。
+  ///
+  /// 站点的多页章节虽然插了「第2/2页」标记，但第 2 页正文同一响应里紧接
+  /// 其后，故这里不真抓第二页，只把标记抹掉。
+  List<String> _parseContent(String body) {
+    final m = _contentRe.firstMatch(body);
+    if (m == null) return const [];
+    var raw = m.group(1)!;
+    raw = raw.replaceAll(_brRe, '\n');
+    raw = raw.replaceAll(_tagRe, '');
+    raw = raw.replaceAll(_nbspRe, ' ');
+    raw = raw.replaceAll(_adRe, '');
+    raw = raw.replaceAll(_nextHintRe, '');
+    raw = raw.replaceAll(_pageMarkRe, '');
+
+    final out = <String>[];
+    for (final line in raw.split('\n')) {
+      final t = line.replaceAll(RegExp(r'\s+'), ' ').trim();
+      if (t.isEmpty) continue;
+      // 单独的章节标题行残留（无正文）跳过
+      if (_bareTitleRe.hasMatch(t)) continue;
+      out.add(t);
+    }
+    return out;
+  }
+
+  /// 上一章/下一章 id（返回 `"novelId|cid"`，无则 null）。
+  (String?, String?) _parseNav(String body) {
+    String? prev;
+    String? next;
+    final re = RegExp(
+        r'<a[^>]*\bhref="/chapter/(\d+)/(\d+)\.html"[^>]*>\s*(上一章|下一章)\s*</a>');
+    for (final m in re.allMatches(body)) {
+      final id = '${m.group(1)}|${m.group(2)}';
+      if (m.group(3) == '上一章') {
+        prev ??= id;
+      } else if (m.group(3) == '下一章') {
+        next ??= id;
+      }
+    }
+    return (prev, next);
+  }
+
+  String _cleanText(String raw) => stripHtmlTags(raw).trim();
+
+  String _absolute(String src) {
+    final s = src.trim();
+    if (s.isEmpty) return '';
+    if (s.startsWith('http')) return s;
+    if (s.startsWith('//')) return 'https:$s';
+    final host = _defaultHosts.first;
+    return s.startsWith('/') ? '$host$s' : '$host/$s';
+  }
 }
