@@ -44,6 +44,18 @@ flutter build web --release     # Web 端（alpha）：静态产物 build/web（
 
 ## 更新日志
 
+### v1.5.7（2026-11-06）
+
+- 🛠️ **源站全面体检与抢救**（用户反馈「很多源加载不出来」）——用「App 同款 Dart 栈 + 各源实网测试 + 市场源实网测试」三路交叉验证后，逐源处置：
+  - **TvTFun 逆向重写**：站点从 Next.js 改为 Nuxt 3 SPA，旧 `/api/videos*` 全部 404「接口不存在」。从 SSR 的 `__NUXT_DATA__`（devalue 索引引用载荷）与 `_nuxt/*.js` 路由 chunk 中逆出新接口（`/api/client/anime` 列表/搜索/详情、`/api/client/anime/watch/{slug}/{ep}/playback` 播放、`/api/site-auth/playback-resolve` 解析）并整体重写。列表/搜索/详情走原生 JSON；播放因站点有人机验证（`/cap/` 组件）改走 WebView——用户网页里验证一次后站点播放器起播，注入脚本仍会捕获 m3u8 交原生播放器（可走 Anime4K）。
+  - **笔趣阁换站重写**：旧站 `tobiquge.com` 已被江苏反诈页接管（302 → js96110.com.cn）、`xbiquge.com` 超时，另测 16 个镜像无一同模板 → 换到 `biquge365.net` 并重写解析（分类/详情/正文），保留源 id 与书架进度。
+  - **鞍山影院修复**：站点 HTTPS 握手失效但 HTTP 正常（200 / 1.2s）→ 改走 HTTP；同时修复分类页恒空（卡片命名空间白名单写死，站点已扩到 `/bdfcs/`）。
+  - **禁漫 JM**：全部域名被 Cloudflare「Just a moment」JS 挑战拦截，纯抓取无解，保留 fallback 并如实记录（未做伪修复）。
+- 🐛 **两处隐蔽缺陷**：
+  - **配置表与源默认 host 不同步**：`SourceHttp` 读的是 `source_config.dart` 的 hosts 而非源类的兜底，只改解析器域名请求仍打旧站；且老用户本地配置会覆盖默认值。已加「配置表更新 + 源内死域名黑名单 + 回归测试」三层防线。
+  - **剧集串集**：站点集号字段有重复（航海王 `number=1` 出现 3 次），按集号建播放缓存会互相覆盖 → 改为 season 内连续序号（`watchPath` 才是唯一键）。
+- 🧪 **测试**：全量 **1029 通过 / 34 跳过**；新增笔趣阁新站契约实网测试，改写 TvTFun 新 API 契约测试；`analyze` 保持 0 issues。
+
 ### v1.5.6（2026-10-21）
 
 - 🎨 **设计系统全量落地（D + R 两批收官）**：
