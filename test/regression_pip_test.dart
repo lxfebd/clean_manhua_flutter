@@ -127,7 +127,7 @@ void main() {
       ));
       PlayerRegistry.retire();
       // fire-and-forget：等 LocalStore 排队写完成。
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await LocalStore.flushAll(); // 等写盘队列真正落盘（固定 50ms 在 CI 并行负载下不够，曾偶发读到旧值）
       expect(await LocalStore.videoProgressOf(key), 0,
           reason: '位置 <5s 不应写进度');
       await p.dispose();
@@ -150,7 +150,7 @@ void main() {
         episode: 3,
       ));
       PlayerRegistry.retire();
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await LocalStore.flushAll(); // 等写盘队列真正落盘（固定 50ms 在 CI 并行负载下不够，曾偶发读到旧值）
       expect(await LocalStore.videoProgressOf(key), 42);
 
       // 看完（距结尾 15s 内）：清续播记录。
@@ -169,7 +169,7 @@ void main() {
         episode: 3,
       ));
       PlayerRegistry.retire();
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await LocalStore.flushAll(); // 等写盘队列真正落盘（固定 50ms 在 CI 并行负载下不够，曾偶发读到旧值）
       expect(await LocalStore.videoProgressOf(key), 0,
           reason: '看完应清除续播记录');
       await p.dispose();
@@ -192,7 +192,7 @@ void main() {
         episode: 3,
       ));
       PlayerRegistry.retire();
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await LocalStore.flushAll(); // 等写盘队列真正落盘（固定 50ms 在 CI 并行负载下不够，曾偶发读到旧值）
       final recs = await LocalStore.videoRecords();
       final match = recs.where((r) => r.sourceId == 'src1').toList();
       expect(match, hasLength(1));
