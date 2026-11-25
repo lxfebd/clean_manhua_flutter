@@ -101,28 +101,51 @@ android {
             }
         }
         release {
-            // P0-02 纵深防御：release 构建缺 key.properties 时**不再静默退回
-            // debug 签名**。CI 的 workflow 已经 fail-closed（缺 secret 即 exit 1），
-            // 但本地/其他机器上直接跑 `flutter build apk --release` 时同样会
-            // 过去那样悄悄产出 debug 签名的「正式包」——用户覆盖安装失败、本地数据
-            // 丢失。这里把最后一处 fail-open 也关上。
-            // 需要临时出调试包时显式加 -PallowDebugReleaseSigning=true（可审计）。
+            // 缺 key.properties 时退回 debug 签名，与上面 debug {} 分支同一套逻辑。
+            //
+            // 「绝不静默产出 debug 签名的正式包」这一条并没有放松，只是换了个生效
+            // 时机：由本文件末尾的 taskGraph 钩子执行——仅当本次任务图里真的出现
+            // Release 相关任务（assembleRelease / bundleRelease / installRelease …）
+            // 时才失败。原写法在配置期的 signingConfig 表达式里 throw，Gradle 配置
+            // 阶段就会求值它，导致缺 key.properties 时连 --debug 都构建不了
+            // （CI 分支构建从不解钥，key.properties 必然不存在——这正是 CI 绿转红
+            // 的根因）。本地确需出调试 release 包时加
+            // -PallowDebugReleaseSigning=true（可审计）。
             signingConfig = if (keystorePropertiesFile.exists()) {
                 signingConfigs.getByName("release")
             } else {
-                val allowDebug = (project.findProperty("allowDebugReleaseSigning")
-                    ?.toString()?.toBoolean()) ?: false
-                if (!allowDebug) {
-                    throw GradleException(
-                        "release 构建缺少 android/key.properties（正式签名密钥），" +
-                        "拒绝静默退回 debug 签名。请配置签名密钥；" +
-                        "如确需本地调试出包，请加 -PallowDebugReleaseSigning=true。"
-                    )
-                }
-                logger.warn("allowDebugReleaseSigning=true：release 包将使用 debug 签名（仅限调试）")
                 signingConfigs.getByName("debug")
             }
         }
+    }
+}
+
+// ── P0-02 纵深防御：release 缺 key.properties 时不静默产出 debug 签名包 ──────
+// CI 侧已在 workflow 里 fail-closed（tag 构建缺任一签名 secret 即 exit 1）；
+// 这里是第二道闸，覆盖「本地 / 其他机器直接跑 flutter build apk --release」
+// 的场景。钩子挂在 taskGraph.whenReady：任务图就绪后、执行前检查本次是否真的
+// 要构建 Release——所以 --debug、assembleDebug、test 等一概不受影响。
+if (!keystorePropertiesFile.exists()) {
+    val allowDebugReleaseSigning =
+        (project.findProperty("allowDebugReleaseSigning")?.toString()?.toBoolean()) ?: false
+    if (!allowDebugReleaseSigning) {
+        // 用 addTaskExecutionGraphListener（Java SAM 接口）而非
+        // taskGraph.whenReady{...}：后者签名是 Groovy Closure，Kotlin DSL
+        // 推不出 lambda 参数类型，直接编译失败。
+        gradle.taskGraph.addTaskExecutionGraphListener { graph ->
+            val wantsRelease = graph.allTasks.any {
+                it.name.contains("Release", ignoreCase = true)
+            }
+            if (wantsRelease) {
+                throw GradleException(
+                    "release 构建缺少 android/key.properties（正式签名密钥），" +
+                    "拒绝静默退回 debug 签名。请配置签名密钥；" +
+                    "如确需本地调试出包，请加 -PallowDebugReleaseSigning=true。"
+                )
+            }
+        }
+    } else {
+        logger.warn("allowDebugReleaseSigning=true：release 包将使用 debug 签名（仅限调试）")
     }
 }
 
