@@ -1,6 +1,6 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
 import 'package:pointycastle/export.dart';
 
 /// 市场索引的**来源校验**（ECDSA P-256 / SHA-256）。
@@ -97,21 +97,29 @@ bool _verifyWith(String pubKeyEntry, Uint8List data, ECSignature sig) {
   }
 }
 
-/// 校验索引文本签名。纯函数；格式问题一律归入 invalid，不抛异常。
+/// 泛化的「JSON 文本 + 顶层签名字段」验签。纯函数；格式问题一律归入
+/// [IndexSignatureStatus.invalid]，不抛异常。
+///
+/// 市场索引与更新清单（`lib/net/update_manifest.dart`）共用同一实现——
+/// 全项目只保留一份 ECDSA 密码学代码，签名端（`tool/sign_index.dart` 与
+/// `tool/sign_update_manifest.dart`）与验签端的规范化规则必须完全一致：
+/// 签名对象 = 顶层 JSON 去掉签名字段后 `jsonEncode` 的 UTF-8 字节。
+///
 /// [publicKeys] 仅供测试注入自己的密钥，生产用默认值。
-IndexSignatureStatus verifyIndexSignature(
-  String indexText, {
-  List<String> publicKeys = kIndexPublicKeysHex,
+IndexSignatureStatus verifyJsonSignature(
+  String jsonText, {
+  required String sigField,
+  required List<String> publicKeys,
 }) {
   Object? decoded;
   try {
-    decoded = jsonDecode(indexText);
+    decoded = jsonDecode(jsonText);
   } catch (_) {
     return IndexSignatureStatus.invalid;
   }
   if (decoded is! Map) return IndexSignatureStatus.invalid;
 
-  final raw = decoded[kIndexSignatureField];
+  final raw = decoded[sigField];
   if (raw == null) return IndexSignatureStatus.missing;
   if (raw is! String || raw.isEmpty) return IndexSignatureStatus.invalid;
 
@@ -120,7 +128,10 @@ IndexSignatureStatus verifyIndexSignature(
 
   final Uint8List data;
   try {
-    data = canonicalIndexBytes(decoded);
+    // 顶层去签名字段后 jsonEncode（键序参与签名，签名端必须重写签名字段）。
+    data = Uint8List.fromList(
+        utf8.encode(jsonEncode(Map<String, dynamic>.from(decoded)
+          ..remove(sigField))));
   } catch (_) {
     return IndexSignatureStatus.invalid;
   }
@@ -131,23 +142,39 @@ IndexSignatureStatus verifyIndexSignature(
   return IndexSignatureStatus.invalid;
 }
 
-/// 市场拉取索引后的统一策略：**缺失告警放行，篡改拒绝**。
+/// 校验索引文本签名。纯函数；格式问题一律归入 invalid，不抛异常。
+/// [publicKeys] 仅供测试注入自己的密钥，生产用默认值。
+IndexSignatureStatus verifyIndexSignature(
+  String indexText, {
+  List<String> publicKeys = kIndexPublicKeysHex,
+}) =>
+    verifyJsonSignature(indexText,
+        sigField: kIndexSignatureField, publicKeys: publicKeys);
+
+/// 市场拉取索引后的统一策略：**fail-closed**（P1-03）。
 ///
-/// - `missing` → 放行但告警。渐进上线的妥协：直接收紧为拒绝的话，任何一次
-///   漏签名的发布都会让全网市场空白；观察一段时间后再改（见 TODO）。
-/// - `invalid` → 拦。有签名却验不过是「有人在改」的强信号，调用方应视为
-///   拉取失败并回退缓存。
+/// - `valid` → 放行；
+/// - `missing` → **拒绝**。删掉 `_sig` 正是攻击者绕过验签的标准手法（旧实现
+///   在这里「告警放行」，等于唯一的闸门对「不签名」敞开）；
+/// - `invalid` → 拒绝。有签名却验不过是「有人在改」的强信号。
 ///
-/// TODO(签名收紧): 确认全部在架索引均已签名后，missing 也返回 false。
+/// 调用方拿不到有效签名时应视为拉取失败：回退**已验签**的本地缓存，没有则
+/// 给错误 UI——绝不能把不可验证的索引渲染成「可安装列表」。
+///
+/// 收紧的前提已具备：`tool/sign_index.dart` 是唯一签名入口，
+/// `test/fixtures/market_signed_sample.json` 锁死「脚本 ↔ 内置公钥」格式互认，
+/// 漏签名会在发布时立刻被该测试抓住，不会流到用户侧。
 bool checkIndexOrTrust(String indexText, {required String what}) {
   switch (verifyIndexSignature(indexText)) {
     case IndexSignatureStatus.valid:
       return true;
     case IndexSignatureStatus.missing:
-      debugPrint('[$what] 索引未签名：无法验证来源，暂按放行处理');
-      return true;
+      // ignore: avoid_print
+      print('[$what] 索引未签名：无法验证来源，拒绝（fail-closed）');
+      return false;
     case IndexSignatureStatus.invalid:
-      debugPrint('[$what] 索引签名校验失败：可能被篡改，按拉取失败处理');
+      // ignore: avoid_print
+      print('[$what] 索引签名校验失败：可能被篡改，拒绝');
       return false;
   }
 }

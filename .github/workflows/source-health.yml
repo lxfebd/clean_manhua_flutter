@@ -1,0 +1,130 @@
+name: Source Health (daily live contracts)
+
+# P1-29（供应链）：所有第三方 Action 一律钉到** commit SHA**，不用可变的 major
+# 标签。标签可被作者随时推移（action 仓库被入侵或作者作恶时，@v4 会静默变成
+# 别人的代码），而这些 job 持有 contents:write / 读取 Secrets 的权限。升级方式是
+# 改 SHA + 在注释里记录对应版本号。
+
+# 为什么要有这个 workflow
+# ----------------------
+# verify_*_test.dart 是 8 个「真实网络契约」测试（每个源各一组：拉列表/详情/
+# 章节/播放直链，断言页面结构没变）。它们默认在本地和 PR CI 里跳过
+# （_skipLive = !bool.fromEnvironment('LIVE_SOURCE_TESTS')，未定义即跳过），
+# 因为跑真网慢且不稳定，不该卡住每次提交。
+#
+# 但源站改版是静默的：契约不跑，CI 全绿，用户端才会「加载不出来」。
+# 所以这里每天定时跑一次真网契约——它不阻塞发布，只负责「源坏了第一个知道」。
+#
+# 失败时的行为：重试一次（GitHub runner 访问国内站点偶发抖动，避免误报），
+# 两次都失败才开/刷新一个 issue，带上运行链接和日期。
+
+on:
+  schedule:
+    # 每天 18:30 UTC = 北京时间 02:30（低峰期，源站压力小）
+    - cron: '30 18 * * *'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: '手动触发原因（记入日志）'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: source-health
+  cancel-in-progress: false
+
+jobs:
+  live-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4（钉 commit SHA，P1-29）
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2（钉 commit SHA，P1-29）
+        with:
+          channel: stable
+          flutter-version: '3.44.0'
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Run live source contracts (retry once)
+        id: contracts
+        run: |
+          set -u
+          TESTS="test/verify_anime1_test.dart test/verify_ashanyy_test.dart \
+                 test/verify_biquge_test.dart test/verify_tvtfun_test.dart \
+                 test/verify_wchedm_test.dart test/verify_xbiquge_test.dart \
+                 test/verify_xifan_test.dart \
+                 test/verify_source_parse_probe_test.dart"
+          echo "触发原因: ${{ github.event.inputs.reason || '定时任务' }}"
+          for attempt in 1 2; do
+            echo "::group::attempt $attempt"
+            if flutter test $TESTS --dart-define=LIVE_SOURCE_TESTS=true; then
+              echo "result=pass" >> "$GITHUB_OUTPUT"
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "attempt $attempt failed"
+            [ "$attempt" = "1" ] && sleep 20
+          done
+          echo "result=fail" >> "$GITHUB_OUTPUT"
+          echo "::error::两个 attempt 都失败——有源站契约被破坏，详见下方日志"
+          exit 1
+
+      - name: Open or refresh failure issue
+        if: failure() && steps.contracts.outputs.result == 'fail'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7（钉 commit SHA，P1-29）
+        with:
+          script: |
+            const title = '[source-health] 每日源契约失败';
+            const day = new Date().toISOString().slice(0, 10);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              `每日真实网络契约连续两次失败（重试后仍失败）。`,
+              ``,
+              `- 日期：${day} (UTC)`,
+              `- 运行：${runUrl}`,
+              `- 触发：${{ github.event.inputs.reason || 'cron 定时' }}`,
+              ``,
+              `请按 run 日志里失败的 verify_*_test.dart 定位：`,
+              `1. 打开失败的那个测试，看它断言的是哪个 URL / 选择器；`,
+              `2. 手动访问源站确认改版点（路径、class、接口字段）；`,
+              `3. 修 sources/ 下对应实现，本地跑：`,
+              '   ```',
+              '   flutter test test/verify_xxx_test.dart --dart-define=LIVE_SOURCE_TESTS=true',
+              '   ```',
+            ].join('\n');
+
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'source-health',
+              per_page: 1,
+            });
+            if (existing.data.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.data[0].number,
+                body: `⚠️ 又失败一次（${day}）：${runUrl}`,
+              });
+              core.info(`commented on #${existing.data[0].number}`);
+            } else {
+              const created = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['source-health', 'bug'],
+              });
+              core.info(`created #${created.data.number}`);
+            }

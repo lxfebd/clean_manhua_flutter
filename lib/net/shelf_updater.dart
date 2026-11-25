@@ -114,7 +114,10 @@ class ShelfUpdater {
   }) async {
     final items = BookshelfStore.listAll();
     final novels = NovelShelfStore.listAll();
-    final total = items.length + novels.length; // 进度总长（漫画+小说）
+    // P1-13：动漫记录也进追更。旧实现只扫漫画+小说书架，番剧新更永远不会
+    // 出现在追更里——而这是三媒介产品的基本预期。
+    final videos = await LocalStore.videoRecords();
+    final total = items.length + novels.length + videos.length; // 进度总长（三类）
     final updated = <String>[];
     var done = 0;
     var index = 0;
@@ -187,6 +190,47 @@ class ShelfUpdater {
     while (index < novels.length) {
       final batch = novels.skip(index).take(_concurrency).toList();
       await Future.wait(batch.map(checkNovel));
+      if (shouldCancel?.call() ?? false) return null;
+      done += batch.length;
+      onProgress?.call(done, total);
+      index += _concurrency;
+    }
+
+    // 阶段三：动漫记录（LocalStore.videoRecords）。按 sourceId+videoId 去重
+    // （同一部番可能看过多集，记录按集各存一条），基线是「已见过的最大集数」
+    // （LocalStore.videoSeenEpisodes，-1 = 首次：只置基线不报更新）。
+    final videoSeen = <String>{};
+    final videoTargets = <VideoRecord>[];
+    for (final v in videos) {
+      final key = '${v.sourceId}/${v.videoId}';
+      if (videoSeen.add(key)) videoTargets.add(v);
+    }
+    index = 0;
+    Future<void> checkVideo(VideoRecord v) async {
+      final src = SourceManager.videoById(v.sourceId);
+      if (src == null || src.id != v.sourceId) {
+        ErrorLogger.instance.warn(
+            'shelf_updater: 视频 sid=${v.sourceId} 未找到匹配源，跳过更新检查');
+        return;
+      }
+      try {
+        final detail = await src.detail(v.videoId).timeout(_perBookTimeout);
+        final cur = detail.episodes.length;
+        final last = await LocalStore.videoSeenEpisodes(v.sourceId, v.videoId);
+        if (last < 0) {
+          await LocalStore.setVideoSeenEpisodes(v.sourceId, v.videoId, cur);
+        } else if (cur > last) {
+          updated.add(v.title);
+          await LocalStore.setVideoSeenEpisodes(v.sourceId, v.videoId, cur);
+        }
+      } catch (_) {
+        // 单部失败不阻塞整体检查（源抖动/反爬），下一轮再试
+      }
+    }
+
+    while (index < videoTargets.length) {
+      final batch = videoTargets.skip(index).take(_concurrency).toList();
+      await Future.wait(batch.map(checkVideo));
       if (shouldCancel?.call() ?? false) return null;
       done += batch.length;
       onProgress?.call(done, total);

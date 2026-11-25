@@ -75,9 +75,13 @@ class _SourceCard extends StatelessWidget {
                     child: Icon(
                       Icons.public_rounded,
                       size: 20,
+                      // P1-16：用 onPrimary 而非写死白色。深色主题的 primary 是
+                      // 浅色（#F4F4F5 一档），白图标放上去对比度只有 1.10:1，
+                      // 深色下源类型图标近乎消失；onPrimary 才是「primary 上的
+                      // 前景色」这一语义槽（暗色下会自动变深）。
                       color:
                           enabled
-                              ? Colors.white
+                              ? scheme.onPrimary
                               : scheme.onSurface.withValues(alpha: 0.6),
                     ),
                   ),
@@ -150,7 +154,7 @@ class _SourceCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          firstHost,
+                          firstHost + _parseSuffix(health),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.labelSmall?.copyWith(
@@ -179,7 +183,23 @@ class _SourceCard extends StatelessWidget {
   }
 }
 
+/// 解析失败的可读原因（空则给通用文案）。
+String _parseErrLabel(SourceHealth h) {
+  final e = h.parseError;
+  return (e == null || e.isEmpty) ? '解析异常' : e;
+}
+
+/// 移动端可读的解析状态后缀：手机没有 hover，Tooltip 里的解析失败看不见，
+/// 所以把原因直接写进副标题行（健康源不加任何字符）。
+String _parseSuffix(SourceHealth? h) {
+  if (h == null || h.parseOk) return "";
+  return ' · ${_parseErrLabel(h)}';
+}
+
 /// 健康状态灯：绿=健康，黄=一般/较差，红=不可用，灰=未检测。
+///
+/// 解析失败（parseOk=false）直接落到红色档：源站页面还能打开、
+/// 但我们解析不出内容——这比「慢」更严重，不能被连通性分数洗白。
 class _HealthDot extends StatelessWidget {
   final SourceHealth? health;
   const _HealthDot({this.health});
@@ -198,18 +218,23 @@ class _HealthDot extends StatelessWidget {
       );
     }
     final Color color;
-    if (health!.score >= 80) {
-      color = Colors.green;
+    if (!health!.parseOk) {
+      color = SC.of(SemanticTone.bad, scheme.brightness);
+    } else if (health!.score >= 80) {
+      color = SC.of(SemanticTone.ok, scheme.brightness);
     } else if (health!.score >= 50) {
-      color = Colors.orange;
+      color = SC.of(SemanticTone.warn, scheme.brightness);
     } else if (health!.score >= 25) {
-      color = Colors.deepOrange;
+      color = SC.of(SemanticTone.bad, scheme.brightness);
     } else {
       color = scheme.error;
     }
+    final parseNote = health!.parseOk
+        ? ''
+        : '\n解析失败：${_parseErrLabel(health!)}（页面能打开但取不到内容，源站结构可能已变）';
     return Tooltip(
       message:
-          '健康度 ${health!.score}/100（${health!.scoreLabel}）\n延迟 ${health!.latencyMs}ms · 成功率 ${(health!.successRate * 100).round()}%',
+          '健康度 ${health!.score}/100（${health!.scoreLabel}）\n延迟 ${health!.latencyMs}ms · 成功率 ${(health!.successRate * 100).round()}%$parseNote',
       child: Container(
         width: 8,
         height: 8,

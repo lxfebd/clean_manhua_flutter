@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:screen_brightness/screen_brightness.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
+import '../utils/wakelock_guard.dart';
 
 import '../net/error_logger.dart';
 import '../net/local_store.dart';
@@ -152,7 +152,7 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
     _initTts();
     _load(widget.chapterId);
     _initBookmark();
-    WakelockPlus.enable(); // 阅读时保持屏幕常亮（与漫画阅读器对齐）
+    WakelockGuard.instance.acquire(); // 阅读时保持屏幕常亮（与漫画阅读器对齐）
     _initBrightness(); // 接管系统亮度（失败降级遮罩）
     // 桌面端键盘：←/→ 翻章、Esc 返回。仅桌面注册，避免移动端蓝牙键盘误触。
     if (DesktopUi.isDesktopPlatform) {
@@ -311,7 +311,7 @@ class _NovelReaderPageState extends ConsumerState<NovelReaderPage> {
     _listController?.dispose();
     _listController = null;
     _readWatch.stop();
-    WakelockPlus.disable(); // 退出阅读时恢复系统默认熄屏
+    WakelockGuard.instance.release(); // 退出阅读（最后一个持有者才真正熄屏）
     // 还原系统亮度
     if (_brightnessNative) {
       try {

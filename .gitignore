@@ -54,6 +54,11 @@ app.*.map.json
 # 签名脚本必须入库：否则「索引是怎么签名的」无人可复现，验签形同摆设。
 /tool/*
 !/tool/sign_index.dart
+# 更新清单的签名/验签脚本同样必须入库：CI 的 manifest job 要
+# `dart run tool/sign_update_manifest.dart`，自检要
+# `dart run tool/verify_update_manifest.dart`——漏入库等于发布链断环。
+!/tool/sign_update_manifest.dart
+!/tool/verify_update_manifest.dart
 /screenshots/
 /screens/
 tool_*.py

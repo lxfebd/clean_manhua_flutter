@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../source_manager.dart';
 import 'html_parser.dart';
 
 /// 自定义源 JSON DSL 定义模型。
@@ -128,11 +129,26 @@ class CustomSourceDef {
       ? DslDetailRule.fromJson(Map<String, dynamic>.from(v))
       : null;
 
+  /// 内置源 id 保留集（P2-18）。
+  ///
+  /// 自定义源不得占用同 id：导入会和内置源同名，书架/详情/历史里的 id 会指向
+  /// 两个不同实现（要么 DSL 覆盖内置，要么内置遮蔽用户装的源），卸载时还会
+  /// 两边一起遭殃。
+  static Set<String> get builtinSourceIds => {
+        for (final s in SourceManager.sources) s.id,
+        for (final s in SourceManager.videoSources) s.id,
+        for (final s in SourceManager.novelSources) s.id,
+      };
+
   /// 校验：返回错误列表（空 = 通过）。
   List<String> validate() {
     final errs = <String>[];
     if (id.isEmpty) {
       errs.add('缺少 id');
+    } else if (builtinSourceIds.contains(id)) {
+      // P2-18：保留命名空间。旧实现不查这个，用户可以导入一份 id=dm5 的
+      // 自定义源把内置源顶掉（或反之），且毫无提示。
+      errs.add('id「$id」与内置源冲突，请换一个 id');
     }
     if (name.isEmpty) {
       errs.add('缺少 name');

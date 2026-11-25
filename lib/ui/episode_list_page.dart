@@ -10,6 +10,7 @@ import 'episode_grouping.dart';
 import 'native_player_page.dart';
 import 'responsive.dart';
 import 'style_tokens.dart';
+import 'tokens.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/back_circle_button.dart';
 import 'widgets/cached_image.dart';
@@ -938,7 +939,7 @@ class _EpisodeListPageState extends State<EpisodeListPage> {
                         child: Icon(
                           Icons.download_done_rounded,
                           size: 11,
-                          color: Colors.green.withValues(alpha: 0.85),
+                          color: SC.of(SemanticTone.ok, scheme.brightness).withValues(alpha: 0.85),
                         ),
                       ),
                     Center(

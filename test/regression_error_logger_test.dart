@@ -42,13 +42,27 @@ void main() {
           isTrue);
     });
 
-    test('记录落盘为当日 .log 文件', () {
+    test('记录落盘为当日 .log 文件', () async {
       ErrorLogger.instance.logError('boom');
+      // P1-34：写盘改为异步批量（避免每条日志同步等 I/O 卡主 isolate），
+      // 落盘断言前必须 flush。
+      await ErrorLogger.instance.debugFlush();
       final files = tmpDir.listSync().whereType<File>().toList();
       expect(files.length, 1);
       final content = files.first.readAsStringSync();
       expect(content.contains('ERROR boom'), isTrue);
       expect(content.contains('['), isTrue); // 时间戳前缀
+    });
+
+    test('flush 前文件里没有内容（证明真的不阻塞同步路径）', () async {
+      ErrorLogger.instance.info('async-only-line');
+      final files = tmpDir.listSync().whereType<File>().toList();
+      expect(files, isEmpty,
+          reason: '未 flush 时不应有同步落盘（这正是 P1-34 的修复点）');
+      await ErrorLogger.instance.debugFlush();
+      final after = tmpDir.listSync().whereType<File>().toList();
+      expect(after.length, 1);
+      expect(after.first.readAsStringSync(), contains('async-only-line'));
     });
 
     test('导出日志为 zip（含设备/版本头 + 各日志文件 + logs.txt）', () async {

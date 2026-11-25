@@ -1,0 +1,21 @@
+{
+  "version": "1.5.8",
+  "sequence": 1,
+  "minApp": "1.5.0",
+  "issuedAt": "2026-11-21T08:03:33.556520Z",
+  "assets": [
+    {
+      "name": "app-release.apk",
+      "platform": "android",
+      "size": 21678901,
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "xingmanxia-windows-1.5.8-setup.exe",
+      "platform": "windows",
+      "size": 42123456,
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "_sig": "xgepyuDRbEYvPJSz4sSn8ycXIsuF1UA4rmSg0GtnmmAY3PfUdvRh+mUNQyMleHDQwOYypzhYXfhiAGbGf+ih6A=="
+}

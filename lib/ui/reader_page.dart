@@ -8,7 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:screen_brightness/screen_brightness.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
+import '../utils/wakelock_guard.dart';
 
 import '../net/download_manager.dart';
 import '../net/error_logger.dart';
@@ -18,7 +18,6 @@ import '../net/image_deg.dart';
 import '../net/jm_scramble.dart';
 import '../net/local_store.dart';
 import '../net/smart_prefetch.dart';
-import '../net/update_notifier.dart';
 import 'reader_providers.dart';
 import 'reader_prefs_providers.dart';
 import 'detail_providers.dart' as detailp;
@@ -216,7 +215,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this); // 监听屏幕尺寸变化（旋转自适应双页）
-    WakelockPlus.enable(); // 阅读时保持屏幕常亮
+    WakelockGuard.instance.acquire(); // 阅读时保持屏幕常亮（引用计数，见 P1-25）
     _initBrightness(); // 接管系统亮度
     // 预热网络类型探测：让后续翻页的智能预取深度能同步读取快照
     SmartPrefetch.warmUp();
@@ -478,6 +477,14 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
       {int startPage = 0}) async {
     if (_loading) return; // 防连点：一次只允许一个切章在途
     final gen = ++_openGen;
+    // P1-20：三个切章入口（连读/上一章/目录）都在调用本方法**之前**就把
+    // _chapterIndex 改了。旧实现在失败时只置 _loadError，不回滚索引/活动
+    // 章节——于是索引与标题已是新章、内容却还是旧章，用户点重试又会读到
+    // widget.chapterId（初始章），标题/下一页/目录/历史全线错位。
+    // 这里保存请求前的状态，失败时整体回滚。
+    final prevActive = _activeChapterId;
+    final prevTitle = _activeChapterTitle;
+    final prevIndex = _chapterIndex;
     _hideTimer?.cancel();
     _resetPinch();
     _nextChapterTitle = null; // 换章后旧预取标题失效，重新按需拉取
@@ -494,19 +501,12 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
       // Future 可能挂起永不完成（底层超时不可靠），无 timeout 会让 _loading
       // 永远 true（整屏转圈卡死）。15s 超时抛 TimeoutException → 进 catch 复位
       // _loading + _loadError，用户可重试而非杀进程。
-      final urls = await _chapterUrls(chapterId)
-          .timeout(const Duration(seconds: 15));
-      final downloaded = await DownloadManager.isDownloaded(_book.key, chapterId);
-      if (downloaded) {
-        final local = <String>[];
-        for (var i = 0; i < urls.length; i++) {
-          final p = await DownloadManager.localUrlIfExists(
-              _book.key, chapterId, i);
-          local.add(p ?? urls[i]);
-        }
-        urls
-          ..clear()
-          ..addAll(local);
+      // P0-03 离线优先（同 _load）：切章也先吃本地页，飞行模式连读不转圈。
+      final resolved = await _resolveChapterUrls(chapterId);
+      final urls = resolved.urls;
+      final downloaded = resolved.downloaded;
+      if (resolved.missing > 0) {
+        _toast('本地缺 ${resolved.missing} 页，已从网络补齐');
       }
       if (!mounted || gen != _openGen) return;
       // 空章节（源返回空列表）：走友好占位而不是 clamp(0,-1) 抛异常。
@@ -556,9 +556,14 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
     } catch (e) {
       ErrorLogger.instance.warn('reader openChapter failed: $e');
       if (mounted && gen == _openGen) {
+        // P1-20：失败即回滚到请求前的章节（内容/ID/标题/索引四者自洽），
+        // 不要让「索引已 ++ 但内容还是旧章」的中间态残留。
         setState(() {
           _loading = false;
           _loadError = true;
+          _activeChapterId = prevActive;
+          _activeChapterTitle = prevTitle;
+          _chapterIndex = prevIndex;
         });
         _toast('章节加载失败，请重试'); // 切章/连读失败不再静默
       }
@@ -578,6 +583,45 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
     }
     _chapterPicCache[chapterId] = urls;
     return urls;
+  }
+
+  /// P0-03：解析一章的图片 URL 列表——**已下载章节离线优先，零网络**。
+  ///
+  /// 旧实现先 `await _chapterUrls()`（联网拿清单）再把本地路径贴回去，于是
+  /// 「下载完成」的章节在飞行模式冷启动时仍要等 15s 超时才失败——离线的核心
+  /// 用途是断的。现在按完成记录直接枚举本地页：完整的立刻出首屏；缺页的才
+  /// 联网补齐，并把缺页数交回调用方明示，不静默回源。
+  Future<({List<String> urls, bool downloaded, int missing})>
+      _resolveChapterUrls(String chapterId) async {
+    final local = await DownloadManager.localPages(_book.key, chapterId);
+    if (local != null && local.complete) {
+      return (urls: local.paths.cast<String>(), downloaded: true, missing: 0);
+    }
+    final net = await _chapterUrls(chapterId)
+        .timeout(const Duration(seconds: 15));
+    if (local != null) {
+      // 有完成记录但缺页：本地页保留，缺的下标用网络 URL 补。
+      for (var i = 0; i < local.total && i < net.length; i++) {
+        final p = local.paths[i];
+        if (p != null) net[i] = p;
+      }
+      return (urls: net, downloaded: true, missing: local.missing);
+    }
+    final downloaded =
+        await DownloadManager.isDownloaded(_book.key, chapterId);
+    var missing = 0;
+    if (downloaded) {
+      for (var i = 0; i < net.length; i++) {
+        final p = await DownloadManager.localUrlIfExists(
+            _book.key, chapterId, i);
+        if (p != null) {
+          net[i] = p;
+        } else {
+          missing++;
+        }
+      }
+    }
+    return (urls: net, downloaded: downloaded, missing: missing);
   }
 
   /// 沉浸式连读加速：预先拉取下一话的图片列表并预取前 2 页，连读时秒开。
@@ -639,35 +683,38 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
     });
   }
 
-  Future<void> _load() async {
+  /// 加载一章图片列表。[chapterId] 为空时用 widget.chapterId（首载）。
+  ///
+  /// P1-20：旧实现固定读 widget.chapterId，切章失败后点重试会读回**初始章**
+  /// ——显示第一章，而 _activeChapterId/_chapterIndex 已是新章，标题/下一页/
+  /// 目录/历史全线错位。现在目标章节由调用方给（默认首载章），且
+  /// widget.initialPage/initialOffset 只在目标就是首载章节时应用。
+  Future<void> _load({String? chapterId, bool applyInitialPage = true}) async {
+    final targetId = chapterId ?? widget.chapterId;
     // 进入即置 loading（与 _openChapter 对齐）：重试/首载期间若 _urls 为空，
     // 不置 loading 会落到「暂不支持该源阅读」的误导文案（审计 #8）。
     _loadError = false;
     if (mounted) setState(() => _loading = true);
     try {
-      final urls = await _chapterUrls(widget.chapterId)
-          .timeout(const Duration(seconds: 15));
-      if (_downloaded) {
-        final local = <String>[];
-        for (var i = 0; i < urls.length; i++) {
-          final p = await DownloadManager.localUrlIfExists(
-              _book.key, widget.chapterId, i);
-          local.add(p ?? urls[i]);
-        }
-        urls
-          ..clear()
-          ..addAll(local);
+      // P0-03 离线优先：已下载章节先按本地页出首屏（零网络），缺页才联网补齐。
+      final resolved = await _resolveChapterUrls(targetId);
+      final urls = resolved.urls;
+      _downloaded = resolved.downloaded;
+      if (resolved.missing > 0) {
+        _toast('本地缺 ${resolved.missing} 页，已从网络补齐');
       }
       if (mounted) {
         setState(() {
           _urls = urls;
           _activeTotalPages = urls.length;
-          _activeChapterId = widget.chapterId;
+          _activeChapterId = targetId;
           _loading = false;
         });
       }
-      // 若续读指定了页码，跳到该页（双页模式下定位到所在视图）
-      if (widget.initialPage >= 0 && widget.initialPage < _urls.length) {
+      // 若续读指定了页码，跳到该页（双页模式下定位到所在视图）。
+      // P1-20：只在「目标就是首载章节」时应用——重试旧章时不该跳到续读页码。
+      final useInitial = applyInitialPage && targetId == widget.chapterId;
+      if (useInitial && widget.initialPage >= 0 && widget.initialPage < _urls.length) {
         setState(() => _curPage = widget.initialPage);
         if (_horizontal) {
           final c = PageController(
@@ -707,12 +754,14 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
   }
 
   /// 章节加载失败后的重试入口。
+  ///
+  /// P1-20：统一按「当前活动章节」重试。旧实现在 _loadError 时走 _load()，
+  /// 而 _load 固定读 widget.chapterId——切章失败后重试会读回初始章，
+  /// 与已回滚/未回滚的章节状态全都对不上。
   void _retryLoad() {
-    if (_loadError) {
-      _load();
-    } else {
-      _openChapter(_activeChapterId, _activeChapterTitle, startPage: _curPage);
-    }
+    final target =
+        _activeChapterId.isNotEmpty ? _activeChapterId : widget.chapterId;
+    _load(chapterId: target, applyInitialPage: target == widget.chapterId);
   }
 
   /// 预取后续页字节到缓存（本地已下载 / JM 解扰图跳过）。
@@ -876,23 +925,13 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
           AppToast.error(context, ok.error ?? '下载未完成');
         }
       }
-      // 系统通知兜底：下载在后台完成（切后台/退出阅读器后仍在跑）时告知
-      // 结果；走同一「系统通知」开关，桌面/Web 无原生实现时静默降级。
-      await UpdateNotifier.notifyDownloadResult(
-        title: '《${_book.name}》下载完成',
-        text: ok.ok ? _activeChapterTitle : (ok.error ?? '下载未完成'),
-        error: !ok.ok,
-      );
+      // 系统通知由任务管理器统一发（download_manager.dart 收尾处），页面
+      // 只负责页内 toast。P2-13：旧实现两边都发，同一次下载出现两条通知。
     } catch (e) {
       ErrorLogger.instance.warn('reader download failed: $e');
       if (mounted) {
         AppToast.error(context, '下载失败，请重试');
       }
-      await UpdateNotifier.notifyDownloadResult(
-        title: '《${_book.name}》下载失败',
-        text: _activeChapterTitle,
-        error: true,
-      );
     } finally {
       if (mounted) setState(() => _downloading = false);
     }
@@ -984,7 +1023,8 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
           onBrightness: () => _showReaderSettings(),
           onCatalog: () => _showCatalog(),
           onLayout: () => _cycleReaderMode(),
-          onDownload: _downloading ? null : _download,
+          // P1-23：Web 端禁用下载按钮（服务入口同样 fail-fast）。
+          onDownload: (_downloading || kIsWeb) ? null : _download,
           // 底部「上一章 / 下一章」：直接跳上一话/下一话，无需翻到章节
           // 末尾或靠手势。边界（首章/末章）传 null，按钮自动隐藏。
           onPrevChapter: hasPrevChapter(_chapterIndex) ? _goPrevChapter : null,
@@ -1400,13 +1440,26 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
             contentPadding: EdgeInsets.zero,
           ),
         ),
-        if (!_downloading)
+        // P1-23：Web 无本地文件系统——不提供可点击的下载入口，但保留一行
+        // 禁用态说明（用户在手机上用过这功能，Web 上静默消失反而困惑）。
+        if (!_downloading && !kIsWeb)
           PopupMenuItem(
             value: _ReaderMenuAction.download,
             child: ListTile(
               leading: Icon(Icons.download_rounded, size: 20),
               title: Text(_downloaded ? '已下载' : '下载当前话',
                   style: Theme.of(context).textTheme.bodyMedium),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        if (kIsWeb)
+          const PopupMenuItem(
+            enabled: false,
+            child: ListTile(
+              leading: Icon(Icons.download_rounded, size: 20),
+              title: Text('下载当前话'),
+              subtitle: Text('Web 端不支持本地离线下载'),
               dense: true,
               contentPadding: EdgeInsets.zero,
             ),
@@ -1938,7 +1991,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
     if (DesktopUi.isDesktopPlatform) {
       HardwareKeyboard.instance.removeHandler(_keyHandler);
     }
-    WakelockPlus.disable(); // 退出阅读时恢复系统默认熄屏
+    WakelockGuard.instance.release(); // 退出阅读（最后一个持有者才真正熄屏）
     // 还原系统亮度
     if (_brightnessNative) {
       try {

@@ -15,6 +15,7 @@ import '../sources/video_source.dart';
 import '../utils/desktop_fullscreen.dart';
 import '../utils/player_fullscreen.dart';
 import '../utils/tv_platform.dart';
+import '../utils/wakelock_guard.dart';
 import 'desktop_webview.dart';
 import 'episode_grouping.dart';
 import 'native_player_page.dart';
@@ -191,6 +192,8 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // P1-25：网页通道播放也要持有常亮（引用计数，与原生播放器安全交错）。
+    WakelockGuard.instance.acquire();
     _curSeason = widget.initialSeason;
     _curEpisode = widget.initialEpisode;
     _initBrightness(); // 读取系统亮度；无权限时降级为遮罩
@@ -764,6 +767,7 @@ class _AnimePlayerPageState extends State<AnimePlayerPage>
 
   @override
   void dispose() {
+    WakelockGuard.instance.release(); // P1-25：交还常亮
     if (DesktopUi.isDesktopPlatform) {
       HardwareKeyboard.instance.removeHandler(_keyHandler);
     }

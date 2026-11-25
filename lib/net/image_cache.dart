@@ -12,6 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'http_client.dart';
 import 'image_deg.dart';
 import 'prune_directory.dart';
+import '../utils/atomic_file.dart';
 import '../utils/image_super_res.dart';
 
 class ImageCacheManager {
@@ -168,9 +169,11 @@ class ImageCacheManager {
     final f = File(
         '${(await (sr ? _srImagesDir() : _imagesDir())).path}/${sr ? _srKey(url) : _key(url)}.img');
     try {
+      // P1-08：原子写（.part → rename）。此前直接写目标 .img，进程中途被杀
+      // 会留下半张图，而「缓存文件存在」即被当成命中——之后每次都读到半图。
       // 不再 flush:true：那会 FlushFileBuffers 同步刷盘，图片字节已在内存，
       // 却要多等一次磁盘同步才返回给 UI 开始解码。交给操作系统批量落盘。
-      await f.writeAsBytes(bytes);
+      await writeFileAtomic(f.path, bytes);
       if (sr) {
         if (++_srWritesSinceTrim >= _trimEveryWrites) {
           _srWritesSinceTrim = 0;

@@ -74,9 +74,8 @@ class SourceMarket {
         totalTimeout: kMarketIndexTotalTimeout,
       );
       final text = utf8.decode(bytes);
-      // 来源校验（签名）：篡改视为拉取失败走 catch 回退缓存，且**绝不落盘**，
-      // 坏索引连缓存都污染不了。未签名暂告警放行，见 checkIndexOrTrust。
-      // 缓存路径不再验签：缓存只写入过验签通过的内容，是本机可信数据。
+      // 来源校验（签名，fail-closed）：篡改或未签名都视为拉取失败，走 catch
+      // 回退**已验签**的缓存，且绝不落盘——坏索引连缓存都污染不了。
       if (!checkIndexOrTrust(text, what: '源市场')) {
         throw const FormatException('源市场索引签名校验失败');
       }
@@ -134,7 +133,15 @@ class SourceMarket {
 
   static Future<String?> _readCache() async {
     final v = await LocalStore.readJson(_cacheFile);
-    return v is String && v.isNotEmpty ? v : null;
+    if (v is! String || v.isEmpty) return null;
+    // P1-03：缓存也要重新验签。旧注释称「缓存只写入过验签通过的内容，是本机
+    // 可信数据」——但缓存就在本机磁盘上（root 设备、备份恢复、其他写权限
+    // 应用都可能改它），不可验证的内容不能在离线路径上直接渲染成可安装列表。
+    if (!checkIndexOrTrust(v, what: '源市场(缓存)')) {
+      ErrorLogger.instance.warn('源市场缓存索引验签失败，丢弃本次离线回退');
+      return null;
+    }
+    return v;
   }
 
   /// 安装（或更新）一个市场条目：交给 CustomSourceStore.importJson 校验+落盘。

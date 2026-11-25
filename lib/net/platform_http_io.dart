@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
@@ -7,8 +6,8 @@ import 'package:http/io_client.dart';
 // 只依赖连接/读取原语库（P0-2：此前反向 import 编排层 http_client.dart 借
 // Net.clientForRequest/readLimited，形成 platform_http_io → http_client 的
 // 循环 import；原语下沉 NetConn 后，平台层不再依赖编排层）。
-import 'net_conn.dart'
-    show NetConn, HttpStatusException, ResponseTooLargeException;
+import '../utils/compression_guard.dart';
+import 'net_conn.dart' show NetConn, HttpStatusException, ResponseTooLargeException;
 
 /// io 端线上实现：真实 dart:io HttpClient（含代理 / 优选 IP connectionFactory /
 /// gzip 解压），构造逻辑复用 [NetConn.clientForRequest]（不重复实现代理与优选 IP）。
@@ -88,11 +87,14 @@ class PlatformHttp {
     }
     final enc = res.headers['content-encoding'] ?? '';
     final bytes = await NetConn.readLimited(res.stream, maxBytes, t);
+    // P1-10：输入有上限不等于输出有上限——102KB 的 gzip 体能炸出 GB 级
+    // 字节（gzip 常态膨胀比可达 1000×）。解压改走带闸门的流式解码，
+    // 超限立即抛 DecompressionBombException 而不是先完整展开。
     if (enc.contains('gzip')) {
-      return gzip.decode(bytes);
+      return await gzipDecodeGuarded(bytes, maxBytes: kMaxDecodedBytesSmall);
     }
     if (enc.contains('deflate')) {
-      return zlib.decode(bytes);
+      return await zlibDecodeGuarded(bytes, maxBytes: kMaxDecodedBytesSmall);
     }
     return bytes;
   }

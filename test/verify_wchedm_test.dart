@@ -21,7 +21,7 @@ Future<T> net<T>(Future<T> Function() fn, {int times = 5}) async {
 /// 强制断连（TCP RST + 握手超时），无法验证；站点恢复后把 _skipLive 改成
 /// false 再跑。解析逻辑已用存留的真实 HTML 离线验证过（列表 47/49/52 条、
 /// 详情标题/封面/2 集/简介、播放页 m3u8 全对）。
-const bool _skipLive = true;
+const bool _skipLive = !bool.fromEnvironment('LIVE_SOURCE_TESTS');
 
 void main() {
   test('wchedm video source live verification', () async {
@@ -32,7 +32,14 @@ void main() {
     } catch (e) {
       // ignore: avoid_print
       print('16dns.com 网络不可达，跳过测试: $e');
-      return;
+
+      // P1-30：LIVE 模式下预探失败必须让测试**失败**。旧实现直接 return，
+
+      // 于是「0 条断言全过」在每日 source-health workflow 里也是绿的——
+
+      // 源契约到底有没有被执行，没人知道。
+
+      fail('16dns.com 预探失败：真实网络不可达，不允许静默通过（P1-30）: $e');
     }
 
     // 1. 分类

@@ -54,16 +54,24 @@ void main() {
   late FakeComicSource okSource;
   late FakeComicSource failSource;
 
-  /// 禁用全部内置漫画源 + 联网小说源，仅保留测试源；返回旧配置供 tearDown 还原。
-  /// 小说必须一起禁：sweep 会同时搜启用的小说源，测试环境联网源（biquge/
-  /// xbiquge）真实发网失败也会计入 failedCount，破坏断言确定性。
+  /// 禁用全部内置源（漫画 + 小说 + 视频），仅保留测试源；返回旧配置供 tearDown 还原。
+  ///
+  /// 三类都必须禁：sweep 同时搜三類启用源（P1-12 起视频源也进统一搜索），
+  /// 测试机只要有网，真实视频源（agedm/xifan/…）就会返回结果——断言
+  /// 「恰好一个 group」会被真实源破坏，且随网络状况漂移。
+  ///
+  /// 用「当前实际列表派生」而不是硬编码 id 列表：以后新增内置源自动生效，
+  /// 不会再出现「漏了一类媒体」这种回归。
   Future<Map<String, SourceConfig>> disableBuiltinSources() async {
     final before = await SourceConfigStore.all();
     final map = {for (final c in before) c.engineId: c};
-    for (final builtin in [
-      'dm5', 'doubao', 'jm', 'mangadex', // 漫画
-      'biquge', 'xbiquge', 'local', // 小说
-    ]) {
+    const fakeIds = {'testok', 'testfail'};
+    final builtins = <String>{
+      for (final s in SourceManager.sources) s.id,
+      for (final s in SourceManager.novelSources) s.id,
+      for (final s in SourceManager.videoSources) s.id,
+    }.difference(fakeIds);
+    for (final builtin in builtins) {
       await SourceConfigStore.save(SourceConfig(
         engineId: builtin,
         id: map[builtin]?.id ?? builtin,

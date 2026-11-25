@@ -1,11 +1,10 @@
-import 'dart:io';
-
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../net/download_manager.dart';
 import '../net/local_store.dart';
 import '../net/video_download_manager.dart';
+import '../utils/atomic_file.dart';
 import 'responsive.dart';
 import 'style_tokens.dart';
 import 'tokens.dart';
@@ -386,12 +385,12 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
               height: 40,
               decoration: BoxDecoration(
                 color: d.finished
-                    ? Colors.green.withValues(alpha: 0.1)
+                    ? SC.of(SemanticTone.ok, scheme.brightness).withValues(alpha: 0.1)
                     : (cancelled
                         ? scheme.onSurface.withValues(alpha: 0.08)
                         : (failed
-                            ? Colors.red.withValues(alpha: 0.1)
-                            : Colors.orange.withValues(alpha: 0.1))),
+                            ? SC.of(SemanticTone.bad, scheme.brightness).withValues(alpha: 0.1)
+                            : SC.of(SemanticTone.warn, scheme.brightness).withValues(alpha: 0.1))),
                 borderRadius: BorderRadius.circular(R.control),
               ),
               child: Icon(
@@ -404,11 +403,11 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
                             : Icons.downloading_rounded)),
                 size: 20,
                 color: d.finished
-                    ? Colors.green
+                    ? SC.of(SemanticTone.ok, scheme.brightness)
                     : (cancelled
                         ? T.color(scheme.onSurface, TextTier.low,
                             brightness: scheme.brightness)
-                        : (failed ? Colors.red : Colors.orange)),
+                        : (failed ? SC.of(SemanticTone.bad, scheme.brightness) : SC.of(SemanticTone.warn, scheme.brightness))),
               ),
             ),
             const SizedBox(width: 12),
@@ -447,7 +446,7 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
                                   T.color(scheme.onSurface, TextTier.hairline,
                                       brightness: scheme.brightness),
                               valueColor: failed
-                                  ? AlwaysStoppedAnimation(Colors.red
+                                  ? AlwaysStoppedAnimation(SC.of(SemanticTone.bad, scheme.brightness)
                                       .withValues(alpha: 0.6))
                                   : (cancelled
                                       ? AlwaysStoppedAnimation(
@@ -469,7 +468,7 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
                             overflow: TextOverflow.ellipsis,
                             style: text.labelSmall?.copyWith(
                                 color: failed
-                                    ? Colors.red
+                                    ? SC.of(SemanticTone.bad, scheme.brightness)
                                     : T.color(scheme.onSurface,
                                         TextTier.low,
                                         brightness: scheme.brightness))),
@@ -583,9 +582,11 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
 
   Widget _animeDownloadCard(
       BuildContext context, ColorScheme scheme, VideoDownloadTask t) {    final text = Theme.of(context).textTheme;
+    // P1-08 语义同步：0 字节文件不算「文件在」（下载写到一半崩溃就会留下它）。
+    // 旧写法 existsSync 会把未完成的下载显示成「完成，可播放」。
     final hasFile = !kIsWeb &&
         t.localPath != null &&
-        File(t.localPath!).existsSync();
+        fileIsUsable(t.localPath!);
     // 三态区分（与漫画卡片同构，取消≠失败）：
     // - done + 文件在      → 完成（蓝/绿，可播放）
     // - done + 文件缺失    → 文件缺失（灰，可删除重下）
@@ -604,15 +605,15 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
             : (Icons.play_circle_outline, scheme.primary,
                 scheme.primary.withValues(alpha: 0.12)))
         : failed
-            ? (Icons.error_outline_rounded, Colors.red,
-                Colors.red.withValues(alpha: 0.1))
+            ? (Icons.error_outline_rounded, SC.of(SemanticTone.bad, scheme.brightness),
+                SC.of(SemanticTone.bad, scheme.brightness).withValues(alpha: 0.1))
             : canceled
                 ? (Icons.stop_circle_outlined,
                     T.color(scheme.onSurface, TextTier.low,
                         brightness: scheme.brightness),
                     scheme.onSurface.withValues(alpha: 0.08))
-                : (Icons.downloading_rounded, Colors.orange,
-                    Colors.orange.withValues(alpha: 0.1));
+                : (Icons.downloading_rounded, SC.of(SemanticTone.warn, scheme.brightness),
+                    SC.of(SemanticTone.warn, scheme.brightness).withValues(alpha: 0.1));
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -662,7 +663,7 @@ class _BookshelfDownloadViewState extends State<BookshelfDownloadView> {
                       overflow: TextOverflow.ellipsis,
                       style: text.bodySmall?.copyWith(
                           color: failed
-                              ? Colors.red
+                              ? SC.of(SemanticTone.bad, scheme.brightness)
                               : T.color(scheme.onSurface, TextTier.low,
                                   brightness: scheme.brightness))),
                   if (t.state == 'downloading') ...[

@@ -284,14 +284,17 @@ class _XingManXiaAppState extends ConsumerState<XingManXiaApp>
     if (state == AppLifecycleState.resumed) {
       _allowTabletRotations();
     }
-    // Wakelock：前台常亮，切到后台/ inactive 恢复系统默认熄屏。
-    // 阅读/播放页内部会自己 enable/disable（幂等），此处是兜底，
-    // 保证首页/书架/详情等页面也不会因系统默认 30 秒熄屏而中断浏览。
-    if (state == AppLifecycleState.resumed ||
-        state == AppLifecycleState.inactive) {
-      WakelockPlus.enable();
-    } else if (state == AppLifecycleState.paused ||
+    // Wakelock（P1-25）：**不再全局常亮**。旧实现在 resumed/inactive 都
+    // enable，导致首页/书架/详情/设置等所有页面都 30 秒不熄屏——白白耗电，
+    // OLED 还有烧屏风险，而用户并没有在阅读/播放。
+    // 现在只由「确实需要常亮」的页面自己持有：漫画阅读器、小说阅读器、
+    // 动漫播放器（各自 enable/disable，语义明确）。这里保留 disable 作为
+    // 兜底：异常路径漏关时，切后台至少恢复系统默认熄屏。
+    if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
+      // P1-34：日志写盘是异步批量的（防抖 1s）。切后台时兜底 flush 一次，
+      // 否则用户遇到的 bug（正是要反馈的那条）可能还没落盘。
+      unawaited(ErrorLogger.instance.flush());
       WakelockPlus.disable();
       // 下载索引带防抖合并写盘：切后台/退出前强制落盘，避免防抖窗口
       // 内的最后一次状态更新丢失（写盘在后台异步完成即可）。

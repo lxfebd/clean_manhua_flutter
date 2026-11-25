@@ -348,7 +348,7 @@ class _YearReportPageState extends State<YearReportPage> {
                 icon: Icons.star_rounded,
                 title: bestDaySec > 0 ? '单日 ${_fmt(bestDaySec)}' : '暂无记录',
                 subtitle: bestDaySec > 0 ? '$bestDay 读得最久' : '挑一天沉浸式阅读吧',
-                color: Colors.orange,
+                color: SC.of(SemanticTone.warn, scheme.brightness),
               ),
             ),
           ],

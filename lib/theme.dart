@@ -324,7 +324,11 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: isDark ? darkSurfaceHigh : lightSurfaceHigh,
-        hintStyle: TextStyle(color: text.withValues(alpha: 0.38)),
+        // P1-16：提示文字也要满足 WCAG AA。0.38 在亮色底上只有 2.36:1，
+        // 换成经明暗两套验证的 low 档（亮色 AA ≥4.5）。
+        hintStyle: TextStyle(
+            color: T.color(text, TextTier.low,
+                brightness: isDark ? Brightness.dark : Brightness.light)),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(rControl),
           borderSide: BorderSide.none,

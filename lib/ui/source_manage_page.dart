@@ -12,6 +12,7 @@ import '../sources/source_plugin_manager.dart';
 import 'responsive.dart';
 import 'source_market_page.dart';
 import 'style_tokens.dart';
+import 'tokens.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/state_view.dart';
 import 'keyboard_shortcuts.dart';
@@ -176,6 +177,10 @@ class _SourceManagePageState extends State<SourceManagePage> {
                       Responsive.pagePadding(context),
                       0,
                     ),
+                    // P1-17：窄屏（<600dp）下原 Row 必然溢出——返回按钮 +
+                    // 标题 + 三个带图标按钮在 390dp 屏上约需 420dp。修复：标题改
+                    // Expanded（可收缩），窄屏把三个次要操作收进「更多」菜单
+                    // （从错误页两次点击内仍可达，专家路径不删除），宽屏保持原样。
                     child: Row(
                       children: [
                         IconButton(
@@ -190,40 +195,79 @@ class _SourceManagePageState extends State<SourceManagePage> {
                           ),
                         ),
                         const SizedBox(width: 4),
-                        Text(
-                          '数据源管理',
-                          style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: theme.colorScheme.onSurface,
+                        Expanded(
+                          child: Text(
+                            '数据源管理',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context)
+                                .textTheme
+                                .displaySmall
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: theme.colorScheme.onSurface,
+                                ),
                           ),
                         ),
-                        const Spacer(),
-                        TextButton.icon(
-                          onPressed: _openCustomSources,
-                          icon: const Icon(Icons.extension_rounded, size: 16),
-                          label: const Text('自定义源'),
-                          style: TextButton.styleFrom(
-                            foregroundColor: theme.colorScheme.primary,
+                        if (Responsive.widthOf(context) <
+                            Responsive.compactBreakpoint)
+                          PopupMenuButton<String>(
+                            tooltip: '更多操作',
+                            icon: Icon(Icons.more_horiz_rounded,
+                                size: 20, color: theme.colorScheme.primary),
+                            onSelected: (v) {
+                              switch (v) {
+                                case 'custom':
+                                  _openCustomSources();
+                                case 'market':
+                                  _openMarket();
+                                case 'reset':
+                                  _resetAll();
+                              }
+                            },
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(
+                                value: 'custom',
+                                child: Text('自定义源'),
+                              ),
+                              PopupMenuItem(
+                                value: 'market',
+                                child: Text('源市场'),
+                              ),
+                              PopupMenuItem(
+                                value: 'reset',
+                                child: Text('恢复默认'),
+                              ),
+                            ],
+                          )
+                        else ...[
+                          TextButton.icon(
+                            onPressed: _openCustomSources,
+                            icon: const Icon(Icons.extension_rounded, size: 16),
+                            label: const Text('自定义源'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: theme.colorScheme.primary,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 4),
-                        TextButton.icon(
-                          onPressed: _openMarket,
-                          icon: const Icon(Icons.storefront_rounded, size: 16),
-                          label: const Text('源市场'),
-                          style: TextButton.styleFrom(
-                            foregroundColor: theme.colorScheme.primary,
+                          const SizedBox(width: 4),
+                          TextButton.icon(
+                            onPressed: _openMarket,
+                            icon: const Icon(Icons.storefront_rounded, size: 16),
+                            label: const Text('源市场'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: theme.colorScheme.primary,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 4),
-                        TextButton.icon(
-                          onPressed: _resetAll,
-                          icon: const Icon(Icons.restart_alt_rounded, size: 16),
-                          label: const Text('恢复默认'),
-                          style: TextButton.styleFrom(
-                            foregroundColor: theme.colorScheme.primary,
+                          const SizedBox(width: 4),
+                          TextButton.icon(
+                            onPressed: _resetAll,
+                            icon: const Icon(Icons.restart_alt_rounded, size: 16),
+                            label: const Text('恢复默认'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: theme.colorScheme.primary,
+                            ),
                           ),
-                        ),
+                        ],
                       ],
                     ),
                   ),

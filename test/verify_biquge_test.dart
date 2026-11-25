@@ -9,7 +9,7 @@ import 'package:xingmanxia/sources/biquge_novel_source.dart';
 /// 分类 → 列表 → 详情（章节）→ 正文（清洗广告/分页标记）→ 上下章。
 ///
 /// 默认跳过；需要验源时把 _skipLive 改成 false。
-const bool _skipLive = true;
+const bool _skipLive = !bool.fromEnvironment('LIVE_SOURCE_TESTS');
 
 Future<T> net<T>(Future<T> Function() fn, {int times = 3}) async {
   Object? last;

@@ -8,6 +8,8 @@ import 'package:window_manager/window_manager.dart';
 
 import 'error_logger.dart';
 import 'http_client.dart';
+import 'local_store.dart';
+import 'update_manifest.dart';
 
 /// GitHub Releases 上的最新版本信息。
 class UpdateInfo {
@@ -19,12 +21,29 @@ class UpdateInfo {
   /// 附件文件名（用于提示用户手动下载时确认文件）。
   final String? assetName;
 
+  /// 更新清单给出的该附件期望 SHA-256（小写 hex）；无有效清单时为 null。
+  final String? expectedSha256;
+
+  /// 更新清单给出的该附件期望字节数；无有效清单时为 null。
+  final int? expectedSize;
+
+  /// 本次更新是否经过**签名清单**验证。false = 只有长度对账（历史 release
+  /// 或清单缺失/验签失败），调用方不得据此自动安装，必须交由用户手动确认。
+  final bool manifestVerified;
+
+  /// 清单序号（单调递增，防回滚）。无有效清单时 null。
+  final int? manifestSequence;
+
   const UpdateInfo({
     required this.version,
     this.notes,
     required this.apkUrl,
     this.tagName,
     this.assetName,
+    this.expectedSha256,
+    this.expectedSize,
+    this.manifestVerified = false,
+    this.manifestSequence,
   });
 }
 
@@ -134,12 +153,32 @@ class UpdateChecker {
       throw const FormatException('release 未找到可下载附件');
     }
 
+    // 更新清单：签名过了才有约束力；缺失/验签失败都按「不可验证」处理。
+    final manifest = await _fetchVerifiedManifest(assets, timeout: t);
+    if (manifest != null) {
+      final minApp = manifest.minApp;
+      if (minApp != null &&
+          minApp.isNotEmpty &&
+          compareVersions(currentVersion(), minApp) < 0) {
+        throw FormatException(
+            '该版本要求从 v$minApp 及以上升级，请先安装中间版本');
+      }
+      if (!await _acceptManifestSequence(manifest.sequence, manifest.version)) {
+        throw const FormatException('更新清单序号异常（疑似回滚），已拒绝');
+      }
+    }
+    final exp = _manifestExpectation(manifest, picked?.name);
+
     final info = UpdateInfo(
       version: version,
       notes: json['body'] as String?,
       apkUrl: apkUrl,
       tagName: tag,
       assetName: picked?.name,
+      expectedSha256: exp.sha256,
+      expectedSize: exp.size,
+      manifestVerified: exp.verified,
+      manifestSequence: exp.sequence,
     );
 
     final cmp = compareVersions(version, currentVersion());
@@ -176,12 +215,31 @@ class UpdateChecker {
     final slash = rest.indexOf('/');
     final tag = slash < 0 ? rest : rest.substring(0, slash);
     final version = tag.startsWith('v') ? tag.substring(1) : tag;
+    // 与 API 路径同一套清单校验（HTML 降级同样要能验签）。
+    final manifest = await _fetchVerifiedManifest(assets, timeout: t);
+    if (manifest != null) {
+      final minApp = manifest.minApp;
+      if (minApp != null &&
+          minApp.isNotEmpty &&
+          compareVersions(currentVersion(), minApp) < 0) {
+        throw FormatException(
+            '该版本要求从 v$minApp 及以上升级，请先安装中间版本');
+      }
+      if (!await _acceptManifestSequence(manifest.sequence, manifest.version)) {
+        throw const FormatException('更新清单序号异常（疑似回滚），已拒绝');
+      }
+    }
+    final exp = _manifestExpectation(manifest, picked.name);
     final cmp = compareVersions(version, currentVersion());
     return cmp > 0
         ? UpdateInfo(
           version: version,
           apkUrl: picked.url,
           assetName: picked.name,
+          expectedSha256: exp.sha256,
+          expectedSize: exp.size,
+          manifestVerified: exp.verified,
+          manifestSequence: exp.sequence,
         )
         : null;
   }
@@ -204,6 +262,118 @@ class UpdateChecker {
       timeout: timeout,
     );
     return utf8.decode(bytes);
+  }
+
+  /// 拉取并验签该 release 的更新清单（`release-manifest.json`）。
+  ///
+  /// 清单本身也走镜像降级——**签名才是完整性依据**，镜像只是不可信传输层
+  /// （与旧实现的本质差别：旧实现信长度，新实现信公钥签名）。
+  /// 任何一步失败（附件缺失/验签失败/网络异常）都返回 null，由调用方按
+  /// `manifestVerified = false` 走「不自动安装」分支——fail-closed。
+  static Future<UpdateManifest?> _fetchVerifiedManifest(
+    List<dynamic> assets, {
+    required Duration timeout,
+  }) async {
+    String? url;
+    for (final a in assets) {
+      if (a is! Map) continue;
+      if ((a['name'] as String?) == kUpdateManifestAssetName) {
+        url = a['browser_download_url'] as String?;
+        break;
+      }
+    }
+    if (url == null || url.isEmpty) return null;
+    final urls = [
+      for (final m in githubMirrors) m.isEmpty ? url : '$m$url',
+    ];
+    try {
+      final bytes = await Net.getBytesMirrors(
+        urls,
+        headers: {'User-Agent': 'xingmanxia-android'},
+        timeout: timeout,
+      );
+      final manifest = UpdateManifest.tryParse(utf8.decode(bytes));
+      if (manifest == null) {
+        ErrorLogger.instance.warn(
+            '更新清单不可信（缺失或验签失败）：$kUpdateManifestAssetName');
+      }
+      return manifest;
+    } catch (e) {
+      ErrorLogger.instance.warn('更新清单拉取失败，本次更新不可自动安装: $e');
+      return null;
+    }
+  }
+
+  /// 从有效清单提取某附件的期望完整性值。仅在清单有效**且含该附件**时
+  /// `verified` 为 true；否则一律 false（调用方据此拒绝自动安装）。
+  static ({String? sha256, int? size, bool verified, int? sequence})
+      _manifestExpectation(UpdateManifest? manifest, String? assetName) {
+    if (manifest == null || assetName == null) {
+      return (sha256: null, size: null, verified: false, sequence: null);
+    }
+    final a = manifest.asset(assetName);
+    if (a == null) {
+      ErrorLogger.instance.warn('更新清单未包含附件 $assetName，无法校验其完整性');
+      return (sha256: null, size: null, verified: false, sequence: manifest.sequence);
+    }
+    return (
+      sha256: a.sha256,
+      size: a.size,
+      verified: true,
+      sequence: manifest.sequence,
+    );
+  }
+
+  /// 防回滚：清单序号必须单调。规则（用「序号 + 版本」双键，避免误伤）：
+  /// - `sequence > last` → 接受并记录；
+  /// - `sequence == last` 且 **version 相同** → 同一份清单的重复检查，接受
+  ///   （用户会反复点「检查更新」，不能第二次就拒）；
+  /// - `sequence < last` → 回滚攻击，拒绝；
+  /// - `sequence == last` 但 version 不同 → 同一序号签了两份内容，拒绝。
+  ///
+  /// 读盘异常按放行处理——序号只是纵深防御，签名才是主闸门。
+  static Future<bool> _acceptManifestSequence(
+    int sequence,
+    String version,
+  ) async {
+    const key = 'update_manifest_sequence';
+    try {
+      final raw = await LocalStore.readJson(key);
+      final lastSeq = raw is Map ? (raw['seq'] as int? ?? 0) : 0;
+      final lastVer = raw is Map ? (raw['version'] as String? ?? '') : '';
+      final ok = manifestSequenceAcceptable(
+        sequence,
+        version,
+        lastSeq: lastSeq,
+        lastVer: lastVer,
+      );
+      if (!ok) {
+        ErrorLogger.instance.warn(
+            '更新清单序号/版本不被接受（seq=$sequence/$lastSeq, '
+            'ver=$version/$lastVer）');
+        return false;
+      }
+      if (sequence > lastSeq) {
+        await LocalStore.writeJson(key, {'seq': sequence, 'version': version});
+      }
+      return true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// 序号/版本双键的纯判定（见 [_acceptManifestSequence] 的规则注释）。
+  /// 抽成纯函数：不碰 LocalStore，单测直接覆盖全部路径。
+  @visibleForTesting
+  static bool manifestSequenceAcceptable(
+    int sequence,
+    String version, {
+    required int lastSeq,
+    required String lastVer,
+  }) {
+    if (sequence < lastSeq) return false; // 回滚攻击
+    if (sequence == lastSeq && version != lastVer) return false; // 序号复用
+    return true;
   }
 
   /// 从 GitHub releases 网页 HTML 中提取附件列表（name + browser_download_url），

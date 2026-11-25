@@ -8,8 +8,10 @@ import '../models/comic_item.dart';
 import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import '../sources/comic_source.dart';
+import '../sources/video_source.dart';
 import 'search_providers.dart';
 import 'detail_page.dart';
+import 'episode_list_page.dart';
 import 'novel_detail_page.dart';
 import 'reader_page.dart';
 import 'responsive.dart';
@@ -43,6 +45,9 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
   bool _loadMoreError = false; // 加载更多失败（尾部显示重试条）
   bool _hasMore = false; // 任一源还有下一页
   int _failedCount = 0; // 本次搜索请求失败的源数量（部分失败时展示提示条）
+  // P1-14：失败源明细（哪个源、为什么）。空结果时用来区分「没有作品」和
+  // 「源失效」——旧实现只有计数，用户不知道该重试还是该换词。
+  List<SearchFailure> _failedSources = const [];
   final _searchCtrl = TextEditingController();
 
   // 双栏预览（≥840dp）：右侧面板当前选中的结果与其详情。
@@ -122,6 +127,7 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
       _error = null; // 开始新搜索时清除上一次的错误态
       _results = []; // 流式搜索：清空旧结果，逐源增量追加
       _failedCount = 0;
+      _failedSources = const [];
       _hasMore = false;
       _selected = null;
       _selectedSource = null;
@@ -156,11 +162,14 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
           if (ev.done) {
             // 终态：全部源落定，关闭 loading 并判定 noMatch/错误态。
             final outcomeFailed = ev.failedCount;
+            final failures = ev.failedSources;
             if (_results.isEmpty) {
               setState(() {
                 _loading = false;
+                _failedSources = failures;
                 _error = outcomeFailed > 0
-                    ? '搜索失败：全部 $outcomeFailed 个源请求失败（可能是网络或源站问题）'
+                    ? '搜索失败：全部 $outcomeFailed 个源请求失败'
+                        '${failures.isEmpty ? '' : '（${failures.map((f) => f.label).join('，')}）'}'
                     : '没有找到「$kw」相关的结果';
               });
             } else {
@@ -169,6 +178,7 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
                 _loadingMore = false;
                 _loadMoreError = false;
                 _failedCount = outcomeFailed;
+                _failedSources = failures;
               });
             }
             _loadHistory(); // 刷新历史列表（若在展示）
@@ -208,12 +218,15 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
       _loadMoreError = false;
     });
     try {
-      // 复用公开容错包装（safeSearch/safeSearchNovel）并发拉各源下一页。
+      // 复用公开容错包装并发拉各源下一页（三类源各自走自己的包装）。
       final futures = <Future<(List<ComicItem>, bool)>>[
         for (final r in snapshot)
-          r.isNovel
-              ? safeSearchNovel(r.novelSource!, kw, r.page + 1)
-              : safeSearch(r.source!, kw, r.page + 1),
+          if (r.isVideo)
+            safeSearchVideo(r.videoSource!, kw, r.page + 1)
+          else if (r.isNovel)
+            safeSearchNovel(r.novelSource!, kw, r.page + 1)
+          else
+            safeSearch(r.source!, kw, r.page + 1),
       ];
       final all = await Future.wait(futures, eagerError: false);
       // 期间发起了新搜索（代际已变）：本页结果作废，防止旧页数据
@@ -247,6 +260,9 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
           SourceResult(
             source: r.source,
             novelSource: r.novelSource,
+            // P1-12：三类源都要带过去，否则新建的 SourceResult 会因
+            // source/novelSource 都为 null 触发 assert。
+            videoSource: r.videoSource,
             items: merged,
             page: r.page + 1,
           ),
@@ -572,13 +588,20 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
 
   Widget _buildResultList(ColorScheme scheme, {required bool compactCards}) {
     // 类型过滤：全部/漫画/小说。仅过滤源分组展示（结果数据不动）。
+    // P1-12：三类媒体过滤。旧实现只有 all/comic/novel，动漫结果即使进来
+    // 也没有对应的筛选项和路由。
     final visible = _typeFilter == 'all'
         ? _results
-        : _results.where((r) =>
-            _typeFilter == 'novel' ? r.isNovel : !r.isNovel).toList();
-    // 过滤后各类型是否还有内容：小说源过滤时漫画全空则空态提示。
-    final hasComic = _results.any((r) => !r.isNovel);
+        : _results.where((r) => switch (_typeFilter) {
+              'comic' => !r.isNovel && !r.isVideo,
+              'novel' => r.isNovel,
+              'video' => r.isVideo,
+              _ => true,
+            }).toList();
+    // 过滤后各类型是否还有内容：空类型的筛选项自动禁用。
+    final hasComic = _results.any((r) => !r.isNovel && !r.isVideo);
     final hasNovel = _results.any((r) => r.isNovel);
+    final hasVideo = _results.any((r) => r.isVideo);
     return ListView.builder(
       controller: _listCtrl,
       padding: EdgeInsets.fromLTRB(
@@ -613,6 +636,14 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
                   active: _typeFilter == 'novel',
                   enabled: hasNovel,
                   onTap: () => setState(() => _typeFilter = 'novel'),
+                ),
+                const SizedBox(width: 8),
+                // P1-12：动漫筛选项。
+                _FilterChipBtn(
+                  label: '动漫',
+                  active: _typeFilter == 'video',
+                  enabled: hasVideo,
+                  onTap: () => setState(() => _typeFilter = 'video'),
                 ),
               ],
             ),
@@ -650,6 +681,11 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
           // 小说结果不进漫画预览面板（预览面板绑 ComicDetail 章节），
           // 两种模式都直达小说详情页。
           onTap: (item) {
+            // P1-12：动漫结果走选集页，漫画走详情/预览，小说走小说详情。
+            if (r.isVideo) {
+              _openVideoDetail(r.videoSource!, item);
+              return;
+            }
             if (r.isNovel) {
               _openNovelDetail(r.sourceId, item);
               return;
@@ -670,7 +706,12 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
   }
 
   /// 部分源失败提示条（结果列表顶部，不阻断其余源结果）。
+  ///
+  /// P1-14：展示**具体是哪些源、为什么失败**，并给一个一键重试。旧文案只有
+  /// 「N 个源请求失败」——用户不知道该重试、该换源，还是该先去人机验证。
   Widget _buildFailedHint(ColorScheme scheme) {
+    final shown = _failedSources.take(3).map((f) => f.label).join('；');
+    final extra = _failedSources.length > 3 ? ' 等' : '';
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 12, 4, 4),
       child: Row(
@@ -683,10 +724,28 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
           const SizedBox(width: 6),
           Expanded(
             child: Text(
-              '$_failedCount 个源请求失败，已展示其余源结果',
+              _failedSources.isEmpty
+                  ? '$_failedCount 个源请求失败，已展示其余源结果'
+                  : '$shown$extra，已展示其余源结果',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: scheme.onSurface.withValues(alpha: 0.55),
               ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          // 一键重试：重新走同一关键词的搜索（所有源重跑，不引入新机制）。
+          TextButton(
+            onPressed: _loading ? null : _search,
+            style: TextButton.styleFrom(
+              minimumSize: const Size(0, 32),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
+            child: Text(
+              '重试失败源',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: scheme.primary),
             ),
           ),
         ],
@@ -977,6 +1036,32 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
             ),
       ),
     );
+  }
+
+  /// 打开动漫详情（P1-12）。
+  ///
+  /// 与动漫首页同路径：先 `source.detail()` 拿剧集列表，再进选集页。详情是
+  /// 一次网络请求，失败要给可操作提示而不是静默无响应。
+  Future<void> _openVideoDetail(VideoSource source, ComicItem item) async {
+    HapticFeedback.selectionClick();
+    AppToast.info(context, '正在加载剧集…');
+    try {
+      final detail = await source.detail(item.id).timeout(
+        const Duration(seconds: 15),
+      );
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => EpisodeListPage(source: source, detail: detail),
+        ),
+      );
+    } catch (e) {
+      ErrorLogger.instance.warn('open video detail failed: $e');
+      if (mounted) {
+        AppToast.error(context, '加载动漫详情失败，请重试');
+      }
+    }
   }
 }
 

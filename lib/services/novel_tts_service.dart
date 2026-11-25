@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_tts/flutter_tts.dart';
 
 import '../net/error_logger.dart';
@@ -20,7 +21,15 @@ class NovelTtsService {
 
   static final NovelTtsService instance = NovelTtsService._internal();
 
-  final FlutterTts _tts = FlutterTts();
+  FlutterTts _tts = FlutterTts();
+
+  /// 仅供测试注入假引擎（生产恒用真实 FlutterTts）。
+  ///
+  /// 单位测试跑在无 TTS 插件的环境里，`_tts.speak/stop` 会抛
+  /// MissingPluginException；有了注入点才能在**不依赖引擎**的前提下验证
+  /// 「speaking ↔ paused」状态机（P1-22 的回归就在这）。
+  @visibleForTesting
+  set engineForTest(FlutterTts v) => _tts = v;
 
   /// 语速显示档位（0.5x ~ 2x），对应 setSpeechRate 的数值。
   static const List<double> rates = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
@@ -85,13 +94,18 @@ class NovelTtsService {
     await _stopEngine();
   }
 
-  Future<void> _stopEngine() async {
+  /// 停掉引擎实例。[keepState] = true 时**不动状态机**。
+  ///
+  /// P1-22：旧实现无条件置 idle，于是 `pause()`（先置 paused 再调本方法）
+  /// 的 paused 立刻被洗掉——暂停按钮表现成停止，阅读器 UI 的 idle 分支还会
+  /// 重新 loadChapter，偏移设计完全失效。现在只有 reset/stop 才回 idle。
+  Future<void> _stopEngine({bool keepState = false}) async {
     try {
       await _tts.stop();
     } catch (e) {
       ErrorLogger.instance.warn('NovelTts stop: $e');
     }
-    _setState(TtsPlayState.idle);
+    if (!keepState) _setState(TtsPlayState.idle);
   }
 
   /// 载入一章（整体替换队列），返回起始段下标。
@@ -131,7 +145,8 @@ class NovelTtsService {
     _cancelTimer();
     // stop 会触发完成回调 → 先关掉累计开关，让回调只停不前进。
     _accumulating = false;
-    await _stopEngine();
+    // 只停引擎、保留 paused：否则状态被洗成 idle，UI 会重新 loadChapter。
+    await _stopEngine(keepState: true);
     // 低版本 Android 无法精确续读：句首未过半 → 回到段开头重读；
     // 过半 → 保留偏移，下次 play 从过半处继续。
     if (_spokenChars > 0 && _spokenChars < _queue[_index].length / 2) {

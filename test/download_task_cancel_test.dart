@@ -107,9 +107,13 @@ void main() {
 
   test('批内多章取消互不串扰：取消 ch1 不影响 ch2 完成', () async {
     final key2 = taskKeyOf('ch2b');
-    // ch2 本地图预写，任务能真正完成。
-    await File(await LocalStore.localImagePath(key2, 0)).create(recursive: true);
-    await File(await LocalStore.localImagePath(key2, 1)).create(recursive: true);
+    // ch2 本地图预写，任务能真正完成。注意必须写**真实字节**：P1-08 起
+    // 「0 字节文件不算已下载」（那只会是写盘中途崩溃的残留），用
+    // File.create() 建空文件会被判为缺页而去联网，任务就完不成。
+    await File(await LocalStore.localImagePath(key2, 0))
+        .writeAsBytes(const [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 4]);
+    await File(await LocalStore.localImagePath(key2, 1))
+        .writeAsBytes(const [0xFF, 0xD8, 0xFF, 0xE0, 5, 6, 7, 8]);
     final f2 = DownloadManager.downloadChapter(
       batchGen: DownloadManager.beginBatch(),
       book: book,

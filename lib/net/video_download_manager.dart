@@ -123,7 +123,16 @@ class VideoDownloadManager {
   VideoDownloadManager._() {
     _queue = TaskQueue<String>(
       maxConcurrent: _maxConcurrent,
-      run: (key) => _run(_tasks[key]!),
+      run: (key) {
+        final t = _tasks[key];
+        if (t == null) return Future.value();
+        // P1-09：登记在途 Future——remove() 要等它真正停下，否则
+        // 已删除的文件会被在途写盘重新写出来。
+        final f = _run(t);
+        _inflight[key] = f;
+        f.whenComplete(() => _inflight.remove(key));
+        return f;
+      },
     );
     _persistDebounced = DebouncedPersist(
       debounce: const Duration(milliseconds: 500),
@@ -225,6 +234,21 @@ class VideoDownloadManager {
     required String url,
     Map<String, String> headers = const {},
   }) async {
+    // P1-23：Web 无本地文件系统，直接拒绝，避免生成假任务记录。
+    if (kIsWeb) {
+      final denied = VideoDownloadTask(
+        sourceId: sourceId,
+        videoId: videoId,
+        title: title,
+        season: season,
+        episode: episode,
+        url: url,
+        headers: headers,
+      );
+      denied.state = 'failed';
+      denied.error = 'Web 端不支持离线下载';
+      return denied;
+    }
     await init();
     final task = VideoDownloadTask(
       sourceId: sourceId,
@@ -268,6 +292,7 @@ class VideoDownloadManager {
   /// 会先清掉上次残留的进度与报错，避免 UI 还显示旧的百分比和错误信息。
   /// 不做分片级断点续传：m3u8 会重新拉取全部分片（简单可靠，避免半截文件拼接出错）。
   Future<bool> retry(String key) async {
+    if (kIsWeb) return false; // P1-23：Web 无本地下载
     await init();
     final t = _tasks[key];
     if (t == null) return false;
@@ -285,20 +310,45 @@ class VideoDownloadManager {
     return true;
   }
 
-  /// 删除已完成任务（文件 + 记录）。返回是否成功。
+  /// 删除任务（文件 + 记录）。返回是否成功。
+  ///
+  /// P1-09：**在途任务必须先取消并等它真正停下**。旧实现只做
+  /// `removePending + release + clearTaskCancel` 然后直接删文件——而在途
+  /// `_run` 仍持有任务对象继续写盘，于是：删掉的文件被重新写出来（用户看到
+  /// 「已删除」却又出现）、还可能收到一条迟到的完成通知；同名重新下载时新旧
+  /// 两个写者争用同一个 `S{季}E{集}.mp4.part`，产出缝合文件。
   Future<bool> remove(String key) async {
     final t = _tasks.remove(key);
     if (t == null) return false;
-    // 从队列/在途集合移除，清理取消标记避免与后续重试同名任务串扰
+    // 1) 在途/排队中：下取消标记，等 _run 在最近的数据块边界退出。
+    final wasRunning = _queue.isRunning(key);
     _queue.removePending(key);
+    if (wasRunning) {
+      _cancel.cancelTask(key);
+      final f = _inflight[key];
+      if (f != null) {
+        try {
+          // 上限 10s：下载循环每个数据块都检查取消，正常应在毫秒级退出；
+          // 超时说明卡在单个大分片上，此时放弃等待继续删（最坏残留一个
+          // 很快会因为取消检查而中止的孤儿写者，由下次清理兜底）。
+          await f.timeout(const Duration(seconds: 10));
+        } catch (_) {}
+      }
+    }
+    // 2) 释放并发槽与取消标记。release 只负责调度，不能代替取消。
     _queue.release(key);
     _cancel.clearTaskCancel(key);
-    if (t.localPath != null) {
+    // 3) 删除成品 + 残留 .part（在途写者写的是 .part，只删成品会留下垃圾）。
+    for (final p in <String?>[
+      t.localPath,
+      if (t.localPath != null) '${t.localPath}.part',
+    ]) {
+      if (p == null) continue;
       try {
-        final f = File(t.localPath!);
+        final f = File(p);
         if (f.existsSync()) f.deleteSync();
       } catch (e) {
-        ErrorLogger.instance.warn('删除下载文件失败 ${t.localPath}: $e');
+        ErrorLogger.instance.warn('删除下载文件失败 $p: $e');
       }
     }
     _queue.drain();
@@ -306,6 +356,9 @@ class VideoDownloadManager {
     _persist();
     return true;
   }
+
+  /// 在途任务的 Future 登记表（P1-09）。
+  final Map<String, Future<void>> _inflight = {};
 
   Future<void> _run(VideoDownloadTask t) async {
     // 总进度看门狗（P0-1 引擎共享）：每 15s 拍一次 doneBytes，连续 6 拍
@@ -344,7 +397,10 @@ class VideoDownloadManager {
     }
     // 单集收尾：完成/失败发系统通知（应用切后台或退出下载页时告知结果）。
     // 已取消不发（用户主动行为，无需提醒）。
-    if (t.state == 'done') {
+    // P1-09：任务已被删除时也不发——否则用户刚删掉它，两秒后收到一条
+    // 「下载完成」，而文件已经不存在了（白惊喜一场）。
+    final stillThere = _tasks.containsKey(t.key);
+    if (stillThere && t.state == 'done') {
       unawaited(
         UpdateNotifier.notifyDownloadResult(
           title: '《${t.title}》下载完成',
@@ -352,7 +408,7 @@ class VideoDownloadManager {
           error: false,
         ),
       );
-    } else if (t.state == 'failed') {
+    } else if (stillThere && t.state == 'failed') {
       unawaited(
         UpdateNotifier.notifyDownloadResult(
           title: '《${t.title}》下载失败',
@@ -367,6 +423,32 @@ class VideoDownloadManager {
   }
 
   // ---------------- mp4 直链 ----------------
+
+  /// 首块特征嗅探：判断下载回来的第一批字节是不是网页/错误页而非媒体。
+  ///
+  /// 二进制媒体（TS/fMP4/MP4）不可能以 `<` 或 `{` 开头，因此只看前 256 字节
+  /// 的可打印前缀即可，不需要等整包。纯函数，便于单测。
+  @visibleForTesting
+  static bool looksLikeMarkup(List<int> bytes) {
+    if (bytes.isEmpty) return false;
+    final head = utf8
+        .decode(bytes.take(256).toList(), allowMalformed: true)
+        .trimLeft()
+        .toLowerCase();
+    if (head.isEmpty) return false;
+    if (head.startsWith('<')) return true; // <!doctype / <html / <?xml
+    if (head.startsWith('{') || head.startsWith('[')) return true; // JSON 错误体
+    for (final marker in const [
+      'not found',
+      'access denied',
+      'forbidden',
+      '请登录',
+      '验证',
+    ]) {
+      if (head.contains(marker)) return true;
+    }
+    return false;
+  }
 
   Future<int> _probeLength(VideoDownloadTask t) async {
     final client = Net.clientForRequest(Uri.parse(t.url).host);
@@ -401,7 +483,17 @@ class VideoDownloadManager {
       if (resp.statusCode != 200 && resp.statusCode != 206) {
         throw HttpException('HTTP ${resp.statusCode}');
       }
+      // P0-04：**内容校验第一道**——Content-Type。把网页/登录页/质询页
+      // 存成 .mp4 并标「下载完成」是最坑的假成功（用户离线时打不开）。
+      final ct = (resp.headers.value('content-type') ?? '').toLowerCase();
+      if (ct.contains('text/html') ||
+          ct.contains('application/xhtml') ||
+          ct.contains('text/plain')) {
+        resp.drain<void>();
+        throw HttpException('返回的是网页而非视频（content-type=$ct），已放弃');
+      }
       final sink = part.openSync(mode: FileMode.append);
+      var sniffed = false;
       try {
         // 分块停滞超时：单文件直链下载期间源站中途挂死时，等待下一块
         // 20 秒无数据即放弃本任务（可重试），不无限悬挂。
@@ -416,6 +508,15 @@ class VideoDownloadManager {
           if (_stalled.contains(t.key)) {
             resp.drain<void>();
             throw HttpException('下载停滞');
+          }
+          // P0-04：**内容校验第二道**——首块特征嗅探。有些源 404/需要登录
+          // 时返回 200 + text/plain + JSON/HTML 正文，Content-Type 拦不住全部。
+          if (!sniffed) {
+            sniffed = true;
+            if (looksLikeMarkup(chunk)) {
+              resp.drain<void>();
+              throw HttpException('下载内容不是视频（返回网页或错误页），已放弃');
+            }
           }
           sink.writeFromSync(chunk);
           t.doneBytes += chunk.length;

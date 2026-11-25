@@ -101,9 +101,25 @@ android {
             }
         }
         release {
+            // P0-02 纵深防御：release 构建缺 key.properties 时**不再静默退回
+            // debug 签名**。CI 的 workflow 已经 fail-closed（缺 secret 即 exit 1），
+            // 但本地/其他机器上直接跑 `flutter build apk --release` 时同样会
+            // 过去那样悄悄产出 debug 签名的「正式包」——用户覆盖安装失败、本地数据
+            // 丢失。这里把最后一处 fail-open 也关上。
+            // 需要临时出调试包时显式加 -PallowDebugReleaseSigning=true（可审计）。
             signingConfig = if (keystorePropertiesFile.exists()) {
                 signingConfigs.getByName("release")
             } else {
+                val allowDebug = (project.findProperty("allowDebugReleaseSigning")
+                    ?.toString()?.toBoolean()) ?: false
+                if (!allowDebug) {
+                    throw GradleException(
+                        "release 构建缺少 android/key.properties（正式签名密钥），" +
+                        "拒绝静默退回 debug 签名。请配置签名密钥；" +
+                        "如确需本地调试出包，请加 -PallowDebugReleaseSigning=true。"
+                    )
+                }
+                logger.warn("allowDebugReleaseSigning=true：release 包将使用 debug 签名（仅限调试）")
                 signingConfigs.getByName("debug")
             }
         }

@@ -8,7 +8,8 @@ sealed class SourceError {
   const SourceError();
 
   const factory SourceError.network([String? message]) = SourceNetwork;
-  const factory SourceError.service([String? message]) = SourceService;
+  const factory SourceError.service([String? message, int? statusCode]) =
+      SourceService;
   const factory SourceError.unauthorized([String? message]) = SourceUnauthorized;
   const factory SourceError.blocked(BlockReason reason, [String? message]) =
       SourceBlocked;
@@ -25,7 +26,17 @@ final class SourceNetwork extends SourceError {
 
 final class SourceService extends SourceError {
   final String? message;
-  const SourceService([this.message]);
+
+  /// HTTP 状态码（有状态码的错误才带）。
+  ///
+  /// **必须结构化，不能靠 message 字符串匹配**——审计实测：
+  /// `HttpStatusException` 只 `implements Exception`（不是 `HttpException`），
+  /// 熔断层的 `is HttpException` 分支匹配不到它，所有 404/429/500 都落进
+  /// `SourceError.unknown`。于是「5xx 换下一个 host」「429 归类为限流」
+  /// 两处逻辑全部静默失效（代码在、语义死）。
+  final int? statusCode;
+
+  const SourceService([this.message, this.statusCode]);
   @override
   String toString() => '服务不可用${message != null ? ': $message' : ''}';
 }

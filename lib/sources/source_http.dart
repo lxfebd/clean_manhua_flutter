@@ -4,8 +4,10 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../net/circuit_breaker.dart';
+import '../net/error_logger.dart';
 import '../net/http_client.dart';
 import 'source_config.dart';
+import 'source_result.dart';
 
 /// 带「配置 + 熔断 + 瞬时失败重试」的源 HTTP 助手（对齐 Ani 的声明式配置 + Mangayomi 的源调用流）。
 ///
@@ -33,22 +35,78 @@ class SourceHttp {
     return p.isEmpty ? null : p;
   }
 
+  /// 是否值得换下一个 host 重试（P1-07）。纯函数，便于单测。
+  ///
+  /// 只有「这个 host 侧的问题」才换：连接层/超时（network）、5xx/429
+  /// （service 里除 404/401/403 之外的部分）。
+  /// 404/401/403 **不换**——那是 path 或凭据的问题，换 host 只是把同样的
+  /// 404 再打一遍、还多耗一次源站配额；解析失败也不换（页面拿到了，是
+  /// 选择器失效，换域名治不好）。unauthorized/blocked/unknown 一律不换。
+  @visibleForTesting
+  static bool shouldTryNextHost(Object e) {
+    if (e is SourceNetwork) return true;
+    if (e is SourceService) {
+      // 用结构化 statusCode 判断，不靠 message 字符串匹配（P2-15 审计修复）：
+      // HttpStatusException 不是 HttpException，早前所有状态错误都落进
+           // unknown，这里的 message 匹配于是形同虚设。
+      final code = e.statusCode;
+      if (code == null) return false; // 业务错误（未配置规则等）与 host 无关
+      if (code == 404 || code == 401 || code == 403) return false;
+      // 5xx / 429 / 其它：换下一个 host 有意义。
+      return code >= 500 || code == 429;
+    }
+    return false;
+  }
+
+  /// 在「一个总预算」内按 host 列表逐个尝试：只有应该换 host 的失败
+  /// （见 [shouldTryNextHost]）才继续下一个，其余立即抛。
+  ///
+  /// 熔断键细化到 `engineId|host`——旧实现整个源共用一个熔断器，A 域名挂
+  /// 会把 B 域名一起冷却掉，而 B 本来是好的。
+  static Future<T> _acrossHosts<T>(
+    String engineId,
+    List<String> hosts,
+    Future<T> Function(String host) attempt,
+  ) async {
+    if (hosts.isEmpty) {
+      throw SourceError.network('没有可用的 host 配置');
+    }
+    Object? last;
+    for (var i = 0; i < hosts.length; i++) {
+      final host = hosts[i];
+      try {
+        return await withCircuit(
+            '$engineId|$host', () => withTransientRetry(() => attempt(host)));
+      } catch (e) {
+        last = e;
+        final isLast = i >= hosts.length - 1;
+        if (isLast || !shouldTryNextHost(e)) rethrow;
+        // 换下一个 host：不再退避（第一个 host 已经耗过一次瞬时重试的预算）。
+        ErrorLogger.instance.warn(
+            'source_http: $engineId host=$host 失败，切换到下一个 host（$e）');
+      }
+    }
+    throw last ?? SourceError.unknown('unreachable');
+  }
+
   /// GET：host 由配置决定，path 拼接在 host 之后。
   ///
   /// 重试层收敛：本层 [withTransientRetry] 已负责瞬时失败重试，
   /// 故 [Net.get] 传 `retry: false`（P0-2：此前两层各自重试 →
   /// 单个 GET 最坏 4 次真实请求）。
+  /// P1-07：host 列表逐个尝试（旧的 pickHost 永远只取第一个，配了镜像也白配）。
   static Future<String> get(
     String engineId,
     String path, {
     List<String> fallbackHosts = const [],
     Map<String, String>? headers,
   }) async {
-    return withCircuit(engineId, () => withTransientRetry(() async {
-      final host = await pickHost(engineId, fallbackHosts);
+    final hosts = await SourceConfigStore.hostsFor(engineId, fallbackHosts);
+    final proxy = await proxyFor(engineId);
+    return _acrossHosts(engineId, hosts, (host) {
       return Net.get('$host$path',
-          headers: headers, proxy: await proxyFor(engineId), retry: false);
-    }));
+          headers: headers, proxy: proxy, retry: false);
+    });
   }
 
   /// POST：host 由配置决定，path 拼接在 host 之后。
@@ -59,11 +117,12 @@ class SourceHttp {
     Map<String, String>? headers,
     String? body,
   }) async {
-    return withCircuit(engineId, () => withTransientRetry(() async {
-      final host = await pickHost(engineId, fallbackHosts);
+    final hosts = await SourceConfigStore.hostsFor(engineId, fallbackHosts);
+    final proxy = await proxyFor(engineId);
+    return _acrossHosts(engineId, hosts, (host) {
       return Net.post('$host$path',
-          headers: headers, body: body, proxy: await proxyFor(engineId));
-    }));
+          headers: headers, body: body, proxy: proxy);
+    });
   }
 
   /// GET 完整 URL（已拼好 host + 查询串的场景）。

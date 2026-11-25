@@ -398,6 +398,11 @@ class Net {
           urlStr, headers, t, probe, limit,
           accept: '*/*', asBytes: false);
       return s as String;
+    } on HttpStatusException {
+      // P2-14：这一条 URL 的问题（404/403/429），不是引擎的问题。
+      // 旧实现 `catch (_)` 把 Cronet 全局下线——一张封面 404 就让整条
+      // Android 网络栈退化为 dart:io，与「404 不下线」的注释正相反。
+      rethrow;
     } catch (_) {
       _cronetUsable = false;
       return get(urlStr, headers: headers, timeout: timeout, maxBytes: maxBytes, retry: retry);
@@ -425,6 +430,9 @@ class Net {
           accept: 'image/webp,image/*,*/*', asBytes: true);
       if (b is List<int>) return b;
       return downloadBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout, maxBytes: maxBytes);
+    } on HttpStatusException {
+      // P2-14：同 getCronet——URL 级错误不下线引擎。
+      rethrow;
     } catch (_) {
       _cronetUsable = false;
       return downloadBytes(urlStr, headers: headers, proxy: proxy, timeout: timeout, maxBytes: maxBytes);
@@ -482,11 +490,28 @@ class Net {
       } catch (e) {
         // HTTP 状态错误是这次请求的问题，引擎与连接池照常留着复用；
         // 只有引擎本身不可用才丢弃，下一次请求重建干净的。
-        if (e is! HttpStatusException) _cronetClient = null;
+        if (e is! HttpStatusException) {
+          // 丢弃前必须 close：CronetClient.close() 会 shutdown+release 引擎
+          // （cronet_http 的 defaultCronetEngine() 带 closeEngine=true）。
+          // 旧实现直接置 null 只是丢 Dart 引用，JNI 侧引擎不释放——每坏一次
+          // 泄漏一个引擎及其 socket pool（P2-14 的回收路径）。
+          final old = _cronetClient;
+          _cronetClient = null;
+          if (old != null) {
+            try {
+              old.close();
+            } catch (_) {
+              // close 自身失败（JNI 异常）不阻断主流程，交兜底回收。
+            }
+          }
+        }
         rethrow;
       }
-      // 注意：不再 client.close()。close() 会销毁 CronetEngine，socket pool
-      // 随之消失，同域下一张图又要完整 TCP+TLS 握手。引擎常驻才有连接复用。
+      // 注意：不再每个请求都 client.close()。close() 会 shutdown+release
+      // CronetEngine，socket pool 随之消失，同域下一张图又要完整 TCP+TLS
+      // 握手——所以**正常路径**引擎常驻才有连接复用。
+      // 但在 catch 的「引擎坏了要丢弃」分支**必须** close，否则 JNI 侧引擎
+      // 泄漏（见下面的丢弃逻辑）。
     }).timeout(probe);
   }
 

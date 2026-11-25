@@ -6,8 +6,9 @@ import 'package:xingmanxia/sources/xbiquge_novel_source.dart';
 /// 注意：xbiquge.bz 是中文小说站，GitHub Actions（美国机房）可能无法访问。
 /// 网络不可达时自动跳过，不阻断 CI。
 /// 默认跳过：真实网络源验证，源站波动时拖垮本地回归。
-/// 需要验源时临时把 _skipLive 改成 false。
-const bool _skipLive = true;
+/// 默认跳过（本地开发不打网络）；需要跑真实网络时传
+/// `--dart-define=LIVE_SOURCE_TESTS=true`（日常 source-health workflow 即如此）。
+const bool _skipLive = !bool.fromEnvironment('LIVE_SOURCE_TESTS');
 void main() {
   test('xbiquge novel source live verification', () async {
     final src = XbiqugeNovelSource();
@@ -18,7 +19,14 @@ void main() {
     } catch (e) {
       // ignore: avoid_print
       print('xbiquge.bz 网络不可达，跳过测试: $e');
-      return;
+
+      // P1-30：LIVE 模式下预探失败必须让测试**失败**。旧实现直接 return，
+
+      // 于是「0 条断言全过」在每日 source-health workflow 里也是绿的——
+
+      // 源契约到底有没有被执行，没人知道。
+
+      fail('xbiquge.bz 预探失败：真实网络不可达，不允许静默通过（P1-30）: $e');
     }
 
     final cats = await src.categories();

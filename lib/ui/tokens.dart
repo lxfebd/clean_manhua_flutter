@@ -100,6 +100,30 @@ abstract final class T {
       base.withValues(alpha: alphaFor(tier, brightness));
 }
 
+/// 语义色调：成功 / 警告 / 失败。用于源健康度、下载状态、网络探测结果等
+/// 「状态色」场景，替代散落的 Materials 默认色字面量。
+enum SemanticTone { ok, warn, bad }
+
+/// 语义色：亮暗分算。Material 默认绿/橙/红在 zinc 中性底（尤其暗色
+/// `#0C0C0E`）上发灰、对比不足，且不跟随主题；这里固定取 Tailwind
+/// 700（亮）/ 400（暗）两档——亮底加深、暗底提亮，正文级对比不打折。
+/// 用法与 [T.alphaFor] 一致：传 `scheme.brightness`。
+abstract final class SC {
+  static const Color _lightOk = Color(0xFF15803D);
+  static const Color _lightWarn = Color(0xFFB45309);
+  static const Color _lightBad = Color(0xFFB91C1C);
+
+  static const Color _darkOk = Color(0xFF4ADE80);
+  static const Color _darkWarn = Color(0xFFFBBF24);
+  static const Color _darkBad = Color(0xFFF87171);
+
+  static Color of(SemanticTone tone, Brightness b) => switch (tone) {
+        SemanticTone.ok => b == Brightness.dark ? _darkOk : _lightOk,
+        SemanticTone.warn => b == Brightness.dark ? _darkWarn : _lightWarn,
+        SemanticTone.bad => b == Brightness.dark ? _darkBad : _lightBad,
+      };
+}
+
 /// 字号阶（6 档，Material TextTheme 名称对齐）。
 /// 页面一律 `Theme.of(context).textTheme.xxx`，禁止内联 fontSize。
 /// 平板/桌面走 [TypeScale.tablet]/[TypeScale.desktop] 档，手机走 [TypeScale.phone] 档，

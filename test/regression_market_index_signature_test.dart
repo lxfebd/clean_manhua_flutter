@@ -163,4 +163,35 @@ void main() {
           reason: '真实签名脚本的产物必须被内置公钥验证通过');
     });
   });
+
+  group('checkIndexOrTrust（P1-03 fail-closed）', () {
+    // 旧策略是「missing 告警放行」——删掉 _sig 就能绕过唯一闸门，这才是
+    // 真正的攻击面。现在 missing/invalid 一律拒绝，只有 valid 放行。
+    test('未签名（删掉 _sig）→ 拒绝', () {
+      final text =
+          '{"name":"m","sources":[{"id":"a"}]}';
+      expect(checkIndexOrTrust(text, what: '测试市场'), isFalse,
+          reason: 'missing 必须拒绝：删签名正是绕过验签的标准手法');
+    });
+
+    test('被篡改 → 拒绝', () {
+      final signed = File('test/fixtures/market_signed_sample.json')
+          .readAsStringSync();
+      final decoded = jsonDecode(signed) as Map<String, dynamic>;
+      decoded['name'] = '被改过的名字';
+      expect(checkIndexOrTrust(jsonEncode(decoded), what: '测试市场'), isFalse);
+    });
+
+    test('合法签名 → 放行', () {
+      final signed = File('test/fixtures/market_signed_sample.json')
+          .readAsStringSync();
+      expect(checkIndexOrTrust(signed, what: '测试市场'), isTrue);
+    });
+
+    test('非 JSON / 顶层数组 → 拒绝且不抛', () {
+      for (final t in ['', 'not json', '[1,2,3]', '"str"']) {
+        expect(checkIndexOrTrust(t, what: '测试市场'), isFalse, reason: t);
+      }
+    });
+  });
 }

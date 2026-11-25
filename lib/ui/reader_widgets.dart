@@ -33,13 +33,21 @@ class _ImageViewState extends State<_ImageView>
   /// （didUpdateWidget 只在 url 等属性变化时重载，重试必须换 key）。
   int _imgGen = 0;
 
-  /// 横向翻页：必须关闭 keepAlive——JM 长条图解码后单张可达数十 MB，
-  /// PageView 若把已读页全部保留在 Element 树中，翻十几页就 OOM 闪退。
-  /// 关闭后由 PageView 的 cacheExtent 保留前后有限页，翻走即销毁释放。
-  /// 纵向滚动：保留 keepAlive 但同样要防止无限累积——ListView 的
-  /// keepAlive 页面数受 cacheExtent(900px) 限制，超出即销毁，不会无限累积。
+  /// keepAlive **恒关**（P0-05）。
+  ///
+  /// 原实现是「横向关、纵向开」，理由是纵向 ListView 的 keepAlive 页面数
+  /// 受 cacheExtent(900px) 限制、不会无限累积——这个前提不成立：keep-alive
+  /// 桶只由 Element 何时被回收决定，纵向滚动里已读页的 State 与
+  /// `_bytes`（解码后图片字节）会随已读页数持续驻留，长章内存单向增长。
+  ///
+  /// 关掉后由 cacheExtent 保留前后有限页，翻走即销毁；图片走
+  /// ImageCacheManager 磁盘缓存，回翻是「重读盘 + 重解码」而不是重新联网。
+  /// 单位图内存不再与「已读页数」成正比。
+  ///
+  /// 回归门禁：test/reader_keepalive_test.dart 断言阅读器侧不再出现
+  /// `wantKeepAlive => true`。
   @override
-  bool get wantKeepAlive => !widget.horizontal;
+  bool get wantKeepAlive => false;
 
   bool get _isJm => widget.sourceId == 'jm';
 
@@ -323,10 +331,10 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
   /// 当前源的 CustomSourceDef 缓存（picHeaders 读图用）。
   CustomSourceDef? _defCache;
 
-  /// 与 _ImageView 一致：横向翻页关闭 keepAlive，翻走即销毁释放内存，
-  /// 避免长条图在 PageView 中累积导致 OOM。
+  /// 与 [_ImageView] 一致：keepAlive **恒关**（P0-05，见那里的长注释）。
+  /// 纵向滚动里本层同时持有 `_bytes`/`_provider`，是长章内存增长的主因。
   @override
-  bool get wantKeepAlive => !widget.horizontal;
+  bool get wantKeepAlive => false;
 
   @override
   void initState() {
@@ -343,6 +351,15 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
     } catch (_) {/* 忽略：无该源时读图走无头兜底 */}
   }
 
+  /// 请求代际（P1-19，与 widgets/jm_scramble_image.dart 的 _gen 同模式）：
+  /// 换 url 时作废在途旧请求。
+  ///
+  /// 没有它时：A 图的慢响应（降级链重试/裁边/超分/上色都是 await 点）可能晚于
+  /// B 图返回，旧字节被 setState 写进新 url 的 State——用户看到「第 3 页显示
+  /// 第 5 页的图」，且因为 _bytes 非空，失败态还被旧响应洗掉。纵向滚动里
+  /// widget 复用让这个窗口经常出现。
+  int _loadGen = 0;
+
   @override
   void didUpdateWidget(covariant _CachedReaderImage old) {
     super.didUpdateWidget(old);
@@ -350,6 +367,12 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
         old.superRes != widget.superRes ||
         old.trimBorder != widget.trimBorder ||
         old.colorize != widget.colorize) {
+      // 作废在途请求 + 复位状态：不清 _bytes 的话，旧图会继续显示且
+      // 因「已有字节」不显示占位，新旧内容在视觉上无法区分。
+      _loadGen++;
+      _bytes = null;
+      _colorized = false;
+      _failed = false;
       _load();
     }
   }
@@ -407,6 +430,9 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
   /// 先加载原图快速显示，滑动停止后再异步超分升级。
   /// 避免超分 Isolate 在滑动期间并发导致低端机卡死。
   Future<void> _load() async {
+    // P1-19：本次请求的代际。didUpdateWidget 换 url 时会 ++_loadGen，
+    // 下面每个 await 之后都要校验——否则旧请求的迟到字节会覆盖新 url。
+    final gen = ++_loadGen;
     // 保留已加载图片字节，避免占位高度(240)与实际高度来回跳变造成上翻抖动；
     // 仅在确实没有图片时才触发重建显示占位。
     if (_bytes == null) {
@@ -419,6 +445,7 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
       // 代理解析整章一致且已由 state 级 future 缓存（_pendingProxy），
       // 不每页重复 await（源配置带 5min TTL，滚动建页时避免逐页查配置）。
       final proxy = await _ReaderPageState.proxyForSource(widget.sourceId);
+      if (!mounted || gen != _loadGen) return;
       // 第一步：先加载原图（快速显示）。走多级降级链：
       // 原画失败自动尝试省空间压缩图（mangadex data-saver）与备用镜像（jm CDN），
       // 任一档位成功即显示；全部失败由 catch 落失败态。
@@ -430,12 +457,12 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
           proxy: proxy,
           engineId: widget.sourceId,
           useSaver: widget.sourceId == 'mangadex');
-      if (!mounted) return;
+      if (!mounted || gen != _loadGen) return;
       if (r.bytes == null) {
         throw Exception('图片降级链全部失败');
       }
       final raw = r.bytes!;
-      if (!mounted) return;
+      if (!mounted || gen != _loadGen) return;
 
       // 自动裁边去白边：裁边结果按独立缓存 key 持久化，
       // 只计算一次，二次打开直接命中磁盘缓存（与原图缓存同机制）。
@@ -448,15 +475,16 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
             headers: _headers(),
             fetch: () async => trimAndCrop(raw),
             proxy: proxy);
-        if (!mounted) return;
+        if (!mounted || gen != _loadGen) return;
       }
+      if (!mounted || gen != _loadGen) return;
       setState(() => _bytes = display);
 
       // 第二步：等滑动停止后做超分（防止滑动期间 Isolate 并发卡死）。
       // 上色与超分彼此独立：超分不开也能上色，上色失败降级原图不打断阅读。
       if (widget.superRes) {
         await _waitForScrollEnd();
-        if (!mounted) return;
+        if (!mounted || gen != _loadGen) return;
 
         // 超分缓存命中则秒换；未命中则排队做 Lanczos-3（全局互斥锁串行化）。
         // 开启裁边时超分作用在裁边结果上，缓存 key 也要带上裁边标识避免串缓存。
@@ -467,7 +495,7 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
             headers: _headers(),
             fetch: () async => await ImageSuperRes.upscale2x(display),
             proxy: proxy);
-        if (mounted) {
+        if (mounted && gen == _loadGen) {
           setState(() {
             _bytes = sr;
           });
@@ -478,13 +506,15 @@ class _CachedReaderImageState extends State<_CachedReaderImage>
       // 仅在未触发上色时执行一次，避免每次重建重复推理。
       if (widget.colorize && !_colorized) {
         final colored = await _tryColorize(_bytes ?? display);
-        if (mounted && colored != null) {
+        if (mounted && gen == _loadGen && colored != null) {
           setState(() => _bytes = colored);
         }
       }
     } catch (e) {
       ErrorLogger.instance.warn('image load failed url=${widget.url} err=$e');
-      if (mounted) {
+      // P1-19：旧代际的失败不许污染新 url 的状态（也不触发它的自动重试——
+      // 那会为一张已经不在屏幕上的图多发一次请求）。
+      if (mounted && gen == _loadGen) {
         setState(() => _failed = true);
         widget.onError();
         // 单张图失败自动重试 1 次（延迟 1.5s），降低偶发网络抖动对阅读流

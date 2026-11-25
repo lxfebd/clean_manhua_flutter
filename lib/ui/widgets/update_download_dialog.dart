@@ -14,6 +14,9 @@ Future<bool> showUpdateDownloadDialog(
   BuildContext context,
   String apkUrl, {
   String? assetName,
+  String? expectedSha256,
+  int? expectedSize,
+  bool manifestVerified = false,
 }) async {
   final navigator = Navigator.of(context, rootNavigator: true);
   final completer = Completer<bool>();
@@ -22,7 +25,13 @@ Future<bool> showUpdateDownloadDialog(
   if (UpdateDownloadManager.instance.state.received == 0 &&
       UpdateDownloadManager.instance.state.total == 0 &&
       !UpdateDownloadManager.instance.state.done) {
-    UpdateDownloadManager.instance.start(apkUrl, fileName: assetName);
+    UpdateDownloadManager.instance.start(
+      apkUrl,
+      fileName: assetName,
+      expectedSha256: expectedSha256,
+      expectedSize: expectedSize,
+      manifestVerified: manifestVerified,
+    );
   }
 
   showDialog<void>(

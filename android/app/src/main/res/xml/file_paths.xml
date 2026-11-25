@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  P2-21：只暴露更新/安装包所在的 downloads 子目录。
+
+  旧配置是 cache/files/external-files 三个根全部 path="."，相当于把应用私有
+  目录整体授权出去——provider 自身 exported=false 挡住了「其他应用直接来拿」，
+  但任何一次 URI 授权疏漏（多 grant 一个 URI、把 URI 写进日志/通知/Intent extra
+  被别的应用拿到）暴露面就是整个私有目录：书架、历史、WebDAV 配置、日志。
+
+  现在只保留安装/更新 APK 真正需要的目录。如果未来要分享别的文件（日志/备份），
+  请按需新增**最小**子目录，不要再回到 path="."。
+-->
 <paths>
-    <cache-path name="cache" path="." />
-    <files-path name="files" path="." />
-    <external-files-path name="external_files" path="." />
+    <files-path name="downloads" path="downloads/" />
 </paths>

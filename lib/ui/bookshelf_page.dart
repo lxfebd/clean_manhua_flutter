@@ -1349,6 +1349,13 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
         builder: (_) => NativePlayerPage(
           url: 'file://$p',
           title: t.title,
+          // P1-21：季/集必须随任务带过去。旧实现漏传，播放器按默认 season=1/
+          // episode=1 初始化——下载的是第 2 季第 8 集，打开却显示 1-1，
+          // 续播记录与在线观看不连续，下载面板还可能指向 1-1 的任务键。
+          season: t.season,
+          episode: t.episode,
+          // 续播 key 用任务原键（与下载键同源），让在线→离线→在外的进度连续。
+          historyKey: t.key,
           sourceId: t.sourceId,
           videoId: t.videoId,
           webChannelBuilder: animePlayerWebChannel,

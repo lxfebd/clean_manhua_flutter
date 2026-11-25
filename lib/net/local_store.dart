@@ -848,6 +848,29 @@ class LocalStore {
     });
   }
 
+  /// 动漫追更基线（P1-13）：`sourceId/videoId` → 已见过的最大集数。
+  ///
+  /// 与小说的 lastChapters 同语义：首次写入只置基线、不报更新（避免「第一次
+  /// 检查必报更新」的噪声），之后只认「集数变多」。旧的 shelf_updater 只扫
+  /// 漫画 + 小说书架，番剧新更永远不会出现在追更里。
+  static const String _videoSeenKey = 'video_seen_episodes';
+
+  static Future<int> videoSeenEpisodes(String sourceId, String videoId) async {
+    final v = ((await _read(_videoSeenKey)) as Map?)?['$sourceId/$videoId'];
+    return v is int ? v : -1;
+  }
+
+  static Future<void> setVideoSeenEpisodes(
+      String sourceId, String videoId, int episodes) async {
+    await _enqueue(_videoSeenKey, () async {
+      final cur = (await _read(_videoSeenKey)) as Map? ?? {};
+      await _writeNow(_videoSeenKey, {
+        ...cur,
+        '$sourceId/$videoId': episodes,
+      });
+    });
+  }
+
   // ---- 阅读统计（聚合逻辑已抽到 reading_stats.dart 纯函数域）----
   /// 累计一段阅读时长（秒）到当天。
   /// 存储结构：reading_stats -> { "2026-08-23": 3600, ... }（按天，秒）。

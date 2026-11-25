@@ -59,7 +59,10 @@ class CustomSourceStore {
   /// 成功才落盘新版定义。旧实现「先落盘再 install」，一旦 install/bind
   /// 抛异常就形成「磁盘新版、内存旧版」永久错配。现在顺序反过来：任何
   /// 异常路径下磁盘与内存版本都一致（同为旧版或同为新版）。
-  static Future<void> upsert(CustomSourceDef def) async {
+  /// 返回是否真的装上并落盘（P2-18）。旧实现返回 void，导入方只能无条件
+  /// 认为成功——install/bind 失败时磁盘保持旧版，但调用方已经把这条算进
+  /// 「导入了 N 个源」给用户看。
+  static Future<bool> upsert(CustomSourceDef def) async {
     final pm = SourcePluginManager.instance;
     final oldDef = await byId(def.id);
     final hadOld = pm.byId(def.id) != null;
@@ -84,7 +87,7 @@ class CustomSourceStore {
         ErrorLogger.instance.warn('CustomSourceStore.upsert(${def.id}) rollback failed: $e');
       }
     }
-    if (!newOk) return; // 保持磁盘旧版，不写盘
+    if (!newOk) return false; // 保持磁盘旧版，不写盘
     // install 成功——现在把新版定义写入内存/磁盘缓存。
     // 用「先移除同 id 再追加」而不是 indexWhere：卸载旧插件后内存 list
     // 仍可能残留旧 def（uninstall 只动注册表，不动本 store 缓存），
@@ -97,6 +100,7 @@ class CustomSourceStore {
       _file,
       list.map((d) => d.toJson()).toList(),
     );
+    return true;
   }
 
   /// 删除一份自定义源（连同插件实现）。
@@ -144,8 +148,14 @@ class CustomSourceStore {
         ErrorLogger.instance.warn('CustomSourceStore.importJson skip ${def.id}: $errs');
         continue;
       }
-      await upsert(def);
-      ok++;
+      // P2-18：只把真的装上的计为成功（upsert 现在返回 bool）。
+      final stored = await upsert(def);
+      if (stored) {
+        ok++;
+      } else {
+        ErrorLogger.instance.warn(
+            'CustomSourceStore.importJson: ${def.id} 安装未生效，不计入成功');
+      }
     }
     return ok;
   }

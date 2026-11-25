@@ -8,8 +8,9 @@ import 'package:xingmanxia/sources/anime1_video_source.dart';
 /// 播放走 WebView（CDN 直链需签名 Cookie），playUrl 返回剧集页 URL。
 ///
 /// 默认跳过：真实网络源验证，源站波动时拖垮本地回归。
-/// 需要验源时临时把 _skipLive 改成 false。
-const bool _skipLive = true;
+/// 默认跳过（本地开发不打网络）；需要跑真实网络时传
+/// `--dart-define=LIVE_SOURCE_TESTS=true`（日常 source-health workflow 即如此）。
+const bool _skipLive = !bool.fromEnvironment('LIVE_SOURCE_TESTS');
 void main() {
   test('anime1 video source live verification', () async {
     final src = Anime1VideoSource();
@@ -20,7 +21,14 @@ void main() {
     } catch (e) {
       // ignore: avoid_print
       print('anime1.me 网络不可达，跳过测试: $e');
-      return;
+
+      // P1-30：LIVE 模式下预探失败必须让测试**失败**。旧实现直接 return，
+
+      // 于是「0 条断言全过」在每日 source-health workflow 里也是绿的——
+
+      // 源契约到底有没有被执行，没人知道。
+
+      fail('anime1.me 预探失败：真实网络不可达，不允许静默通过（P1-30）: $e');
     }
 
     // 1. 分类：全部 + 連載中 + 年季度

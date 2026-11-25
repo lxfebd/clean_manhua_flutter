@@ -25,6 +25,7 @@ import '../utils/player_sync_guard.dart';
 import '../utils/player_sync_mode.dart';
 import '../utils/pip_channel.dart';
 import '../utils/tv_platform.dart';
+import '../utils/wakelock_guard.dart';
 import 'episode_grouping.dart';
 import 'player_body.dart';
 import 'player_status_text.dart';
@@ -438,6 +439,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // P1-25：播放期间持有屏幕常亮（引用计数，与 AnimePlayerPage 安全交错）。
+    WakelockGuard.instance.acquire();
     _curSeason = widget.season;
     _curEpisode = widget.episode;
     _tickClock();
@@ -2280,6 +2283,8 @@ class _NativePlayerPageState extends State<NativePlayerPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    // P1-25：交还屏幕常亮（引用计数，最后一个持有者退出才真正熄屏）。
+    WakelockGuard.instance.release();
     _hideTimer?.cancel();
     _hudTimer?.cancel();
     _clockTimer?.cancel();
@@ -3934,16 +3939,22 @@ child: Icon(Icons.auto_awesome,
       _toast('当前片源不支持下载');
       return;
     }
-    String url = widget.url;
+    // P0-04：**只用当前这一集已接管的真实直链**。旧实现从 widget.url 起，
+    // 而 widget.url 可能是网页地址（WebView-only 源）或切集前的旧集链接，
+    // 于是「下载完成」的文件是 HTML 或错误剧集。现在三级取值都要求是直链：
+    // 当前播放地址 → 页面初始地址 → 重新解析；都不是直链就明确拒绝。
+    String url = '';
+    if (isDirectMediaUrl(_currentUrl)) url = _currentUrl;
+    if (url.isEmpty && isDirectMediaUrl(widget.url)) url = widget.url;
     final resolver = widget.resolveUrl;
-    if (resolver != null) {
+    if (url.isEmpty && resolver != null) {
       try {
         final resolved = await resolver(_curSeason, _curEpisode);
         if (isDirectMediaUrl(resolved)) url = resolved;
       } catch (_) {}
     }
-    if (url.isEmpty || !url.startsWith('http')) {
-      _toast('无法获取本集直链');
+    if (url.isEmpty) {
+      _toast('未取得本集视频直链，无法下载（网页片源请在线播放）');
       return;
     }
     String referer = '';

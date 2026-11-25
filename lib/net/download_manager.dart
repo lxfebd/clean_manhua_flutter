@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image/image.dart' as img;
 
 import '../sources/source_http.dart';
+import '../utils/atomic_file.dart';
 import 'download_engine.dart';
 import 'error_logger.dart';
 import 'http_client.dart';
@@ -27,6 +28,21 @@ class DownloadResult {
   final String? error;
   const DownloadResult.ok() : ok = true, error = null;
   const DownloadResult.fail(this.error) : ok = false;
+}
+
+/// Web 端不支持离线下载时的统一失败文案（P1-23）。
+const String webUnsupportedMessage = 'Web 端不支持离线下载';
+
+/// 本地已下载页枚举结果（P0-03「下载即可靠离线」的基础件）。
+///
+/// [paths] 长度 = 完成记录里的期望页数，**缺页为 null**（而不是回退成网络
+/// URL——那会把「离线时静默转联网」藏起来）。[complete] 表示一页不缺。
+class LocalPages {
+  final List<String?> paths;
+  const LocalPages(this.paths);
+  int get missing => paths.where((p) => p == null).length;
+  bool get complete => paths.isNotEmpty && missing == 0;
+  int get total => paths.length;
 }
 
 /// 章节下载管理：把图片下载到本地，供离线阅读。
@@ -70,6 +86,14 @@ class DownloadManager {
   /// 的图会被等比压缩后存储（省空间档），原画档原样落盘。
   /// 单张图片写盘失败（磁盘满/权限等）时停止该章并返回失败原因；
   /// 返回 [DownloadResult.error] 即本章中断，不再继续写后续图。
+  /// Web 端无本地文件系统，离线下载整体不可用（P1-23）。
+  ///
+  /// 查询类方法（[isDownloaded]/[localPages]/[localUrlIfExists]）对 Web 恒
+  /// 返回空；写入口必须同样 fail-fast，否则用户点「下载」后：LocalStore 会经
+  /// WebPersist 写进 localStorage 生成一条「下载中」记录，而图片落盘必然失败
+  /// ——界面停在假进度上，永远等不到完成。
+  static bool get unsupportedOnWeb => kIsWeb;
+
   static Future<DownloadResult> downloadChapter({
     required int batchGen,
     required Bookmark book,
@@ -79,6 +103,7 @@ class DownloadManager {
     DownloadQuality quality = DownloadQuality.original,
     Function(int done, int total)? onProgress,
   }) async {
+    if (kIsWeb) return const DownloadResult.fail(webUnsupportedMessage);
     final key = '${book.sourceId}/${book.comicId}/$chapterId';
     // 消费单任务取消标记：任务开始前被取消（书架取消按钮抢先按下）→
     // 不落开始记录直接返回；否则清除旧标记，新任务不继承取消状态。
@@ -113,11 +138,13 @@ class DownloadManager {
     var done = 0;
     var okCount = 0;
     String? writeError; // 写盘失败原因（磁盘满/权限）；置位后本章停止
-    // 已存在本地文件的不重下，先快速累计
+    // 已存在本地文件的不重下，先快速累计。
+    // P1-08：用 fileIsUsable（存在**且非空**）而不是 existsSync——0 字节文件
+    // 只会来自异常路径，不能当成有效页（否则半截图/空文件被永久当成已完成）。
     for (var i = 0; i < urls.length; i++) {
       try {
         final path = await LocalStore.localImagePath(key, i);
-        if (File(path).existsSync()) {
+        if (fileIsUsable(path)) {
           done++;
           okCount++;
         }
@@ -130,7 +157,10 @@ class DownloadManager {
       if (writeError != null) return; // 已写失败，本章中断
       try {
         final path = await LocalStore.localImagePath(key, i);
-        if (!File(path).existsSync()) {
+        // P1-08 语义同步：0 字节文件不算已下载。旧写法 existsSync 会把
+        // 崩溃残留的 0 字节页当成「已下过」而跳过，而渲染侧 fileIsUsable
+        // 又拒绝显示它——这一页就永久缺失，直到用户手动删除重下。
+        if (!fileIsUsable(path)) {
           // 单源代理：图片下载与源同代理；无配置（null）走全局代理/直连
           final proxy =
               book.sourceId.isEmpty
@@ -143,12 +173,18 @@ class DownloadManager {
             ).timeout(_imageTimeout),
           );
           try {
-            if (quality == DownloadQuality.compact) {
-              await File(
-                path,
-              ).writeAsBytes(_compactBytes(bytes, compactMaxWidth));
-            } else {
-              await File(path).writeAsBytes(bytes);
+            // P1-08：原子写（.part → rename）。直接写目标路径会在进程中途
+            // 被杀时留下半张图，而「文件存在」被当成已完成——离线永远读到
+            // 半图且不会重下。
+            final ok = await writeFileAtomic(
+              path,
+              quality == DownloadQuality.compact
+                  ? _compactBytes(bytes, compactMaxWidth)
+                  : bytes,
+            );
+            if (!ok) {
+              throw const FileSystemException('原子写入失败（磁盘满/只读/权限？）',
+                  '');
             }
           } on FileSystemException catch (e) {
             // 写盘失败：多数是磁盘满/只读/权限。记录原因并中断本
@@ -195,10 +231,10 @@ class DownloadManager {
       final end = (start + _concurrency).clamp(0, urls.length);
       final batch = <Future<void>>[];
       for (var i = start; i < end; i++) {
-        if (await LocalStore.localImagePath(
-          key,
-          i,
-        ).then((p) => File(p).existsSync())) {
+        // 同上：跳过判定必须与渲染判定一致（fileIsUsable），否则
+        // 0 字节页被跳过下载又无法显示。
+        final p2 = await LocalStore.localImagePath(key, i);
+        if (fileIsUsable(p2)) {
           continue;
         }
         batch.add(downloadOne(i));
@@ -360,8 +396,37 @@ class DownloadManager {
     if (kIsWeb) return null;
     final key = '$bookKey/$chapterId';
     final p = await LocalStore.localImagePath(key, index);
-    if (File(p).existsSync()) return p;
+    // P1-08：用 fileIsUsable 而不是 existsSync——0 字节文件只会来自异常
+    // 路径（旧版直接写目标路径时崩溃的残留），不能当成有效页交给阅读器
+    // （否则用户看到的是破图，且因为「本地有」永远不会重下）。
+    if (fileIsUsable(p)) return p;
     return null;
+  }
+
+  /// 按完成记录枚举本地页，**不发任何网络请求**。
+  ///
+  /// 返回 null = 本地没有可用的完成记录（未下载/记录被裁/异常），调用方应走
+  /// 在线路径；返回非 null 时调用方可以**零网络**渲染首屏，缺页由
+  /// [LocalPages.missing] 明确告知用户，而不是静默回源。
+  ///
+  /// 与 [localUrlIfExists] 的区别：那个按「网络清单的下标」逐页查（先联网拿
+  /// 清单），这个按「记录里的期望页数」直接枚举——离线冷启动的关键就在这。
+  static Future<LocalPages?> localPages(String bookKey, String chapterId) async {
+    if (kIsWeb) return null;
+    try {
+      final d = await LocalStore.downloadOf('$bookKey/$chapterId');
+      if (d?.finished != true) return null;
+      final total = d!.total;
+      if (total <= 0) return null;
+      final out = <String?>[];
+      for (var i = 0; i < total; i++) {
+        out.add(await localUrlIfExists(bookKey, chapterId, i));
+      }
+      return LocalPages(out);
+    } catch (e) {
+      ErrorLogger.instance.warn('下载管理器 localPages 失败: $e');
+      return null;
+    }
   }
 
   /// 作品 key（`sourceId/comicId`，与 [taskKeyOf] 同为 `/` 分隔，P2-15 统一）。

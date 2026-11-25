@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 
 import 'download_engine.dart';
@@ -69,6 +70,16 @@ class UpdateDownloadManager {
   String _fileName = 'xingmanxia_update.apk';
   int _totalSize = 0;
 
+  /// 更新清单给出的期望值（来自 `UpdateChecker.checkLatest` → `UpdateInfo`）。
+  /// 三者同时有效才允许自动安装；缺失/验签失败 = 不可验证，见
+  /// [_verifyDownloadedPackage] 与 [_failUnverified]。
+  String? _expectedSha256;
+  int? _expectedSize;
+  bool _manifestVerified = false;
+
+  /// 本次更新是否经过签名清单验证（UI 可据此提示「未能验证完整性」）。
+  bool get manifestVerified => _manifestVerified;
+
   /// 更新包下载的镜像候选与更新检查共用 [UpdateChecker.githubMirrors]
   /// （同一份事实，避免两处维护分叉：检查用镜像抓 release 页、下载用镜像
   /// 拉附件，孰优孰劣一致）。镜像拼装与双层前缀防御见 [mirrorCandidates]。
@@ -79,12 +90,27 @@ class UpdateDownloadManager {
 
   /// 启动后台下载（去重，已在跑就直接返回）。
   /// [fileName] 为附件文件名（含后缀，用于桌面端手动安装识别）。
-  Future<void> start(String apkUrl, {String? fileName}) async {
+  ///
+  /// [expectedSha256]/[expectedSize]/[manifestVerified] 来自签名更新清单
+  /// （见 `lib/net/update_manifest.dart`）。三者齐备才能在下载完成后自动安装；
+  /// 否则只完成下载并提示用户手动确认——**不能验证的包不装**。
+  Future<void> start(
+    String apkUrl, {
+    String? fileName,
+    String? expectedSha256,
+    int? expectedSize,
+    bool manifestVerified = false,
+  }) async {
     if (_running) return;
     _running = true;
     _cancel.reset();
     _downloadedPath = null;
     _totalSize = 0;
+    _expectedSha256 = expectedSha256?.toLowerCase();
+    _expectedSize = expectedSize;
+    // 只有「清单验签通过」且真的带哈希才算可验证；单独传了哈希但
+    // manifestVerified=false（例如调用方漏传）一律按不可验证处理——fail-closed。
+    _manifestVerified = manifestVerified && _expectedSha256 != null;
     // 附件名缺失时兜底：后缀从下载 URL 推断（.exe/.zip/.apk…），
     // 保证 Windows 下即便没拿到 assetName，exe 链接也能触发自动安装。
     _fileName =
@@ -145,6 +171,16 @@ class UpdateDownloadManager {
         );
         _stateCtrl.add(_state);
         _notifyDone();
+        // 完整性闸门（P0-01）：签名清单有效才比对 sha256/size；比对不过
+        // 立即作废本次下载并删除文件，**不进安装分支**。旧实现只有长度/
+        // Content-Range 对账——镜像返回的任意同长度程序会被静默安装。
+        if (!await _verifyDownloadedPackage(path)) {
+          try {
+            await File(path).delete();
+          } catch (_) {}
+          _failUnverified();
+          return;
+        }
         // Android 拉起系统安装器；Windows 有 NSIS 静默安装器（exe 附件）
         // 则直接覆盖安装并自动重启到新版；macOS 无安装器，仅提示手动挂载 dmg。
         if (Platform.isAndroid) {
@@ -167,6 +203,62 @@ class UpdateDownloadManager {
     // （可能带 URL/长堆栈）不进 UI，只取中文前缀与关键状态码。
     final lastErr = _mirrorFailures.isNotEmpty ? _mirrorFailures.last : '未知错误';
     _state = UpdateDownloadState(error: '全部镜像下载失败（$lastErr），请稍后重试');
+    _stateCtrl.add(_state);
+    _notifyError();
+    _running = false;
+  }
+
+  /// 校验已下载更新包的完整性。**fail-closed**：
+  /// - 没有有效签名清单（`_manifestVerified=false`）→ false；
+  /// - 清单有值而字节数或 SHA-256 不符 → false 并记日志。
+  ///
+  /// 只有返回 true 才允许进入安装分支。
+  Future<bool> _verifyDownloadedPackage(String path) async {
+    if (!_manifestVerified || _expectedSha256 == null) {
+      ErrorLogger.instance.warn(
+          '更新包未经签名清单验证，禁止自动安装（file=${path.split('/').last}）');
+      return false;
+    }
+    final f = File(path);
+    if (!f.existsSync()) return false;
+    final len = await f.length();
+    if (_expectedSize != null && len != _expectedSize) {
+      ErrorLogger.instance.logError(
+          '更新包大小不符：实际 $len，清单期望 $_expectedSize');
+      return false;
+    }
+    final actual = await _sha256OfFile(path);
+    if (actual == null || actual != _expectedSha256) {
+      ErrorLogger.instance.logError('更新包 SHA-256 不符：实际 $actual，'
+          '清单期望 $_expectedSha256');
+      return false;
+    }
+    return true;
+  }
+
+  /// 流式计算文件 SHA-256（不整文件读入内存）；空文件/读失败返回 null。
+  Future<String?> _sha256OfFile(String path) async {
+    final f = File(path);
+    try {
+      if (!f.existsSync() || f.lengthSync() == 0) return null;
+      // crypto 的 Hash.bind 对每个分片产出一个中间摘要，最后一个即全量摘要。
+      final d = await f.openRead().transform(sha256).last;
+      return d.toString();
+    } catch (e) {
+      ErrorLogger.instance.warn('计算更新包 SHA-256 失败: $e');
+      return null;
+    }
+  }
+
+  /// 无法验证来源/完整性时的统一收尾：删除已下文件、置错误态、引导手动下载。
+  /// 不调用任何安装器（Android 系统安装器 / Windows Process.start）。
+  void _failUnverified() {
+    final unverified = !_manifestVerified;
+    _state = UpdateDownloadState(
+      error: unverified
+          ? '无法验证该更新包的发布来源（本版本没有签名清单），已停止自动安装；请前往官方 Releases 页面手动下载'
+          : '更新包完整性校验失败（哈希不匹配），已放弃安装；请从官方渠道重新下载',
+    );
     _stateCtrl.add(_state);
     _notifyError();
     _running = false;
@@ -344,6 +436,13 @@ class UpdateDownloadManager {
   Future<void> _triggerInstall() async {
     final path = _downloadedPath;
     if (path == null) return;
+    // 纵深防御：正常路径已在 [_downloadWithMirrors] 校验过，这里再拦一次
+    // ——任何新增的安装调用点都逃不过这道闸门。
+    if (!(_manifestVerified && _expectedSha256 != null)) {
+      ErrorLogger.instance.warn('拦截未验证更新包的安装（Android）');
+      _failUnverified();
+      return;
+    }
     try {
       await UpdateChecker.installApk(path);
     } catch (e) {
@@ -376,6 +475,13 @@ class UpdateDownloadManager {
   void _triggerWindowsInstall() {
     final installer = _downloadedPath;
     if (installer == null) return;
+    // 纵深防御：Windows 是「下载后直接 Process.start 安装器」的平台，
+    // 风险最高。未经签名清单验证一律不启动安装器（只提示手动下载）。
+    if (!(_manifestVerified && _expectedSha256 != null)) {
+      ErrorLogger.instance.warn('拦截未验证更新包的安装（Windows）');
+      _failUnverified();
+      return;
+    }
     final exeDir = File(Platform.resolvedExecutable).parent.path;
     _triggerWindowsInstallAsync(installer, exeDir);
   }

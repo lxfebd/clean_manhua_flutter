@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import '../sources/source_result.dart';
+import 'net_conn.dart';
 
 /// 熔断器状态。
 enum CircuitState { closed, open, halfOpen }
@@ -104,7 +105,11 @@ Future<T> withCircuit<T>(
     cb.recordSuccess();
     return r;
   } catch (e) {
-    cb.recordFailure();
+    // 只有「这个 host/源确实不健康」才累计熔断（P2-15 审计修复）。
+    // 旧实现无条件 recordFailure：选择器失效（SourceParse）或一个 404
+    // 就会把源推进冷却——服务端明明是好的，用户却因为改版/错误路径
+    // 而短时间无法使用这个源。
+    if (_countsAsHostFailure(e)) cb.recordFailure();
     if (e is SourceError) rethrow;
     if (e is FormatException) {
       throw SourceError.parse(e.message);
@@ -115,9 +120,37 @@ Future<T> withCircuit<T>(
     if (e is SocketException) {
       throw SourceError.network(e.message);
     }
+    // HttpStatusException 只 implements Exception，**不是** HttpException
+    // （审计实测），旧的 `is HttpException` 分支匹配不到它 → 所有
+    // 404/429/500 都落进 unknown。这里显式转换并带上结构化状态码。
+    if (e is HttpStatusException) {
+      throw SourceError.service('HTTP ${e.statusCode}', e.statusCode);
+    }
     if (e is HttpException) {
-      throw SourceError.service(e.message);
+      // dart:io 的 HttpException 出现在传输层（如「收完整响应头前连接被
+      // 关闭」），没有状态码。归 network 而非 service：shouldTryNextHost
+      // 对 network 一律换 host，这才是这个错误的正确处置。
+      throw SourceError.network(e.message);
     }
     throw SourceError.unknown(e.toString());
   }
+}
+
+/// 该失败是否说明「host/源不健康」，值得累计熔断。
+///
+/// 不计入：解析失败（页面拿到了，是选择器问题）与 4xx 客户端错误
+/// （404 路径不存在 / 401 403 凭据——换域名治不好，也不代表服务端挂）。
+bool _countsAsHostFailure(Object e) {
+  if (e is SourceParse) return false;
+  if (e is HttpStatusException) {
+    final c = e.statusCode;
+    return !(c == 404 || c == 401 || c == 403);
+  }
+  if (e is SourceService) {
+    final c = e.statusCode;
+    if (c == 404 || c == 401 || c == 403) return false;
+    // 业务性 service 错误（如「未配置详情页规则」）没有状态码，也不算 host 故障。
+    return c != null;
+  }
+  return true; // network / 5xx / 429 / unknown：计入
 }

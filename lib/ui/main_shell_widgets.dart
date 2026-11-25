@@ -411,7 +411,9 @@ class _Item extends StatelessWidget {
     final activeColor = style == UIStyle.apple
         ? Theme.of(context).colorScheme.primary
         : fg;
-    final softColor = fg.withValues(alpha: isDark ? 0.45 : 0.4);
+    // P1-16：未选中项也要满足 WCAG AA。旧值 alpha 0.40（亮）/0.45（暗）
+    // 在亮色底上只有 2.53:1；改用经明暗两套验证的 low 档（亮色 AA ≥4.5）。
+    final softColor = T.color(fg, TextTier.low, brightness: scheme.brightness);
     // 小米选中胶囊高亮（品牌色 12% 底 + 主题色图标/文字）。
     final xiaomiHighlight = style == UIStyle.xiaomi && isOn;
     return Expanded(

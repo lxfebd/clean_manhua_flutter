@@ -779,7 +779,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   /// 导出错误日志：合并本地日志为文本文件，供用户反馈问题时发送。
-  /// 日志仅含崩溃/网络/解析错误与设备信息，不含书架/历史等用户数据。
+  /// 日志为崩溃/网络/解析错误与设备信息；敏感片段（Authorization/Cookie/URL
+  /// 口令/token 类查询参数）已在写入时经 [ErrorLogger.redactSensitive] 掩码，
+  /// 响应体默认不外传（见 WebDavException.toString）。但日志不含书架/历史等
+  /// 用户数据这一点仍是「尽力而为」而非形式化保证——不要在 UI 上承诺绝对。
   Future<void> _exportLogs() async {
     try {
       final path = await ErrorLogger.instance.exportLogs();
@@ -1234,6 +1237,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     context,
                     info.apkUrl,
                     assetName: info.assetName,
+                    expectedSha256: info.expectedSha256,
+                    expectedSize: info.expectedSize,
+                    manifestVerified: info.manifestVerified,
                   );
                 },
                 child: const Text('更新'),

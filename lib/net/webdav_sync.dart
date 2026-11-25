@@ -8,7 +8,10 @@ import 'backup_restore.dart';
 import 'bookshelf_store.dart';
 import 'http_client.dart';
 import 'local_store.dart';
+import 'net_conn.dart';
 import 'novel_shelf_store.dart';
+import '../utils/compression_guard.dart';
+
 
 /// WebDAV 请求失败：非 2xx 状态码。
 class WebDavException implements Exception {
@@ -16,7 +19,15 @@ class WebDavException implements Exception {
   final String body;
   WebDavException(this.statusCode, this.body);
   @override
-  String toString() => 'HTTP $statusCode${body.trim().isEmpty ? '' : '：${body.trim().length > 200 ? body.trim().substring(0, 200) : body.trim()}'}';
+  // P2-19：响应体默认不进 message。WebDAV 服务器的错误页可能回显请求头
+  // （含 Authorization）、完整 URL（含口令查询参数）甚至目录结构；而这条
+  // message 最终会写进错误日志、被用户打包反馈。只保留状态码 + 脱敏后的
+  // 长度信息，够定位「是 401 还是 507」而不泄露内容。
+  String toString() {
+    final b = body.trim();
+    final hint = b.isEmpty ? '' : '：响应体 ${b.length} 字节（内容不外传）';
+    return 'HTTP $statusCode$hint';
+  }
 }
 
 /// WebDAV 多端同步：把整份用户数据（收藏/历史/进度/设置/源配置）作为
@@ -209,13 +220,22 @@ class WebDavSync {
   }
 
   static Future<String> _readBody(HttpClientResponse res) async {
-    final bytes = await res.fold<List<int>>(<int>[], (a, b) => a..addAll(b)).timeout(const Duration(seconds: 30));
+    // P2-30/P1-10：旧的 `res.fold` 先把整个响应体无上限堆进内存，再 gzip
+    // 一步展开——两层都没有闸门。现在：输入侧有字节上限，解压侧走带闸门的
+    // 流式解码（超限抛 DecompressionBombException）。
+    final bytes = await NetConn.readLimited(
+        res, kMaxWebDavResponseBytes, const Duration(seconds: 30));
     final enc = res.headers.value('Content-Encoding') ?? '';
     if (enc.contains('gzip')) {
-      return utf8.decode(gzip.decode(bytes), allowMalformed: true);
+      final decoded = await gzipDecodeGuarded(
+          bytes, maxBytes: kMaxDecodedBytesSmall);
+      return utf8.decode(decoded, allowMalformed: true);
     }
     return utf8.decode(bytes, allowMalformed: true);
   }
+
+  /// WebDAV 响应体上限：备份内容是用户自己产生的 json/txt，正常远小于此。
+  static const int kMaxWebDavResponseBytes = 64 * 1024 * 1024;
 
   /// 确保远端目录存在（MKCOL；405/409 表示已存在，视为成功）。
   static Future<void> _ensureDir() async {

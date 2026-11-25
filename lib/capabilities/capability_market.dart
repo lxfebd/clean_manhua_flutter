@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
+import '../net/error_logger.dart';
 import '../net/http_client.dart';
 import '../net/local_store.dart';
 import '../utils/index_signature.dart';
@@ -88,8 +89,8 @@ class CapabilityMarket {
         totalTimeout: kMarketIndexTotalTimeout,
       );
       final text = utf8.decode(bytes);
-      // 来源校验（签名）：与源市场同一把公钥、同一策略——篡改拒绝、未签名
-      // 告警放行。校验在解析与落盘之前，坏索引进不了缓存。
+      // 来源校验（签名）：与源市场同一把公钥、同一策略 fail-closed——篡改
+      // 与未签名都拒绝。校验在解析与落盘之前，坏索引进不了缓存。
       if (!checkIndexOrTrust(text, what: '能力市场')) {
         throw const FormatException('能力市场索引签名校验失败');
       }
@@ -152,7 +153,13 @@ class CapabilityMarket {
 
   static Future<String?> _readCache() async {
     final v = await LocalStore.readJson(_cacheFile);
-    return v is String && v.isNotEmpty ? v : null;
+    if (v is! String || v.isEmpty) return null;
+    // P1-03：与源市场一致——缓存也在重新验签，不可验证就不做离线回退。
+    if (!checkIndexOrTrust(v, what: '能力市场(缓存)')) {
+      ErrorLogger.instance.warn('能力市场缓存索引验签失败，丢弃本次离线回退');
+      return null;
+    }
+    return v;
   }
 
   /// 安装（或更新）一个市场能力条目：构造 CapabilityPlugin 交给 Manager。

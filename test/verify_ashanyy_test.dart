@@ -19,7 +19,7 @@ Future<T> net<T>(Future<T> Function() fn, {int times = 5}) async {
 
 /// 临时验证测试：默认跳过（站点对突发请求会限流，整测可挂满 5 分钟，
 /// 破坏本地回归确定性）。需要真机验源时临时把 _skipLive 改成 false。
-const bool _skipLive = true;
+const bool _skipLive = !bool.fromEnvironment('LIVE_SOURCE_TESTS');
 
 void main() {
   test('ashanyy video source live verification', () async {
@@ -30,7 +30,14 @@ void main() {
     } catch (e) {
       // ignore: avoid_print
       print('dainyew.com 网络不可达，跳过测试: $e');
-      return;
+
+      // P1-30：LIVE 模式下预探失败必须让测试**失败**。旧实现直接 return，
+
+      // 于是「0 条断言全过」在每日 source-health workflow 里也是绿的——
+
+      // 源契约到底有没有被执行，没人知道。
+
+      fail('dainyew.com 预探失败：真实网络不可达，不允许静默通过（P1-30）: $e');
     }
 
     // 1. 分类

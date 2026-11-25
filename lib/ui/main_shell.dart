@@ -278,7 +278,10 @@ class _MainShellState extends ConsumerState<MainShell>
             onPressed: () {
               Navigator.pop(ctx);
               showUpdateDownloadDialog(context, info.apkUrl,
-                  assetName: info.assetName);
+                  assetName: info.assetName,
+                  expectedSha256: info.expectedSha256,
+                  expectedSize: info.expectedSize,
+                  manifestVerified: info.manifestVerified);
             },
             child: const Text('更新'),
           ),

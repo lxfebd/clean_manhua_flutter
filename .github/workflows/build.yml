@@ -1,10 +1,21 @@
 name: Build APK & Release
 
+# P1-29（供应链）：所有第三方 Action 一律钉到** commit SHA**，不用可变的 major
+# 标签。标签可被作者随时推移（action 仓库被入侵或作者作恶时，@v4 会静默变成
+# 别人的代码），而这些 job 持有 contents:write / 读取 Secrets 的权限。升级方式是
+# 改 SHA + 在注释里记录对应版本号。
+
 on:
   push:
     branches: [main, master]
     tags:
       - 'v*'
+  # P1-31：PR 门禁。此前只有 push/tag 触发，PR 上不跑任何检查——失败的分支
+  # 能直接合入，「CI 是绿的」只是发布时的假象。现在每个 PR 都跑 analyze +
+  # 全量测试（不打包，保持 PR 反馈速度）。
+  pull_request:
+    branches: [main, master]
+
   workflow_dispatch:
     inputs:
       version:
@@ -13,28 +24,51 @@ on:
         default: ''
 
 jobs:
+  # PR 快速门禁：只做静态分析 + 全量测试，不构建产物（秒级反馈）。
+  ci:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4（钉 commit SHA，P1-29）
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2（钉 commit SHA，P1-29）
+        with:
+          channel: stable
+          flutter-version: '3.44.0'
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Test
+        run: flutter test -j4
+
   build:
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4（钉 commit SHA，P1-29）
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4（钉 commit SHA，P1-29）
         with:
           distribution: 'temurin'
           java-version: '17'
 
       - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2（钉 commit SHA，P1-29）
         with:
           channel: stable
           flutter-version: '3.44.0'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3（钉 commit SHA，P1-29）
         with:
           # action 默认 packages 是 'tools platform-tools'，但 SDK 26+ 已移除 legacy
           # "tools" 包（改名 cmdline-tools），action 仍硬编码该默认值 → sdkmanager
@@ -61,13 +95,28 @@ jobs:
             echo "keyPassword=$KEY_PASSWORD" >> android/key.properties
             echo "keyAlias=$KEY_ALIAS" >> android/key.properties
             echo "storeFile=xingmanxia.jks" >> android/key.properties
+            # fail-closed：四个 secret 缺任何一个都不许出包。
+            # 缺 KEYSTORE_BASE64 老逻辑只打印一句警告就继续，随后
+            # `flutter build apk --release` 用 debug 签名打包并直接发
+            # Release——用户拿到的是「正式版号 + 调试签名」的包装不上/
+            # 签名不一致的包。Release 链上没有「降级」这个选项。
+            if [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ] || [ -z "$KEY_ALIAS" ]; then
+              echo "::error::Release 构建缺签名 secret（STORE_PASSWORD / KEY_PASSWORD / KEY_ALIAS），终止"
+              exit 1
+            fi
+            echo "$KEYSTORE_BASE64" | base64 -d > android/app/xingmanxia.jks
+            echo "storePassword=$STORE_PASSWORD" > android/key.properties
+            echo "keyPassword=$KEY_PASSWORD" >> android/key.properties
+            echo "keyAlias=$KEY_ALIAS" >> android/key.properties
+            echo "storeFile=xingmanxia.jks" >> android/key.properties
             echo "✅ 签名密钥已配置"
           else
-            echo "⚠️ 未配置签名密钥，使用 debug 签名"
+            echo "::error::Release 构建缺签名密钥（KEYSTORE_BASE64 为空）；拒绝产出 debug 签名安装包，终止"
+            exit 1
           fi
 
       - name: Cache pub dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4（钉 commit SHA，P1-29）
         with:
           path: ${{ env.FLUTTER_HOME }}/.pub-cache
           key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock') }}
@@ -83,15 +132,41 @@ jobs:
       - name: Test
         run: flutter test -j4
 
-      - name: Set app version
+      # P1-32：版本唯一事实源 = pubspec.yaml。旧实现里 workflow_dispatch 的手动
+      # 输入只改 APP_VERSION（dart-define），而 APK 的真实 versionName/versionCode
+      # 仍来自 pubspec —— Release 标题写 v1.6.0、APK 却报 1.5.7/85，更新判断、
+      # 覆盖安装、用户排障全线混乱。现在：手动输入/tag 必须与 pubspec 一致
+      # （不一致即失败），并显式把 --build-name/--build-number 传给 flutter build。
+      - name: Set app version (single source of truth)
         id: version
+        # P2-20：输入必须经 env 传入，不能在 run 里直接插值 ${{ }} —— 有权限手动
+        # 跑工作流的人可以用 shell 元字符（; | $(...) 换行）直接注入命令。
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
-          else
-            V=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
-            echo "version=${V}" >> "$GITHUB_OUTPUT"
+          PUB=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          NAME=${PUB%%+*}
+          NUMBER=${PUB##*+}
+          if [ -n "$INPUT_VERSION" ]; then
+            if [ "$INPUT_VERSION" != "$NAME" ]; then
+              echo "::error::手动版本 $INPUT_VERSION 与 pubspec.yaml 的 $NAME 不一致；版本号只认 pubspec，请改 pubspec 后再发版。"
+              exit 1
+            fi
           fi
+          if [ "$REF_TYPE" = "tag" ]; then
+            TAGV="$REF_NAME"
+            TAGV=${TAGV#v}
+            if [ "$TAGV" != "$NAME" ]; then
+              echo "::error::tag $REF_NAME 与 pubspec.yaml 的 $NAME 不一致。"
+              exit 1
+            fi
+          fi
+          echo "version=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "build=${NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "pubspec=${PUB}" >> "$GITHUB_OUTPUT"
+          echo "pubspec=${PUB}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Determine build type
         id: buildtype
@@ -103,29 +178,42 @@ jobs:
           fi
 
       - name: Build APK
-        run: flutter build apk --${{ steps.buildtype.outputs.type }} --dart-define=APP_VERSION=${{ steps.version.outputs.version }}
+        run: >-
+          flutter build apk --${{ steps.buildtype.outputs.type }}
+          --build-name=${{ steps.version.outputs.version }}
+          --build-number=${{ steps.version.outputs.build }}
+          --dart-define=APP_VERSION=${{ steps.version.outputs.version }}
 
       # 多架构拆分（release 仅）：arm64-v8a / armeabi-v7a / x86_64 独立包，
       # 体积从 ~145MB 单包降到 ~40MB 每架构，弱网下载友好。
       - name: Build split APKs (multi-arch)
         if: steps.buildtype.outputs.type == 'release'
-        run: flutter build apk --release --split-per-abi --dart-define=APP_VERSION=${{ steps.version.outputs.version }}
+        run: >-
+          flutter build apk --release --split-per-abi
+          --build-name=${{ steps.version.outputs.version }}
+          --build-number=${{ steps.version.outputs.build }}
+          --dart-define=APP_VERSION=${{ steps.version.outputs.version }}
 
       - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4（钉 commit SHA，P1-29）
         with:
           name: app-${{ steps.buildtype.outputs.type }}
           path: |
             build/app/outputs/flutter-apk/app-${{ steps.buildtype.outputs.type }}.apk
             build/app/outputs/flutter-apk/app-*-release.apk
 
+      # P1-33：分 ABI 包必须挂到 Release。旧实现只传 app-release.apk，
+      # 于是 armeabi-v7a / x86_64 用户从正式 Release 拿不到包，弱网用户也用不上
+      # 小体积分包（构建了却不上架 = 白构建）。
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2（钉 commit SHA，P1-29）
         with:
           tag_name: ${{ github.ref_name }}
           name: 星漫匣 v${{ steps.version.outputs.version }}
-          files: build/app/outputs/flutter-apk/app-release.apk
+          files: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/app-*-release.apk
           generate_release_notes: true
 
   # ── 主分支内测包（Pre-release）────────────────────────────
@@ -145,22 +233,22 @@ jobs:
       cancel-in-progress: true
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4（钉 commit SHA，P1-29）
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4（钉 commit SHA，P1-29）
         with:
           distribution: 'temurin'
           java-version: '17'
 
       - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2（钉 commit SHA，P1-29）
         with:
           channel: stable
           flutter-version: '3.44.0'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3（钉 commit SHA，P1-29）
         with:
           # action 默认 packages 是 'tools platform-tools'，但 SDK 26+ 已移除 legacy
           # "tools" 包（改名 cmdline-tools），action 仍硬编码该默认值 → sdkmanager
@@ -185,19 +273,37 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
         run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > android/app/xingmanxia.jks
-            echo "storePassword=$STORE_PASSWORD" > android/key.properties
-            echo "keyPassword=$KEY_PASSWORD" >> android/key.properties
-            echo "keyAlias=$KEY_ALIAS" >> android/key.properties
-            echo "storeFile=xingmanxia.jks" >> android/key.properties
-            echo "✅ 内测包已使用正式签名（与 release 包一致）"
-          else
-            echo "⚠️ 未配置签名密钥，内测包将使用 debug 签名（与 release 包不兼容）"
+          # P0-02（nightly 侧）：内测包以前缺 secret 只警告，于是 main push 出的
+          # debug APK 用的是 runner 的 debug 签名——用户装过 nightly 再装正式版会
+          # 报「签名不一致」。与主 job 同一策略：缺 secret 即失败，只有仓库变量
+          # ALLOW_DEBUG_SIGNING=true 才显式放行。
+          if [ "${{ vars.ALLOW_DEBUG_SIGNING }}" = "true" ] && [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::warning::ALLOW_DEBUG_SIGNING=true，内测包将使用 debug 签名"
+            exit 0
           fi
+          miss=0
+          [ -n "$KEYSTORE_BASE64" ] || miss=1
+          [ -n "$STORE_PASSWORD" ] || miss=1
+          [ -n "$KEY_PASSWORD" ] || miss=1
+          [ -n "$KEY_ALIAS" ] || miss=1
+          if [ "$miss" = "1" ]; then
+            echo "::error::nightly 构建缺少签名密钥（KEYSTORE_BASE64/STORE_PASSWORD/KEY_PASSWORD/KEY_ALIAS）。内测包必须与正式包同签名，否则无法互相覆盖安装。请补 Secrets，或设置仓库变量 ALLOW_DEBUG_SIGNING=true 明确放行。"
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/xingmanxia.jks
+          echo "storePassword=$STORE_PASSWORD" > android/key.properties
+          echo "keyPassword=$KEY_PASSWORD" >> android/key.properties
+          echo "keyAlias=$KEY_ALIAS" >> android/key.properties
+          echo "storeFile=xingmanxia.jks" >> android/key.properties
+          echo "✅ 内测包已使用正式签名（与 release 包一致）"
 
       - name: Pub get
         run: flutter pub get
+
+      # P1-31：nightly 也必须过测试。之前它自己 pub get 后直接构建发布，
+      # 测试失败照样出内测包。
+      - name: Test
+        run: flutter test -j4
 
       - name: Set app version
         id: version
@@ -209,7 +315,7 @@ jobs:
         run: flutter build apk --debug --dart-define=APP_VERSION=${{ steps.version.outputs.version }}
 
       - name: Publish Pre-release (debug)
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2（钉 commit SHA，P1-29）
         with:
           name: 内测版 v${{ steps.version.outputs.version }} (debug)
           tag_name: nightly-${{ github.sha }}
@@ -218,22 +324,26 @@ jobs:
           generate_release_notes: true
 
   # ── Windows 电脑端（桌面版）构建 ──────────────────────────────────────
+  # P1-31：windows job 依赖 build job —— 之前互不依赖，Android 侧测试失败时
+  # Windows 仍会继续构建并把 exe 挂到同一个 Release（同一 tag「部分平台发布、
+  # 部分失败」）。现在 build 失败则本 job 跳过，不产生任何 Release 资产。
   windows:
+    needs: [build]
     runs-on: windows-latest
     permissions:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4（钉 commit SHA，P1-29）
 
       - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2（钉 commit SHA，P1-29）
         with:
           channel: stable
           flutter-version: '3.44.0'
 
       - name: Cache pub dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4（钉 commit SHA，P1-29）
         with:
           path: ${{ env.FLUTTER_HOME }}/.pub-cache
           key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock') }}
@@ -245,6 +355,10 @@ jobs:
 
       - name: Analyze
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      # P1-31：与主 job 对齐，Windows 侧也跑全量测试。
+      - name: Test
+        run: flutter test -j4
 
       - name: Set app version
         id: version
@@ -263,15 +377,28 @@ jobs:
           # SourceForge 会 302 到随机镜像，runner 上偶发瞬断（Invoke-WebRequest 直接
           # OperationStopped）→ 改用 curl 自带重试，再外层套 5 次退避循环兜底。
           $nsisVersion = "3.11"
+          # P1-29：官方 SourceForge 包的 SHA-256（2026-11-23 两次独立下载核对一致）。
+          # 镜像/中间人被污染时字节必然变，这条校验就是最后一道闸。
+          $expectedSha = "c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1"
           $url = "https://downloads.sourceforge.net/project/nsis/NSIS%203/$nsisVersion/nsis-$nsisVersion.zip"
           $ok = $false
           for ($i = 1; $i -le 5; $i++) {
             curl.exe -sSL --fail --retry 3 --retry-all-errors --max-time 180 -o nsis.zip $url
-            if ($LASTEXITCODE -eq 0 -and (Get-Item nsis.zip -ErrorAction SilentlyContinue).Length -gt 1MB) { $ok = $true; break }
+            if ($LASTEXITCODE -eq 0 -and (Test-Path nsis.zip)) {
+              $actual = (Get-FileHash nsis.zip -Algorithm SHA256).Hash.ToLower()
+              if ($actual -ne $expectedSha) {
+                Write-Host "NSIS SHA256 mismatch (got $actual)"
+                Remove-Item nsis.zip -Force -ErrorAction SilentlyContinue
+              } elseif ((Get-Item nsis.zip).Length -gt 1MB) {
+                $ok = $true; break
+              } else {
+                Write-Host "NSIS zip too small"
+              }
+            }
             Write-Host "NSIS download attempt $i failed, retrying in $($i * 5)s..."
             Start-Sleep -Seconds ($i * 5)
           }
-          if (-not $ok) { throw "NSIS download failed after 5 attempts" }
+          if (-not $ok) { throw "NSIS download failed or hash mismatch after 5 attempts" }
           Expand-Archive -Path nsis.zip -DestinationPath . -Force
           $makensis = (Resolve-Path ".\nsis-$nsisVersion\makensis.exe").Path
           Add-Content $env:GITHUB_ENV "MAKENSIS=$makensis"
@@ -302,7 +429,7 @@ jobs:
           ls -la ../../../../../xingmanxia-windows-$V.zip
 
       - name: Upload Windows build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4（钉 commit SHA，P1-29）
         with:
           name: app-windows
           path: |
@@ -312,10 +439,135 @@ jobs:
 
       - name: Attach Windows build to Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2（钉 commit SHA，P1-29）
         with:
           tag_name: ${{ github.ref_name }}
           # 挂 exe 安装包 + zip 免安装包；app 内「检查更新」优先取 setup.exe
           # 静默覆盖安装（UpdateChecker.pickAssetForPlatform prefer '.exe'），
           # 旧 release 没打 exe 时回退 zip。
           files: xingmanxia-windows-*
+
+
+  # ── 签名清单（P0-01 生产端）──────────────────────────────────────
+  # App 端有完整的「签名清单 + 校验闸门」（lib/net/update_manifest.dart、
+  # update_download_manager.dart 的 _verifyDownloadedPackage），但此前仓库里
+  # 没有任何东西负责生成并签名 release-manifest.json：线上 release 永远不带
+  # 清单 → App 端 manifestVerified 恒 false → 所有更新走「不可验证 →
+  # 不自动安装」。校验代码是好的，发布链缺了材料。
+  #
+  # 这个 job 在 build / windows 把资产挂上 Release 之后跑：用 gh 枚举真实
+  # 资产清单，逐个算 sha256/size，用 tool/sign_update_manifest.dart 组清单
+  # 并签名（私钥只活在 secrets，绝不吃进 runner 之外的任何东西），再上传到
+  # 同一个 Release。私钥对应的公钥在 lib/net/update_manifest.dart 的
+  # kUpdatePublicKeysHex 里——App 只认那把公钥签出来的清单。
+  manifest:
+    needs: [build, windows]
+    # windows job 在非 tag 触发时会 skip；不能因为 windows 被跳过就永远不产清单，
+    # 所以 windows 非 failure（skipped/success）都放行。build 失败则不放行。
+    if: startsWith(github.ref, 'refs/tags/')
+        && needs.build.result == 'success'
+        && needs.windows.result != 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4（钉 commit SHA，P1-29）
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2（钉 commit SHA，P1-29）
+        with:
+          channel: stable
+          flutter-version: '3.44.0'
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: 版本号 / 构建号
+        id: ver
+        run: |
+          V=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          echo "version=${V%%+*}" >> "$GITHUB_OUTPUT"
+          echo "sequence=${V##*+}" >> "$GITHUB_OUTPUT"
+          echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: 枚举 Release 资产
+        id: assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p /tmp/rel
+          # 只列已上传到本 tag 的资产（此时 build/windows 都跑完了）
+          gh release view "${{ github.ref_name }}" --json assets \
+            --jq '.assets[].name' > /tmp/rel/names.txt
+          echo "---- 资产清单 ----"; cat /tmp/rel/names.txt
+          if [ ! -s /tmp/rel/names.txt ]; then
+            echo "::error::Release 上一个资产都没有，无法生成清单"
+            exit 1
+          fi
+          FILES=$(paste -sd, /tmp/rel/names.txt)
+          echo "files=$FILES" >> "$GITHUB_OUTPUT"
+
+      - name: 下载资产
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          while read -r n; do
+            [ -n "$n" ] && gh release download "${{ github.ref_name }}" \
+              --pattern "$n" --dir /tmp/rel/files --clobber
+          done < /tmp/rel/names.txt
+          ls -la /tmp/rel/files
+
+      - name: 生成并签名更新清单
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          set -e
+          # 没有签名私钥就**终止**：缺清单 → App 端 manifestVerified=false →
+          # 所有更新都不可自动安装。发布链上这一环不许静默跳过。
+          if [ -z "$UPDATE_SIGNING_KEY" ]; then
+            echo "::error::缺 secrets.UPDATE_SIGNING_KEY（tool/sign_update_manifest.dart --genkey 产出的私钥 JSON，base64）"
+            echo "::error::没有它签不出 release-manifest.json；App 端会因拿不到可信清单而禁止自动安装。"
+            exit 1
+          fi
+          # 工具自己认 UPDATE_SIGNING_KEY（base64 的密钥 JSON），这里只准备资产规格。
+          SPECS=""
+          while read -r n; do
+            [ -z "$n" ] && continue
+            f="/tmp/rel/files/$n"
+            if [ ! -f "$f" ]; then echo "::error::资产文件缺失：$f"; exit 1; fi
+            sz=$(stat -c%s "$f")
+            sh=$(sha256sum "$f" | awk '{print $1}')
+            plat=android
+            case "$n" in
+              xingmanxia-windows-*) plat=windows ;;
+              *.dmg)                plat=macos ;;
+              *.zip)                plat=android ;;
+            esac
+            SPECS="$SPECS --asset $n:$plat:$sz:$sh"
+          done < /tmp/rel/names.txt
+          echo "---- 资产规格 ----"; for a in $SPECS; do echo "  $a"; done
+          dart run tool/sign_update_manifest.dart --build \
+            --out /tmp/rel/release-manifest.json \
+            --version "${{ steps.ver.outputs.version }}" \
+            --sequence "${{ steps.ver.outputs.sequence }}" \
+            --min-app 1.5.0 $SPECS
+
+      - name: 校验清单可被 App 端接受（本地自签自验）
+        # 签完立刻用 App 同一套验签代码自检：私钥签出来的文本必须被
+        # kUpdatePublicKeysHex 里的公钥判为 valid。这一步挂了说明公钥没配
+        # 或轮换不同步——那种情况下上线等于全部更新不可自动安装，必须拦在这。
+        run: |
+          # 必须调用**包内**工具：package:xingmanxia 的导入要靠本包的
+          # .dart_tool/package_config.json 解析，包外脚本会直接报
+          # "Couldn't resolve the package 'xingmanxia'"（CI 上必红）。
+          # 退出码：0=valid；1=missing/invalid；2=用法或文件问题。
+          dart run tool/verify_update_manifest.dart /tmp/rel/release-manifest.json
+
+      - name: 上传清单到 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            /tmp/rel/release-manifest.json --clobber
+          echo "✅ release-manifest.json 已挂到 Release；App 端现在可以验签并自动安装"

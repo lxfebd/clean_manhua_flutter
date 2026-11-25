@@ -607,7 +607,8 @@ class _SourceCheckTabState extends State<_SourceCheckTab> {
 
   Widget _resultRow(ColorScheme scheme, _SrcCheck r,
       {required bool isLast}) {
-    final okColor = r.ok ? Colors.green : scheme.error;
+    final okColor = r.ok ? SC.of(SemanticTone.ok, scheme.brightness) :
+          SC.of(SemanticTone.bad, scheme.brightness);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       decoration: isLast
