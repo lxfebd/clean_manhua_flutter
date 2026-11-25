@@ -550,8 +550,7 @@ jobs:
           dart run tool/sign_update_manifest.dart --build \
             --out /tmp/rel/release-manifest.json \
             --version "${{ steps.ver.outputs.version }}" \
-            --sequence "${{ steps.ver.outputs.sequence }}" \
-            --min-app 1.5.0 $SPECS
+            --sequence "${{ steps.ver.outputs.sequence }}" $SPECS
 
       - name: 校验清单可被 App 端接受（本地自签自验）
         # 签完立刻用 App 同一套验签代码自检：私钥签出来的文本必须被
