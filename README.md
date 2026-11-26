@@ -44,6 +44,22 @@ flutter build web --release     # Web 端（alpha）：静态产物 build/web（
 
 ## 更新日志
 
+### v1.5.8（2026-11-26）
+
+- 🛡️ **发布链可信化（P0-01 / P0-02，安全）**：
+  - **更新包签名清单**：此前更新包只有「长度/Content-Range 对账」，第三方镜像（ghproxy/ghfast）返回任意 exe 只要长度对得上就会被静默安装。现发布时用发布私钥给一份 `release-manifest.json` 签名（ECDSA P-256，写明每个附件的 `name/size/sha256` + 版本 + 单调递增 `sequence` + `minApp`），App 内置公钥锚定，下载完成后先验清单签名再验文件哈希，通过才允许安装——**镜像彻底降级为不可信传输层**。签名工具 `tool/sign_update_manifest.dart` / 验签 `tool/verify_update_manifest.dart` 一并入库（漏入库等于发布链断环，`.gitignore` 已加白名单）。
+  - **发布 fail-closed**：此前正式 Release 缺签名 secret 时只打印警告，然后用 **debug 签名**打包并照发——用户会拿到「正式版号 + 调试签名」的包装不上。现四个 secret 缺任何一个直接 `exit 1`，release job 失败且不产出包。CI 新增 manifest job：build 完成后枚举真实资产 → 算 sha256/size → 签名 → 用 App 同一套 `UpdateManifest.classify` **自签自验**（公钥不匹配发布前就拦下）→ 挂到同一 Release。
+  - 修了首版的误伤：P0-02 的 gradle 闸门原先写在 `signingConfig` 表达式里，Gradle **配置期**就求值，导致缺 `key.properties` 时连 `flutter build apk --debug` 都失败（CI 连红两轮）→ 改为惰性触发。
+- 🔍 **MangaDex 反爬修复（源可用性）**：`api.mangadex.org` 在 2026-11 起前置了 **POWBlock**（SHA-256 前导零 PoW 网关）。它专打「自称浏览器却不是浏览器」的请求：**UA 以 `Mozilla/5.0` 开头 → 返回状态码 200 + 2022 字节 HTML 验证页**（正文是挖矿 JS）。旧实现的 UA 正是伪装浏览器，于是每个接口都拿到 HTML，`jsonDecode` 首字符即抛 `FormatException`——日志看起来像「API 契约变更」，实际与 API 无关。实测对照：Mozilla UA → 2022B HTML；`xingmanxia/1.5.7 (https://github.com/…)` → 正常 JSON；不带 UA / `curl` 亦正常，**参数怎么加都不影响，只看 UA 是否伪装**。
+  - 接口、封面、章节图三处统一改用**如实标识应用**的 UA（新增 `lib/sources/mangadex_ua.dart` 作单一来源，版本号取自 `PackageInfo` 而非写死）。
+  - **图片侧是隐藏的坑**：`uploads.mangadex.org` 走同一套网关，旧代码所有图片请求固定用浏览器 UA → 章节图返回 HTML → 解码端当成「损坏图」，表现为封面全灰、章节图全裂且日志里看不出是反爬。现改为**按域名分流 UA**：MangaDex 全线用应用 UA，其它站点（国内源 CDN）保持浏览器 UA，`bgm.tv` 保留 Referer。
+- 🩺 **源健康每日契约（可信观测）**：新增 `.github/workflows/source-health.yml`，每天定时跑真网契约（失败重试一次，两次都败自动开 issue）。此前 7 个 `verify_*` 写死 skip，源站改版 CI 全绿，只有用户能发现。
+  - 源健康新增**解析探测**：传输可达不等于能用——「服务器还活着但选择器失效」这类静默损坏以前完全没有信号。现在按真实列表请求能否解出条目判定，首轮只探传输（冷启动太贵）、稳态每 2 小时才带解析。
+  - 修了探针自身的假阳性：本地导入源 `rank()` 恒返 `[]` 是正常语义，却被判成「榜单解析为空」→ 已排除（App 内与 CI 契约两侧同步）。
+  - 探针错误归约：把「拿到 HTML」从 `Unexpected character (at character 1) <!doctype html>` 改为「疑被反爬挑战页拦截」，不再误导排查方向。
+- 📦 **源可观测性 / 离线与阅读器（P0/P1 批次）**：已下载漫画冷启动先走本地枚举（飞行模式可读，缺页明确提示）；单集视频下载校验 Content-Type 与容器可探测性，禁止把网页存成 `.mp4` 并标完成；纵向阅读双层 keepAlive 关闭（长章内存不再随已读页数单向增长）；切章失败回滚索引/标题；图片请求代际防旧响应覆盖；全局常亮改为 `WakelockGuard` 引用计数；gzip/WebDAV 解压炸弹防护；CI 第三方 Action 全部钉 commit SHA。
+- 🧪 **测试**：全量 **1217 通过 / 41 跳过**；新增 MangaDex UA 反爬回归 15 条 + 两组真网契约（接口 4 条 / 图片 2 条，含浏览器 UA 对照观测），并纳入每日契约列表；`analyze` 0 issues。
+
 ### v1.5.7（2026-11-06）
 
 - 🛠️ **源站全面体检与抢救**（用户反馈「很多源加载不出来」）——用「App 同款 Dart 栈 + 各源实网测试 + 市场源实网测试」三路交叉验证后，逐源处置：
