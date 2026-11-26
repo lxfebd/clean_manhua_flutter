@@ -55,6 +55,15 @@ flutter build web --release     # Web 端（alpha）：静态产物 build/web（
 
 ## 更新日志
 
+### v1.5.9（2026-11-27）
+
+- 🔏 **启用更新包自动安装（补齐 v1.5.8 遗留）**：v1.5.8 已完成「更新清单签名」的代码与 CI 生产链，但发版时缺少 `UPDATE_SIGNING_KEY` 密钥，导致 Release 上没有 `release-manifest.json` —— App 端 `manifestVerified=false`，所有更新只能引导手动下载。
+  - 本次补齐密钥并随包下发**新的验签公钥**（`kUpdatePublicKeysHex` 现有两把：旧的保留以便存量清单仍可验，新的用于后续签发）。
+  - 清单签名链路：CI 枚举真实 Release 资产 → 算 `sha256`/`size` → 用发布私钥签 `release-manifest.json` → **用 App 同一套验签代码自签自验** → 通过才上传。任一步失败即不出清单（fail-closed）。
+  - App 端效果：拿到签名清单后，更新包先验清单签名、再验文件哈希，通过才允许自动安装；第三方镜像彻底降级为**不可信传输层**，换包即拒装。无清单/哈希不符时**不调用任何安装器**，改为提示手动下载。
+- 📚 **接手文档入库**：新增 [`AGENTS.md`](AGENTS.md) 与 [`docs/RELEASE_KEYS.md`](docs/RELEASE_KEYS.md)，把「两套密钥的区别（APK 签名决定能否覆盖安装 / 清单签名决定能否自动安装）」「源配置三层同步」「UA 按域名分流」等易踩错的机制写进仓库。仓库为 public，文档只写机制与路径，不含任何私钥内容。
+- 🧪 **测试**：全量 **1217 通过 / 41 跳过**；`analyze` 0 issues。
+
 ### v1.5.8（2026-11-26）
 
 - 🛡️ **发布链可信化（P0-01 / P0-02，安全）**：
