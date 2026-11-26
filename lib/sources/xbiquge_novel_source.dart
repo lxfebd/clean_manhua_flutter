@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../models/comic_item.dart';
 import 'dsl/html_parser.dart' show firstCleanMatch, stripHtmlTags;
 import 'novel_source.dart';
@@ -53,11 +55,25 @@ class XbiqugeNovelSource extends NovelSource {
   static final RegExp _itemRe =
       RegExp(r'<div class="item">([\s\S]*?)</dl></div>', caseSensitive: false);
   // 首页推荐：<dl class="rec-focus-book">...</dl>（wap 版首页，带封面）
+  //
+  // ⚠️ 2026-11-27 实测：移动版 UA 拿到的首页里，这 4 个「推荐位」是**空占位**
+  // （`href="/books_3/"`、`alt=""`、标题为空、作者为空）。真书在下面的
+  // `sort-book-first` / `sort-book-list` 里。只靠这一条会让 rank() 解析出
+  // 1 条（还是一条 id=3 的假数据），表现为「新笔趣阁首页只有 1 本书」。
   static final RegExp _recFocusRe =
       RegExp(r'<dl class="rec-focus-book">([\s\S]*?)</dl>', caseSensitive: false);
   // 分类更新列表：<ul class="sort_list"><li>...</li></ul>（wap 版分类页，无封面）
   static final RegExp _sortItemRe = RegExp(
       r'<li>\s*<span class="s1">[^<]*</span>\s*<span class="s2"><a href="/books_(\d+)/">([^<]+)</a></span>');
+  // 首页分类区块的「头条位」：<dl class="sort-book-first">…<h4><a href="/books_35261/">书名</a></h4>
+  // 以及带封面的 <img src="/img/35261.jpg" alt="书名">。带封面，优先取。
+  static final RegExp _sortFirstRe =
+      RegExp(r'<dl class="sort-book-first">([\s\S]*?)</dl>', caseSensitive: false);
+  static final RegExp _sortFirstTitleRe =
+      RegExp(r'<h4><a href="/books_(\d+)/">([^<]+)</a>');
+  // 首页分类区块的「其余书」：<ul class="sort-book-list"><li><a href="/books_38414/">龙王传说</a><span>作者</span></li>
+  static final RegExp _sortListRe =
+      RegExp(r'<li><a href="/books_(\d+)/">([^<]+)</a><span>([^<]*)</span></li>');
   static final RegExp _bookIdRe = RegExp(r'/books_(\d+)/');
   static final RegExp _imgRe = RegExp(r'<img[^>]+src="([^"]+)"');
   static final RegExp _imgAltRe = RegExp(r'<img[^>]+alt="([^"]*)"');
@@ -256,9 +272,27 @@ class XbiqugeNovelSource extends NovelSource {
   /// 3. `sort_list` 项（wap 版分类页，无封面）
   List<ComicItem> _parseItems(String html) {
     final items = <ComicItem>[];
-    final seen = <String>{};
-    void add(ComicItem it) {
-      if (seen.add(it.id)) items.add(it);
+
+    // 通过索引去重：同 id 先出现者胜，但空标题/空封面的条目会被后来的
+    // 完整条目替换。旧实现用 `seen.add` 直接丢弃后来者，于是「首页推荐位」
+    // 那种空占位（id=3、标题空、封面 /img/3.jpg）会占住位置，把真数据
+    // 挤掉——这正是 2026-11-27 发现「首页只解析出 1 条」的另一半原因。
+    final idx = <String, int>{};
+    void put(String id, String title, String pic) {
+      if (id.isEmpty) return;
+      final cur = idx[id];
+      if (cur == null) {
+        idx[id] = items.length;
+        items.add(ComicItem(id, title, pic));
+        return;
+      }
+      // 已存在：只有在旧条目缺标题而新条目有时才替换。
+      final old = items[cur];
+      if (old.name.isEmpty && title.isNotEmpty) {
+        items[cur] = ComicItem(id, title, pic.isEmpty ? old.pic : pic);
+      } else if (old.pic.isEmpty && pic.isNotEmpty) {
+        items[cur] = ComicItem(id, old.name, pic);
+      }
     }
 
     for (final m in _itemRe.allMatches(html)) {
@@ -271,19 +305,35 @@ class XbiqugeNovelSource extends NovelSource {
         final dt = _dtRe.firstMatch(block);
         title = dt == null ? '' : stripHtmlTags(dt.group(1) ?? '');
       }
-      add(ComicItem(id, title, _abs(firstCleanMatch(_imgRe, block))));
+      put(id, title, _abs(firstCleanMatch(_imgRe, block)));
+    }
+
+    // 首页分类区块头条位（带封面，质量最好，先处理）。
+    for (final m in _sortFirstRe.allMatches(html)) {
+      final block = m.group(1)!;
+      final t = _sortFirstTitleRe.firstMatch(block);
+      if (t == null) continue;
+      final img = _imgAltRe.hasMatch(block) || _imgRe.hasMatch(block)
+          ? firstCleanMatch(_imgRe, block)
+          : '';
+      put(t.group(1)!, stripHtmlTags(t.group(2)!).trim(), _abs(img));
     }
 
     for (final m in _recFocusRe.allMatches(html)) {
       final block = m.group(1)!;
       final idM = _bookIdRe.firstMatch(block);
       if (idM == null) continue;
-      add(ComicItem(idM.group(1)!,
-          firstCleanMatch(_imgAltRe, block), _abs(firstCleanMatch(_imgRe, block))));
+      put(idM.group(1)!,
+          firstCleanMatch(_imgAltRe, block), _abs(firstCleanMatch(_imgRe, block)));
+    }
+
+    // 首页分类区块其余书（无封面，纯文字）。
+    for (final m in _sortListRe.allMatches(html)) {
+      put(m.group(1)!, stripHtmlTags(m.group(2)!).trim(), '');
     }
 
     for (final m in _sortItemRe.allMatches(html)) {
-      add(ComicItem(m.group(1)!, stripHtmlTags(m.group(2)!), ''));
+      put(m.group(1)!, stripHtmlTags(m.group(2)!).trim(), '');
     }
     return items;
   }
@@ -293,4 +343,11 @@ class XbiqugeNovelSource extends NovelSource {
     if (url.isEmpty || url.startsWith('http')) return url;
     return '${_defaultHosts[0]}$url';
   }
+
+  /// 供回归测试直接喂 HTML（见 test/regression_xbiquge_home_parse_test.dart）。
+  ///
+  /// 不暴露正则本身，只暴露「解析结果」——测试与实现解耦到行为层面，
+  /// 换锚点/换正则不需要改测试，只有解析结果退化才会红。
+  @visibleForTesting
+  List<ComicItem> parseItemsForTest(String html) => _parseItems(html);
 }
