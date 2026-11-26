@@ -8,6 +8,17 @@
 
 ---
 
+## 接手 / 二次开发必读
+
+- **[AGENTS.md](AGENTS.md)** —— 给接手的 AI 与开发者：动手前先跑什么、
+  密钥体系怎么分、源配置的三层同步铁律、UA 为什么要按域名分流、
+  几条容易踩反的工程约定、能力边界。
+- **[docs/RELEASE_KEYS.md](docs/RELEASE_KEYS.md)** —— 发布链与签名密钥机制：
+  两套密钥（APK 签名 vs 更新清单签名）的区别、fail-closed 规则、排查速查表。
+  **注意：仓库是 public，这两份文档只写机制与路径，不含任何私钥内容。**
+
+---
+
 ## 技术栈
 - Dart（Flutter 3.x），全平台：Android / iOS / Windows / macOS / Linux
 - 状态：`flutter_riverpod`（2.6.1，渐进式：全局状态/书架/搜索/详情/阅读模式 provider 化）
