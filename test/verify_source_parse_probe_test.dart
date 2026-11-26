@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:xingmanxia/net/source_health_monitor.dart';
+import 'package:xingmanxia/sources/local_novel_source.dart';
 import 'package:xingmanxia/sources/source_manager.dart';
 
 /// 源解析探测的真网契约。
@@ -31,6 +32,9 @@ void main() {
     }
     for (final s in SourceManager.novelSources) {
       if (!s.isEnabled) continue;
+      // LocalNovelSource.rank() 恒为 const []（本地书无远端榜单，正常语义），
+      // 不参与解析探测——否则恒报「榜单解析为空」假阳性。
+      if (s is LocalNovelSource) continue;
       final r = await mon.debugParseOne(s);
       // ignore: avoid_print
       print('  novel ${r.ok ? "OK " : "FAIL"} ${s.name}: '
