@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../models/comic_item.dart';
 import '../net/image_deg.dart';
 import 'comic_source.dart';
+import 'mangadex_ua.dart';
 import 'source_http.dart';
 
 /// MangaDex 官方 API 图源。
@@ -15,11 +16,15 @@ class MangaDexSource extends ComicSource {
   static const String _dataSaverBase = 'https://uploads.mangadex.org/data-saver';
   static const List<String> _fallbackHosts = [_api];
 
-  static const _headers = {
-    'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    'Accept': 'application/json',
-  };
+  /// 请求头。UA 由 [mangaDexUserAgent] 统一提供（含版本与项目地址）。
+  ///
+  /// 不在这里写死的原因与反爬机制说明见 `mangadex_ua.dart` 的库注释：
+  /// 2026-11 起 api/uploads 前置了 POWBlock PoW 网关，伪装浏览器 UA 会被
+  /// 返回 200 + HTML 挑战页（`jsonDecode` 首字符即抛 FormatException）。
+  Map<String, String> get _headers => mangaDexApiHeaders();
+
+  /// 供回归测试断言（见 test/regression_mangadex_ua_test.dart）。
+  static String get requestUaForTest => mangaDexUserAgent();
 
   @override
   String get id => 'mangadex';

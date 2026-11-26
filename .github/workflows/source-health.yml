@@ -7,8 +7,10 @@ name: Source Health (daily live contracts)
 
 # 为什么要有这个 workflow
 # ----------------------
-# verify_*_test.dart 是 8 个「真实网络契约」测试（每个源各一组：拉列表/详情/
-# 章节/播放直链，断言页面结构没变）。它们默认在本地和 PR CI 里跳过
+# verify_*_test.dart 是 10 个「真实网络契约」测试（每个源各一组：拉列表/详情/
+# 章节/图片直链，断言页面结构没变；MangaDex 另有一组静态资源 UA 契约；再加 1 个
+# 全源解析探测契约）。它们默认在
+# 本地和 PR CI 里跳过
 # （_skipLive = !bool.fromEnvironment('LIVE_SOURCE_TESTS')，未定义即跳过），
 # 因为跑真网慢且不稳定，不该卡住每次提交。
 #
@@ -61,7 +63,8 @@ jobs:
           TESTS="test/verify_anime1_test.dart test/verify_ashanyy_test.dart \
                  test/verify_biquge_test.dart test/verify_tvtfun_test.dart \
                  test/verify_wchedm_test.dart test/verify_xbiquge_test.dart \
-                 test/verify_xifan_test.dart \
+                 test/verify_xifan_test.dart test/verify_mangadex_test.dart \
+                 test/verify_mangadex_image_test.dart \
                  test/verify_source_parse_probe_test.dart"
           echo "触发原因: ${{ github.event.inputs.reason || '定时任务' }}"
           for attempt in 1 2; do

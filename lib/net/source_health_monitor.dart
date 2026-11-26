@@ -378,6 +378,12 @@ class SourceHealthMonitor {
             list.isEmpty ? '列表解析为空' : null);
       }
       return const _ParseResult(false, 0, '不支持的源类型');
+    } on FormatException catch (e) {
+      // 「拿到的不是 JSON」——绝大多数情况不是源站改版，而是被反爬网关
+      // 拦成了一张 HTML 挑战页（POWBlock / Cloudflare 都是 200 + HTML）。
+      // 归为一句能指导排查的话，而不是把 jsonDecode 的
+      // `Unexpected character (at character 1) <!doctype html>` 直接甩出去。
+      return _ParseResult(false, 0, _formatFail(e));
     } catch (e) {
       return _ParseResult(false, 0, _short(e));
     }
@@ -453,6 +459,23 @@ class SourceHealthMonitor {
     final s = e.toString();
     final idx = s.indexOf(':');
     return idx > 0 ? s.substring(0, idx) : s;
+  }
+
+  /// 把 FormatException 归约为可读原因。
+  ///
+  /// 解析探测里 FormatException 只有一个来源：期望 JSON/HTML 结构却拿到了
+  /// 别的东西。实践中最常见的是反爬挑战页（首字符是 `<`），其次是返回了
+  /// 空体或 API 契约变更（首字符是别的）。区分开，才知道该改 UA、该换
+  /// host，还是真的该改解析器。
+  String _formatFail(FormatException e) {
+    final m = e.message;
+    final ch = RegExp(r'at character \d+\)\s*(.)', dotAll: true).firstMatch(m);
+    final first = ch?.group(1);
+    if (first == '<') return '拿到 HTML 页面而非数据（疑被反爬挑战页拦截）';
+    if (m.contains('Unexpected end of input') || m.contains('empty')) {
+      return '响应体为空';
+    }
+    return '响应不是预期的数据格式（源站契约可能已变）';
   }
 
   /// 记录一次结果：更新连续失败/熔断、计算评分、写缓存。

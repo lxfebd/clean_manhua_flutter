@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../../net/image_cache.dart';
+import '../../sources/mangadex_ua.dart';
 import '../../utils/image_super_res.dart';
 import '../style_tokens.dart';
 
@@ -43,6 +44,29 @@ class CachedImage extends StatefulWidget {
 
   @override
   State<CachedImage> createState() => _CachedImageState();
+
+  /// ⚠️ User-Agent 按域名区分（2026-11-26）。
+  ///
+  /// MangaDex 全线域名（api / uploads / *.mangadex.network）都在同一套
+  /// POWBlock PoW 网关后面，必须用应用 UA；原因、实测对照与「为什么不能
+  /// 一刀切全局改」都记在 `lib/sources/mangadex_ua.dart` 的库注释里。
+  ///
+  /// 图片侧比接口侧更隐蔽：拿到 HTML 不会抛异常，只会被解码端当成
+  /// **损坏图**——表现为封面全灰、章节图全裂，日志里看不出是反爬。
+  static const String _kBrowserUa = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+      'AppleWebKit/537.36 (KHTML, like Gecko) '
+      'Chrome/120.0.0.0 Safari/537.36';
+
+  /// 图片请求加 Referer，避免部分 CDN（如 lain.bgm.tv）防盗链拒绝。
+  @visibleForTesting
+  static Map<String, String> headersFor(String url) {
+    if (isMangaDexHost(url)) return mangaDexImageHeaders();
+    final host = Uri.tryParse(url)?.host ?? '';
+    if (host.contains('bgm.tv')) {
+      return const {'Referer': 'https://bgm.tv/', 'User-Agent': _kBrowserUa};
+    }
+    return const {'User-Agent': _kBrowserUa};
+  }
 }
 
 class _CachedImageState extends State<CachedImage> {
@@ -69,23 +93,10 @@ class _CachedImageState extends State<CachedImage> {
     }
   }
 
-  /// 图片请求加 Referer，避免部分 CDN（如 lain.bgm.tv）防盗链拒绝。
-  static Map<String, String> _headersFor(String url) {
-    final host = Uri.tryParse(url)?.host ?? '';
-    if (host.contains('bgm.tv')) {
-      return const {
-        'Referer': 'https://bgm.tv/',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-            'AppleWebKit/537.36 (KHTML, like Gecko) '
-            'Chrome/120.0.0.0 Safari/537.36',
-      };
-    }
-    return const {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-          'AppleWebKit/537.36 (KHTML, like Gecko) '
-          'Chrome/120.0.0.0 Safari/537.36',
-    };
-  }
+  /// 图片请求头（含按域名区分的 UA）。实现见
+  /// [CachedImage.headersFor]——反爬原因与实测数据都记在那里。
+  static Map<String, String> _headersFor(String url) =>
+      CachedImage.headersFor(url);
 
   Future<void> _load() async {
     if (widget.url.isEmpty) return;
