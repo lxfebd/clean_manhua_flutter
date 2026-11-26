@@ -23,11 +23,28 @@ class HostProbeResult {
 }
 
 /// 解析探测结果：一次真实列表请求能否解析出条目。
+/// 解析探测结论的三态分类。
+///
+/// - [ok]：真实请求成功且解析出 >=1 条。
+/// - [drift]：**请求成功、内容也解析成功，但一条都没有**——这是唯一能证明
+///   「源站契约已变更」的信号（结构变了导致选择器全落空）。UI 落红、
+///   每日契约判失败，都由且只由这一态触发。
+/// - [unreachable]：403/5xx/超时/连接失败/拿到非 JSON。这一态**无法证明**
+///   契约变更：反爬网关返回的 HTML 挑战页同样会让 jsonDecode 抛
+///   FormatException（Cloudflare / POWBlock 都是 200 + HTML），从海外 CI
+///   runner 访问国内源更是天然的 403/重置。只记录、不上屏、不开 issue，
+///   避免用噪声训练用户忽略警报。
+enum ParseOutcome { ok, drift, unreachable }
+
 class _ParseResult {
-  final bool ok;
+  final ParseOutcome outcome;
   final int items;
   final String? error;
-  const _ParseResult(this.ok, this.items, this.error);
+  const _ParseResult(this.outcome, this.items, this.error);
+
+  /// 兼容旧语义：只有 drift 才算「解析失败」。
+  bool get ok => outcome != ParseOutcome.drift;
+
 }
 
 /// 源健康度（综合评分）结果。
@@ -199,17 +216,17 @@ class SourceHealthMonitor {
       _record(id, name, r);
 
   @visibleForTesting
-  void debugApplyParse(String id, {required bool ok, String? error}) =>
-      _applyParse(id, _ParseResult(ok, 0, error));
+  void debugApplyParse(String id, {required ParseOutcome outcome, String? error}) =>
+      _applyParse(id, _ParseResult(outcome, 0, error));
 
   /// 真网契约用：跑一次单个源的解析探测并返回结果。
   /// 单元测试不碰它（要发真实请求）；真网验证由
   /// `test/verify_source_parse_probe_test.dart` 覆盖，挂每日 workflow。
   @visibleForTesting
-  Future<({bool ok, int items, String? error})> debugParseOne(
-      AppSource s) async {
+  Future<({ParseOutcome outcome, bool ok, int items, String? error})>
+      debugParseOne(AppSource s) async {
     final r = await _parseOne(s);
-    return (ok: r.ok, items: r.items, error: r.error);
+    return (outcome: r.outcome, ok: r.ok, items: r.items, error: r.error);
   }
 
   /// 执行一轮检测：漫画+小说源（启用中）各取主域名。
@@ -357,35 +374,38 @@ class SourceHealthMonitor {
   ///
   /// 漫画/小说用 `rank(1)`（一次请求、不需要先取分类）；
   /// 视频没有 rank，先取分类再拉第一个分类的列表（两次请求）。
+
+  /// 列表长度 -> 三态：0 条 = drift（契约变更），>=1 条 = ok。
+  static _ParseResult _listResult(int n, String what) => n > 0
+      ? _ParseResult(ParseOutcome.ok, n, null)
+      : _ParseResult(ParseOutcome.drift, 0, '$what解析为空');
+
   Future<_ParseResult> _parseOne(AppSource s) async {
     try {
       if (s is ComicSource) {
         final list = await s.rank(1).timeout(_parseTimeout);
-        return _ParseResult(list.isNotEmpty, list.length,
-            list.isEmpty ? '榜单解析为空' : null);
+        return _listResult(list.length, '榜单');
       }
       if (s is NovelSource) {
         final list = await s.rank(1).timeout(_parseTimeout);
-        return _ParseResult(list.isNotEmpty, list.length,
-            list.isEmpty ? '榜单解析为空' : null);
+        return _listResult(list.length, '榜单');
       }
       if (s is VideoSource) {
         final cats = await s.categories().timeout(_parseTimeout);
-        if (cats.isEmpty) return const _ParseResult(false, 0, '分类解析为空');
+        if (cats.isEmpty) return const _ParseResult(ParseOutcome.drift, 0, '分类解析为空');
         final list =
             await s.listByCategory(cats.first.id, 1).timeout(_parseTimeout);
-        return _ParseResult(list.isNotEmpty, list.length,
-            list.isEmpty ? '列表解析为空' : null);
+        return _listResult(list.length, '列表');
       }
-      return const _ParseResult(false, 0, '不支持的源类型');
+      return const _ParseResult(ParseOutcome.unreachable, 0, '不支持的源类型');
     } on FormatException catch (e) {
       // 「拿到的不是 JSON」——绝大多数情况不是源站改版，而是被反爬网关
       // 拦成了一张 HTML 挑战页（POWBlock / Cloudflare 都是 200 + HTML）。
       // 归为一句能指导排查的话，而不是把 jsonDecode 的
       // `Unexpected character (at character 1) <!doctype html>` 直接甩出去。
-      return _ParseResult(false, 0, _formatFail(e));
+      return _ParseResult(ParseOutcome.unreachable, 0, _formatFail(e));
     } catch (e) {
-      return _ParseResult(false, 0, _short(e));
+      return _ParseResult(ParseOutcome.unreachable, 0, _short(e));
     }
   }
 
