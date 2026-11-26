@@ -48,6 +48,10 @@ app.*.map.json
 /android/key.properties
 /android/app/*.jks
 /android/app/*.keystore
+# ECDSA 私钥（市场索引 / 更新清单）：正常放在发布机 ~/.xingmanxia/ 下，
+# 不在仓库树内；这里兜底拦截「有人手动拷进仓库」的情形。
+*_signing_key.json
+**/.xingmanxia/
 
 # ===== 本地调试残留（非产品代码，勿入库）=====
 # 忽略的是目录**内容**而非目录本身（`/tool/` 会让下面 ! 反选彻底失效），
