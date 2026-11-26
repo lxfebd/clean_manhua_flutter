@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import '../sources/comic_source.dart';
+import '../sources/local_novel_source.dart';
 import '../sources/novel_source.dart';
 import '../sources/source_base.dart';
 import '../sources/source_config.dart';
@@ -340,7 +341,14 @@ class SourceHealthMonitor {
   Future<List<AppSource>> _parseSources() async {
     final out = <AppSource>[];
     out.addAll(await SourceManager.enabledSources());
-    out.addAll(await SourceManager.enabledNovelSources());
+    for (final s in await SourceManager.enabledNovelSources()) {
+      // LocalNovelSource 的 rank() 恒返回 const []——本地导入的书没有远端
+      // 榜单，「拿空列表」是它的正常语义，不是解析失败。拿它去打真实网络
+      // 请求只会恒报「榜单解析为空」，属于探针自身的假阳性（CI 首跑即暴露）。
+      // 本地源的可用性由书架自身保证，不需要也不应该由健康探针裁决。
+      if (s is LocalNovelSource) continue;
+      out.add(s);
+    }
     out.addAll(await SourceManager.enabledVideoSources());
     return out;
   }
