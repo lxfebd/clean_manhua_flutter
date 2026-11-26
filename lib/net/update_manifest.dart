@@ -37,7 +37,9 @@ const String kUpdateManifestAssetName = 'release-manifest.json';
 /// 下次发布自动改用新私钥。
 const List<String> kUpdatePublicKeysHex = [
   '7be30bb6c3b79ade882677109b94161eee2eccb78da8bf1de2f524f497e47c80:'
-      '6b7e296b7b3ceb4f81bbebb9e2ac8f2bc69ad089e7c009ac8fde7a036bb1ef71', // 2026-11-21
+      '6b7e296b7b3ceb4f81bbebb9e2ac8f2bc69ad089e7c009ac8fde7a036bb1ef71', // 2026-11-21（私钥已丢失，保留仅为兼容当时可能签发过的清单）
+  'd03d5200d2449276094f405bdb8a694da41f600c7f235c27d292c52cf95c0945:'
+      'fa45008844fc906cf3bd87f098037c1907ebb20a323bbe24ab8c2c0bf026f1b9', // 2026-11-26 起生效（私钥在发布机 ~/.xingmanxia/update_signing_key.json + GitHub Secret）
 ];
 
 /// 清单可信度分级。与 [IndexSignatureStatus] 同构，但多了
