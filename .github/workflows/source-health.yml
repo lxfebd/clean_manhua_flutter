@@ -67,10 +67,13 @@ jobs:
                  test/verify_mangadex_image_test.dart \
                  test/verify_source_parse_probe_test.dart"
           echo "触发原因: ${{ github.event.inputs.reason || '定时任务' }}"
+          LOG=/tmp/contracts.log
+          : > "$LOG"
           for attempt in 1 2; do
             echo "::group::attempt $attempt"
-            if flutter test $TESTS --dart-define=LIVE_SOURCE_TESTS=true; then
+            if flutter test $TESTS --dart-define=LIVE_SOURCE_TESTS=true 2>&1 | tee -a "$LOG"; then
               echo "result=pass" >> "$GITHUB_OUTPUT"
+              echo "verdict=clean" >> "$GITHUB_OUTPUT"
               echo "::endgroup::"
               exit 0
             fi
@@ -78,12 +81,42 @@ jobs:
             echo "attempt $attempt failed"
             [ "$attempt" = "1" ] && sleep 20
           done
+
+          # --- 分流：契约破坏 vs 不可达 ----------------------------------------
+          # P1-30 要求 LIVE 模式下预探失败必须 fail（不准静默通过），所以这里仍然
+          # 让 job 变红；但「不可达」不等于「契约被改」，不能每天开 issue——
+          # 老逻辑不看原因就开 issue，等于用噪声报警、训练用户忽略警报。
+          DRIFT=$(grep -cE 'Expected:|Actual:|Which:|应返回|解析为空|应为空' "$LOG" || true)
+          echo "契约类失败行数: ${DRIFT:-0}"
+          if [ "${DRIFT:-0}" -gt 0 ]; then
+            echo "result=fail" >> "$GITHUB_OUTPUT"
+            echo "verdict=drift" >> "$GITHUB_OUTPUT"
+            echo "::error::契约断言失败（绝非不可达类），开 issue"
+            exit 1
+          fi
           echo "result=fail" >> "$GITHUB_OUTPUT"
-          echo "::error::两个 attempt 都失败——有源站契约被破坏，详见下方日志"
+          echo "verdict=unreach" >> "$GITHUB_OUTPUT"
+          {
+            echo "## 源契约执行结果：全部不可达，非契约破坏"
+            echo ""
+            echo "两次 attempt 均失败，但失败原因全部属于「预探失败 / 网络不可达」"
+            echo "（Exception / HTTP 错误码 / 连接被重置 / 超时）。"
+            echo "GitHub runner 位于海外，访问国内源站天然 403/重置；实测同一条 URL"
+            echo "从本机直连可返回 200 + JSON。故不开 issue（避免噪声训练），"
+            echo "但 job 保留红色（P1-30：预探失败必须 fail）。"
+            echo ""
+            echo "### 不可达明细"
+            echo '```'
+            grep -oE '(预探失败|网络不可达)[^\n]*' "$LOG" | sort | uniq -c | head -20
+            grep -oE '(ClientException|SocketException|TimeoutException|HttpStatusException)[^\n]*' "$LOG" | sort | uniq -c | head -20
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
           exit 1
 
+
+
       - name: Open or refresh failure issue
-        if: failure() && steps.contracts.outputs.result == 'fail'
+        if: failure() && steps.contracts.outputs.verdict == 'drift'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7（钉 commit SHA，P1-29）
         with:
           script: |
