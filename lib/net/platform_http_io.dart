@@ -8,6 +8,7 @@ import 'package:http/io_client.dart';
 // 循环 import；原语下沉 NetConn 后，平台层不再依赖编排层）。
 import '../utils/compression_guard.dart';
 import 'net_conn.dart' show NetConn, HttpStatusException, ResponseTooLargeException;
+import 'net_guard.dart';
 
 /// io 端线上实现：真实 dart:io HttpClient（含代理 / 优选 IP connectionFactory /
 /// gzip 解压），构造逻辑复用 [NetConn.clientForRequest]（不重复实现代理与优选 IP）。
@@ -25,13 +26,55 @@ class PlatformHttp {
     final client = IOClient(
         NetConn.clientForRequest(Uri.parse(urlStr).host, proxy: proxy));
     try {
-      final req = http.Request('GET', Uri.parse(urlStr));
-      _applyHeaders(req, headers);
-      final res = await client.send(req).timeout(timeout);
+      // P1-04：重定向逐跳校验。
+      //
+      // dart:io 的 HttpClient 默认自动跟随重定向，跳转目标由**服务端**决定，
+      // 所以只校验入口 URL 是拦不住 `Location: http://192.168.1.1/admin`
+      // 这类攻击的。这里关掉自动跟随，自己逐跳校验后再跳——每一跳都过护栏。
+      final res = await _sendFollowingRedirects(
+        client, http.Request('GET', Uri.parse(urlStr)), headers, timeout,
+      );
       return await _readBytes(res, timeout, urlStr, maxBytes);
     } finally {
       client.close();
     }
+  }
+
+  /// 手动跟随重定向，**每一跳都过 [NetGuard]**。
+  ///
+  /// 最多 5 跳（与浏览器/curl 的常见上限一致），超出视为异常重定向循环。
+  static Future<http.StreamedResponse> _sendFollowingRedirects(
+    http.Client client,
+    http.Request req,
+    Map<String, String>? headers,
+    Duration timeout,
+  ) async {
+    var current = req;
+    // http 包自己的 followRedirects 也要关掉，否则 package:http 会绕过
+    // 我们的逐跳校验直接跟随（它默认是 true）。
+    current.followRedirects = false;
+    for (var hop = 0; hop < 5; hop++) {
+      _applyHeaders(current, headers);
+      final res = await client.send(current).timeout(timeout);
+      final code = res.statusCode;
+      final isRedirect = code == 301 || code == 302 || code == 303 ||
+          code == 307 || code == 308;
+      if (!isRedirect) return res;
+
+      final loc = res.headers['location'];
+      if (loc == null || loc.isEmpty) return res;
+      // 排空当前响应，避免连接泄漏
+      await res.stream.drain<void>();
+      final next = current.url.resolve(loc);
+      // 每一跳都校验（含 DNS 解析）
+      final guard = await NetGuard.resolveAndCheck(next.toString());
+      if (!guard.allowed) {
+        throw NetGuardViolation(guard.violation!.reason, url: next.toString());
+      }
+      current = http.Request(current.method, next);
+    }
+    throw NetGuardViolation('重定向次数过多（>5），已停止跟随',
+        url: req.url.toString());
   }
 
   /// 单次 POST：body 为 UTF-8 字符串，返回字节。

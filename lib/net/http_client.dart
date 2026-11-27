@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'cronet_conditional.dart';
 import 'local_store.dart';
 import 'net_conn.dart';
+import 'net_guard.dart';
 import 'platform_http.dart';
 
 /// 连接/读取原语与两个 HTTP 异常已下沉到 [net_conn.dart]（P0-2：解除
@@ -355,6 +356,12 @@ class Net {
 
   static Future<String> _getOnce(String urlStr, Map<String, String>? headers,
       Duration? timeout, {String? proxy, int? maxBytes}) async {
+    // P1-04：统一出网护栏。所有文本请求最终都汇聚到这里，在这里校验
+    // 才不会漏掉任何一个上层入口（get / getCronet / SourceHttp.getUrl …）。
+    final guard = await NetGuard.resolveAndCheck(urlStr);
+    if (!guard.allowed) {
+      throw NetGuardViolation(guard.violation!.reason, url: urlStr);
+    }
     final t = timeout ?? _timeout;
     final limit = maxBytes ?? maxTextBytes;
     if (debugCountIoGet) debugIoGetAttempts++;
@@ -550,6 +557,12 @@ class Net {
     int? maxBytes,
     void Function(int received, int? total)? onProgress,
   }) async {
+    // P1-04：图片/二进制下载同样过护栏。旧实现只在文本路径校验的话，
+    // 恶意源的 picListUrl 可以直接指到内网图片地址，把内网响应体当图片缓存。
+    final guard = await NetGuard.resolveAndCheck(urlStr);
+    if (!guard.allowed) {
+      throw NetGuardViolation(guard.violation!.reason, url: urlStr);
+    }
     if (onProgress == null) {
       if (proxy == null) {
         return _getBytesOnce(urlStr, headers, proxy: null, timeout: timeout, maxBytes: maxBytes);

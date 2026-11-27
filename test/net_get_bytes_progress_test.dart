@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xingmanxia/net/net_guard.dart';
 import 'package:xingmanxia/capabilities/capability_artifact_store.dart';
 import 'package:xingmanxia/capabilities/capability_plugin.dart';
 import 'package:xingmanxia/net/http_client.dart';
@@ -27,6 +28,9 @@ void main() {
   Future<void> startServer(List<List<int>> chunks,
       {Duration gap = const Duration(milliseconds: 20)}) async {
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    // P1-04：本测试用本地服务器模拟源站，登记该端口以放行
+    // SSRF 护栏（只放行这一个回环端口，其它内网目标照拦）。
+    NetGuard.allowLoopbackPortForTest(server.port);
     final total = chunks.fold<int>(0, (s, c) => s + c.length);
     server.listen((req) async {
       req.response.contentLength = total;

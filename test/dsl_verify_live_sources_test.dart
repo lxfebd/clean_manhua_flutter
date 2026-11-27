@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xingmanxia/net/net_guard.dart';
 import 'package:xingmanxia/sources/dsl/custom_source_def.dart';
 import 'package:xingmanxia/sources/dsl/dsl_video_source.dart';
 
@@ -129,6 +130,8 @@ void main() {
         );
     _snap = snap;
     _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    // P1-04：本测试用本地快照服务器模拟源站，登记该端口放行 SSRF 护栏。
+    NetGuard.allowLoopbackPortForTest(_server.port);
     _base = 'http://${_server.address.address}:${_server.port}';
     _server.listen((req) {
       final path = req.uri.path;

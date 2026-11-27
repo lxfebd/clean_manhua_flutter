@@ -17,6 +17,11 @@ class WebDavSheetState extends State<WebDavSheet> {
   final _urlCtrl = TextEditingController();
   final _userCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
+  /// 备份加密口令（P1-05：与 WebDAV 认证口令**分开**）。
+  /// 认证口令只用来过服务器鉴权；加密口令只用来加解密备份文件。
+  /// 分开的原因：WebDAV 服务端本身知道认证口令，用它加密等于把备份
+  /// 交给服务端运营者保管。
+  final _encCtrl = TextEditingController();
   final _dirCtrl = TextEditingController();
   bool _encrypt = true;
   bool _busy = false;
@@ -31,6 +36,7 @@ class WebDavSheetState extends State<WebDavSheet> {
       _urlCtrl.text = c['url'] as String? ?? '';
       _userCtrl.text = c['username'] as String? ?? '';
       _passCtrl.text = ''; // 明文密码不落盘；有密码时用「已设置」占位提示
+      _encCtrl.text = ''; // 加密口令同样不落盘
       _dirCtrl.text = c['dir'] as String? ?? '';
       _encrypt = (c['encrypt'] as bool?) ?? true;
     }
@@ -41,6 +47,7 @@ class WebDavSheetState extends State<WebDavSheet> {
     _urlCtrl.dispose();
     _userCtrl.dispose();
     _passCtrl.dispose();
+    _encCtrl.dispose();
     _dirCtrl.dispose();
     super.dispose();
   }
@@ -133,13 +140,25 @@ class WebDavSheetState extends State<WebDavSheet> {
       // 必须 await：saveConfig 落盘失败（磁盘满/权限）时会抛异常，若不等待
       // 会误报「已保存」并关面板，重启后配置丢失。
       stage = 'save';
-      await WebDavSync.saveConfig(
+      // P1-05：认证口令与加密口令分开传。加密口令留空表示沿用已存的；
+      // 若开启加密但最终没有有效口令，saveConfig 返回 false（空口令禁止加密）。
+      final ok = await WebDavSync.saveConfig(
         url: url,
         username: _userCtrl.text.trim(),
         password: _passCtrl.text,
         dir: _dirCtrl.text.trim(),
         encrypt: _encrypt,
+        encPassword: _encCtrl.text,
       );
+      if (!ok) {
+        if (mounted) {
+          setState(() {
+            _status = '开启加密需要设置加密口令（不能为空）';
+            _statusOk = false;
+          });
+        }
+        return;
+      }
       widget.onChanged();
       if (mounted) {
         setState(() {
@@ -282,6 +301,23 @@ class WebDavSheetState extends State<WebDavSheet> {
                 ),
               ],
             ),
+            // P1-05：加密口令与认证口令分开输入。
+            // 用认证口令加密等于把备份交给 WebDAV 服务端运营者保管——
+            // 服务端本来就知道那个口令。
+            if (_encrypt) ...[
+              const SizedBox(height: 10),
+              TextField(
+                controller: _encCtrl,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: '备份加密口令（独立于 WebDAV 密码）',
+                  prefixIcon: Icon(Icons.lock_outline_rounded, size: 20),
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                  hintText: WebDavSync.hasEncPassword ? '已设置（留空保持不变）' : '建议与上面的密码不同',
+                ),
+              ),
+            ],
             const SizedBox(height: 4),
             Row(
               children: [

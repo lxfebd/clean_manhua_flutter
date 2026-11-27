@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xingmanxia/net/net_guard.dart';
 import 'package:xingmanxia/net/error_logger.dart';
 import 'package:xingmanxia/net/local_store.dart';
 import 'package:xingmanxia/net/webdav_sync.dart';
@@ -69,6 +70,9 @@ void main() {
       dirs.clear();
       denyMkcol = false;
       server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      // P1-04：本测试用本地服务器模拟源站，登记该端口以放行
+      // SSRF 护栏（只放行这一个回环端口，其它内网目标照拦）。
+      NetGuard.allowLoopbackPortForTest(server!.port);
       serverUrl = 'http://127.0.0.1:${server!.port}/dav/';
       server!.listen((req) async {
         final p = req.uri.path;
@@ -197,6 +201,9 @@ void main() {
       await LocalStore.init();
       // 关闭服务器触发网络错误：这里改为启动一个只返回 500 的临时服务器。
       final errServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      // P1-04：本测试用本地服务器模拟源站，登记该端口以放行
+      // SSRF 护栏（只放行这一个回环端口，其它内网目标照拦）。
+      NetGuard.allowLoopbackPortForTest(errServer.port);
       final errUrl = 'http://127.0.0.1:${errServer.port}/dav/';
       errServer.listen((req) {
         req.response.statusCode = HttpStatus.internalServerError;

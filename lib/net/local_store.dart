@@ -12,6 +12,20 @@ import 'error_logger.dart';
 import 'reading_stats.dart';
 import 'web_persist.dart';
 
+/// 备份恢复失败（P1-06）。
+///
+/// 与普通 [Exception] 区分：这个异常**保证**「恢复前的数据没有被改动」或
+/// 「已尽力回滚」。UI 应当据此明确告知用户失败，而不是显示"恢复成功但数据
+/// 看起来不对"。
+class BackupRestoreException implements Exception {
+  BackupRestoreException(this.message, {this.cause});
+  final String message;
+  final Object? cause;
+  @override
+  String toString() =>
+      cause == null ? message : '$message（底层原因：$cause）';
+}
+
 /// 在独立 Isolate 中解析 JSON（用于大文件，避免阻塞 UI）。
 dynamic _jsonDecodeCompute(String raw) => jsonDecode(raw);
 
@@ -1250,25 +1264,105 @@ class LocalStore {
   /// 与 [collectBackup] 字段对称——唯一例外：`bookshelf` / `novel_shelf`
   /// 由调用方（备份恢复页）单独还原到各自 Store，本方法不处理（书架数据
   /// 含分类引用，必须先建 store 再灌数据）。无键字段（旧版本备份）自动跳过。
+  /// 恢复备份（**事务化**，P1-06）。
+  ///
+  /// ## 旧实现的问题
+  /// 逐 key `_write`，第 N 个失败时前 N-1 个已经落盘 → 用户看到"恢复成功"
+  /// 或者看到报错，但数据已经是**新旧混合**状态。更糟的是 `_writeNow`
+  /// 内部 `catch` 掉了异常，调用方根本不知道失败了几个。
+  ///
+  /// ## 现在的做法
+  /// 两阶段提交：
+  /// 1. **先读快照**：把本次会被覆盖的每个文件的现有内容读进内存。
+  /// 2. **再写**：逐个直写（绕过队列，因为是恢复场景无需排队）。
+  ///    任一写失败 → 用快照**回滚已写的文件**，然后抛出异常。
+  ///
+  /// 回滚本身也可能失败（磁盘满），那时只能尽力而为并记录——但至少
+  /// 不会像旧实现那样静默返回"成功"。
   static Future<int> restoreBackup(Map<String, dynamic> data) async {
-    var count = 0;
-    Future<void> put(String name, Object? v) async {
-      if (v == null) return;
-      await _write(name, v);
-      count++;
+    const keys = [
+      'favorites',
+      'history',
+      'bookmarks',
+      'search_history',
+      'video_records',
+      'video_progress',
+      'downloads',
+      'settings',
+      'novel_read_settings',
+      'reading_stats',
+      'gesture_config',
+      'sources_config',
+      'source_plugins',
+      'custom_sources',
+      'source_health',
+      'webdav_config',
+      'update_check',
+      'shelf_folders',
+    ];
+
+    // 待写入集合（过滤 null：null 表示备份里没有这一项，保持本地原样）。
+    final pending = <String, Object>{};
+    for (final k in keys) {
+      var v = data[k];
+      if (v == null) continue;
+      // 旧备份的续播进度 key 仍是 `::` 分隔：恢复时统一改写为 `/`（P2-15）。
+      // normalize 返 null 表示"无需改写"，不是"跳过恢复"。
+      if (k == 'video_progress') {
+        v = _normalizeVideoProgress(v) ?? v;
+      }
+      pending[k] = v;
+    }
+    if (pending.isEmpty) return 0;
+
+    // ---- 阶段 1：快照（失败则整体放弃，不动任何文件）----
+    final snapshot = <String, String?>{};
+    if (!kIsWeb) {
+      for (final k in pending.keys) {
+        try {
+          final f = await _fileAsync(k);
+          snapshot[k] = f.existsSync() ? await f.readAsString() : null;
+        } catch (_) {
+          snapshot[k] = null; // 读不到就当原来不存在，回滚时删掉
+        }
+      }
     }
 
-    await put('favorites', data['favorites']);
-    await put('history', data['history']);
-    await put('bookmarks', data['bookmarks']);
-    await put('search_history', data['search_history']);
-    await put('video_records', data['video_records']);
-    // 旧备份的续播进度 key 仍是 `::` 分隔：恢复时统一改写为 `/`（P2-15）。
-    // 新格式（normalize 返 null）原样写回——null 表示"无需改写"，不是"跳过恢复"。
-    await put('video_progress',
-        _normalizeVideoProgress(data['video_progress']) ?? data['video_progress']);
-    await put('downloads', data['downloads']);
-    if (data['downloads'] != null) {
+    // ---- 阶段 2：写入（任一失败即回滚）----
+    final written = <String>[];
+    try {
+      for (final entry in pending.entries) {
+        await _writeOrThrow(entry.key, entry.value);
+        written.add(entry.key);
+      }
+    } catch (e) {
+      // 回滚：把已写的恢复成快照内容
+      final failed = <String>[];
+      for (final k in written) {
+        try {
+          final prev = snapshot[k];
+          if (prev == null) {
+            final f = await _fileAsync(k);
+            if (f.existsSync()) await f.delete();
+          } else {
+            final f = await _fileAsync(k);
+            await f.writeAsString(prev, flush: true);
+          }
+        } catch (_) {
+          failed.add(k);
+        }
+      }
+      ErrorLogger.instance.warn(
+          'restoreBackup 失败已回滚 ${written.length - failed.length} 个文件'
+          '${failed.isEmpty ? '' : '，${failed.length} 个回滚失败：${failed.join(",")}'}'
+          '，原因：$e');
+      throw BackupRestoreException(
+        '恢复失败，已回滚到恢复前的状态（本次未改动任何数据）',
+        cause: e,
+      );
+    }
+
+    if (pending.containsKey('downloads')) {
       // 恢复导入绕过镜像直写磁盘：作废未落盘变更与在途读盘，下次读重建。
       _downloadsFlushTimer?.cancel();
       _downloadsFlushTimer = null;
@@ -1278,18 +1372,20 @@ class LocalStore {
       _downloadsLoad = null;
       downloadsVersion.value++;
     }
-    await put('settings', data['settings']);
-    await put('novel_read_settings', data['novel_read_settings']);
-    await put('reading_stats', data['reading_stats']);
-    await put('gesture_config', data['gesture_config']);
-    await put('sources_config', data['sources_config']);
-    await put('source_plugins', data['source_plugins']);
-    await put('custom_sources', data['custom_sources']);
-    await put('source_health', data['source_health']);
-    await put('webdav_config', data['webdav_config']);
-    await put('update_check', data['update_check']);
-    await put('shelf_folders', data['shelf_folders']);
-    return count;
+    return written.length;
+  }
+
+  /// 直写并**让失败可见**（与 [_writeNow] 的静默吞错相反）。
+  ///
+  /// 只给 [restoreBackup] 用：事务化必须能感知每一步是否真写成功。
+  static Future<void> _writeOrThrow(String name, Object data) async {
+    final json = jsonEncode(data);
+    if (kIsWeb) {
+      WebPersist.write('local_$name', json);
+      return;
+    }
+    final f = await _fileAsync(name);
+    await f.writeAsString(json, flush: true);
   }
 
   // ---- 桌面端窗口几何（尺寸/位置记忆）----

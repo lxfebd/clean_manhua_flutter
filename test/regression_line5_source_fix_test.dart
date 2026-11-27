@@ -69,9 +69,10 @@ void main() {
           contains('127/8'));
     });
 
-    test('baseUrl=0.0.0.0 被拒（RFC 1918 保留地址）', () {
+    test('baseUrl=0.0.0.0 被拒（保留地址）', () {
+      // P1-04：判定统一收敛到 NetGuard，0.0.0.0 归入 0/8 保留段。
       expect(_def(baseUrl: 'http://0.0.0.0/x').validate().join('; '),
-          contains('0.0.0.0'));
+          anyOf(contains('0.0.0.0'), contains('保留地址 0/8')));
     });
 
     test('baseUrl=169.254.5.5 被拒（链路本地）', () {
@@ -84,8 +85,9 @@ void main() {
     });
 
     test('非 http(s) 前缀仍被拒（baseUrl 前缀检查）', () {
+      // P1-04：错误文案改由 NetGuard 产出（更准确说明当前协议）。
       expect(_def(baseUrl: 'ftp://example.com').validate().join('; '),
-          contains('必须以 http'));
+          anyOf(contains('必须以 http'), contains('仅允许 http')));
     });
   });
 

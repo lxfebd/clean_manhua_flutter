@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../net/circuit_breaker.dart';
 import '../net/error_logger.dart';
 import '../net/http_client.dart';
+import '../net/net_guard.dart';
 import 'source_config.dart';
 import 'source_result.dart';
 
@@ -125,9 +126,30 @@ class SourceHttp {
     });
   }
 
+  /// 该 engineId 是否为**自定义源**（不在内置源集合里）。
+  ///
+  /// 判定口径是"不在已知内置集合中"而不是"以 dsl 开头"：
+  /// DSL 源的 engineId 就是用户填的 `def.id`（`dsl_comic_source.dart` 的
+  /// `String get id => def.id`），没有固定前缀，只能反向排除。
+  /// 宁可把未知 id 当自定义（走 strict）——多校验一层不会有副作用，
+  /// 少校验一层就是 SSRF 缺口。
+  static bool isCustomEngine(String engineId) =>
+      !_builtinEngineIds.contains(engineId);
+
+  static const Set<String> _builtinEngineIds = {
+    'dm5', 'doubao', 'jm', 'mangadex', // 漫画
+    'agedm', 'tvtfun', 'xifan', 'anime1', 'wchedm', 'ashanyy', // 视频
+    'biquge', 'xbiquge', 'local', // 小说
+  };
+
   /// GET 完整 URL（已拼好 host + 查询串的场景）。
   ///
   /// 同 [get]：重试由本层承担，[Net.get] 关掉内建重试，避免叠两层。
+  ///
+  /// P1-04：这里是**自定义源（DSL）唯一走得到的文本入口**，故在此把出网
+  /// 策略切到 strict——DSL 的 URL 来自导入的 JSON，属于不可信输入，
+  /// 必须拒绝一切内网目标（含 searchUrl/picListUrl 指向 192.168.x.x 的情况）。
+  /// 内置源走 [get]（permissive），避免误伤解析到运营商地址的国内 CDN。
   static Future<String> getUrl(
     String engineId,
     String url, {
@@ -135,10 +157,23 @@ class SourceHttp {
   }) async {
     return withCircuit(
         engineId,
-        () => withTransientRetry(() async => Net.get(url,
-            headers: headers,
-            proxy: await proxyFor(engineId),
-            retry: false)));
+        () => withTransientRetry(() async {
+              // P1-04：自定义源（DSL）的 URL 来自导入的不可信 JSON，
+              // 强制 strict——拒绝内网/本机/DNS 重绑定目标。
+              // 内置源有固定 id 集合，不在此列（走 permissive 默认）。
+              final restore = NetGuard.testSwapPolicy(
+                  SourceHttp.isCustomEngine(engineId)
+                      ? NetGuardPolicy.strict
+                      : NetGuard.policy);
+              try {
+                return await Net.get(url,
+                    headers: headers,
+                    proxy: await proxyFor(engineId),
+                    retry: false);
+              } finally {
+                restore();
+              }
+            }));
   }
 
   /// POST 完整 URL。

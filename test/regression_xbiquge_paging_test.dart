@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xingmanxia/net/net_guard.dart';
 import 'package:xingmanxia/sources/source_config.dart';
 import 'package:xingmanxia/sources/xbiquge_novel_source.dart';
 
@@ -48,6 +49,9 @@ void main() {
 
   setUp(() async {
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    // P1-04：本测试用本地服务器模拟源站，登记该端口以放行
+    // SSRF 护栏（只放行这一个回环端口，其它内网目标照拦）。
+    NetGuard.allowLoopbackPortForTest(server.port);
     base = 'http://${server.address.address}:${server.port}';
     // write 后必须 close()，否则客户端读不到响应体而等待超时
     server.listen((req) {

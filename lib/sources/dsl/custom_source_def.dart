@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../net/net_guard.dart';
 import '../source_manager.dart';
 import 'html_parser.dart';
 
@@ -156,14 +157,30 @@ class CustomSourceDef {
     if (baseUrl.isEmpty) {
       errs.add('缺少 baseUrl');
     } else {
-      // 必须 http(s) + 拒绝本机/内网/组播地址（P1 SSRF）
-      if (!(baseUrl.startsWith('http://') || baseUrl.startsWith('https://'))) {
-        errs.add('baseUrl 必须以 http(s):// 开头');
-      } else {
-        final reason = _internalHostReason(baseUrl);
-        if (reason != null) {
-          errs.add('baseUrl 指向 $reason，禁止内网/本机地址');
-        }
+      // P1-04：baseUrl 只是入口校验，**真正防 SSRF 的是运行期出网护栏**
+      // （NetGuard + Net 层每次请求/每次重定向都校验）。这里做安装时的
+      // 早失败：给用户即时反馈，而不是等第一次搜索才报错。
+      final reason = NetGuard.hostReason(baseUrl);
+      if (reason != null) {
+        errs.add('baseUrl 指向$reason，禁止内网/本机地址');
+      }
+    }
+    // P1-04：旧实现只查 baseUrl，于是 searchUrl / picListUrl / detailUrl
+    // 全部可以指向内网——baseUrl 合法完全不代表它们合法。这里逐个查。
+    // 注意：含占位符（{id}/{page}）的 URL 无法整串解析，只查其字面量前缀
+    // 能否形成合法 URL；真正的拦截仍在运行期。
+    for (final entry in {
+      'categoryListUrl': categoryListUrl,
+      'rankUrl': rankUrl,
+      'searchUrl': searchUrl,
+      'detailUrl': detailUrl,
+    }.entries) {
+      final v = entry.value;
+      if (v == null || v.isEmpty) continue;
+      final probe = v.replaceAll('{id}', '1').replaceAll('{page}', '1').replaceAll('{keyword}', 'x');
+      final reason = NetGuard.hostReason(probe);
+      if (reason != null) {
+        errs.add('${entry.key} 指向$reason，禁止内网/本机地址');
       }
     }
     if (type != 'comic' && type != 'video' && type != 'novel') {
@@ -209,49 +226,13 @@ void _checkRegex(String pattern, List<String> errs, {String? field}) {
 String _clip(String s, [int n = 40]) =>
     s.length <= n ? s : '${s.substring(0, n)}…';
 
-/// 检查 [url] 是否为内网/本机地址；返回中文拒绝理由（null 表示合法）。
-/// 覆盖：localhost / 127.0.0.0/8 / ::1 / 0.0.0.0 / 10.0.0.0/8 /
-/// 172.16.0.0/12 / 192.168.0.0/16 / 169.254.0.0/16（链路本地）/
-/// fc00::/7（IPv6 内网）/ fe80::/10（链路本地）/ 100.64.0.0/10（运营商 NAT）。
-String? _internalHostReason(String url) {
-  final u = Uri.tryParse(url);
-  if (u == null) return null; // 交给 baseUrl 前缀检查兜底
-  final host = u.host;
-  if (host.isEmpty) return null;
-  final lower = host.toLowerCase();
-  if (lower == 'localhost') return '本机地址 localhost';
-  // IPv6 字面量（Uri.host 会剥掉方括号，形如 ::1 或 2001:db8::1）
-  if (lower.contains(':')) {
-    if (lower == '::1' || lower == '0:0:0:0:0:0:0:1' || lower == '::') {
-      return '本机地址 ::1';
-    }
-    if (lower.startsWith('fe80')) return '链路本地地址 fe80::/10';
-    if (lower.startsWith('fc') || lower.startsWith('fd')) return '内网地址 fc00::/7';
-    // 混合 IPv6-IPv4 写法（如 ::ffff:127.0.0.1），取后缀 IPv4 再判一次
-    final idx = lower.lastIndexOf(':');
-    if (idx >= 0 && lower.substring(idx + 1).contains('.')) {
-      return _internalHostReason('http://${lower.substring(idx + 1)}');
-    }
-    return null;
-  }
-  // IPv4 字面量（无方括号）
-  final parts = lower.split('.');
-  if (parts.length == 4 &&
-      parts.every((p) => p.isNotEmpty && int.tryParse(p) != null)) {
-    final a = int.parse(parts[0]);
-    final b = int.parse(parts[1]);
-    // 按段判断，覆盖 127.0.0.1 / 127.5.6.7 等回环写法
-    if (a == 127) return '本机地址 127/8';
-    // 只拒 0.0.0.0 本身（RFC 1918 保留）；不拒整个 0/8 段以避免误伤
-    if (lower == '0.0.0.0') return '本机地址 0.0.0.0';
-    if (a == 10) return '内网地址 10/8';
-    if (a == 172 && b >= 16 && b <= 31) return '内网地址 172.16/12';
-    if (a == 192 && b == 168) return '内网地址 192.168/16';
-    if (a == 169 && b == 254) return '链路本地地址 169.254/16';
-    if (a == 100 && b >= 64 && b <= 127) return '运营商 NAT 保留段 100.64/10';
-  }
-  return null;
-}
+/// 内网/本机地址判断已统一收敛到 [NetGuard]（P1-04）。
+///
+/// 旧实现只认标准点分 IPv4 与个别 IPv6 前缀，实测漏掉 5 种浏览器/libcurl
+/// 都接受的写法：`2130706433`、`0x7f000001`、`017700000001`、`127.1`、
+/// `localhost.`。全部都能绕过旧校验直连 127.0.0.1。
+/// 现在统一走 `NetGuard.hostReason()`，覆盖上述全部形式。
+
 
 /// 列表类规则（分类列表/分类内容/排行/搜索共用）。
 class DslListRule {

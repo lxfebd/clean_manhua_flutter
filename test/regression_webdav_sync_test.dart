@@ -4,7 +4,9 @@ import 'dart:math';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xingmanxia/net/net_guard.dart';
 import 'package:pointycastle/export.dart';
+import 'package:xingmanxia/net/backup_cipher.dart';
 import 'package:xingmanxia/net/local_store.dart';
 import 'package:xingmanxia/net/webdav_sync.dart';
 
@@ -59,15 +61,15 @@ void main() {
         password: 'test-口令-123',
         dir: '',
         encrypt: true,
+        encPassword: 'test-口令-123',
       );
       final json = const JsonEncoder.withIndent('  ')
           .convert({'name': '星漫匣', 'items': [1, 2, 3]});
       final enc = WebDavSync.testEncrypt(json);
       // 新格式写 v2 魔数（PBKDF2 派生）；旧 v1 魔数仍可解密历史文件。
-      expect(
-          enc.startsWith(WebDavSync.magic) ||
-              enc.startsWith(WebDavSync.magicV2),
-          isTrue);
+      // P1-05：新写出一律 v3（随机盐）。v1/v2 仅用于解密历史文件。
+      expect(enc.startsWith(BackupCipher.magicV3), isTrue,
+          reason: '新加密必须带随机盐（v3），不能再用固定盐的 v2');
       expect(WebDavSync.testDecrypt(enc), json);
     });
 
@@ -84,6 +86,7 @@ void main() {
         password: 'secret',
         dir: '',
         encrypt: true,
+        encPassword: 'secret',
       );
       final enc = WebDavSync.testEncrypt('{"a":1}');
       final tampered = enc.substring(0, enc.length - 2) +
@@ -99,6 +102,7 @@ void main() {
         password: 'v1-old-pass',
         dir: '',
         encrypt: true,
+        encPassword: 'v1-old-pass',
       );
       // 手工构造 v1 密文（AES-256-GCM，SHA-256 派生密钥，XMX-SYNC-1 魔数）
       final pt = utf8.encode('{"legacy":true}');
@@ -159,6 +163,7 @@ void main() {
         password: 'p@ssw0rd',
         dir: '',
         encrypt: true,
+        encPassword: 'p@ssw0rd',
       );
       final j = await LocalStore.readJson('webdav_config');
       expect(j['password'], isNot('p@ssw0rd'));
@@ -178,6 +183,9 @@ void main() {
       HttpOverrides.global = null;
       store.clear();
        server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+       // P1-04：本测试用本地服务器模拟源站，登记该端口以放行
+       // SSRF 护栏（只放行这一个回环端口，其它内网目标照拦）。
+       NetGuard.allowLoopbackPortForTest(server!.port);
       serverUrl = 'http://127.0.0.1:${server!.port}/dav/';
       server!.listen((req) async {
         // 简化 WebDAV：GET/PUT 同路径，等价于一个文本 KV 文件服务器。
@@ -253,6 +261,7 @@ void main() {
         password: '同步口令',
         dir: 'Apps/星漫匣',
         encrypt: true,
+        encPassword: '同步口令',
       );
       await LocalStore.writeJson('history', {'c1': 5});
       await WebDavSync.push();

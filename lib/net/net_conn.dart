@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
+import 'net_guard.dart';
+
 /// 带状态码的 HTTP 异常：让重试逻辑能区分 5xx/429（可重试）与 4xx（不可重试）。
 class HttpStatusException implements Exception {
   final int statusCode;
@@ -176,11 +178,15 @@ class NetConn {
     if (ips != null && ips.isNotEmpty) {
       // 逻辑见 connectionTask（@visibleForTesting 抽出以便离线断言 socket
       // 生命周期）：逐个候选 IP 尝试，失败销毁 socket，全失败回退系统 DNS。
-      client.connectionFactory = (url, proxyHost, proxyPort) =>
-          connectionTask(url, host, proxyHost, proxyPort);
+      client.connectionFactory = (url, proxyHost, proxyPort) async {
+        await NetGuard.assertConnectAllowed(url);
+        return connectionTask(url, host, proxyHost, proxyPort);
+      };
+      return client;
     }
     return client;
   }
+
 
   /// 供 platform_http_io 在收到 5xx/429 后轮换候选 IP：返回下一个应尝试的下标。
   static int rotateIpIndex(String host) {
