@@ -13,6 +13,7 @@ import 'source_base.dart';
 import 'source_config.dart';
 import 'source_plugin.dart';
 import 'source_plugin_manager.dart';
+import 'source_takdown.dart';
 import 'tvtfun_video_source.dart';
 import 'video_source.dart';
 import 'wche_dm_video_source.dart';
@@ -128,10 +129,20 @@ class SourceManager {
 
   /// 启用过滤 + tier 排序的共享实现（P2-2 收敛三份逐字相同的过滤函数）。
   /// 配置优先：配置里显式的 enabled/tier 覆盖源默认值；disabled tier 不展示。
+  ///
+  /// P0-06：在此叠加**下架清单**判定（[SourceTakdownStore]）。
+  /// 语义要点：
+  /// - 被 `disable` 的内置源**不进入启用列表**，即使本地配置写着 enabled。
+  ///   「投诉→下架→旧版本也停止默认启用」就是靠这一行兑现的。
+  /// - 用户仍可在源管理页看到它并手动开启（自担风险）——但手动开启走的是
+  ///   [SourceConfigStore] 的 enabled 字段，本函数是"默认列表"的来源，
+  ///   所以真正的收紧点在 UI 层的显式确认（见 source_manage_page）。
+  /// - **自定义源（DSL 插件）不受下架清单约束**：那不是本项目分发的内容。
   static Future<List<T>> _enabledSorted<T extends AppSource>(
       List<T> all) async {
     final cfgs = await SourceConfigStore.all();
     final byId = <String, SourceConfig>{for (final c in cfgs) c.engineId: c};
+    final takdown = await SourceTakdownStore.load();
     final list = all.where((s) {
       final cfg = byId[s.id];
       final enabled = cfg?.isEnabled ?? s.isEnabled;
@@ -140,7 +151,11 @@ class SourceManager {
       // 自定义源没有 config 条目（all() 只保留 defaults 内的 engineId），
       // 其实现类 isEnabled 恒 true，停用态只记在插件的禁用集合里；漏判会让
       // 停用的自定义源留在列表里，配置变更后被 ensureEnabledCurrent 静默切回。
-      return !SourcePluginManager.instance.isCustomDisabled(s.id);
+      if (SourcePluginManager.instance.isCustomDisabled(s.id)) return false;
+      // P0-06 下架清单：只约束内置源（有 config 条目 = 内置/市场源）。
+      final isBuiltin = byId.containsKey(s.id);
+      if (isBuiltin && takdown.isDisabled(s.id)) return false;
+      return true;
     }).toList();
     // 按 tier 权重排序 + 注册下标 tie-break：Dart List.sort 对 >32 个同权重
     // 元素走双枢轴快排（不稳定，实测 n=40 重排率 20/20），显式下标才能

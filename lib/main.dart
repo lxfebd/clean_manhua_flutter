@@ -22,6 +22,7 @@ import 'net/webdav_sync.dart';
 import 'sources/local_novel_source.dart';
 import 'sources/source_manager.dart';
 import 'sources/source_plugin_manager.dart';
+import 'sources/source_takdown.dart';
 import 'sources/dsl/custom_source_store.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'capabilities/capability_plugin_manager.dart';
@@ -199,6 +200,17 @@ Future<void> _postFirstFrameInit() async {
   // 每个任务内部自带 try/catch，单个失败不影响其他任务。
   await Future.wait([
     _safeInit('SourceHealthMonitor', () => SourceHealthMonitor.instance.start()),
+    // P0-06：源下架清单。先注入真实网络实现再尝试刷新——
+    // remoteUrl 为空时 refresh() 直接返回 false（不产生无谓请求），
+    // 失败也只影响「远端下架能否生效」，不阻塞启动（见该文件库注释）。
+    _safeInit('SourceTakdownStore', () async {
+      SourceTakdownStore.injectFetcher((url, timeout) =>
+          Net.get(url, timeout: timeout, headers: const {
+            'Accept': 'application/json',
+          }));
+      await SourceTakdownStore.load();
+      await SourceTakdownStore.refresh();
+    }),
     _safeInit('UpdateChecker', () async {
       // init 必须先于 setAppVersion：否则 currentVersion() 读到空缓存恒返回兜底 1.0.0。
       // 合并为单任务避免 UpdateChecker.init() 被双调（PackageInfo 重复读 + 静态 _cached 并发写）。

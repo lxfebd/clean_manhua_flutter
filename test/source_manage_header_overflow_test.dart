@@ -49,15 +49,17 @@ void main() {
           // 注意：条目是 PopupMenuItem<String>，byType(PopupMenuItem) 只会
           // 匹配 <dynamic>，必须用谓词匹配任意泛型参数。
           final items = find.byWidgetPredicate((w) => w is PopupMenuItem);
-          expect(items, findsNWidgets(3),
-              reason: '「更多」菜单必须容纳 自定义源/源市场/恢复默认 三项');
+          expect(items, findsNWidgets(4),
+              reason: '「更多」菜单必须容纳 自定义源/源市场/源授权登记/恢复默认 四项');
           expect(find.text('自定义源'), findsWidgets);
           expect(find.text('源市场'), findsWidgets);
+          expect(find.text('源授权登记'), findsWidgets);
           expect(find.text('恢复默认'), findsWidgets);
           expect(tester.takeException(), isNull, reason: '菜单展开不应抛异常');
         } else {
           expect(find.text('自定义源'), findsOneWidget);
           expect(find.text('源市场'), findsOneWidget);
+          expect(find.text('源授权登记'), findsOneWidget);
           expect(find.text('恢复默认'), findsOneWidget);
         }
       });

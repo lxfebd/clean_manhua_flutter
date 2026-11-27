@@ -9,8 +9,10 @@ import '../net/source_health_monitor.dart';
 import '../sources/source_config.dart';
 import '../sources/source_manager.dart';
 import '../sources/source_plugin_manager.dart';
+import '../sources/source_takdown.dart';
 import 'responsive.dart';
 import 'source_market_page.dart';
+import 'source_registry_page.dart';
 import 'style_tokens.dart';
 import 'tokens.dart';
 import 'widgets/app_toast.dart';
@@ -152,6 +154,19 @@ class _SourceManagePageState extends State<SourceManagePage> {
     ).push(MaterialPageRoute(builder: (_) => const SourceMarketPage()));
   }
 
+  /// 打开源授权登记册（P0-06）：登记信息 + 投诉下架入口。
+  ///
+  /// 进入前先把下架清单的当前版本同步给页面（页面主体是静态登记信息，
+  /// 只有一行下架提示需要这份数据，故不做异步加载态）。
+  void _openRegistry() {
+    SourceTakdownStore.load().then((v) {
+      SourceTakdownStoreShadow.current = v;
+    });
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const SourceRegistryPage()));
+  }
+
   @override
   Widget build(BuildContext context) => EscPopScope(child: _buildRoot(context));
 
@@ -221,6 +236,8 @@ class _SourceManagePageState extends State<SourceManagePage> {
                                   _openCustomSources();
                                 case 'market':
                                   _openMarket();
+                                case 'registry':
+                                  _openRegistry();
                                 case 'reset':
                                   _resetAll();
                               }
@@ -233,6 +250,10 @@ class _SourceManagePageState extends State<SourceManagePage> {
                               PopupMenuItem(
                                 value: 'market',
                                 child: Text('源市场'),
+                              ),
+                              PopupMenuItem(
+                                value: 'registry',
+                                child: Text('源授权登记'),
                               ),
                               PopupMenuItem(
                                 value: 'reset',
@@ -254,6 +275,16 @@ class _SourceManagePageState extends State<SourceManagePage> {
                             onPressed: _openMarket,
                             icon: const Icon(Icons.storefront_rounded, size: 16),
                             label: const Text('源市场'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: theme.colorScheme.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          TextButton.icon(
+                            onPressed: _openRegistry,
+                            icon: const Icon(Icons.verified_user_outlined,
+                                size: 16),
+                            label: const Text('源授权登记'),
                             style: TextButton.styleFrom(
                               foregroundColor: theme.colorScheme.primary,
                             ),
