@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xingmanxia/sources/biquge_novel_source.dart';
 import 'package:xingmanxia/sources/source_config.dart';
@@ -117,8 +119,28 @@ void main() {
       expect(cfg.hosts, isNotEmpty);
       expect(cfg.hosts.every((h) => h.startsWith('http://')), isTrue,
           reason: '2026-11-04 实测 dainyew.com 的 HTTPS 握手直接失败、'
-              'HTTP 200 正常；改回 https 会让鞍山影院再次整源不可用。'
-              '（App 已开 usesCleartextTraffic=true，明文可用）');
+              'HTTP 200 正常；改回 https 会让鞍山影院再次整源不可用。');
+      // P1-27：`usesCleartextTraffic` 已从全局 true 收回。
+      // 现在明文只对 network_security_config.xml 里逐域列出的域名开放，
+      // dainyew.com 是唯一有记录的白名单项。这条断言的作用是：一旦有人
+      // 把该域名从白名单里删掉，这里会提醒"鞍山影院会静默失效"。
+      expect(RegExp(r'<domain[^>]*>dainyew\.com</domain>')
+          .hasMatch(_readNetworkSecurityConfig()), isTrue,
+          reason: '鞍山影院走 HTTP，必须在 network_security_config.xml '
+              '里保留 dainyew.com 白名单，否则 Android 9+ 会直接拒绝该源');
     });
   });
+}
+
+/// 读取 Android Network Security Config（P1-27 的明文白名单）。
+///
+/// 找不到文件时返回空串——让断言失败并给出清晰原因，而不是抛
+/// FileSystemException 掩盖真实意图。
+String _readNetworkSecurityConfig() {
+  const path = 'android/app/src/main/res/xml/network_security_config.xml';
+  try {
+    return File(path).readAsStringSync();
+  } catch (_) {
+    return '';
+  }
 }

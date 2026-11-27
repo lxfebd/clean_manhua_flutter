@@ -1,8 +1,17 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- P1-28 渠道合规：以下两项权限只在侧载版（standalone）保留。
+         商店版（store）通过 src/store/AndroidManifest.xml 里的
+         `tools:node="remove"` 剔除——那是 manifest merger 的标准做法，
+         比用 placeholder 控制 tools:node 更可靠（后者 Gradle 不接受）。
+         为什么这两项是审核风险：
+         - REQUEST_INSTALL_PACKAGES：应用外安装（自更新），Google Play 基本禁止
+         - USE_FULL_SCREEN_INTENT：Android 14+ 只允许闹钟/来电类用途
+         侧载版保留的依据见 docs/CHANNEL_COMPLIANCE.md -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
     <!-- TV 平台支持：required=false 表示"非强制"——手机/平板仍可安装，
@@ -16,7 +25,8 @@
     <application
         android:label="星漫匣"
         android:name="${applicationName}"
-        android:usesCleartextTraffic="true"
+        android:usesCleartextTraffic="false"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:banner="@drawable/tv_banner"
         android:icon="@mipmap/ic_launcher">
         <!-- 渲染引擎：显式开启 Flutter Impeller（替代 Skia，降低内存占用、提升滚动流畅度）。

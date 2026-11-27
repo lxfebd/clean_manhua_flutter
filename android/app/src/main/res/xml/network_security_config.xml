@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  网络安全配置（P1-27）。
+
+  ## 为什么需要这个文件
+  旧 manifest 里有 `android:usesCleartextTraffic="true"`——**全局**放开明文。
+  这意味着：
+  1. HTTP WebDAV 会把账号口令和全部阅读数据明文发到网络上；
+  2. 任何源站只要回退到 http:// 就能被中间人任意篡改页面内容
+     （漫画页/小说正文/播放地址都可被注入）。
+
+  ## 现在的策略
+  - 默认**禁止**明文（base-config cleartextTrafficPermitted="false"）。
+  - 只有 `domain-config` 里显式列出的域名允许明文，且逐域说明理由。
+  - WebDAV 走 Dart 层强制 HTTPS（见 lib/net/webdav_sync.dart），不依赖这里。
+
+  ## 为什么还要保留 dainyew.com
+  鞍山影院站点实测 HTTPS 握手失败、仅 HTTP 可用（2026-11-04 体检）。
+  这是一个**已知的、有记录的**降级：功能可用性 vs 传输安全的权衡。
+  该源本身在源授权登记册里已标注「传输层不安全」（P0-06）。
+  如果该站将来修好 HTTPS，删掉这条即可。
+
+  ## 加新白名单的门槛
+  只允许「该站点确实没有 HTTPS」且「内容是公开的、无凭据交换」的源。
+  **绝不能**为了省事把 webdav / github / 市场索引域名加进来。
+-->
+<network-security-config>
+    <!-- 默认：禁止明文，只信任系统 CA -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <domain-config cleartextTrafficPermitted="true">
+        <!--
+          鞍山影院（dainyew.com）：
+          - 理由：站点 HTTPS 握手失败，仅 HTTP 可访问（2026-11-04 体检记录）
+          - 风险：页面内容可被中间人篡改；仅浏览公开影视列表，不传凭据
+          - 退出条件：站点恢复 HTTPS 后移除本段
+        -->
+        <domain includeSubdomains="true">dainyew.com</domain>
+        <domain includeSubdomains="true">www.dainyew.com</domain>
+    </domain-config>
+</network-security-config>

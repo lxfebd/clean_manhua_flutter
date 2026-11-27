@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import 'net_guard.dart';
+import 'self_signed_trust.dart';
 
 /// 带状态码的 HTTP 异常：让重试逻辑能区分 5xx/429（可重试）与 4xx（不可重试）。
 class HttpStatusException implements Exception {
@@ -164,9 +165,16 @@ class NetConn {
     final client = HttpClient()
       ..connectionTimeout = timeout
       ..autoUncompress = false;
-    // 默认校验证书（防 MITM）；仅用户显式开启「信任自签」才放行
-    if (trustSelfSigned) {
-      client.badCertificateCallback = (cert, h, port) => true;
+    // P1-27：自签信任收敛到「指定主机 + 证书指纹」。
+    //
+    // 旧实现是 `if (trustSelfSigned) badCertificateCallback = (…) => true`，
+    // 等于为了连一台 NAS 就让 GitHub/市场/更新链全部失去 MITM 防护。
+    // 现在只有用户在设置里显式登记过 `(host, sha256)` 的组合才可能放行，
+    // 且 GitHub 等下发通道永远严格（见 SelfSignedTrust.isAlwaysStrictHost）。
+    final badCert = SelfSignedTrust.onBadCertificateForHost(host);
+    if (badCert != null) {
+      client.badCertificateCallback =
+          (cert, h, port) => SelfSignedTrust.acceptCertificate(cert, host);
     }
     // 单源代理（proxy != null 且非空）> 全局代理（_effectiveProxy）；空串表示直连
     final directive = resolveProxyDirective(proxy);
@@ -222,8 +230,10 @@ class NetConn {
       Socket? opened;
       try {
         opened = await connectFn(ip, port, ipTryTimeout);
-        final secure = await secureFn(opened, url.host,
-            trustSelfSigned ? (_) => true : null);
+        // P1-27：自签放行必须限定到「该主机 + 指纹已登记」。
+        // 旧实现 trustSelfSigned ? (_) => true : null 是全主机放行。
+        final secure = await secureFn(
+            opened, url.host, SelfSignedTrust.onBadCertificateForHost(url.host));
         return ConnectionTask.fromSocket<Socket>(Future.value(secure), () {});
       } catch (_) {
         // TLS 握手失败时 raw socket 仍归本方所有：不关就是泄漏

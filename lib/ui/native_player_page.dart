@@ -14,6 +14,7 @@ import '../net/error_logger.dart';
 import '../net/local_store.dart';
 import '../net/subtitle_srt.dart';
 import '../net/video_download_manager.dart';
+import '../playback/playback_buffer_policy.dart';
 import '../services/player_registry.dart';
 import '../sources/video_source.dart';
 import '../utils/anime4k.dart';
@@ -712,15 +713,19 @@ class _NativePlayerPageState extends State<NativePlayerPage>
         _curSeason = taken.season;
         _curEpisode = taken.episode;
       } else {
-        p = Player(configuration: const PlayerConfiguration(
+        p = Player(configuration: PlayerConfiguration(
           // 需要收到 shader 编译的 warn 级日志用于失败诊断
           logLevel: MPVLogLevel.warn,
-          // HLS/慢 CDN 源的播放缓冲。默认 32MB 在码率 1.26MB/s 的片源上
-          // 只够 ~25 秒（实测 bf.modujx15.com 单连接仅 35-140KB/s），
-          // 播几下就把缓冲耗尽进入「分片卡顿→重载」循环。提到 256MB，
-          // 让慢源先攒够播放窗口再放（mpv 的 demuxer-max-bytes 是字节
-          // 容量不是时间，256MB ≈ 20-30 分钟低码率播放窗口）。
-          bufferSize: 256 * 1024 * 1024,
+          // P1-26：缓冲按平台/内存档位配置，不再一刀切 256MB。
+          //
+          // 背景：旧实现全平台 256MB，是为解决慢源缓冲耗尽（实测某源单连接
+          // 35–140KB/s，默认 32MB 只够 ~25 秒 → 分片卡顿→重载循环）。
+          // 但 256MB 是容量上限、mpv 会尽量填满，在 2GB Android 上与解码帧/
+          // 图片缓存/WebView 抢内存，容易被系统杀。
+          //
+          // 现在：手机 64/128/192MB 按物理内存分档，桌面 256MB。
+          // 分档逻辑见 [PlaybackBufferPolicy]，启动时解析一次。
+          bufferSize: PlaybackBufferPolicy.bufferBytes,
         ));
       }
       _player = p;

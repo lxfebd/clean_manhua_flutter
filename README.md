@@ -44,8 +44,12 @@
 ## 快速开始
 ```bash
 flutter pub get
-flutter build apk --release     # Android 产物：app-release.apk（仅 arm64-v8a，约 20MB）
-flutter build apk --debug       # 全 ABI（含 x86_64，模拟器可跑）
+# Android 有两个渠道（P1-28，详见 docs/CHANNEL_COMPLIANCE.md）：
+#   standalone = 侧载版（默认，含自更新能力），store = 商店版（剔除高风险权限）
+flutter build apk --release --flavor standalone   # 产物：app-standalone-release.apk（仅 arm64-v8a，约 20MB）
+flutter build apk --debug --flavor standalone     # 全 ABI（含 x86_64，模拟器可跑）
+flutter build apk --release --flavor store        # 商店版（无 REQUEST_INSTALL_PACKAGES / 全屏 Intent）
+flutter build appbundle --release --flavor store  # 商店上架用 AAB
 flutter build windows --release # Windows 桌面端产物：build/windows/x64/runner/Release（含 xingmanxia.exe）
 flutter build web --release     # Web 端（alpha）：静态产物 build/web（PlatformHttp/WebPersist 自动适配）
 # 或 flutter run 直连设备/模拟器

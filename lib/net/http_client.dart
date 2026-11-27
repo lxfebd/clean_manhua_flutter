@@ -208,8 +208,27 @@ class Net {
   /// proxy=具体串 强制走该代理（单源代理覆盖全局）。
 
   /// 是否信任自签证书（默认 false）。转口 [NetConn.trustSelfSigned]。
+  ///
+  /// ⚠️ P1-27 之后这个开关**不再让任何主机放行**。真正的放行由
+  /// [SelfSignedTrust] 的「主机 + 证书指纹」规则决定（见
+  /// lib/net/self_signed_trust.dart）。保留它只为兼容旧设置项的读取，
+  /// 避免升级后状态显示错乱。
   static bool get trustSelfSigned => NetConn.trustSelfSigned;
   static set trustSelfSigned(bool v) => NetConn.trustSelfSigned = v;
+
+  /// 旧版「信任自签证书」开关是否曾被打开过（仅用于界面提示迁移）。
+  static bool legacySelfSignedWasOn = false;
+
+  /// 读取旧开关并存下标记：如果用户以前开过，界面应提示"请改为登记指纹"，
+  /// 而不是让他以为设置还在生效（那会导致「NAS 连不上」的莫名故障）。
+  static Future<void> restoreLegacySelfSignedHint() async {
+    try {
+      final v = await LocalStore.readJson('trust_self_signed');
+      legacySelfSignedWasOn = v == true;
+    } catch (_) {
+      legacySelfSignedWasOn = false;
+    }
+  }
 
   /// 从本地持久化恢复「信任自签证书」开关。应用启动时调用一次。
   static Future<void> restoreTrustSelfSigned() async {

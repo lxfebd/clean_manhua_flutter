@@ -178,8 +178,10 @@ jobs:
           fi
 
       - name: Build APK
+        # P1-28：引入渠道 flavor 后必须显式指定。GitHub Release 属侧载渠道，
+        # 用 standalone（保留自更新能力）；商店版另行构建（见 docs/CHANNEL_COMPLIANCE.md）。
         run: >-
-          flutter build apk --${{ steps.buildtype.outputs.type }}
+          flutter build apk --${{ steps.buildtype.outputs.type }} --flavor standalone
           --build-name=${{ steps.version.outputs.version }}
           --build-number=${{ steps.version.outputs.build }}
           --dart-define=APP_VERSION=${{ steps.version.outputs.version }}
@@ -189,7 +191,7 @@ jobs:
       - name: Build split APKs (multi-arch)
         if: steps.buildtype.outputs.type == 'release'
         run: >-
-          flutter build apk --release --split-per-abi
+          flutter build apk --release --flavor standalone --split-per-abi
           --build-name=${{ steps.version.outputs.version }}
           --build-number=${{ steps.version.outputs.build }}
           --dart-define=APP_VERSION=${{ steps.version.outputs.version }}
@@ -198,9 +200,12 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4（钉 commit SHA，P1-29）
         with:
           name: app-${{ steps.buildtype.outputs.type }}
+          # P1-28：引入 flavor 后输出名带渠道后缀
+          # （app-standalone-release.apk / app-standalone-arm64-v8a-release.apk）。
+          # 旧路径 app-release.apk 不再存在——不改这里会静默上传 0 个文件。
           path: |
-            build/app/outputs/flutter-apk/app-${{ steps.buildtype.outputs.type }}.apk
-            build/app/outputs/flutter-apk/app-*-release.apk
+            build/app/outputs/flutter-apk/app-standalone-${{ steps.buildtype.outputs.type }}.apk
+            build/app/outputs/flutter-apk/app-standalone-*-release.apk
 
       # P1-33：分 ABI 包必须挂到 Release。旧实现只传 app-release.apk，
       # 于是 armeabi-v7a / x86_64 用户从正式 Release 拿不到包，弱网用户也用不上
@@ -211,9 +216,10 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: 星漫匣 v${{ steps.version.outputs.version }}
+          # 同上：flavor 后缀必须带上，否则 Release 会没有 APK 资产。
           files: |
-            build/app/outputs/flutter-apk/app-release.apk
-            build/app/outputs/flutter-apk/app-*-release.apk
+            build/app/outputs/flutter-apk/app-standalone-release.apk
+            build/app/outputs/flutter-apk/app-standalone-*-release.apk
           generate_release_notes: true
 
   # ── 主分支内测包（Pre-release）────────────────────────────
@@ -312,7 +318,7 @@ jobs:
           echo "version=${V}" >> "$GITHUB_OUTPUT"
 
       - name: Build debug APK
-        run: flutter build apk --debug --dart-define=APP_VERSION=${{ steps.version.outputs.version }}
+        run: flutter build apk --debug --flavor standalone --dart-define=APP_VERSION=${{ steps.version.outputs.version }}
 
       - name: Publish Pre-release (debug)
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2（钉 commit SHA，P1-29）
@@ -320,7 +326,7 @@ jobs:
           name: 内测版 v${{ steps.version.outputs.version }} (debug)
           tag_name: nightly-${{ github.sha }}
           prerelease: true
-          files: build/app/outputs/flutter-apk/app-debug.apk
+          files: build/app/outputs/flutter-apk/app-standalone-debug.apk
           generate_release_notes: true
 
   # ── Windows 电脑端（桌面版）构建 ──────────────────────────────────────

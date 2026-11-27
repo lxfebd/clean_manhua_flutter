@@ -39,7 +39,7 @@ void main() {
 
   test('Android 平台选中 apk 附件', () {
     final assets = [
-      {'name': 'app-release.apk', 'browser_download_url': 'https://x/app.apk'},
+      {'name': 'app-standalone-release.apk', 'browser_download_url': 'https://x/app.apk'},
       {
         'name': 'xingmanxia-windows-1.4.1.zip',
         'browser_download_url': 'https://x/win.zip',
@@ -47,12 +47,47 @@ void main() {
     ];
     final picked = UpdateChecker.pickAssetForPlatform(assets, platformKey: '');
     expect(picked, isNotNull);
-    expect(picked!.name, 'app-release.apk');
+    expect(picked!.name, 'app-standalone-release.apk');
+  });
+
+  test('P1-28：通用包优先于分 ABI 包（不论顺序）', () {
+    // 分 ABI 包排在前——旧实现"取第一个 apk"会选到错架构包。
+    final assets = [
+      {
+        'name': 'app-standalone-armeabi-v7a-release.apk',
+        'browser_download_url': 'https://x/v7a.apk',
+      },
+      {
+        'name': 'app-standalone-arm64-v8a-release.apk',
+        'browser_download_url': 'https://x/arm64.apk',
+      },
+      {
+        'name': 'app-standalone-release.apk',
+        'browser_download_url': 'https://x/universal.apk',
+      },
+    ];
+    final picked = UpdateChecker.pickAssetForPlatform(assets, platformKey: '');
+    expect(picked, isNotNull);
+    expect(picked!.name, 'app-standalone-release.apk',
+        reason: '必须优先通用包：分 ABI 包可能与本机架构不符（32 位包装到 '
+            '64 位设备能跑但非本意，64 位包装到 32 位设备直接失败）');
+  });
+
+  test('P1-28：只有分 ABI 包时仍能更新（兜底）', () {
+    final assets = [
+      {
+        'name': 'app-standalone-arm64-v8a-release.apk',
+        'browser_download_url': 'https://x/arm64.apk',
+      },
+    ];
+    final picked = UpdateChecker.pickAssetForPlatform(assets, platformKey: '');
+    expect(picked, isNotNull);
+    expect(picked!.name, contains('arm64'));
   });
 
   test('Windows 平台选中 windows zip，而非 apk', () {
     final assets = [
-      {'name': 'app-release.apk', 'browser_download_url': 'https://x/app.apk'},
+      {'name': 'app-standalone-release.apk', 'browser_download_url': 'https://x/app.apk'},
       {
         'name': 'xingmanxia-windows-1.4.1.zip',
         'browser_download_url': 'https://x/win.zip',
@@ -68,7 +103,7 @@ void main() {
 
   test('macOS 平台选中 macos dmg', () {
     final assets = [
-      {'name': 'app-release.apk', 'browser_download_url': 'https://x/app.apk'},
+      {'name': 'app-standalone-release.apk', 'browser_download_url': 'https://x/app.apk'},
       {
         'name': 'xingmanxia-macos-1.4.1.dmg',
         'browser_download_url': 'https://x/mac.dmg',
@@ -84,7 +119,7 @@ void main() {
 
   test('平台无匹配附件时返回 null', () {
     final assets = [
-      {'name': 'app-release.apk', 'browser_download_url': 'https://x/app.apk'},
+      {'name': 'app-standalone-release.apk', 'browser_download_url': 'https://x/app.apk'},
     ];
     final picked = UpdateChecker.pickAssetForPlatform(
       assets,

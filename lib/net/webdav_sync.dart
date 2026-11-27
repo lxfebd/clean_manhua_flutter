@@ -272,6 +272,14 @@ class WebDavSync {
     final c = _config;
     if (c == null) return '未配置 WebDAV 服务器';
     if (c.url.trim().isEmpty) return '未配置 WebDAV 服务器';
+    // P1-27：WebDAV 必须走 HTTPS。
+    //
+    // HTTP WebDAV 会把 Basic 认证头（用户名+口令的 base64，等于明文）和
+    // 全部阅读数据一起暴露在同一条链路上——这是比"内容站被篡改"严重得多
+    // 的问题，因为泄漏的是用户凭据。旧实现允许 http:// 且 Android 全局
+    // 放开明文，等于默认处于这种状态。
+    final schemeError = _checkHttpsOnly(c.url);
+    if (schemeError != null) return schemeError;
     if (c.username.trim().isNotEmpty && c.authPassword.isEmpty) {
       return '需要重新输入 WebDAV 口令（口令不会落盘，重启后须重输）';
     }
@@ -279,6 +287,43 @@ class WebDavSync {
       return '需要重新输入备份加密口令（已开启加密但当前无有效口令）';
     }
     return null;
+  }
+
+  /// 测试专用：允许 HTTP 回环地址（`127.0.0.1` / `localhost`）。
+  ///
+  /// ## 为什么需要
+  /// 集成测试用 `HttpServer` 起本地 WebDAV 服务器验证 push/pull 语义，
+  /// 那个服务器是纯 HTTP。P1-27 强制 HTTPS 后会正确拦下它们——但那是
+  /// 测试基础设施，不是真实风险（流量不出本机）。
+  ///
+  /// ## 为什么不是"测试里关掉检查"
+  /// 关掉检查等于测试跑的是**未经校验的路径**，通过也不代表生产安全。
+  /// 这里只放行回环地址，公网 HTTP 仍然被拒。
+  @visibleForTesting
+  static bool allowHttpLoopbackForTest = false;
+
+  /// 校验 WebDAV 地址必须是 https://。返回中文原因（null = 通过）。
+  ///
+  /// ## 为什么不给 NAS 开 HTTP 例外
+  /// 局域网内网也算：同一 Wi-Fi 下的其他人、被入侵的路由器、ARP 欺骗都能
+  /// 读到 Basic 认证头。自签证书场景已经有 [SelfSignedTrust] 的
+  /// 「主机 + 指纹」通道可用——那才是正确的解法，不是退回 HTTP。
+  static String? _checkHttpsOnly(String url) {
+    final u = Uri.tryParse(url.trim());
+    if (u == null) return '服务器地址格式不正确';
+    if (u.scheme == 'https') return null;
+    if (u.scheme == 'http') {
+      // 测试豁免：仅回环地址，且必须显式开启。
+      if (allowHttpLoopbackForTest && _isLoopbackHost(u.host)) return null;
+      return 'WebDAV 必须使用 https://（http 会明文发送账号口令）。'
+          '若你的服务器是自签证书，请在设置里登记该主机与证书指纹。';
+    }
+    return '服务器地址必须以 https:// 开头';
+  }
+
+  static bool _isLoopbackHost(String host) {
+    final h = host.trim().toLowerCase();
+    return h == '127.0.0.1' || h == 'localhost' || h == '::1';
   }
 
   static String? get _username => _config?.username.trim().isNotEmpty == true ? _config!.username.trim() : null;
@@ -480,6 +525,9 @@ class WebDavSync {
   }) async {
     final base = url.trim();
     if (base.isEmpty) throw Exception('服务器地址不能为空');
+    // P1-27：出网前就拦住 HTTP（否则探针本身会把口令明文发出去）。
+    final schemeError = _checkHttpsOnly(base);
+    if (schemeError != null) throw WebDavBlocked(schemeError);
     // 探针请求与真实同步走同一套 URL 拼接（目录 + 目标文件名）。
     final saved = _config;
     try {

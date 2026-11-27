@@ -38,6 +38,9 @@ void main() {
       },
     );
     LocalStore.resetForTest();
+    // P1-27：集成测试用本地 HTTP 服务器，显式允许回环明文
+    // （公网 HTTP 仍被拒——生产路径该开关恒为 false）。
+    WebDavSync.allowHttpLoopbackForTest = true;
     WebDavSync.resetForTest();
     // 无既有配置，恢复出空状态
     return WebDavSync.restore();

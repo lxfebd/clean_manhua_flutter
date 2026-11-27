@@ -4,6 +4,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.PictureInPictureParams
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.ComponentCallbacks2
 import android.content.res.Configuration
@@ -317,8 +318,15 @@ class MainActivity : FlutterActivity() {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
                 builder.setContentIntent(pi)
-                // 全屏 Intent：屏幕开启时直接拉起安装器（Android 10+ 后台启动 Activity 的合规方式）
-                builder.setFullScreenIntent(pi, true)
+                // P1-28：全屏 Intent 只在**有安装权限的侧载版**使用。
+                //
+                // 商店版剔除了 USE_FULL_SCREEN_INTENT 权限，此时调用
+                // setFullScreenIntent 在 Android 14+ 会被系统拒绝，且是
+                // 明确的审核拒绝项。降级为普通通知：用户点一下即可，
+                // 代价是多一次点击，换来的是能过审。
+                if (canInstallPackages()) {
+                    builder.setFullScreenIntent(pi, true)
+                }
             }
         } else {
             val intent = Intent(this, MainActivity::class.java).apply {
@@ -369,8 +377,12 @@ class MainActivity : FlutterActivity() {
             .setAutoCancel(true)
             .setOngoing(false)
             .setContentIntent(pi)
-            .setFullScreenIntent(pi, true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+        // P1-28：与 showDoneNotif 同一约束——全屏 Intent 只在有安装权限的
+        // 侧载版使用；商店版降级为普通通知（Android 14+ 会拒，且是审核拒绝项）。
+        if (canInstallPackages()) {
+            builder.setFullScreenIntent(pi, true)
+        }
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(notifId, builder.build())
     }
@@ -410,7 +422,35 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    /// 本渠道是否具备「应用外安装」能力（P1-28）。
+    ///
+    /// 侧载版（standalone）有 REQUEST_INSTALL_PACKAGES，商店版被 manifest
+    /// merger 剔除。用它统一判断能否使用全屏 Intent / 直接调安装器。
+    private fun canInstallPackages(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            packageManager.canRequestPackageInstalls()
+        } else {
+            // Android 8.0 以下无该权限体系，行为与旧版一致。
+            true
+        }
+    }
+
     private fun installApk(file: File) {
+        // P1-28：渠道差异化。商店版（store flavor）把
+        // REQUEST_INSTALL_PACKAGES 权限剔除了，此时直接拉起安装 Intent 会抛
+        // ActivityNotFoundException 让用户看到崩溃。
+        //
+        // 这里做能力探测 + 优雅降级：
+        // - 无安装权限（商店版）：拉起系统浏览器引导用户去商店更新，
+        //   而不是假装能装；
+        // - 有权限但用户没开「未知来源」：引导去设置页开启；
+        // - 完整权限（侧载版）：正常安装。
+        val canInstall = canInstallPackages()
+        if (!canInstall) {
+            // 商店版没有该权限 → 走商店/浏览器路径，绝不直接崩溃。
+            openStoreOrBrowser()
+            return
+        }
         val uri: Uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, "application/vnd.android.package-archive")
@@ -418,6 +458,27 @@ class MainActivity : FlutterActivity() {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
-        startActivity(intent)
+        try {
+            startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            // 连安装器都找不到（极简 ROM）——仍然不要崩，退到浏览器。
+            openStoreOrBrowser()
+        }
+    }
+
+    /// 无法自行安装时的降级路径（P1-28）。
+    ///
+    /// 商店版的本意就是「不要在应用内装 APK」：更新交给商店/浏览器。
+    /// 这里把用户送到项目下载页，让他自己决定。不是静默失败。
+    private fun openStoreOrBrowser() {
+        val url = "https://github.com/lxfebd/clean_manhua_flutter/releases/latest"
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        } catch (_: Exception) {
+            // 浏览器也没有：用通知告知手动前往，避免"点了没反应"。
+            showErrorNotif("无法自动安装", "请前往 GitHub Releases 手动下载新版")
+        }
     }
 }

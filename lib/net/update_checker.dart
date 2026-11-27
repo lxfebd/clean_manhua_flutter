@@ -432,23 +432,45 @@ class UpdateChecker {
   ///
   /// 同平台有多个候选时按 [prefer] 后缀优先 —— Windows 上同时挂了
   /// `...-windows-1.5.0-setup.exe`（安装包）和 `...-windows-1.5.0.zip`（免安装），
+  /// 分 ABI 包文件名里的架构标记（用于区分通用包）。
+  static const List<String> _abiMarkers = [
+    'arm64-v8a',
+    'armeabi-v7a',
+    'x86_64',
+    'x86',
+  ];
+
   /// 优先 exe，因为 app 内可以静默覆盖安装；只有旧 release 没打 exe 时才退让给 zip。
   static UpdateAsset? pickAssetForPlatform(
     List<dynamic> assets, {
     required String platformKey,
     String? prefer,
   }) {
-    // Android：第一个 apk 附件
+    // Android：优先「通用包」，其次任意 apk。
+    //
+    // P1-28 引入 flavor 后 Release 里会同时有：
+    //   app-standalone-release.apk              ← 通用包（全 ABI）
+    //   app-standalone-arm64-v8a-release.apk    ← 分 ABI 包
+    //   app-standalone-armeabi-v7a-release.apk
+    // 旧实现「取第一个 .apk」依赖 GitHub 返回顺序，可能拿到错架构的分包
+    // （armeabi-v7a 包装到 arm64 设备上虽能跑，但体积/性能都不是本意，
+    // 反过来 64 位包装到 32 位设备会直接安装失败）。
+    //
+    // 判定「通用包」= 文件名不含任何 ABI 标记。
     if (platformKey.isEmpty) {
+      UpdateAsset? anyApk;
       for (final a in assets) {
         final m = a as Map<String, dynamic>;
         final name = m['name'] as String? ?? '';
-        if (name.endsWith('.apk')) {
-          final url = m['browser_download_url'] as String? ?? '';
-          if (url.isNotEmpty) return UpdateAsset(name, url);
-        }
+        if (!name.endsWith('.apk')) continue;
+        final url = m['browser_download_url'] as String? ?? '';
+        if (url.isEmpty) continue;
+        final asset = UpdateAsset(name, url);
+        final hasAbi = _abiMarkers.any(name.contains);
+        if (!hasAbi) return asset; // 通用包，最优
+        anyApk ??= asset; // 兜底：只有分包时也能更新
       }
-      return null;
+      return anyApk;
     }
 
     UpdateAsset? fallback;

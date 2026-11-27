@@ -11,9 +11,11 @@ import 'package:window_manager/window_manager.dart';
 import 'net/bookshelf_store.dart';
 import 'net/error_logger.dart';
 import 'net/http_client.dart';
+import 'playback/playback_buffer_policy.dart';
 import 'net/image_cache.dart';
 import 'net/local_store.dart';
 import 'net/novel_shelf_store.dart';
+import 'net/self_signed_trust.dart';
 import 'net/shelf_updater.dart';
 import 'net/source_health_monitor.dart';
 import 'net/update_checker.dart';
@@ -200,6 +202,9 @@ Future<void> _postFirstFrameInit() async {
   // 每个任务内部自带 try/catch，单个失败不影响其他任务。
   await Future.wait([
     _safeInit('SourceHealthMonitor', () => SourceHealthMonitor.instance.start()),
+    // P1-26：解析播放缓冲档位（按平台 + Android 物理内存分档）。
+    // 必须早于首次打开播放页；失败只影响档位精度，不阻塞启动。
+    _safeInit('PlaybackBufferPolicy', PlaybackBufferPolicy.resolve),
     // P0-06：源下架清单。先注入真实网络实现再尝试刷新——
     // remoteUrl 为空时 refresh() 直接返回 false（不产生无谓请求），
     // 失败也只影响「远端下架能否生效」，不阻塞启动（见该文件库注释）。
@@ -221,6 +226,15 @@ Future<void> _postFirstFrameInit() async {
     _safeInit('Net.restorePreferredHostIps', Net.restorePreferredHostIps),
     _safeInit('Net.restoreProxy', Net.restoreProxy),
     _safeInit('Net.restoreTrustSelfSigned', Net.restoreTrustSelfSigned),
+    // P1-27：恢复自签信任规则（主机 + 指纹）。
+    //
+    // 旧开关 trust_self_signed 只是全主机放行，现已不产生任何放行效果；
+    // 真正生效必须登记具体主机与证书指纹。这里同时把旧 key 读出来仅用于
+    // 界面提示用户"该功能已改为更安全的形式"。
+    _safeInit('SelfSignedTrust', () async {
+      await SelfSignedTrust.restore(LocalStore.readJson);
+      await Net.restoreLegacySelfSignedHint();
+    }),
     _safeInit('WebDavSync', WebDavSync.restore),
     _safeInit('ShelfUpdater', () => ShelfUpdater.instance.restore()),
   ]);
