@@ -448,10 +448,10 @@ class UpdateChecker {
   }) {
     // Android：优先「通用包」，其次任意 apk。
     //
-    // P1-28 引入 flavor 后 Release 里会同时有：
-    //   app-standalone-release.apk              ← 通用包（全 ABI）
-    //   app-standalone-arm64-v8a-release.apk    ← 分 ABI 包
-    //   app-standalone-armeabi-v7a-release.apk
+    // Release 里会同时有：
+    //   app-release.apk                    ← 通用包（全 ABI）
+    //   app-arm64-v8a-release.apk          ← 分 ABI 包
+    //   app-armeabi-v7a-release.apk
     // 旧实现「取第一个 .apk」依赖 GitHub 返回顺序，可能拿到错架构的分包
     // （armeabi-v7a 包装到 arm64 设备上虽能跑，但体积/性能都不是本意，
     // 反过来 64 位包装到 32 位设备会直接安装失败）。

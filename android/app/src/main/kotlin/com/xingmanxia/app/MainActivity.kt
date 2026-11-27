@@ -318,12 +318,11 @@ class MainActivity : FlutterActivity() {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
                 builder.setContentIntent(pi)
-                // P1-28：全屏 Intent 只在**有安装权限的侧载版**使用。
+                // P1-28：全屏 Intent 只在**用户真的开启了「未知来源」**时使用。
                 //
-                // 商店版剔除了 USE_FULL_SCREEN_INTENT 权限，此时调用
-                // setFullScreenIntent 在 Android 14+ 会被系统拒绝，且是
-                // 明确的审核拒绝项。降级为普通通知：用户点一下即可，
-                // 代价是多一次点击，换来的是能过审。
+                // 没开权限时 setFullScreenIntent 在 Android 14+ 会被系统拒绝，
+                // 而且会吓用户一跳（突然全屏弹安装界面，然后失败）。
+                // 降级为普通通知：用户点一下，先去看看权限设置。
                 if (canInstallPackages()) {
                     builder.setFullScreenIntent(pi, true)
                 }
@@ -378,8 +377,8 @@ class MainActivity : FlutterActivity() {
             .setOngoing(false)
             .setContentIntent(pi)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-        // P1-28：与 showDoneNotif 同一约束——全屏 Intent 只在有安装权限的
-        // 侧载版使用；商店版降级为普通通知（Android 14+ 会拒，且是审核拒绝项）。
+        // P1-28：与 showDoneNotif 同一约束——全屏 Intent 只在用户已开启
+        // 「未知来源」时使用，否则降级为普通通知。
         if (canInstallPackages()) {
             builder.setFullScreenIntent(pi, true)
         }
@@ -422,10 +421,12 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    /// 本渠道是否具备「应用外安装」能力（P1-28）。
+    /// 当前是否真的能拉起系统安装器（P1-28）。
     ///
-    /// 侧载版（standalone）有 REQUEST_INSTALL_PACKAGES，商店版被 manifest
-    /// merger 剔除。用它统一判断能否使用全屏 Intent / 直接调安装器。
+    /// `canRequestPackageInstalls()` 返回 false 有两种情况：
+    /// 1. 用户没在系统设置里给本应用「安装未知应用」权限（最常见）；
+    /// 2. 设备策略（MDM）禁止。
+    /// 两种都不能直接调安装 Intent —— 会抛 ActivityNotFoundException 崩在用户脸上。
     private fun canInstallPackages(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             packageManager.canRequestPackageInstalls()
@@ -436,18 +437,14 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun installApk(file: File) {
-        // P1-28：渠道差异化。商店版（store flavor）把
-        // REQUEST_INSTALL_PACKAGES 权限剔除了，此时直接拉起安装 Intent 会抛
-        // ActivityNotFoundException 让用户看到崩溃。
+        // P1-28：先探测再动手。
         //
-        // 这里做能力探测 + 优雅降级：
-        // - 无安装权限（商店版）：拉起系统浏览器引导用户去商店更新，
-        //   而不是假装能装；
-        // - 有权限但用户没开「未知来源」：引导去设置页开启；
-        // - 完整权限（侧载版）：正常安装。
+        // 用户没开「安装未知应用」权限时，直接 startActivity 会抛
+        // ActivityNotFoundException —— 表现为点击更新按钮后闪退，非常难排查。
+        // 这里先探测，没权限就明确告诉用户去开，而不是崩。
         val canInstall = canInstallPackages()
         if (!canInstall) {
-            // 商店版没有该权限 → 走商店/浏览器路径，绝不直接崩溃。
+            // 没有安装权限 → 走浏览器路径，绝不直接崩溃。
             openStoreOrBrowser()
             return
         }
@@ -468,8 +465,8 @@ class MainActivity : FlutterActivity() {
 
     /// 无法自行安装时的降级路径（P1-28）。
     ///
-    /// 商店版的本意就是「不要在应用内装 APK」：更新交给商店/浏览器。
-    /// 这里把用户送到项目下载页，让他自己决定。不是静默失败。
+    /// 用户没开「未知来源」时，把 ta 送到 Release 下载页手动安装。
+    /// 不是静默失败，也不是崩溃——用户能看懂发生了什么。
     private fun openStoreOrBrowser() {
         val url = "https://github.com/lxfebd/clean_manhua_flutter/releases/latest"
         try {
@@ -478,7 +475,7 @@ class MainActivity : FlutterActivity() {
             })
         } catch (_: Exception) {
             // 浏览器也没有：用通知告知手动前往，避免"点了没反应"。
-            showErrorNotif("无法自动安装", "请前往 GitHub Releases 手动下载新版")
+            showErrorNotif("无法自动安装", "请前往 GitHub Releases 手动下载新版，或在系统设置中允许安装未知应用")
         }
     }
 }

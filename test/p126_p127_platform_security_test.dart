@@ -193,17 +193,19 @@ void main() {
       }
     });
 
-    test('商店版 manifest 剔除两项高风险权限', () {
-      final s = readFile('android/app/src/store/AndroidManifest.xml');
-      expect(s.isNotEmpty, isTrue, reason: '找不到 store flavor manifest');
-      expect(s.contains('REQUEST_INSTALL_PACKAGES'), isTrue);
-      expect(s.contains('USE_FULL_SCREEN_INTENT'), isTrue);
-      expect(s.contains('tools:node="remove"'), isTrue,
-          reason: '必须用 manifest merger 的 remove 语义');
+    test('主 manifest 保留自更新所需的两项权限（GitHub 侧载分发）', () {
+      // 本项目只在 GitHub Release 侧载分发、不上架应用商店，
+      // 所以这两项权限是**功能必需**，不能删：
+      // - REQUEST_INSTALL_PACKAGES：应用内自更新
+      // - USE_FULL_SCREEN_INTENT：下载完成后直接弹安装界面
+      // 若将来要上架商店，再引入 flavor 拆分（届时需同时改 CI 的 APK 路径）。
+      final m = readFile('android/app/src/main/AndroidManifest.xml');
+      expect(m.contains('REQUEST_INSTALL_PACKAGES'), isTrue);
+      expect(m.contains('USE_FULL_SCREEN_INTENT'), isTrue);
     });
   });
 
-  group('P1-28 渠道拆分（构建配置检查）', () {
+  group('P1-28 安装能力探测与降级', () {
     String readFile(String p) {
       try {
         return File(p).readAsStringSync();
@@ -212,27 +214,17 @@ void main() {
       }
     }
 
-    test('gradle 定义了 standalone / store 两个 flavor', () {
-      final g = readFile('android/app/build.gradle.kts');
-      expect(g.isNotEmpty, isTrue);
-      expect(g.contains('flavorDimensions'), isTrue, reason: '缺渠道维度');
-      expect(g.contains('create("standalone")'), isTrue);
-      expect(g.contains('create("store")'), isTrue);
-      // 默认 flavor 必须是 standalone：否则 `flutter build apk --release`
-      // 会打出一个没有自更新能力的包，而发布流程依赖自更新。
-      expect(g.contains('isDefault = true'), isTrue,
-          reason: 'standalone 必须是默认 flavor，保持原有构建行为');
-    });
-
-    test('Kotlin 安装路径有能力探测与降级（商店版不崩）', () {
+    test('Kotlin 安装路径有能力探测 + 降级（不再直接崩）', () {
       final k = readFile(
           'android/app/src/main/kotlin/com/xingmanxia/app/MainActivity.kt');
       expect(k.isNotEmpty, isTrue);
+      expect(k.contains('canRequestPackageInstalls'), isTrue,
+          reason: '必须探测「安装未知应用」权限——用户没开时直接调安装 Intent '
+              '会抛 ActivityNotFoundException，表现为点更新后闪退');
       expect(k.contains('canInstallPackages'), isTrue,
-          reason: '必须有能力探测——否则商店版点安装会 ActivityNotFoundException');
-      expect(k.contains('canRequestPackageInstalls'), isTrue);
-      expect(k.contains('openStoreOrBrowser'), isTrue,
-          reason: '必须先降级到浏览器/商店，而不是假装能装');
+          reason: '必须抽成一个判断函数，供安装与全屏通知两处复用');
+      expect(k.contains('ActivityNotFoundException'), isTrue,
+          reason: '极简 ROM 可能连安装器都没有，必须 catch 住');
     });
 
     test('每一处全屏 Intent 都受安装能力约束', () {
@@ -245,29 +237,29 @@ void main() {
       for (var i = 0; i < lines.length; i++) {
         final line = lines[i].trim();
         if (!line.contains('setFullScreenIntent')) continue;
-        // 跳过注释行（以 // 或 * 开头）
         if (line.startsWith('//') || line.startsWith('*')) continue;
         checked++;
-        final ctx = lines
-            .sublist(i > 6 ? i - 6 : 0, i + 1)
-            .join('\n');
+        final ctx = lines.sublist(i > 6 ? i - 6 : 0, i + 1).join('\n');
         expect(ctx.contains('canInstallPackages()'), isTrue,
             reason: '第 ${i + 1} 行的 setFullScreenIntent 没有被 '
-                'canInstallPackages() 守护。商店版没有该权限，'
-                'Android 14+ 会拒绝且这是明确的审核拒绝项。');
+                'canInstallPackages() 守护。用户没开「未知来源」时，'
+                'Android 14+ 会拒绝并可能让用户看到一次失败的弹窗。');
       }
       expect(checked, greaterThanOrEqualTo(2),
           reason: '应有两处全屏 Intent（下载完成通知 + 更新通知），'
               '实际找到 $checked 处——若确实减少了，同步更新本断言');
     });
 
-    test('渠道合规文档存在且记录了两渠道差异', () {
-      final d = readFile('docs/CHANNEL_COMPLIANCE.md');
-      expect(d.isNotEmpty, isTrue, reason: 'P1-28 要求"侧载版单独记录合规依据"');
-      expect(d.contains('standalone'), isTrue);
-      expect(d.contains('store'), isTrue);
-      expect(d.contains('REQUEST_INSTALL_PACKAGES'), isTrue);
-      expect(d.contains('USE_FULL_SCREEN_INTENT'), isTrue);
+    test('项目只在 GitHub 发布：不应残留商店渠道配置', () {
+      // 本项目定位是 GitHub Release 侧载分发，不上架应用商店。
+      // 因此不应存在 flavor 拆分 / store manifest —— 那些只会引入
+      // 「CI 报错、APK 路径变化、选错架构」三类风险而无收益。
+      final g = readFile('android/app/build.gradle.kts');
+      expect(g.contains('productFlavors'), isFalse,
+          reason: 'flavor 拆分只服务于商店渠道，本项目用不上');
+      expect(File('android/app/src/store').existsSync(), isFalse,
+          reason: '不应存在 store 渠道的 manifest 覆盖层');
     });
   });
 }
+

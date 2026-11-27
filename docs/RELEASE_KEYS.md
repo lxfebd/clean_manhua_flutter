@@ -92,7 +92,7 @@ dart run tool/sign_update_manifest.dart <manifest.json>
 # 从零生成并签名（CI 用的就是这条）
 dart run tool/sign_update_manifest.dart --build \
   --out release-manifest.json --version 1.5.8 --sequence 12 --min-app 1.5.0 \
-  --asset app-standalone-release.apk:android:<size>:<sha256>
+  --asset app-release.apk:android:<size>:<sha256>
 ```
 
 私钥来源优先级：`--key <path>` > 环境变量 `UPDATE_SIGNING_KEY`（base64）> 默认路径 `~/.xingmanxia/update_signing_key.json`。

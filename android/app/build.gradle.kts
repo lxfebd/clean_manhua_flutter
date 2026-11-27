@@ -71,38 +71,6 @@ android {
         }
     }
 
-    // ── P1-28 渠道拆分 ────────────────────────────────────────────────
-    //
-    // ## 为什么要拆
-    // `REQUEST_INSTALL_PACKAGES`（未知来源安装）与 `USE_FULL_SCREEN_INTENT`
-    // （非紧急场景的全屏 Intent）都是**商店审核的高风险项**：
-    // - Google Play 对外部自更新基本不允许；未知来源安装权限需逐案申报；
-    // - 全屏 Intent 自 Android 14 起被严格限制，非闹钟/来电类用途会被拒。
-    //
-    // 但侧载（GitHub Release 直接下载 APK）是本项目的主要分发方式，那里
-    // 自更新是全屏 Intent 是**功能**，不是风险。
-    //
-    // ## 两个 flavor
-    // - `standalone`（默认）：侧载版，保留自更新能力，合规依据记录在
-    //   docs/CHANNEL_COMPLIANCE.md。
-    // - `store`：商店版，不含上述两项权限；自更新改为「跳转浏览器 + 用户确认」。
-    //
-    // 权限本身写在 `src/store/AndroidManifest.xml` 里用 `tools:node="remove"`
-    // 剔除，这样主 manifest 只有一份，避免两份 manifest 漂移。
-    flavorDimensions += "channel"
-    productFlavors {
-        create("standalone") {
-            dimension = "channel"
-            // 默认 flavor：不指定时打这个（保持现有 `flutter build apk` 行为）
-            isDefault = true
-            manifestPlaceholders["selfUpdateEnabled"] = "true"
-        }
-        create("store") {
-            dimension = "channel"
-            manifestPlaceholders["selfUpdateEnabled"] = "false"
-        }
-    }
-
     signingConfigs {
         create("release") {
             keyAlias = keystoreProperties["keyAlias"] as String?
