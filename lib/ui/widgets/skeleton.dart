@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../responsive.dart';
+import '../style_tokens.dart';
 import '../tokens.dart';
 
 /// 骨架屏：首屏加载时占位最终内容的灰块 + 呼吸动画（不引入第三方包）。
@@ -68,6 +69,15 @@ class _SkeletonPulseState extends State<SkeletonPulse>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // P2-01：系统开启减少动画时停止呼吸闪烁，骨架保持静态灰块。
+    if (StyleTokens.reduceMotion(context)) {
+      _c.stop();
+    }
+  }
+
+  @override
   void dispose() {
     _c.dispose();
     super.dispose();
@@ -75,6 +85,9 @@ class _SkeletonPulseState extends State<SkeletonPulse>
 
   @override
   Widget build(BuildContext context) {
+    // 减少动画：直接显示静态骨架，不再周期性改变透明度。
+    if (StyleTokens.reduceMotion(context)) return widget.child;
+
     final scheme = Theme.of(context).colorScheme;
     final base = T.alphaFor(TextTier.fill, scheme.brightness);
     final peak = T.alphaFor(TextTier.disabled, scheme.brightness) * base;

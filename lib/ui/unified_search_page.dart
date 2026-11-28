@@ -19,6 +19,7 @@ import 'style_tokens.dart';
 import 'tokens.dart';
 import 'widgets/cached_image.dart';
 import 'widgets/app_toast.dart';
+import 'widgets/tap_target.dart';
 import 'widgets/motion.dart';
 import 'widgets/state_view.dart';
 import 'keyboard_shortcuts.dart';
@@ -491,15 +492,19 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
                   borderRadius: BorderRadius.circular(
                     StyleTokens.controlRadiusOr(context, 6),
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    child: Text(
-                      '清空',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: scheme.error.withValues(alpha: 0.9),
+                  // P2-02：清空按钮命中区至少 44dp 高，视觉保持小号文字按钮。
+                  child: TapTargetMin(
+                    height: 44,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      child: Text(
+                        '清空',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: scheme.error.withValues(alpha: 0.9),
+                        ),
                       ),
                     ),
                   ),
@@ -514,18 +519,22 @@ class _UnifiedSearchPageState extends ConsumerState<UnifiedSearchPage> {
                 for (final h in _history)
                   GestureDetector(
                     onLongPress: () => _removeHistory(h),
-                    child: ActionChip(
-                      label: Text(h,
-                          style: Theme.of(context).textTheme.bodySmall),
-                      avatar: Icon(
-                        Icons.history_rounded,
-                        size: 15,
-                        color: scheme.onSurface.withValues(alpha: 0.5),
+                    // P2-02：历史标签的点击/长按命中区同样至少 44dp 高。
+                    child: TapTargetMin(
+                      height: 44,
+                      child: ActionChip(
+                        label: Text(h,
+                            style: Theme.of(context).textTheme.bodySmall),
+                        avatar: Icon(
+                          Icons.history_rounded,
+                          size: 15,
+                          color: scheme.onSurface.withValues(alpha: 0.5),
+                        ),
+                        onPressed: () {
+                          _searchCtrl.text = h;
+                          _search();
+                        },
                       ),
-                      onPressed: () {
-                        _searchCtrl.text = h;
-                        _search();
-                      },
                     ),
                   ),
               ],

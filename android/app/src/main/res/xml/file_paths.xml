@@ -11,5 +11,12 @@
   请按需新增**最小**子目录，不要再回到 path="."。
 -->
 <paths>
-    <files-path name="downloads" path="downloads/" />
+    <!--
+      必须与 LocalStore.downloadDir() 的实际路径一致：
+      _dirAsync() = <appSupport>/data，downloadDir = <appSupport>/data/downloads。
+      files-path 的根是 <appSupport>，所以这里写 data/downloads/，不是 downloads/。
+      写错会导致 FileProvider.getUriForFile 抛 IllegalArgumentException，
+      表现为「下载完成但点安装没反应/崩溃」。
+    -->
+    <files-path name="downloads" path="data/downloads/" />
 </paths>

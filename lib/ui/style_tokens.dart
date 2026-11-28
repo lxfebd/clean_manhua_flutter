@@ -187,12 +187,28 @@ class StyleTokens {
         UIStyle.apple => const Cubic(0.32, 0.72, 0, 1),
       };
 
-  /// 按下反馈时长：极简 = 原值 120ms。
-  static Duration pressDuration(BuildContext c) => switch (c.uiStyle) {
+  /// 是否应减少非必要动效（P2-01）。
+  ///
+  /// 读取系统的「减少动画 / 移除动画」设置（Flutter 映射为
+  /// `MediaQuery.disableAnimations`）。前庭敏感用户开启后，位移、缩放、
+  /// 错峰入场、骨架呼吸这类纯装饰动画应当消失，但**内容与操作不能因此延迟**，
+  /// 功能状态也不能依赖动画结束回调。
+  static bool reduceMotion(BuildContext c) =>
+      MediaQuery.maybeOf(c)?.disableAnimations ?? false;
+
+  /// 装饰性动画时长：减少动画时归零。
+  ///
+  /// 只用于视觉反馈，不要拿它控制业务逻辑（例如等动画结束才加载数据）。
+  static Duration motionDuration(BuildContext c, Duration normal) =>
+      reduceMotion(c) ? Duration.zero : normal;
+
+  /// 按下反馈时长：极简 = 原值 120ms；减少动画时为 0。
+  static Duration pressDuration(BuildContext c) =>
+      motionDuration(c, switch (c.uiStyle) {
         UIStyle.minimalist => const Duration(milliseconds: 120),
         UIStyle.xiaomi => const Duration(milliseconds: 180),
         UIStyle.apple => const Duration(milliseconds: 200),
-      };
+      });
 
   /// 入场曲线：极简 = 原值 Cubic(0.16, 1, 0.3, 1)；小米 = HyperOS 回弹（过冲后
   /// 收敛）；苹果用 iOS 标准 ease（无过冲）。
@@ -202,12 +218,13 @@ class StyleTokens {
         UIStyle.apple => const Cubic(0.25, 0.1, 0.25, 1),
       };
 
-  /// 入场时长：极简 = 原值 480ms。
-  static Duration entranceDuration(BuildContext c) => switch (c.uiStyle) {
+  /// 入场时长：极简 = 原值 480ms；减少动画时为 0。
+  static Duration entranceDuration(BuildContext c) =>
+      motionDuration(c, switch (c.uiStyle) {
         UIStyle.minimalist => const Duration(milliseconds: 480),
         UIStyle.xiaomi => const Duration(milliseconds: 420),
         UIStyle.apple => const Duration(milliseconds: 380),
-      };
+      });
 
   /// 页面转场时长/曲线：极简各调用点锁原值（320/360/260），此处只给非极简档。
   static Duration transitionDuration(BuildContext c) => switch (c.uiStyle) {

@@ -167,8 +167,13 @@ class _FilterChipBtn extends StatelessWidget {
     return InkWell(
       onTap: enabled ? onTap : null,
       borderRadius: BorderRadius.circular(R.control),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      // P2-02：视觉仍是一枚小胶囊，但命中区短边至少 44dp。
+      // 只加 padding 会让整排筛选按钮变得很高；把 TapTargetMin 放在
+      // InkWell 内部，命中区扩大而视觉尺寸不变。
+      child: TapTargetMin(
+        height: 44,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
           color: active
               ? scheme.primary.withValues(alpha: 0.14)
@@ -190,6 +195,7 @@ class _FilterChipBtn extends StatelessWidget {
                     : scheme.onSurface.withValues(alpha: 0.75),
             fontWeight: active ? FontWeight.w600 : null,
           ),
+        ),
         ),
       ),
     );

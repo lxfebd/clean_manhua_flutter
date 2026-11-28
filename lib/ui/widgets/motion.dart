@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -33,22 +35,42 @@ class _FadeSlideInState extends State<FadeSlideIn>
     duration: widget.duration ?? const Duration(milliseconds: 480),
   );
 
+  Timer? _delayTimer;
+
   @override
   void initState() {
     super.initState();
-    Future.delayed(widget.delay, () {
+    // 句柄必须留住并在 dispose 取消：旧实现 Future.delayed 无法取消，
+    // 页面快速退出后仍挂着一个几百毫秒的定时器（测试会直接报 pending timer）。
+    _delayTimer = Timer(widget.delay, () {
       if (mounted) _c.forward();
     });
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // P2-01：系统开启「减少动画」时直接落到完成态，
+    // 不再等待 delay，也不播放位移/淡入——内容必须立即可见可操作。
+    if (StyleTokens.reduceMotion(context)) {
+      _delayTimer?.cancel();
+      _c.value = 1.0;
+    }
+  }
+
+  @override
   void dispose() {
+    _delayTimer?.cancel();
     _c.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    // 减少动画：不包 Fade/Slide，直接呈现内容。
+    // 这样 delay 也不会造成「系统已要求减少动画，内容却还要等几百毫秒才出现」。
+    if (StyleTokens.reduceMotion(context)) return widget.child;
+
     final curve = widget.curve ?? StyleTokens.entranceCurve(context);
     final duration = widget.duration ?? StyleTokens.entranceDuration(context);
     if (_c.duration != duration) _c.duration = duration;
@@ -116,6 +138,8 @@ class _PressableScaleState extends State<PressableScale> {
 
   @override
   Widget build(BuildContext context) {
+    // P2-01：减少动画时保留点击语义与焦点环，但不做缩放反馈。
+    final reduce = StyleTokens.reduceMotion(context);
     final pressable = GestureDetector(
       onTapDown: (_) {
         if (widget.onTap == null) return;
@@ -126,7 +150,7 @@ class _PressableScaleState extends State<PressableScale> {
       onTap: widget.onTap,
       onLongPress: widget.onLongPress,
       child: AnimatedScale(
-        scale: (_down || _focused) && widget.onTap != null
+        scale: !reduce && (_down || _focused) && widget.onTap != null
             ? widget.scale
             : 1.0,
         duration: widget.duration ?? StyleTokens.pressDuration(context),

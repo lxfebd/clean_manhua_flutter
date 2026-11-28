@@ -1109,11 +1109,24 @@ class LocalStore {
         // 超限：丢弃「已完成」且插入最早的记录（finished 有界裁剪），
         // 失败/进行中优先保留（可重试）。list 顺序即插入新旧序（upsert 先
         // removeWhere 再 add，重传会排到末尾），从头裁即裁最旧，无需排序。
+        //
+        // P2-17：淘汰必须「记录与文件同时消失」。
+        // 旧实现只 list.remove，章节图片目录仍留在 downloads/ 下，UI 里再也
+        // 看不到、也删不掉，磁盘占用无法解释。
+        // 现在先删文件，**删成功才移除记录**；删失败保留记录，让用户还能在
+        // 下载管理里看到并手动重试清理，而不是变成不可见孤儿。
         final finished = [for (final m in list) if (m['finished'] == true) m];
         var over = list.length - _downloadsMax;
         while (over > 0 && finished.isNotEmpty) {
-          list.remove(finished.removeAt(0));
-          over--;
+          final m = finished.removeAt(0);
+          final rec = DownloadRecord.fromMap(m);
+          final removed = await removeDownloadFiles(rec);
+          if (removed) {
+            list.remove(m);
+            over--;
+          }
+          // 删除失败：保留这条记录（仍在 UI 可见），继续尝试下一条。
+          // 不在这里死循环——finished 是有限集合，最多遍历一遍。
         }
       }
       _markDownloadsDirty();
@@ -1183,14 +1196,22 @@ class LocalStore {
   }
 
   /// 删除单条下载记录对应的本地文件目录（章节目录），不删记录本身。
-  static Future<void> removeDownloadFiles(DownloadRecord d) async {
+  ///
+  /// 返回是否已确认目录不存在（本来就没了也算成功）。
+  /// P2-17 的淘汰逻辑依赖这个返回值：只有文件真没了才允许删记录，
+  /// 否则会留下 UI 不可见的孤儿文件。
+  static Future<bool> removeDownloadFiles(DownloadRecord d) async {
     try {
       final base = await downloadDir();
       final cd = Directory('${base.path}/${d.localKey}');
-      if (cd.existsSync()) cd.deleteSync(recursive: true);
+      if (cd.existsSync()) {
+        await cd.delete(recursive: true);
+      }
+      return true;
     } catch (e) {
       // 静默失败会留下孤儿文件：UI 提示「已删除」但磁盘仍在，重试时跳过不重下。
       ErrorLogger.instance.warn('removeDownloadFiles failed key=${d.localKey}: $e');
+      return false;
     }
   }
 
