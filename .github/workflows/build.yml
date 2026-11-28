@@ -36,7 +36,7 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2（钉 commit SHA，P1-29）
         with:
           channel: stable
-          flutter-version: '3.44.0'
+          flutter-version: '3.41.9'
 
       - name: Pub get
         run: flutter pub get
@@ -60,7 +60,7 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2（钉 commit SHA，P1-29）
         with:
           channel: stable
-          flutter-version: '3.44.0'
+          flutter-version: '3.41.9'
 
       - name: Pub get
         run: flutter pub get
@@ -96,7 +96,7 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2（钉 commit SHA，P1-29）
         with:
           channel: stable
-          flutter-version: '3.44.0'
+          flutter-version: '3.41.9'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3（钉 commit SHA，P1-29）
@@ -110,7 +110,12 @@ jobs:
       - name: Install NDK & Android platform
         run: |
           yes | sdkmanager --licenses
-          sdkmanager "ndk;28.2.13676358" "platforms;android-34" "build-tools;34.0.0"
+          sdkmanager "ndk;28.2.13676358" "platforms;android-36" "build-tools;36.0.0"
+      # P2-28：把实际工具链清单打进日志。
+      # compileSdk=36，若这里装错版本，Gradle 会去隐式下载/或直接用错平台，
+      # 让「本地绿、CI 绿」变成两套不同产物。
+      flutter --version
+      sdkmanager --list_installed
 
       - name: Decode signing key
         if: github.ref_type == 'tag'
@@ -298,7 +303,7 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2（钉 commit SHA，P1-29）
         with:
           channel: stable
-          flutter-version: '3.44.0'
+          flutter-version: '3.41.9'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3（钉 commit SHA，P1-29）
@@ -312,7 +317,12 @@ jobs:
       - name: Install NDK & Android platform
         run: |
           yes | sdkmanager --licenses
-          sdkmanager "ndk;28.2.13676358" "platforms;android-34" "build-tools;34.0.0"
+          sdkmanager "ndk;28.2.13676358" "platforms;android-36" "build-tools;36.0.0"
+      # P2-28：把实际工具链清单打进日志。
+      # compileSdk=36，若这里装错版本，Gradle 会去隐式下载/或直接用错平台，
+      # 让「本地绿、CI 绿」变成两套不同产物。
+      flutter --version
+      sdkmanager --list_installed
 
       # 内测包与正式包**必须同签名**：build.gradle.kts 里 debug/release 都优先用
       # key.properties 指向的 release 签名。此前 nightly 没有这一步 —— 只在 tag
@@ -393,7 +403,7 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2（钉 commit SHA，P1-29）
         with:
           channel: stable
-          flutter-version: '3.44.0'
+          flutter-version: '3.41.9'
 
       - name: Cache pub dependencies
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4（钉 commit SHA，P1-29）
@@ -549,7 +559,7 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2（钉 commit SHA，P1-29）
         with:
           channel: stable
-          flutter-version: '3.44.0'
+          flutter-version: '3.41.9'
 
       - name: Pub get
         run: flutter pub get

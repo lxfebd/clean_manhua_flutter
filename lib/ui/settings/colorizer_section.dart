@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 
 import '../../net/error_logger.dart';
 import '../../utils/colorizer_manager.dart';
+import '../responsive.dart';
 import '../widgets/app_toast.dart';
 import '../widgets/motion.dart';
 import '../widgets/row_separator.dart';
@@ -34,7 +35,9 @@ class ColorizerSectionState extends State<ColorizerSection> {
   @override
   void initState() {
     super.initState();
-    _refresh();
+    // P2-12：产品声明是「仅桌面端」。移动端不仅不显示入口，
+    // 也不做模型恢复/加载，避免隐藏入口背后仍消耗资源。
+    if (DesktopUi.isDesktopPlatform) _refresh();
   }
 
   Future<void> _refresh() async {
@@ -118,6 +121,10 @@ class ColorizerSectionState extends State<ColorizerSection> {
 
   @override
   Widget build(BuildContext context) {
+    // P2-12：与 README「仅桌面端」的声明一致。
+    // Android/iOS 连设置区块都不出现，而不是只禁用一个仍可导入模型的开关。
+    if (!DesktopUi.isDesktopPlatform) return const SizedBox.shrink();
+
     // 开关需模型就绪；导入入口仅需平台可用（web 无 FFI、低端机禁用）。
     final canUse = _m.isAvailable && !kIsWeb && !_lowEnd;
     final canManage = !kIsWeb && !_lowEnd;

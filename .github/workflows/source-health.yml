@@ -51,7 +51,7 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2（钉 commit SHA，P1-29）
         with:
           channel: stable
-          flutter-version: '3.44.0'
+          flutter-version: '3.41.9'
 
       - name: Pub get
         run: flutter pub get

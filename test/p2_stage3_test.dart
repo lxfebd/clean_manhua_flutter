@@ -186,4 +186,30 @@ void main() {
               '若报告更新，请同步修改这条基线');
     });
   });
+
+  group('P2-28 工具链一致性', () {
+    String read(String p) {
+      try {
+        return File(p).readAsStringSync();
+      } catch (_) {
+        return '';
+      }
+    }
+
+    test('CI Flutter 与本地基线一致，compileSdk 与安装平台一致', () {
+      final build = read('.github/workflows/build.yml');
+      final health = read('.github/workflows/source-health.yml');
+      final gradle = read('android/app/build.gradle.kts');
+      expect(build.contains("flutter-version: '3.41.9'"), isTrue);
+      expect(build.contains("flutter-version: '3.44.0'"), isFalse,
+          reason: '本机实测是 3.41.9，CI 不能用另一套编译器');
+      expect(health.contains("flutter-version: '3.41.9'"), isTrue);
+      expect(gradle.contains('compileSdk = 36'), isTrue);
+      expect(build.contains('"platforms;android-36"'), isTrue,
+          reason: 'compileSdk=36 必须显式安装 android-36，不能依赖隐式下载');
+      expect(build.contains('"build-tools;36.0.0"'), isTrue);
+      expect(build.contains('sdkmanager --list_installed'), isTrue,
+          reason: '需要把实际 SDK 清单打进日志，便于核对环境漂移');
+    });
+  });
 }

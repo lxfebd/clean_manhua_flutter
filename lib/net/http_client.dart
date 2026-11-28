@@ -77,13 +77,18 @@ class RateLimiter {
   /// 调用方按网络异常处理（走降级/超时路径）。
   /// [channel] 决定用哪套参数与哪个桶（默认 API 通道）。
   static Future<void> acquire(String host,
-      {RateChannel channel = RateChannel.api}) async {
+      {RateChannel channel = RateChannel.api, Duration? timeout}) async {
     if (!_enabled) return;
     final key = _key(channel, host);
     final params = paramsOf(channel);
     final bucket = _bucketFor(key, channel);
-    final deadline =
-        DateTime.now().add(_acquireTimeout);
+    // P2-16：调用方（例如市场镜像链）可以把自己的剩余预算传下来。
+    // 排队时间必须算进总预算，而不是先排 30 秒、再给一个完整网络超时。
+    // 仍然保留本限流器自己的上限，避免被超长外部预算变成无限排队。
+    final budget = timeout == null
+        ? _acquireTimeout
+        : (timeout < _acquireTimeout ? timeout : _acquireTimeout);
+    final deadline = DateTime.now().add(budget);
     while (true) {
       bucket.refill();
       final waiting = _waiting[key] ?? 0;
@@ -97,7 +102,7 @@ class RateLimiter {
         return;
       }
       if (DateTime.now().isAfter(deadline)) {
-        throw TimeoutException('RateLimiter 等待超时: $key', _acquireTimeout);
+        throw TimeoutException('RateLimiter 等待超时: $key', budget);
       }
       // 队列等待；并发满或令牌不足时让出事件循环
       _waiting[key] = waiting + 1;
@@ -661,8 +666,10 @@ class Net {
       }
       try {
         final per = Net.candidateBudget(timeout, deadline);
+        // P2-16：把 deadline 一起传下去——限流 acquire 与真正的连接/读 body
+        // 共用这一份剩余预算，不能各算各的。
         return await _getBytesOnce(u, headers,
-            proxy: null, timeout: per, maxBytes: maxBytes);
+            proxy: null, timeout: per, maxBytes: maxBytes, deadline: deadline);
       } catch (e) {
         lastErr = e;
       }
@@ -687,17 +694,30 @@ class Net {
   }
 
   static Future<List<int>> _getBytesOnce(String urlStr,
-      Map<String, String>? headers, {String? proxy, Duration? timeout, int? maxBytes}) async {
-    final t = timeout ?? _timeout;
+      Map<String, String>? headers,
+      {String? proxy, Duration? timeout, int? maxBytes, DateTime? deadline}) async {
     final limit = maxBytes ?? maxDownloadBytes;
     // 限流：所有字节下载（图片/文件/无进度路径）统一经此基元，受
     // 静态资源令牌桶与并发槽位约束，避免高频图片加载绕过限流打爆源站。
     // 走 asset 通道（6 req/s、并发 6）：与同域 API 分桶，封面图不再把
     // 数据接口饿死，一屏 24 张封面也不再排队 6s+。
     final host = Uri.parse(urlStr).host;
-    await RateLimiter.acquire(host, channel: RateChannel.asset);
+    // P2-16：排队本身只能使用候选剩余预算。
+    final acquireBudget = candidateBudget(timeout, deadline) ??
+        (deadline == null ? _timeout : Duration.zero);
+    if (deadline != null && acquireBudget == Duration.zero) {
+      throw TimeoutException('镜像链总预算已在限流排队前耗尽');
+    }
+    await RateLimiter.acquire(host,
+        channel: RateChannel.asset, timeout: acquireBudget);
     try {
-      return await PlatformHttp.get(urlStr, headers, t, proxy, limit);
+      // 排队可能已消耗掉大半预算：网络阶段必须重新取剩余值，
+      // 不能继续用进入候选时的那个完整 timeout。
+      final remain = candidateBudget(timeout, deadline);
+      if (deadline != null && remain == null) {
+        throw TimeoutException('镜像链总预算已在限流排队中耗尽', null);
+      }
+      return await PlatformHttp.get(urlStr, headers, remain ?? _timeout, proxy, limit);
     } finally {
       RateLimiter.release(host, channel: RateChannel.asset);
     }

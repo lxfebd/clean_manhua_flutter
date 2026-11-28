@@ -1,5 +1,8 @@
 import 'dart:async' show FutureOr;
 import 'dart:isolate' show Isolate;
+import 'dart:io' show Platform, Process;
+
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import 'package:device_info_plus/device_info_plus.dart';
 
@@ -71,15 +74,37 @@ class CapabilityRuntime {
       return CapabilityOk(id);
     }
 
-    // 1. ABI 校验：桌面必须声明桌面 ABI（任意键即可，x64/arm64 细分 M3 再做）；
-    //    Android 需声明当前 ABI 键。
+    // 1. ABI 校验：Android 与桌面都必须精确到「OS + 架构」。
+    //
+    // P2-11：旧实现桌面只要 sha256 里**有任意一个键**就放行，
+    // macOS ARM64 可能拿到 x64、Windows ARM64 可能拿到 x64，
+    // 到 DynamicLibrary.open 才以一句看不懂的格式错误收场。
+    // 现在在下载前就拒绝，并给出用户能理解的文案。
     final abi = _currentAbi();
-    String? androidAbi;
-    if (abi == 'android') {
-      androidAbi = await _androidAbi();
-      if (artifact.sha256.isNotEmpty && !artifact.sha256.containsKey(androidAbi)) {
-        return CapabilityFailure(
-            id, '当前机型（$androidAbi）没有对应构件，无法加载');
+    if (artifact.sha256.isNotEmpty) {
+      if (abi == 'android') {
+        final androidAbi = await _androidAbi();
+        if (!artifact.sha256.containsKey(androidAbi)) {
+          return CapabilityFailure(
+              id, '当前机型（$androidAbi）没有对应构件，无法加载');
+        }
+      } else if (abi != 'web') {
+        final rawArch = await _desktopRawArch(abi);
+        final exactKey = desktopAbiKey(abi, rawArch);
+        if (exactKey == null) {
+          return CapabilityFailure(
+            id,
+            '无法识别当前设备架构（$abi${rawArch == null ? '' : ' / $rawArch'}）。'
+            '为避免下载到错误二进制，已停止。',
+          );
+        }
+        if (!artifact.sha256.containsKey(exactKey)) {
+          return CapabilityFailure(
+            id,
+            '当前平台（$exactKey）没有对应构件。'
+            '该能力未提供此架构的版本，已在下载前停止。',
+          );
+        }
       }
     }
 
@@ -114,6 +139,47 @@ class CapabilityRuntime {
   /// arm64-v8a / armeabi-v7a / x86_64，与 release abiFilters 对齐）。
   /// 平台键唯一事实源在 [CapabilityArtifactStore.currentPlatformKey]（P1-8）。
   static String _currentAbi() => CapabilityArtifactStore.currentPlatformKey();
+
+  /// 把 OS 与机器架构规范成精确的构件键。
+  ///
+  /// 返回 null = 不认识这个平台/架构，调用方必须 fail-fast，不能猜一个
+  /// 「桌面通用」键去下载。纯 Dart 能力没有 artifact，不走这里。
+  @visibleForTesting
+  static String? desktopAbiKey(String platform, String? rawArch) {
+    final arch = rawArch?.trim().toLowerCase();
+    if (arch == null || arch.isEmpty) return null;
+    final isX64 = arch == 'amd64' || arch == 'x86_64' || arch == 'x64';
+    final isArm64 = arch == 'arm64' || arch == 'aarch64';
+    if (!isX64 && !isArm64) return null;
+    final suffix = isX64 ? 'x64' : 'arm64';
+    return switch (platform) {
+      'windows' => 'windows-$suffix',
+      'macos' => 'macos-$suffix',
+      'linux' => 'linux-$suffix',
+      _ => null,
+    };
+  }
+
+  /// 读取桌面机器架构。
+  ///
+  /// Dart 的 `Platform` 不直接暴露 CPU 架构：Windows 用环境变量，
+  /// macOS/Linux 用 `uname -m`。读取失败返回 null，由上层明确拒绝。
+  static Future<String?> _desktopRawArch(String platform) async {
+    try {
+      if (platform == 'windows') {
+        // 32 位进程跑在 64 位 Windows 上时，真实架构在 ARCHITEW6432。
+        return Platform.environment['PROCESSOR_ARCHITEW6432'] ??
+            Platform.environment['PROCESSOR_ARCHITECTURE'];
+      }
+      if (platform == 'macos' || platform == 'linux') {
+        final r = await Process.run('uname', ['-m']);
+        if (r.exitCode == 0) return (r.stdout as String).trim();
+      }
+    } catch (_) {
+      // 无法识别就返回 null，让上层 fail-fast，而不是假定 x64。
+    }
+    return null;
+  }
 
   /// Android 当前 ABI（如 arm64-v8a / armeabi-v7a / x86_64），结果缓存。
   /// 读 DeviceInfoPlugin().androidInfo（需在 async 上下文 await）。

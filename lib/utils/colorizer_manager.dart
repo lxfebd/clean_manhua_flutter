@@ -91,18 +91,31 @@ class ColorizerManager {
     _enableChecked = true;
   }
 
+  /// P2-12：上色能力只承诺桌面端。
+  ///
+  /// 门闸放在 manager 而不只在 UI：即使旧版本已在手机上存过
+  /// `colorizer_enabled=true`，也不会绕过这里去跑推理。
+  static bool get isDesktopSupported =>
+      !kIsWeb &&
+      const {
+        TargetPlatform.windows,
+        TargetPlatform.macOS,
+        TargetPlatform.linux,
+      }.contains(defaultTargetPlatform);
+
   /// 是否启用（设置项；默认关）。
-  bool get enabled => _enable;
+  bool get enabled => _enable && isDesktopSupported;
   Future<void> setEnabled(bool on) async {
-    _enable = on;
-    await LocalStore.writeJson('colorizer_enabled', on);
+    // 非桌面端强制落 false，防止旧设置把移动端推理重新打开。
+    _enable = on && isDesktopSupported;
+    await LocalStore.writeJson('colorizer_enabled', _enable);
   }
 
   /// 启动时恢复开关状态（main 调用一次）。
   Future<void> restore() async {
     try {
       final j = await LocalStore.readJson('colorizer_enabled');
-      _enable = j is bool ? j : false;
+      _enable = (j is bool ? j : false) && isDesktopSupported;
     } catch (_) {
       _enable = false;
     }
@@ -194,7 +207,7 @@ class ColorizerManager {
   /// 4) ab×110 还原 Lab，与 L 合成 → Lab→RGB；
   /// 5) 缩回原尺寸返回。
   Future<Uint8List?> colorize(Uint8List rgb, int w, int h) async {
-    if (!_available || _backend == null) return null;
+    if (!isDesktopSupported || !_available || _backend == null) return null;
     // 互斥锁：同刻只跑一个推理。锁等待恢复后必须**重新检查**锁对象——
     // 等待期间别人可能已拿到锁并换了新锁，若直接覆盖会造成两个推理并发
     // （tflite_flutter 0.12.1 的 runForMultipleInputs 对并发请求静默 skip，
@@ -270,7 +283,7 @@ class ColorizerManager {
     Uint8List bytes, {
     int quality = 90,
   }) async {
-    if (!_available || _backend == null) return null;
+    if (!isDesktopSupported || !_available || _backend == null) return null;
     try {
       final decoded = await Isolate.run(() {
         final src = img.decodeImage(bytes);

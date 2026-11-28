@@ -1,6 +1,6 @@
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
@@ -36,11 +36,15 @@ void main() {
   });
 
   setUp(() async {
+    // P2-12：上色只承诺桌面端。这个文件测的是桌面行为，
+    // 必须显式声明，否则 flutter test 默认 android 会被桌面门闸挡住。
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
     tmp = Directory.systemTemp.createTempSync('xm_colorizer');
     await LocalStore.init();
   });
 
   tearDown(() {
+    debugDefaultTargetPlatformOverride = null;
     if (tmp.existsSync()) tmp.deleteSync(recursive: true);
   });
 
@@ -259,9 +263,24 @@ void main() {
       expect(out, isNull);
     });
   });
+
+  group('P2-12 移动端门闸', () {
+    test('Android 上启用被强制关闭，colorize 不执行', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final m = ColorizerManager.instance;
+      _installFakeBackend(m);
+      await m.setEnabled(true);
+      expect(m.enabled, isFalse,
+          reason: '产品声明仅桌面端：Android 不允许通过旧设置或调用打开');
+      final out = await m.colorize(Uint8List(12), 2, 2);
+      expect(out, isNull, reason: '移动端不应执行推理');
+    });
+  });
 }
 
 /// 给 manager 装上返回固定 ab 的 fake backend（走真实 DDColor 前后处理）。
+
+
 void _installFakeBackend(ColorizerManager m) {
   // 反射注入不可取；改为给 manager 提供可替换的后端工厂钩子。
   // 见 colorizer_manager.dart 顶部 `@visibleForTesting set backendForTest`。
@@ -295,4 +314,5 @@ class _FakeDdcolorBackend implements ColorizerBackend {
 
   @override
   void dispose() {}
+
 }

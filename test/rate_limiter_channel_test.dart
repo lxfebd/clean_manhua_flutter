@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xingmanxia/net/http_client.dart';
 
@@ -100,5 +102,33 @@ void main() {
     // ignore: avoid_print
     print('24 张封面槽位排空：api 通道 ${sw.elapsedMilliseconds} ms');
     expect(sw.elapsedMilliseconds, greaterThan(5000));
+  });
+
+  test('P2-16：外部剩余预算会截断限流排队，而不是另等 30 秒', () async {
+    // 把 asset 并发槽位占满，后续 acquire 必然排队。
+    await Future.wait([
+      for (var i = 0; i < 6; i++)
+        RateLimiter.acquire('budget.host', channel: RateChannel.asset)
+    ]);
+
+    final sw = Stopwatch()..start();
+    Object? error;
+    try {
+      await RateLimiter.acquire('budget.host',
+          channel: RateChannel.asset,
+          timeout: const Duration(milliseconds: 150));
+    } catch (e) {
+      error = e;
+    }
+    sw.stop();
+    expect(error, isA<TimeoutException>(),
+        reason: '排队必须在外部预算耗尽时失败');
+    expect(sw.elapsedMilliseconds, lessThan(2000),
+        reason: '外部只给 150ms 预算时，不能再按限流器自己的 30s 上限等待');
+
+    // 清理槽位，避免影响后续用例。
+    for (var i = 0; i < 6; i++) {
+      RateLimiter.release('budget.host', channel: RateChannel.asset);
+    }
   });
 }
