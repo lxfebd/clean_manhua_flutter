@@ -11,6 +11,7 @@ import '../net/backup_restore.dart';
 import '../net/bookshelf_store.dart';
 import '../net/error_logger.dart';
 import '../net/self_signed_trust.dart';
+import '../net/video_download_manager.dart';
 import '../net/local_store.dart';
 import '../net/novel_chapter_cache.dart';
 import '../net/novel_shelf_store.dart';
@@ -570,6 +571,17 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                         ),
                         RowSeparator(),
                         SettingsRow(
+                          icon: Icons.high_quality_rounded,
+                          title: '视频下载画质',
+                          subtitle: _qualityLabel(
+                              VideoDownloadManager.instance.quality),
+                          trailing: const Icon(Icons.chevron_right_rounded,
+                              size: 20),
+                          enabled: !kIsWeb,
+                          onTap: _pickVideoQuality,
+                        ),
+                        RowSeparator(),
+                        SettingsRow(
                           icon: Icons.download_outlined,
                           title: '清空全部下载',
                           subtitle: '删除已下载的章节图片，释放空间',
@@ -1061,6 +1073,38 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         duration: const Duration(seconds: 2),
       );
     }
+  }
+
+  static String _qualityLabel(VideoDownloadQuality q) => switch (q) {
+        VideoDownloadQuality.high => '最高画质（体积最大）',
+        VideoDownloadQuality.balanced => '均衡（中等码率，省空间）',
+        VideoDownloadQuality.saver => '省流量（最低码率）',
+      };
+
+  /// 选择 HLS 下载画质（P2-09）。
+  ///
+  /// 旧实现遇到多码率 master playlist 一律选最高档，蜂窝流量与存储不可控。
+  Future<void> _pickVideoQuality() async {
+    final current = VideoDownloadManager.instance.quality;
+    final picked = await showDialog<VideoDownloadQuality>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('视频下载画质'),
+        children: [
+          for (final q in VideoDownloadQuality.values)
+            ListTile(
+              title: Text(_qualityLabel(q)),
+              trailing: q == current
+                  ? const Icon(Icons.check_rounded, size: 18)
+                  : null,
+              onTap: () => Navigator.pop(ctx, q),
+            ),
+        ],
+      ),
+    );
+    if (picked == null) return;
+    await VideoDownloadManager.instance.setQuality(picked);
+    if (mounted) setState(() {});
   }
 
   /// 打开「自签证书信任」管理页（P1-27）。

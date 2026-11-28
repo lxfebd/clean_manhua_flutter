@@ -63,6 +63,10 @@ app.*.map.json
 # `dart run tool/verify_update_manifest.dart`——漏入库等于发布链断环。
 !/tool/sign_update_manifest.dart
 !/tool/verify_update_manifest.dart
+# P2-27 覆盖率门禁 / P2-29 OSV 依赖漏洞校验必须入库：
+# CI 会直接执行这两个脚本，漏提交等于 CI 引用了不存在的文件。
+!/tool/check_coverage.dart
+!/tool/check_dependency_vulns.py
 /screenshots/
 /screens/
 tool_*.py
@@ -154,6 +158,9 @@ tmpprobe/
 # （仓库是 public），只有机制、路径与验证方法。
 # 注意：只放行这一个文件，其余 /docs/ 内容仍不入库。
 !/docs/RELEASE_KEYS.md
+# P2-29：依赖漏洞复验说明与实测报告（无私钥/无个人数据）需要可追溯。
+!/docs/DEPENDENCY_SECURITY.md
+!/docs/dependency_osv_*.json
 
 # ===== 本地调试截图（UI 探针产物，勿入库）=====
 /screen_shots/

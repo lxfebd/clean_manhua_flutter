@@ -101,17 +101,40 @@ class VideoDownloadTask {
   }
 }
 
-/// 解析后的 m3u8 媒体播放列表：分片、加密信息、初始化段（均为绝对 URL）。
+/// HLS 下载画质档位（P2-09）。
+///
+/// 旧实现遇到 master playlist 一律选最高码率，蜂窝流量与存储都不可控。
+enum VideoDownloadQuality {
+  /// 最高可用码率（默认，保持旧行为）。
+  high,
+
+  /// 中间档：按带宽排序后取中位数，兼顾清晰度与体积。
+  balanced,
+
+  /// 最低码率，省流量/省空间。
+  saver,
+}
+
+/// 一个分片使用的 AES-128 密钥。
+class _HlsKey {
+  final String uri;
+  final String? ivHex;
+  const _HlsKey(this.uri, this.ivHex);
+}
+
+/// 解析后的 m3u8 媒体播放列表。
+///
+/// P2-09：`keys` 与 `segments` 等长——HLS 允许在播放列表中途更换
+/// `#EXT-X-KEY`（key rotation）。旧实现只保留最后一个 key/IV，
+/// 再对全部片段统一解密，轮换密钥的流必然解出不可播文件。
 class _M3u8Playlist {
   final List<String> segments;
-  final String? keyUri;
-  final String? keyIvHex;
+  final List<_HlsKey?> keys;
   final int mediaSeq;
   final String? initSegment;
   _M3u8Playlist(
     this.segments,
-    this.keyUri,
-    this.keyIvHex,
+    this.keys,
     this.mediaSeq,
     this.initSegment,
   );
@@ -185,11 +208,39 @@ class VideoDownloadManager {
     return d;
   }
 
+  /// HLS 下载画质档位（P2-09）。默认最高，保持旧行为。
+  VideoDownloadQuality quality = VideoDownloadQuality.high;
+
+  /// 设置并持久化下载画质。
+  Future<void> setQuality(VideoDownloadQuality q) async {
+    quality = q;
+    try {
+      await LocalStore.writeJson('video_download_quality', q.name);
+    } catch (e) {
+      ErrorLogger.instance.warn('保存下载画质失败: $e');
+    }
+  }
+
+  Future<void> _restoreQuality() async {
+    try {
+      final v = await LocalStore.readJson('video_download_quality');
+      for (final q in VideoDownloadQuality.values) {
+        if (q.name == v) {
+          quality = q;
+          return;
+        }
+      }
+    } catch (_) {
+      // 读不到就保持默认高档，不影响下载功能。
+    }
+  }
+
   /// 启动时调用：加载已下载索引。
   Future<void> init() async {
     if (_ready) return;
     _ready = true; // web 端无本地视频下载，直接视为就绪（避免 path_provider 报错）
     if (kIsWeb) return;
+    await _restoreQuality();
     final base = await LocalStore.downloadDir();
     _indexFile = File('${base.path}/video_downloads.json');
     try {
@@ -544,10 +595,13 @@ class VideoDownloadManager {
     final pl = await _resolveMediaPlaylist(t.url, t.headers);
     if (pl.segments.isEmpty) throw HttpException('m3u8 播放列表为空');
 
-    // 密钥下载失败直接抛出，避免把密文当明文写入产出不可播文件
-    Uint8List? keyBytes;
-    if (pl.keyUri != null && !_cancel.isTaskCancelled(t.key)) {
-      keyBytes = await _fetchBytes(pl.keyUri!, t.headers);
+    // 密钥下载失败直接抛出，避免把密文当明文写入产出不可播文件。
+    // P2-09：按 URI 缓存，支持 key rotation（同一把钥匙只拉一次）。
+    final keyCache = <String, Uint8List>{};
+    for (final k in pl.keys) {
+      if (k == null || keyCache.containsKey(k.uri)) continue;
+      if (_cancel.isTaskCancelled(t.key)) throw HttpException('已取消');
+      keyCache[k.uri] = await _fetchBytes(k.uri, t.headers);
     }
 
     t.segmentsTotal = pl.segments.length;
@@ -566,11 +620,16 @@ class VideoDownloadManager {
         if (_cancel.isTaskCancelled(t.key)) throw HttpException('已取消');
         if (_stalled.contains(t.key)) throw HttpException('下载停滞');
         var data = await _fetchBytesWith(client, pl.segments[i], t.headers);
-        if (keyBytes != null) {
+        final key = pl.keys.length > i ? pl.keys[i] : null;
+        if (key != null) {
+          final keyBytes = keyCache[key.uri];
+          if (keyBytes == null) {
+            throw HttpException('分片 $i 的密钥未获取成功，拒绝输出密文');
+          }
           data = AesCbc.decryptCbcRaw(
             data,
             keyBytes,
-            AesCbc.segmentIv(pl.keyIvHex, pl.mediaSeq + i),
+            AesCbc.segmentIv(key.ivHex, pl.mediaSeq + i),
           );
         }
         sink.writeFromSync(data);
@@ -586,8 +645,12 @@ class VideoDownloadManager {
     t.localPath = out.path;
   }
 
-  /// 解析 m3u8 播放列表。master playlist（含 #EXT-X-STREAM-INF）取最高码率
-  /// 变体递归解析其媒体播放列表；媒体列表返回分片、密钥、初始化段（均已转为绝对 URL）。
+  /// 解析 m3u8 播放列表。
+  ///
+  /// P2-09：
+  /// - master playlist 按 [quality] 选变体，不再无条件最高码率；
+  /// - 逐分片记录 `#EXT-X-KEY`，支持 key rotation；
+  /// - 不支持的特性**在写文件之前**给出明确原因，绝不输出不可播成品。
   Future<_M3u8Playlist> _resolveMediaPlaylist(
     String url,
     Map<String, String> headers, {
@@ -598,10 +661,10 @@ class VideoDownloadManager {
     }
     final text = await _fetchText(url, headers);
     var mediaSeq = 0;
-    String? keyUri;
-    String? keyIvHex;
+    _HlsKey? currentKey;
     String? initSegment;
     final segments = <String>[];
+    final keys = <_HlsKey?>[];
     final variants = <(int, String)>[];
     var pendingVariantBw = -1;
     for (final raw in text.split('\n')) {
@@ -619,19 +682,46 @@ class VideoDownloadManager {
             r'METHOD=([A-Z0-9-]+)',
           ).firstMatch(line)?.group(1);
           final rawUri = RegExp(r'URI="([^"]+)"').firstMatch(line)?.group(1);
-          keyIvHex = RegExp(r'IV=0x([0-9a-fA-F]+)').firstMatch(line)?.group(1);
-          if (method == null || method == 'NONE' || rawUri == null) {
-            keyUri = null;
-            keyIvHex = null;
-          } else {
-            keyUri = _resolveUrl(url, rawUri);
+          final ivHex = RegExp(r'IV=0x([0-9a-fA-F]+)').firstMatch(line)?.group(1);
+          final keyFormat =
+              RegExp(r'KEYFORMAT="([^"]+)"').firstMatch(line)?.group(1);
+
+          if (method == null || method == 'NONE') {
+            currentKey = null;
+            continue;
           }
+          // 只支持「整段 AES-128-CBC」。SAMPLE-AES 是另一种加密布局，
+          // 用整段 CBC 去解会得到看似有大小、实际不可播的文件。
+          if (method != 'AES-128') {
+            throw HttpException(
+              '不支持的 HLS 加密方式：$method。'
+              '当前仅支持 AES-128 整段解密；'
+              '${method == 'SAMPLE-AES' ? 'SAMPLE-AES 需要按样本解密，' : ''}'
+              '为避免产出不可播文件，已停止下载。',
+            );
+          }
+          if (keyFormat != null && keyFormat != 'identity') {
+            throw HttpException(
+              '不支持的 HLS 密钥格式：$keyFormat（通常是 DRM）。'
+              '本下载器只能处理 identity 密钥，已停止下载。',
+            );
+          }
+          if (rawUri == null) {
+            throw HttpException('#EXT-X-KEY 缺少 URI，无法解密，已停止下载');
+          }
+          currentKey = _HlsKey(_resolveUrl(url, rawUri), ivHex);
         } else if (line.startsWith('#EXT-X-MAP:')) {
           final u = RegExp(r'URI="([^"]+)"').firstMatch(line)?.group(1);
           if (u != null) initSegment = _resolveUrl(url, u);
         } else if (line.startsWith('#EXT-X-STREAM-INF:')) {
           final m = RegExp(r'BANDWIDTH=(\d+)').firstMatch(line);
           pendingVariantBw = m != null ? (int.tryParse(m.group(1)!) ?? 0) : 0;
+        } else if (line.startsWith('#EXT-X-BYTERANGE')) {
+          // 当前实现按整个资源下载并顺序拼接，无法只取子区间。
+          throw HttpException(
+            '该 HLS 使用 EXT-X-BYTERANGE 分片，当前下载器不支持。'
+            '为避免拼出不可播文件，已停止下载。',
+          );
         }
         continue;
       }
@@ -640,13 +730,25 @@ class VideoDownloadManager {
         pendingVariantBw = -1;
       } else {
         segments.add(_resolveUrl(url, line));
+        keys.add(currentKey);
       }
     }
     if (variants.isNotEmpty) {
-      variants.sort((a, b) => b.$1.compareTo(a.$1));
-      return _resolveMediaPlaylist(variants.first.$2, headers, depth: depth + 1);
+      final chosen = _pickVariant(variants);
+      return _resolveMediaPlaylist(chosen, headers, depth: depth + 1);
     }
-    return _M3u8Playlist(segments, keyUri, keyIvHex, mediaSeq, initSegment);
+    return _M3u8Playlist(segments, keys, mediaSeq, initSegment);
+  }
+
+  /// 按画质档位选择 master 变体 URL。
+  String _pickVariant(List<(int, String)> variants) {
+    final sorted = [...variants]..sort((a, b) => a.$1.compareTo(b.$1));
+    final idx = switch (quality) {
+      VideoDownloadQuality.saver => 0,
+      VideoDownloadQuality.balanced => (sorted.length - 1) ~/ 2,
+      VideoDownloadQuality.high => sorted.length - 1,
+    };
+    return sorted[idx].$2;
   }
 
   // ---------------- 通用 ----------------

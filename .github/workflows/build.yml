@@ -47,6 +47,37 @@ jobs:
       - name: Test
         run: flutter test -j4
 
+  # P2-27：覆盖率报告与核心模块门禁。
+  # 独立于打包 job：PR / 分支推送都会留下 coverage artifact，
+  # 核心模块（net/sources/utils）低于 tool/coverage_baseline.json 就失败。
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4（钉 commit SHA，P1-29）
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2（钉 commit SHA，P1-29）
+        with:
+          channel: stable
+          flutter-version: '3.44.0'
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Test with coverage
+        run: flutter test --coverage -j4
+
+      - name: Check core coverage baseline
+        run: dart run tool/check_coverage.dart
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4（钉 commit SHA，P1-29）
+        with:
+          name: coverage-lcov
+          path: coverage/lcov.info
+          if-no-files-found: error
+
   build:
     runs-on: ubuntu-latest
     permissions:
@@ -194,6 +225,24 @@ jobs:
           --build-number=${{ steps.version.outputs.build }}
           --dart-define=APP_VERSION=${{ steps.version.outputs.version }}
 
+      # P2-27：统一的产物校验材料。
+      # 用户从 Release 下载后可以 `sha256sum -c SHA256SUMS.android` 自验完整性；
+      # BUILD_INFO 记录 commit / run id / Flutter 版本，便于追溯二进制来源。
+      - name: Generate Android checksums & build info
+        shell: bash
+        run: |
+          set -e
+          cd build/app/outputs/flutter-apk
+          sha256sum ./*.apk > SHA256SUMS.android
+          {
+            echo "commit=${GITHUB_SHA}"
+            echo "ref=${GITHUB_REF}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            flutter --version | head -3
+          } > BUILD_INFO.android.txt
+          cat SHA256SUMS.android
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4（钉 commit SHA，P1-29）
         with:
@@ -201,6 +250,8 @@ jobs:
           path: |
             build/app/outputs/flutter-apk/app-${{ steps.buildtype.outputs.type }}.apk
             build/app/outputs/flutter-apk/app-*-release.apk
+            build/app/outputs/flutter-apk/SHA256SUMS.android
+            build/app/outputs/flutter-apk/BUILD_INFO.android.txt
 
       # P1-33：分 ABI 包必须挂到 Release。旧实现只传 app-release.apk，
       # 于是 armeabi-v7a / x86_64 用户从正式 Release 拿不到包，弱网用户也用不上
@@ -214,6 +265,8 @@ jobs:
           files: |
             build/app/outputs/flutter-apk/app-release.apk
             build/app/outputs/flutter-apk/app-*-release.apk
+            build/app/outputs/flutter-apk/SHA256SUMS.android
+            build/app/outputs/flutter-apk/BUILD_INFO.android.txt
           generate_release_notes: true
 
   # ── 主分支内测包（Pre-release）────────────────────────────
@@ -428,6 +481,21 @@ jobs:
           powershell -NoProfile -Command "Compress-Archive -Path '*' -DestinationPath '..\..\..\..\..\xingmanxia-windows-$V.zip' -Force"
           ls -la ../../../../../xingmanxia-windows-$V.zip
 
+      # P2-27：Windows 产物同样给出 SHA-256 与构建来源。
+      - name: Generate Windows checksums & build info
+        shell: bash
+        run: |
+          set -e
+          sha256sum ./xingmanxia-windows-*.exe ./xingmanxia-windows-*.zip > SHA256SUMS.windows
+          {
+            echo "commit=${GITHUB_SHA}"
+            echo "ref=${GITHUB_REF}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            flutter --version | head -3
+          } > BUILD_INFO.windows.txt
+          cat SHA256SUMS.windows
+
       - name: Upload Windows build artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4（钉 commit SHA，P1-29）
         with:
@@ -445,7 +513,10 @@ jobs:
           # 挂 exe 安装包 + zip 免安装包；app 内「检查更新」优先取 setup.exe
           # 静默覆盖安装（UpdateChecker.pickAssetForPlatform prefer '.exe'），
           # 旧 release 没打 exe 时回退 zip。
-          files: xingmanxia-windows-*
+          files: |
+            xingmanxia-windows-*
+            SHA256SUMS.windows
+            BUILD_INFO.windows.txt
 
 
   # ── 签名清单（P0-01 生产端）──────────────────────────────────────
@@ -534,6 +605,10 @@ jobs:
           SPECS=""
           while read -r n; do
             [ -z "$n" ] && continue
+            # 校验材料本身不进更新清单（App 只需要 APK/EXE/ZIP）。
+            case "$n" in
+              SHA256SUMS.*|BUILD_INFO.*.txt) continue ;;
+            esac
             f="/tmp/rel/files/$n"
             if [ ! -f "$f" ]; then echo "::error::资产文件缺失：$f"; exit 1; fi
             sz=$(stat -c%s "$f")
@@ -546,6 +621,17 @@ jobs:
             esac
             SPECS="$SPECS --asset $n:$plat:$sz:$sh"
           done < /tmp/rel/names.txt
+          # P2-27：签名之前先按已上传的 SHA256SUMS 校验一次。
+          # 这样「Release 资产与 checksum 不一致」会在这里直接失败，
+          # 而不是等用户下载后才发现。
+          cd /tmp/rel/files
+          for sums in SHA256SUMS.*; do
+            [ -f "$sums" ] || continue
+            echo "---- 校验 $sums ----"
+            sha256sum -c "$sums"
+          done
+          cd - >/dev/null
+
           echo "---- 资产规格 ----"; for a in $SPECS; do echo "  $a"; done
           dart run tool/sign_update_manifest.dart --build \
             --out /tmp/rel/release-manifest.json \

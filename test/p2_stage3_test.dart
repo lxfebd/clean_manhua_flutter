@@ -149,4 +149,41 @@ void main() {
           reason: '历史标签的点击/长按命中区也必须扩大');
     });
   });
+
+  group('P2-27 / P2-29 发布校验与依赖漏洞', () {
+    String read(String p) {
+      try {
+        return File(p).readAsStringSync();
+      } catch (_) {
+        return '';
+      }
+    }
+
+    test('CI 生成并上传 SHA256SUMS 与构建来源信息', () {
+      final yml = read('.github/workflows/build.yml');
+      expect(yml.contains('SHA256SUMS.android'), isTrue);
+      expect(yml.contains('SHA256SUMS.windows'), isTrue);
+      expect(yml.contains('BUILD_INFO.android.txt'), isTrue);
+      expect(yml.contains('BUILD_INFO.windows.txt'), isTrue);
+      expect(yml.contains('sha256sum -c'), isTrue,
+          reason: '只生成不校验等于没做：签名清单 job 必须实际 sha256sum -c');
+    });
+
+    test('覆盖率门禁与报告上传已接入 CI', () {
+      final yml = read('.github/workflows/build.yml');
+      expect(yml.contains('flutter test --coverage'), isTrue);
+      expect(yml.contains('tool/check_coverage.dart'), isTrue);
+      expect(yml.contains('coverage/lcov.info'), isTrue);
+      expect(File('tool/coverage_baseline.json').existsSync(), isTrue);
+    });
+
+    test('OSV 依赖漏洞有脚本与实测报告', () {
+      expect(File('tool/check_dependency_vulns.py').existsSync(), isTrue);
+      final report = read('docs/dependency_osv_2026-11-28.json');
+      expect(report.contains('"checked": 132'), isTrue);
+      expect(report.contains('"vulnerable_count": 0'), isTrue,
+          reason: '2026-11-28 OSV 实测 132 个 Pub 依赖、0 个含漏洞包；'
+              '若报告更新，请同步修改这条基线');
+    });
+  });
 }
