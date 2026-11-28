@@ -925,8 +925,13 @@ class TypeSegment extends StatelessWidget {
     // （旧值 compact 40 / medium 44 会让段 GestureDetector 只有 29~38dp。）
     final height = AdaptiveValue.of<double>(context, compact: 48, medium: 52);
     final hPad = AdaptiveValue.of<double>(context, compact: 12, medium: 14);
-    final fontSize =
-        AdaptiveValue.of<double>(context, compact: 12, medium: 13);
+    // P2-04：字号不再自造数值，映射到 TextTheme 语义槽。
+    // 小屏 labelMedium、中屏 labelLarge；三风格换字体/字号时这里会一起变。
+    final labelStyle = AdaptiveValue.of<TextStyle?>(
+      context,
+      compact: Theme.of(context).textTheme.labelMedium,
+      medium: Theme.of(context).textTheme.labelLarge,
+    );
     // 段槽内高 = 轨道高 − 上下 padding(2)。选中块必须等于槽高，
     // 否则会缩成贴字横条（用户反馈"没撑满整段"）。
     final segH = height - 4;
@@ -944,14 +949,14 @@ class TypeSegment extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           for (var i = 0; i < labels.length; i++)
-            _seg(context, labels[i], i, hPad, fontSize, segH),
+            _seg(context, labels[i], i, hPad, labelStyle, segH),
         ],
       ),
     );
   }
 
   Widget _seg(BuildContext context, String label, int v, double hPad,
-      double fontSize, double segH) {
+      TextStyle? labelStyle, double segH) {
     final scheme = Theme.of(context).colorScheme;
     final active = type == v;
     // 不用 TapTargetMin（ConstrainedBox+Align）：Align 会把子节点宽松居中，
@@ -980,8 +985,8 @@ class TypeSegment extends StatelessWidget {
             softWrap: false,
             maxLines: 1,
             overflow: TextOverflow.clip,
-            style: TextStyle(
-              fontSize: fontSize,
+            style: (labelStyle ?? Theme.of(context).textTheme.labelMedium)
+                ?.copyWith(
               height: 1.0,
               fontWeight: active ? FontWeight.w600 : FontWeight.w500,
               color: active
@@ -1036,8 +1041,12 @@ class SectionHeader extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final block = AdaptiveValue.of<double>(context, compact: 26, medium: 30);
     final iconSize = AdaptiveValue.of<double>(context, compact: 15, medium: 17);
-    final titleSize =
-        AdaptiveValue.of<double>(context, compact: 15, medium: 16.5);
+    // P2-04：区块标题映射到 titleSmall/titleMedium，不再写 15/16.5。
+    final titleStyle = AdaptiveValue.of<TextStyle?>(
+      context,
+      compact: Theme.of(context).textTheme.titleSmall,
+      medium: Theme.of(context).textTheme.titleMedium,
+    );
 
     return Row(
       children: [
@@ -1058,8 +1067,8 @@ class SectionHeader extends StatelessWidget {
             title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: titleSize,
+            style: (titleStyle ?? Theme.of(context).textTheme.titleSmall)
+                ?.copyWith(
               fontWeight: FontWeight.w600,
               letterSpacing: 0.1,
               color: scheme.onSurface,

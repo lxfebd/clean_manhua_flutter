@@ -49,6 +49,13 @@ class HomePageState extends State<HomePage> {
   String _categoryId = '';
   String _keyword = '';
   String? _error;
+
+  /// P2-03：当前内容是否来自本地快照。
+  ///
+  /// 快照只是「上次成功的旧数据」，不能让用户误以为是实时榜单。
+  /// 只有网络第一页成功替换后才撤掉这个标记。
+  bool _snapshotVisible = false;
+  DateTime? _snapshotUpdatedAt;
   bool _done = false; // 首屏请求是否已结束（区分加载中与空结果）
   bool _loadMoreFailed = false; // 分页加载失败（非空列表时仅影响尾部重试条）
   bool _noMore = false; // 源已返回空页：底部展示"没有更多了"，停止空转请求
@@ -152,11 +159,19 @@ class HomePageState extends State<HomePage> {
             .whereType<Map>()
             .map((m) => ComicItem.fromMap(Map<String, dynamic>.from(m)))
             .toList());
+        // 快照元数据与列表分开存，兼容旧版只有 List 的快照文件。
+        final meta = await LocalStore.readJson('${_snapshotKey}_meta');
+        DateTime? savedAt;
+        if (meta is Map && meta['savedAt'] is String) {
+          savedAt = DateTime.tryParse(meta['savedAt'] as String);
+        }
         if (mounted && _items.isEmpty) {
           setState(() {
             _items.addAll(items);
             _error = null;
             _done = true;
+            _snapshotVisible = true;
+            _snapshotUpdatedAt = savedAt;
           });
         }
       }
@@ -174,6 +189,10 @@ class HomePageState extends State<HomePage> {
     try {
       await LocalStore.writeJson(
           _snapshotKey, HomeFeedPaging.dedupById(items).map((e) => e.toMap()).toList());
+      // P2-03：记录缓存时间，让用户知道这份「离线内容」有多旧。
+      await LocalStore.writeJson('${_snapshotKey}_meta', {
+        'savedAt': DateTime.now().toIso8601String(),
+      });
     } catch (e) {
       // 写快照失败不影响主流程
       ErrorLogger.instance.warn('saveSnapshot failed: $e');
@@ -259,6 +278,9 @@ class HomePageState extends State<HomePage> {
       }
       // 首页第一页成功后更新快照（不阻塞主流程）
       if (next == 1 && _mode == 'rank') {
+        if (mounted && _snapshotVisible) {
+          setState(() => _snapshotVisible = false);
+        }
         _saveSnapshot(r);
       }
       // 内容不满一屏时自动续页（最多 3 次），避免首屏太短"很快到底"
@@ -381,6 +403,15 @@ class HomePageState extends State<HomePage> {
     }
     final isDesktop = DesktopUi.isDesktopPlatform;
     return [
+        // P2-03：快照打底时，内容区顶部必须有可见的缓存/离线状态。
+        if (_snapshotVisible)
+          SliverToBoxAdapter(
+            child: HomeSnapshotNotice(
+              updatedAt: _snapshotUpdatedAt,
+              offline: _loadMoreFailed,
+              onRetry: _refresh,
+            ),
+          ),
         // 顶部大封面横幅（仅推荐模式下展示前 5 张作为精选）
         if (_mode == 'rank' && _items.length >= 5)
           SliverToBoxAdapter(

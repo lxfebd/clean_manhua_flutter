@@ -212,4 +212,13 @@ void main() {
           reason: '需要把实际 SDK 清单打进日志，便于核对环境漂移');
     });
   });
+
+  group('P2-04 共享组件字号 token', () {
+    test('responsive.dart 不再有裸 fontSize', () {
+      final src = File('lib/ui/responsive.dart').readAsStringSync();
+      expect(src.contains('fontSize:'), isFalse,
+          reason: 'TypeSegment / SectionHeader 必须走 TextTheme 语义槽；'
+              '新增裸字号会绕过三风格与后续字体适配');
+    });
+  });
 }

@@ -1,5 +1,80 @@
 part of 'home_page.dart';
 
+/// P2-03：本地快照的可见状态条。
+///
+/// 快照一出现就标记「缓存内容」，网络失败后改标「离线内容」；
+/// 只有第一页网络数据成功替换后才移除。这样用户不会把旧榜单当成实时结果。
+class HomeSnapshotNotice extends StatelessWidget {
+  final DateTime? updatedAt;
+  final bool offline;
+  final VoidCallback onRetry;
+
+  const HomeSnapshotNotice({
+    super.key,
+    required this.updatedAt,
+    required this.offline,
+    required this.onRetry,
+  });
+
+  @visibleForTesting
+  static String formatTime(DateTime? t) {
+    if (t == null) return '时间未知';
+    final now = DateTime.now();
+    final local = t.toLocal();
+    String two(int v) => v.toString().padLeft(2, '0');
+    final hm = '${two(local.hour)}:${two(local.minute)}';
+    if (local.year == now.year &&
+        local.month == now.month &&
+        local.day == now.day) {
+      return '今天 $hm';
+    }
+    if (local.year == now.year) {
+      return '${two(local.month)}-${two(local.day)} $hm';
+    }
+    return '${local.year}-${two(local.month)}-${two(local.day)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final time = formatTime(updatedAt);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      padding: const EdgeInsets.only(left: 12, right: 4),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(R.control),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            offline ? Icons.cloud_off_rounded : Icons.history_rounded,
+            size: 18,
+            color: scheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              offline
+                  ? '离线内容 · 上次更新于$time'
+                  : '缓存内容 · 上次更新于$time · 正在更新',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+            ),
+          ),
+          TextButton(
+            onPressed: onRetry,
+            child: const Text('重试'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
 class _SourceSwitchButton extends StatelessWidget {
   final String sourceName;
   final VoidCallback onTap;
